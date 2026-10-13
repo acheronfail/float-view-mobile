@@ -84,6 +84,12 @@ pub(crate) fn boundary(s: &store::Session) -> f::Boundary {
 }
 impl BackendService {
     pub(crate) fn refresh_boards(&mut self) -> store::Result<()> {
+        if let Some(active) = self.policy.active.as_mut() {
+            active.session_storage_bytes = active
+                .session
+                .as_ref()
+                .and_then(|session| self.store.session_storage_bytes(&session.session_id).ok());
+        }
         let boards = self.store.boards()?;
         self.policy.saved_device_ids = boards
             .iter()
@@ -97,6 +103,22 @@ impl BackendService {
     }
     pub(crate) fn board_facts(&self, b: &store::Board) -> store::Result<f::SavedBoard> {
         let h = self.store.board_history(&b.device_history_id)?;
+        let active = self.policy.active.as_ref().filter(|active| {
+            active
+                .session
+                .as_ref()
+                .is_some_and(|session| session.device_history_id == b.device_history_id)
+        });
+        let excluded_id = active
+            .and_then(|active| active.session.as_ref())
+            .map(|session| session.session_id.as_str());
+        let active_bytes = active.map_or(Some(0), |active| active.session_storage_bytes);
+        let storage_bytes = self
+            .store
+            .board_session_storage_bytes(&b.device_history_id, excluded_id)
+            .ok()
+            .zip(active_bytes)
+            .and_then(|(rest, active)| rest.checked_add(active));
         Ok(f::SavedBoard {
             saved_device_id: b.saved_device_id.clone(),
             device_history_id: b.device_history_id.clone(),
@@ -117,6 +139,7 @@ impl BackendService {
                 total_riding_elapsed_ms: h.total_riding_elapsed_ms,
                 total_distance_m: h.total_distance_m,
                 most_recent_session_at: h.most_recent_session_at_ms.map(date),
+                total_storage_bytes: storage_bytes,
             },
         })
     }

@@ -264,6 +264,9 @@ export interface BoardHistorySummary {
   totalRidingElapsedMs: number;
   totalDistanceM: number | null;
   mostRecentSessionAt: string | null;
+  /** Total session database and SQLite sidecar file lengths, including active sessions.
+   * Excludes shared catalog, exports and temporary files; null if measurement failed. */
+  totalStorageBytes: number | null;
 }
 
 export interface LiveLocation {

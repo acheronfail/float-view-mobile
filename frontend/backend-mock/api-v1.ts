@@ -153,6 +153,7 @@ const savedBoard = {
     totalRidingElapsedMs: 100_000,
     totalDistanceM: 600,
     mostRecentSessionAt: '2026-01-01T00:02:00Z',
+    totalStorageBytes: 8192 + 1200 * 256,
   } satisfies BoardHistorySummary,
 };
 
@@ -1890,6 +1891,7 @@ export class MockBackend {
         ...device,
         summary: {
           sessionCount: sessions.length,
+          totalStorageBytes: sessions.reduce((total, item) => total + 4096 + item.sampleCount * 256, 0),
           totalRidingElapsedMs: sessions.reduce((total, item) => total + item.ridingElapsedMs, 0),
           totalDistanceM: distances.length ? distances.reduce((total, value) => total + value, 0) : null,
           mostRecentSessionAt: sessions.slice().sort(compareSessions)[0]?.startedAt ?? null,
@@ -2117,6 +2119,7 @@ function emptySummary(): BoardHistorySummary {
     totalRidingElapsedMs: 0,
     totalDistanceM: null,
     mostRecentSessionAt: null,
+    totalStorageBytes: 0,
   };
 }
 

@@ -144,6 +144,49 @@ impl ProductStore {
         }
         Ok(path)
     }
+    /// File lengths of the owned database and its present SQLite sidecars.
+    /// This includes unused database pages; it is not a sample-size estimate.
+    pub fn session_storage_bytes(&self, id: &str) -> Result<u64> {
+        let path = self.session_path(id)?;
+        let mut bytes = path.symlink_metadata()?.len();
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = PathBuf::from(format!("{}{suffix}", path.display()));
+            match sidecar.symlink_metadata() {
+                Ok(metadata) if metadata.is_file() => {
+                    bytes = bytes.checked_add(metadata.len()).ok_or(Error::Capacity)?;
+                }
+                Ok(_) => return Err(Error::UnsafePath),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Err(Error::Io),
+            }
+        }
+        Ok(bytes)
+    }
+
+    /// Exclude an independently measured live session when maintaining a cached total.
+    pub fn board_session_storage_bytes(
+        &self,
+        history: &str,
+        excluded_session_id: Option<&str>,
+    ) -> Result<u64> {
+        validate_history(history)?;
+        let mut query = self.catalog.prepare(
+            "SELECT session_id FROM session_catalog WHERE device_history_id=? AND pending_delete=0",
+        )?;
+        let ids = query.query_map([history], |row| row.get::<_, String>(0))?;
+        let mut bytes = 0_u64;
+        for id in ids {
+            let id = id?;
+            if excluded_session_id == Some(id.as_str()) {
+                continue;
+            }
+            bytes = bytes
+                .checked_add(self.session_storage_bytes(&id)?)
+                .ok_or(Error::Capacity)?;
+        }
+        Ok(bytes)
+    }
+
     pub fn reconcile_session(&mut self, id: &str) -> Result<CommitMarker> {
         let mut reader = SessionReader::open(self.session_path(id)?)?;
         let marker = reader.marker()?;

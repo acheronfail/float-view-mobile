@@ -1,6 +1,7 @@
 <script lang="ts">
   import AppHeaderSubtitle from '$lib/app/AppHeaderSubtitle.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
+  import PageFooter from '$lib/ui/PageFooter.svelte';
   import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import type { ThemePreference, UnitPreference } from '$lib/backend/contract';
   import { backendState } from '$lib/backend/state.svelte';
@@ -213,10 +214,10 @@
   {/if}
   {#if backendState.error}<p role="alert" class="text-warning">{backendState.error}</p>{/if}
 
-  <footer aria-label="Application version" class="border-t border-outline pt-4 pb-2 text-center text-xs text-muted">
+  <PageFooter label="Application version">
     <p>Float View · {buildInfo.buildNumber ? `Build ${buildInfo.buildNumber}` : 'Development build'}</p>
     {#if buildInfo.revision}
       <p class="mt-1 font-mono">{buildInfo.revision}</p>
     {/if}
-  </footer>
+  </PageFooter>
 </section>

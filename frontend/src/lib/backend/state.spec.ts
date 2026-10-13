@@ -39,6 +39,7 @@ const initial: AppState = {
         totalRidingElapsedMs: 0,
         totalDistanceM: null,
         mostRecentSessionAt: null,
+        totalStorageBytes: 0,
       },
     },
   ],

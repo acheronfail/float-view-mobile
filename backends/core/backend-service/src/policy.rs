@@ -25,6 +25,7 @@ pub(crate) struct Connection {
     pub state: LinkState,
     pub board: Option<Board>,
     pub session: Option<Session>,
+    pub session_storage_bytes: Option<u64>,
     pub session_start: Option<u64>,
     pub continuity: c::discovery::Continuity,
     pub package_version: Option<String>,
@@ -727,6 +728,7 @@ impl BackendService {
             state: LinkState::Connecting,
             board,
             session: None,
+            session_storage_bytes: None,
             session_start: None,
             continuity: c::discovery::Continuity::default(),
             refloat_draft_key: None,
@@ -1044,8 +1046,8 @@ impl BackendService {
                 RuntimeEffect::PublishSessionMarker(marker) => {
                     self.diagnostics.event(self.policy.exchange.now, self.policy.exchange.epoch, "recording", serde_json::json!({"accepted":marker.recorded_sample_count,"stored":marker.stored_sample_count,"sequence":marker.committed_sample_sequence,"elapsed_ms":marker.committed_elapsed_ms}), false);
                     let catalog_started = std::time::Instant::now();
-                    if let Some(session) =
-                        self.policy.active.as_mut().and_then(|a| a.session.as_mut())
+                    if let Some(active) = self.policy.active.as_mut()
+                        && let Some(session) = active.session.as_mut()
                     {
                         self.store
                             .apply_session_marker(&session.session_id, &marker)
@@ -1054,6 +1056,9 @@ impl BackendService {
                             "catalog_us",
                             catalog_started.elapsed().as_micros().min(u64::MAX as u128) as u64,
                         );
+                        let old_storage_bytes = active.session_storage_bytes;
+                        active.session_storage_bytes =
+                            self.store.session_storage_bytes(&session.session_id).ok();
                         let old = session.clone();
                         *session = self
                             .store
@@ -1065,6 +1070,24 @@ impl BackendService {
                             .iter_mut()
                             .find(|b| b.device_history_id == session.device_history_id)
                         {
+                            board.summary.total_storage_bytes = match (
+                                board.summary.total_storage_bytes,
+                                old_storage_bytes,
+                                active.session_storage_bytes,
+                            ) {
+                                (Some(total), Some(old), Some(new)) => {
+                                    total.checked_sub(old).and_then(|v| v.checked_add(new))
+                                }
+                                _ => self
+                                    .store
+                                    .board_session_storage_bytes(
+                                        &session.device_history_id,
+                                        Some(&session.session_id),
+                                    )
+                                    .ok()
+                                    .zip(active.session_storage_bytes)
+                                    .and_then(|(rest, active)| rest.checked_add(active)),
+                            };
                             board.summary.total_riding_elapsed_ms = board
                                 .summary
                                 .total_riding_elapsed_ms
@@ -2474,6 +2497,17 @@ mod tests {
             );
             assert_eq!(t.service.runtime.snapshot().session_attached, saved);
             assert_eq!(t.service.store.boards().unwrap().len(), usize::from(saved));
+            if saved {
+                let active = t.service.policy.active.as_ref().unwrap();
+                let expected = active.session_storage_bytes.unwrap();
+                assert!(expected > 0);
+                assert_eq!(
+                    t.service.published_snapshot().saved_boards[0]
+                        .summary
+                        .total_storage_bytes,
+                    Some(expected)
+                );
+            }
             assert_eq!(
                 t.service
                     .store

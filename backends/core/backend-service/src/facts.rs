@@ -25,7 +25,7 @@ record!(Settings {
 });
 record!(BoardHistory {
     session_count: u64, total_riding_elapsed_ms: u64, total_distance_m: Option<f64>,
-    most_recent_session_at: Option<String>,
+    most_recent_session_at: Option<String>, total_storage_bytes: Option<u64>,
 });
 record!(SavedBoard {
     saved_device_id: String, device_history_id: String, revision: u64, display_name: String,

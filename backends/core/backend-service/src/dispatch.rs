@@ -99,6 +99,7 @@ impl BackendService {
                     .as_mut()
                     .ok_or(Failure::InvalidState)?
                     .session = Some(session);
+                self.refresh_boards().map_err(store_failure)?;
                 f::Completion::RideMarker { marker, boundary }
             }
             Operation::RecoverPermission { permission, action } => {

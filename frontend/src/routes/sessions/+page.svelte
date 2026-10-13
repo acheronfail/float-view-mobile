@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SessionStorageFooter from '$lib/features/sessions/SessionStorageFooter.svelte';
   import CurrentRideButton from '$lib/features/sessions/CurrentRideButton.svelte';
   import { getContext, onDestroy, tick } from 'svelte';
   import { goto } from '$app/navigation';
@@ -85,6 +86,7 @@
   {/if}
   <CurrentRideButton />
   <BoardList />
+  <SessionStorageFooter />
 </section>
 
 <PruneDialog

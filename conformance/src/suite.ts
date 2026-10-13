@@ -551,9 +551,19 @@ async function exerciseProductMethods(
   });
   await expectError(client.request('session.get', { sessionId: 'missing-session' }), 'not_found');
 
+  const beforeDelete = await client.request('state.get', {});
+  const storageBeforeDelete = beforeDelete.savedDevices.find(
+    (board) => board.savedDeviceId === profileDevice.savedDeviceId
+  )!.summary.totalStorageBytes;
+  assert.ok(storageBeforeDelete !== null && storageBeforeDelete > 0);
   await client.request('session.delete', { sessionId: session.sessionId });
   const deleted = await client.request('session.list', { savedDeviceId: profileDevice.savedDeviceId, limit: 100 });
   assert.ok(!deleted.items.some((item) => item.sessionId === session.sessionId));
+  const afterDelete = await client.request('state.get', {});
+  const storageAfterDelete = afterDelete.savedDevices.find(
+    (board) => board.savedDeviceId === profileDevice.savedDeviceId
+  )!.summary.totalStorageBytes;
+  assert.ok(storageAfterDelete !== null && storageAfterDelete < storageBeforeDelete);
   await client.request('device.connect', { deviceId: device.deviceId, trackingMode: 'saved' });
   const withLayout = await client.waitForState((s) => s.activeConnection?.state === 'ready');
   assert.deepEqual(withLayout.activeConnection!.liveWidgetSlots, layoutProfile.values.liveWidgetSlots);
@@ -1139,7 +1149,13 @@ export function assertState(state: AppState) {
       'sessionCount',
       'totalDistanceM',
       'totalRidingElapsedMs',
+      'totalStorageBytes',
     ]);
+    assert.ok(
+      board.summary.totalStorageBytes === null ||
+        (Number.isSafeInteger(board.summary.totalStorageBytes) && board.summary.totalStorageBytes >= 0)
+    );
+    if (board.summary.sessionCount === 0) assert.equal(board.summary.totalStorageBytes, 0);
     assert.ok(Number.isSafeInteger(board.summary.sessionCount));
     assert.ok(Number.isSafeInteger(board.summary.totalRidingElapsedMs));
     assert.ok(board.summary.totalDistanceM === null || Number.isFinite(board.summary.totalDistanceM));

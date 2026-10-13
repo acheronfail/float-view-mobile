@@ -258,3 +258,82 @@ fn restart_invalidates_old_session_cursor_even_when_revision_matches() {
         Err(Error::Conflict { .. })
     ));
 }
+
+#[test]
+fn storage_totals_count_owned_files_and_sidecars_per_board() {
+    let (dir, mut store, board) = setup();
+    let history = store.board(&board).unwrap().device_history_id;
+    assert_eq!(
+        store.board_session_storage_bytes(&history, None).unwrap(),
+        0
+    );
+    let first = store.create_session(&board, 1, u64::MAX).unwrap();
+    let path = store.session_path(&first.session_id).unwrap();
+    let database_bytes = std::fs::metadata(&path).unwrap().len();
+    std::fs::write(format!("{}-wal", path.display()), [0; 123]).unwrap();
+    std::fs::write(format!("{}-shm", path.display()), [0; 456]).unwrap();
+    assert_eq!(
+        store.session_storage_bytes(&first.session_id).unwrap(),
+        database_bytes + 579
+    );
+    assert_eq!(
+        store.board_session_storage_bytes(&history, None).unwrap(),
+        database_bytes + 579
+    );
+    let other = store
+        .ensure_board("other", Some("Other"), Some(&[2; 12]), 2)
+        .unwrap();
+    assert_eq!(
+        store
+            .board_session_storage_bytes(&other.device_history_id, None)
+            .unwrap(),
+        0
+    );
+    // Shared storage and unrelated temporary files are outside session totals.
+    std::fs::write(dir.file("unrelated.tmp"), [0; 999]).unwrap();
+    assert_eq!(
+        store.board_session_storage_bytes(&history, None).unwrap(),
+        database_bytes + 579
+    );
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(
+        store.board_session_storage_bytes(&history, None),
+        Err(Error::Io)
+    );
+    assert!(store.session(&first.session_id).is_ok());
+}
+
+#[test]
+fn storage_totals_include_unloaded_sessions_and_follow_deletion() {
+    let (_dir, mut store, board) = setup();
+    let history = store.board(&board).unwrap().device_history_id;
+    let first = store.create_session(&board, 1, u64::MAX).unwrap();
+    record(&store, &first.session_id);
+    store
+        .close_session(&first.session_id, 2000, "test")
+        .unwrap();
+    let second = store.create_session(&board, 2001, u64::MAX).unwrap();
+    record(&store, &second.session_id);
+    store
+        .close_session(&second.session_id, 4000, "test")
+        .unwrap();
+    let first_bytes = store.session_storage_bytes(&first.session_id).unwrap();
+    let second_bytes = store.session_storage_bytes(&second.session_id).unwrap();
+    let page = store.sessions(Some(&history), 1, None, false).unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert!(page.next_cursor.is_some());
+    assert_eq!(
+        store.board_session_storage_bytes(&history, None).unwrap(),
+        first_bytes + second_bytes
+    );
+    store.delete_session(&first.session_id).unwrap();
+    assert_eq!(
+        store.board_session_storage_bytes(&history, None).unwrap(),
+        second_bytes
+    );
+    store.delete_session(&second.session_id).unwrap();
+    assert_eq!(
+        store.board_session_storage_bytes(&history, None).unwrap(),
+        0
+    );
+}

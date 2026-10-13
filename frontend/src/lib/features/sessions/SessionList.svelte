@@ -6,6 +6,7 @@
   import { formatDistanceM } from '$lib/features/measurements/format';
   import ListItem from '$lib/ui/ListItem.svelte';
   import SectionTitle from '$lib/ui/SectionTitle.svelte';
+  import SessionStorageFooter from './SessionStorageFooter.svelte';
   import { sessionStartDateLabel } from './session-label';
 
   let { savedDeviceId }: { savedDeviceId: string } = $props();
@@ -202,4 +203,5 @@
       {#if loading}<p class="text-center text-sm text-muted">Loading more…</p>{/if}
     </div>
   {/if}
+  <SessionStorageFooter {savedDeviceId} />
 </section>
