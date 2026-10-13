@@ -1,7 +1,10 @@
 <script lang="ts">
-  import { tick, type Snippet } from 'svelte';
+  import { createMotion } from './motion';
+  import { onMount, tick, type Snippet } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, type Activation } from './activation';
   import { wrappedDialogFocus } from './dialog';
+
+  const { appear: appearSurface, exit: exitSurface } = createMotion();
 
   let {
     title,
@@ -25,8 +28,26 @@
   let closeButton = $state<HTMLButtonElement>();
   let closing = $state(false);
 
-  $effect(() => {
-    void tick().then(() => closeButton?.focus());
+  let focusFrame: number | undefined;
+  let focusGeneration = 0;
+  function focusCloseButton() {
+    const generation = ++focusGeneration;
+    if (focusFrame !== undefined) cancelAnimationFrame(focusFrame);
+    void tick().then(() => {
+      if (generation !== focusGeneration) return;
+      // Let a preceding native dialog release modal focus. Also run when an
+      // outgoing panel is reopened and Svelte reuses its existing DOM.
+      focusFrame = requestAnimationFrame(() => {
+        if (!dialog?.inert) closeButton?.focus();
+      });
+    });
+  }
+  onMount(() => {
+    focusCloseButton();
+    return () => {
+      focusGeneration++;
+      if (focusFrame !== undefined) cancelAnimationFrame(focusFrame);
+    };
   });
 
   async function close() {
@@ -41,7 +62,7 @@
 
   function handleKeydown(event: KeyboardEvent) {
     // A confirmation above this overlay owns its own keyboard handling.
-    if (event.defaultPrevented) return;
+    if (event.defaultPrevented || dialog?.inert) return;
     if (document.activeElement?.closest('[role="dialog"], [role="alertdialog"]') !== dialog) return;
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -69,6 +90,9 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div
+  in:appearSurface|global={'panel'}
+  out:exitSurface|global
+  onintrostart={focusCloseButton}
   bind:this={dialog}
   role="dialog"
   aria-modal="true"

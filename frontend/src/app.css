@@ -175,3 +175,24 @@ button:disabled {
     outline: none;
   }
 }
+
+/* One motion vocabulary for disposable surfaces and persistent controls. */
+:root {
+  --motion-fast: 120ms;
+  --motion-normal: 180ms;
+  --motion-panel: 220ms;
+  --motion-ease: cubic-bezier(0.333333, 1, 0.666667, 1);
+}
+
+.motion-feedback {
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--motion-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-normal: 0ms;
+    --motion-panel: 0ms;
+  }
+}

@@ -83,7 +83,8 @@
         ></div>
       {/if}
       <div
-        class={`relative h-full rounded-full transition-[width,background-color] duration-500 ${fillClass}`}
+        class={`relative h-full rounded-full transition-[width] duration-150 motion-reduce:transition-none ${fillClass}`}
+        class:transition-none={value == null}
         style={`width: ${progress}%; ${fillStyle}`}
       ></div>
     </div>

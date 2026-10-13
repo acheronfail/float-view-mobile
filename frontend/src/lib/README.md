@@ -256,3 +256,21 @@ transport on CAN connections. Its Bluetooth gateway section shows the retained
 transport identity's hardware, firmware name, VESC version and stable/test release.
 Direct Bluetooth connections show the firmware once. These are live snapshot
 metadata, with no extra discovery requests or private identifiers.
+
+## Motion
+
+`ui/motion.ts` and the CSS motion tokens define short, consistent transitions:
+120 ms feedback and fades, 180 ms dialogs/disclosures, and 220 ms full-screen
+panels. Motion respects the system reduced-motion preference and is disabled
+while the initial route and presentation are restored. Route fades animate the
+existing wrapper without remounting charts, maps, or feature state.
+
+Closing Svelte surfaces become inert and hidden from assistive technology before
+their visual fade; rapid reopening restores their semantics. Native dialogs close
+immediately, including action-to-panel handoffs, and animate only on opening.
+Animation never postpones a command or changes authoritative state. Discovery
+rows animate only on insertion; telemetry and session refreshes do not replay
+surface transitions. Explicit disclosures may animate height; controls, maps,
+charts and refreshed lists otherwise retain their position. Unavailable readings
+and first/recovered telemetry values change immediately; ordinary continuous
+readings use short interpolation.

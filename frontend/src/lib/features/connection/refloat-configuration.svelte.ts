@@ -289,16 +289,16 @@ export class RefloatConfigurationController {
   }
 
   private checkpoint(): RefloatEditorDraft | null {
-    if (this.incompatible) return this.incompatible;
+    if (this.incompatible) return $state.snapshot(this.incompatible);
     if (!this.loaded || !this.identity) return null;
-    return {
+    return $state.snapshot({
       version: 1,
       identity: this.identity,
       source: this.source,
       values: this.draft,
       inputs: this.inputs,
       position: this.position,
-    };
+    });
   }
 
   capture(): void {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { createMotion, MOTION_CONTEXT } from '$lib/ui/motion';
   import { onMount, setContext } from 'svelte';
   import { ApiRequestError } from '$lib/backend/client';
   import {
@@ -26,6 +27,20 @@
   const restoration = new UiRestoration((checkpoint) => backendState.setUiCheckpoint(checkpoint));
   setContext(UI_RESTORATION, restoration);
   let starting = $state(true);
+  let motionReady = $state(false);
+  setContext(MOTION_CONTEXT, { enabled: () => motionReady });
+  const motion = createMotion();
+  $effect(() => {
+    if (starting) {
+      motionReady = false;
+      return;
+    }
+    // Restored route and panels mount before motion is enabled.
+    const frame = requestAnimationFrame(() => {
+      motionReady = true;
+    });
+    return () => cancelAnimationFrame(frame);
+  });
   let restoreNotice = $state('');
   let restoreError = $state('');
   let menuOpen = $state(false);
@@ -252,7 +267,11 @@
       bind:menuOpen
     />
 
-    <div class="flex flex-1 flex-col" class:min-h-0={liveRoute}>
+    <div
+      use:motion.change={`${page.route.id}:${JSON.stringify(page.params)}`}
+      class="flex flex-1 flex-col"
+      class:min-h-0={liveRoute}
+    >
       {#if starting}
         <p role="status" class="p-5 text-muted">Resuming…</p>
       {:else if restoreError}

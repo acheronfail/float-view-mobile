@@ -39,7 +39,7 @@
         type="button"
         disabled={disabled || option.disabled}
         aria-pressed={value === option.value}
-        class="min-h-11 min-w-0 flex-1 touch-manipulation rounded-lg px-2 py-2 text-sm font-medium break-words text-muted transition-colors select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 aria-pressed:bg-accent aria-pressed:text-on-accent aria-pressed:shadow-sm"
+        class="motion-feedback min-h-11 min-w-0 flex-1 touch-manipulation rounded-lg px-2 py-2 text-sm font-medium break-words text-muted transition-colors select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 aria-pressed:bg-accent aria-pressed:text-on-accent aria-pressed:shadow-sm motion-reduce:transition-none"
         onpointerdown={(event) => activateFromPointer(event, () => select(option.value))}
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => select(option.value))}
         >{option.label}</button

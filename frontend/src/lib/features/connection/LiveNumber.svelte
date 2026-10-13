@@ -31,12 +31,17 @@
   );
   const animated = new Tween(0);
   let previousIdentity: string | undefined;
+  let previousAvailable = false;
   $effect(() => {
     const identity = `${field}:${units}:${reading.label}`;
     void animated.set(reading.value ?? 0, {
-      duration: prefersReducedMotion.current || previousIdentity !== identity ? 0 : 250,
+      duration:
+        prefersReducedMotion.current || previousIdentity !== identity || !previousAvailable || reading.value == null
+          ? 0
+          : 150,
     });
     previousIdentity = identity;
+    previousAvailable = reading.value != null;
   });
   const value = $derived(reading.value == null ? null : animated.current);
   const text = $derived(liveValueText(field, value, reading.digits));

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createMotion } from '$lib/ui/motion';
   import { getContext, onDestroy, onMount, tick } from 'svelte';
   import { UI_RESTORATION, type UiRestoration, uiDiagnostic } from '$lib/app/ui-restoration.svelte';
   import type { UiSurface } from '$lib/backend/contract';
@@ -33,6 +34,8 @@
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import { locationRequiresAction } from '$lib/features/connection/location-presentation';
+
+  const motion = createMotion();
 
   const viewOptions = [
     { type: 'normal', displayName: 'Normal View' },
@@ -510,7 +513,7 @@
     {/if}
 
     {#if view === 'normal'}
-      <div class="h-full min-h-0 flex-1 overflow-hidden">
+      <div use:motion.surface={'content'} class="h-full min-h-0 flex-1 overflow-hidden">
         <LiveView
           {charging}
           {nowMs}
@@ -523,7 +526,11 @@
         />
       </div>
     {:else}
-      <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-auto" style="--section-header-top: 0px">
+      <div
+        use:motion.surface={'content'}
+        class="min-h-0 flex-1 overflow-y-auto overscroll-y-auto"
+        style="--section-header-top: 0px"
+      >
         <DetailedView {charging} onconfigure={openBatteryConfigure} />
       </div>
     {/if}

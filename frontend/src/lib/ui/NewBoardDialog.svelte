@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { createMotion } from './motion';
   import { tick } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, type Activation } from './activation';
+
+  const { appear: appearSurface, exit: exitSurface, surface: enterSurface } = createMotion();
 
   let {
     open,
@@ -67,7 +70,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-  <div class="fixed inset-0 z-50 grid place-items-center p-4">
+  <div in:appearSurface={'content'} out:exitSurface class="fixed inset-0 z-50 grid place-items-center p-4">
     <button
       type="button"
       class="absolute inset-0 h-full w-full cursor-default touch-none bg-black/60"
@@ -76,6 +79,7 @@
       onclick={(event) => activateFromKeyboardOrAssistiveClick(event, cancel)}
     ></button>
     <div
+      use:enterSurface={'dialog'}
       bind:this={dialog}
       role="alertdialog"
       aria-modal="true"

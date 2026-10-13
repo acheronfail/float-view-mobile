@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { createMotion } from '$lib/ui/motion';
   import { onMount, untrack } from 'svelte';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import { liveValue } from './live-values';
   import { liveChartGeometry, liveChartGroups, retainLivePoints, type LiveChartPoint } from './live-charts';
+
+  const motion = createMotion();
   let { onclose }: { onclose: (keyboard: boolean) => void } = $props();
   let dialog: HTMLDialogElement;
   let now = $state(performance.now());
@@ -44,6 +47,7 @@
 </script>
 
 <dialog
+  use:motion.surface={'panel'}
   bind:this={dialog}
   aria-labelledby="live-charts-title"
   class="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none bg-canvas p-0 text-foreground backdrop:bg-canvas"

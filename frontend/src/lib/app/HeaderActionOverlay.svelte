@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { createMotion } from '$lib/ui/motion';
   import { onMount } from 'svelte';
   import type { AppHeaderAction } from './header';
   import Icon from '$lib/ui/Icon.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import { wrappedDialogFocus } from '$lib/ui/dialog';
+
+  const motion = createMotion();
 
   let {
     label,
@@ -93,6 +96,7 @@
 </button>
 
 <dialog
+  use:motion.surface={'panel'}
   bind:this={dialog}
   aria-labelledby={titleId}
   onkeydown={handleKeydown}

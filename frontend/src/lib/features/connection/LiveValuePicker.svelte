@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createMotion } from '$lib/ui/motion';
   import { onMount } from 'svelte';
   import { backendState } from '$lib/backend/state.svelte';
   import { isLighting, lightingBox } from './lighting';
@@ -13,6 +14,8 @@
   } from '$lib/backend/contract';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import { liveValue, liveValueColor, liveValueText, liveValueStatus } from './live-values';
+
+  const motion = createMotion();
 
   let {
     slot,
@@ -48,6 +51,7 @@
 </script>
 
 <dialog
+  use:motion.surface={'panel'}
   bind:this={dialog}
   aria-labelledby="live-value-picker-title"
   aria-describedby="live-value-picker-description"

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createMotion } from '$lib/ui/motion';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import AppHeaderSubtitle from '$lib/app/AppHeaderSubtitle.svelte';
@@ -12,6 +13,8 @@
   import Spinner from '../../ui/Spinner.svelte';
   import { discoveryNotice } from './discovery-status';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
+
+  const { discover: discoverRow } = createMotion();
 
   const notice = $derived(discoveryNotice(backendState.snapshot?.bluetooth));
 
@@ -128,7 +131,7 @@
         <SectionTitle title="Discovered boards" />
         <ul class="flex flex-col gap-2">
           {#each backendState.discoveredDevices as device (device.deviceId)}
-            <li>
+            <li in:discoverRow>
               <ListItem
                 title={backendState.savedDevices.find((saved) => saved.savedDeviceId === device.savedDeviceId)
                   ?.displayName ||

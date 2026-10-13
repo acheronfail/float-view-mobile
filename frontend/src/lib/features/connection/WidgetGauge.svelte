@@ -32,16 +32,23 @@
   const load = $derived(driveLoad(sample, currentLimits));
   const animatedSpeed = new Tween(0);
   const animatedLoad = new Tween(0);
+  let previousSpeedUnits: string | undefined;
+  let speedAvailable = false;
+  let loadAvailable = false;
   $effect(() => {
     void animatedSpeed.set(speed ?? 0, {
-      duration: prefersReducedMotion.current ? 0 : 150,
+      duration:
+        prefersReducedMotion.current || !speedAvailable || speed == null || previousSpeedUnits !== units ? 0 : 150,
     });
+    previousSpeedUnits = units;
+    speedAvailable = speed != null;
   });
 
   $effect(() => {
     void animatedLoad.set(load?.percentage ?? 0, {
-      duration: prefersReducedMotion.current ? 0 : 150,
+      duration: prefersReducedMotion.current || !loadAvailable || load == null ? 0 : 150,
     });
+    loadAvailable = load != null;
   });
 
   const loadLabel = $derived(
@@ -138,7 +145,7 @@
       <path
         d={arc(innerRadius)}
         pathLength="100"
-        class={`fill-none ${loadStrokeClass} [stroke-width:9] transition-colors [stroke-linecap:round]`}
+        class={`fill-none ${loadStrokeClass} motion-feedback [stroke-width:9] transition-colors [stroke-linecap:round] motion-reduce:transition-none`}
         stroke-dasharray={`${progress(load == null ? null : animatedLoad.current, 100)} 100`}
       />
 
@@ -200,7 +207,7 @@
       <text
         x="160"
         y="163"
-        class={`fill-current text-[9px] font-semibold tracking-[0.12em] ${loadTextClass} transition-colors`}
+        class={`fill-current text-[9px] font-semibold tracking-[0.12em] ${loadTextClass} motion-feedback transition-colors motion-reduce:transition-none`}
         text-anchor="middle"
       >
         {loadLabel}
@@ -208,7 +215,7 @@
       <text
         x="160"
         y="188"
-        class={`fill-current font-mono text-[25px] font-bold tabular-nums ${loadTextClass} transition-colors`}
+        class={`fill-current font-mono text-[25px] font-bold tabular-nums ${loadTextClass} motion-feedback transition-colors motion-reduce:transition-none`}
         text-anchor="middle"
       >
         {load == null ? '—' : `${animatedLoad.current.toFixed(0)}%`}

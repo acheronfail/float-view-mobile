@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { createMotion } from './motion';
   import type { Snippet } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, isPrimaryPointerActivation } from './activation';
   import Icon from './Icon.svelte';
+
+  const { appear: appearSurface, exit: exitSurface } = createMotion();
 
   let {
     label,
@@ -48,6 +51,8 @@
   </button>
   {#if menuOpen}
     <div
+      in:appearSurface={'menu'}
+      out:exitSurface
       class="absolute top-12 right-0 z-30 min-w-52 overflow-hidden rounded-xl border border-outline bg-elevated shadow-xl"
     >
       {@render children(closeMenu)}

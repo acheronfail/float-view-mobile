@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createMotion } from '$lib/ui/motion';
   import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import { onMount, tick } from 'svelte';
   import type { RefloatConfigurationField as RefloatConfigurationFieldContract } from '$lib/backend/contract';
@@ -14,6 +15,8 @@
     resolveRefloatConfigurationSection,
     type RefloatConfigurationController,
   } from './refloat-configuration.svelte';
+
+  const { expand: expandControls, collapse: collapseControls } = createMotion();
 
   let { controller }: { controller: RefloatConfigurationController } = $props();
   let writeConfirmation = $state(false);
@@ -75,63 +78,65 @@
       </span>
       <span class="shrink-0 text-muted">{controlsExpanded ? 'Hide controls' : 'Show controls'}</span>
     </button>
-    <div id="refloat-configuration-controls" hidden={!controlsExpanded} class="space-y-2 pb-2">
-      <div class="grid gap-2 sm:grid-cols-2">
-        <div class="grid gap-1 text-sm">
-          <span class="font-medium">Section</span>
-          <SegmentedControl
-            label="Section"
-            disabled={controller.loading || !controller.sections.length}
-            value={selectedSection?.key ?? ''}
-            options={controller.sections.map((section) => ({ value: section.key, label: section.label }))}
-            onchange={(value) => {
-              controller.setPosition({ sectionKey: value, scrollTop: 0 });
-              if (scroller) scroller.scrollTop = 0;
-            }}
-          />
+    {#if controlsExpanded}
+      <div id="refloat-configuration-controls" in:expandControls out:collapseControls class="space-y-2 pb-2">
+        <div class="grid gap-2 sm:grid-cols-2">
+          <div class="grid gap-1 text-sm">
+            <span class="font-medium">Section</span>
+            <SegmentedControl
+              label="Section"
+              disabled={controller.loading || !controller.sections.length}
+              value={selectedSection?.key ?? ''}
+              options={controller.sections.map((section) => ({ value: section.key, label: section.label }))}
+              onchange={(value) => {
+                controller.setPosition({ sectionKey: value, scrollTop: 0 });
+                if (scroller) scroller.scrollTop = 0;
+              }}
+            />
+          </div>
+          <label class="grid gap-1 text-sm">
+            <span class="font-medium">Search this section</span>
+            <input
+              type="search"
+              placeholder="Search fields"
+              class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
+              maxlength="512"
+              value={controller.search}
+              oninput={(event) => {
+                controller.search = event.currentTarget.value;
+                if (scroller) scroller.scrollTop = 0;
+              }}
+            />
+          </label>
         </div>
-        <label class="grid gap-1 text-sm">
-          <span class="font-medium">Search this section</span>
-          <input
-            type="search"
-            placeholder="Search fields"
-            class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
-            maxlength="512"
-            value={controller.search}
-            oninput={(event) => {
-              controller.search = event.currentTarget.value;
-              if (scroller) scroller.scrollTop = 0;
-            }}
-          />
-        </label>
-      </div>
-      <div class="flex flex-wrap justify-end gap-2">
-        <button
-          type="button"
-          class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
-          disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
-          onpointerdown={(event) => activateFromPointer(event, () => controller.load('current'))}
-          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('current'))}
-          >Read current</button
-        >
-        <button
-          type="button"
-          class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
-          disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
-          onpointerdown={(event) => activateFromPointer(event, () => controller.load('default'))}
-          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('default'))}
-          >Read defaults</button
-        >
-      </div>
-      {#if !(controller.loading && !controller.pages.length) && !controller.error}
-        <div class="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
-          <span>
-            Source: <strong>{controller.source === 'current' ? 'Current device values' : 'Firmware defaults'}</strong>
-          </span>
-          <span>{controller.diff.length} changed</span>
+        <div class="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
+            disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
+            onpointerdown={(event) => activateFromPointer(event, () => controller.load('current'))}
+            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('current'))}
+            >Read current</button
+          >
+          <button
+            type="button"
+            class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
+            disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
+            onpointerdown={(event) => activateFromPointer(event, () => controller.load('default'))}
+            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('default'))}
+            >Read defaults</button
+          >
         </div>
-      {/if}
-    </div>
+        {#if !(controller.loading && !controller.pages.length) && !controller.error}
+          <div class="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
+            <span>
+              Source: <strong>{controller.source === 'current' ? 'Current device values' : 'Firmware defaults'}</strong>
+            </span>
+            <span>{controller.diff.length} changed</span>
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   <div

@@ -72,7 +72,7 @@
 </script>
 
 {#if connection}
-  <div class:opacity-45={dimmed} class="space-y-2 transition-opacity">
+  <div class:opacity-45={dimmed} class="motion-feedback space-y-2 transition-opacity motion-reduce:transition-none">
     <TelemetrySection
       title="Board state"
       items={[

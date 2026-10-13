@@ -190,13 +190,21 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const editor = page.getByRole('dialog', { name: 'Configure Refloat', exact: true });
       await editor.getByRole('spinbutton').first().fill('0.85');
       await editor.getByRole('button', { name: 'Done', exact: true }).tap();
-      const discard = page.getByRole('alertdialog', { name: 'Discard unsaved Refloat changes?', exact: true });
-      await discard.waitFor();
+      await editor.waitFor({ state: 'hidden' });
+      await menu.tap();
+      await actionOverlay.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
+      await editor.getByRole('spinbutton').first().waitFor();
+      assert.equal(await editor.getByRole('spinbutton').first().inputValue(), '0.85', 'Done retains the draft');
+      await editor.getByRole('button', { name: 'Write configuration', exact: true }).tap();
+      const confirmation = page.getByRole('alertdialog', {
+        name: 'Write persistent Refloat configuration?',
+        exact: true,
+      });
+      await confirmation.waitFor();
       await page.keyboard.press('Escape');
-      await discard.waitFor({ state: 'hidden' });
+      await confirmation.waitFor({ state: 'hidden' });
       assert.equal(await editor.isVisible(), true, 'Escape cancels the confirmation without closing the editor');
       await editor.getByRole('button', { name: 'Done', exact: true }).tap();
-      await discard.getByRole('button', { name: 'Discard', exact: true }).tap();
       await editor.waitFor({ state: 'hidden' });
       assert.deepEqual(errors, []);
     } finally {

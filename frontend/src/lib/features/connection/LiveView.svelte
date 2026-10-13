@@ -39,15 +39,21 @@
       </p>
     {/if}
     <div class="grid min-h-0 flex-1 grid-rows-[2.5rem_auto_minmax(14rem,1fr)_auto_auto] gap-2">
-      <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
+      <div
+        class:opacity-45={dimmed}
+        class="motion-feedback min-h-0 overflow-hidden transition-opacity motion-reduce:transition-none"
+      >
         <WidgetFootpads {sample} />
       </div>
 
-      <div class:opacity-45={dimmed} class="min-h-0 transition-opacity">
+      <div class:opacity-45={dimmed} class="motion-feedback min-h-0 transition-opacity motion-reduce:transition-none">
         <WidgetNumbers {sample} />
       </div>
 
-      <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
+      <div
+        class:opacity-45={dimmed}
+        class="motion-feedback min-h-0 overflow-hidden transition-opacity motion-reduce:transition-none"
+      >
         <WidgetGauge
           sessionId={connection.trackingMode === 'saved' ? (connection.activeSession?.sessionId ?? null) : null}
           {sample}
@@ -56,11 +62,14 @@
         />
       </div>
 
-      <div class:opacity-45={dimmed} class="transition-opacity">
+      <div class:opacity-45={dimmed} class="motion-feedback transition-opacity motion-reduce:transition-none">
         <WidgetTemperatures {sample} bms={connection.bms} {nowMs} />
       </div>
 
-      <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
+      <div
+        class:opacity-45={dimmed}
+        class="motion-feedback min-h-0 overflow-hidden transition-opacity motion-reduce:transition-none"
+      >
         <WidgetPower
           {charging}
           {onbms}

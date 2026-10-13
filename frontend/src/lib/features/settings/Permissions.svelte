@@ -171,7 +171,7 @@
           <div class="border-t border-outline px-4 py-3">
             <button
               type="button"
-              class={`flex min-h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+              class={`motion-feedback flex min-h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 motion-reduce:transition-none ${
                 row.action === 'requestPermission'
                   ? 'bg-accent text-on-accent enabled:hover:brightness-110'
                   : 'border border-outline bg-surface text-foreground enabled:hover:bg-elevated'
