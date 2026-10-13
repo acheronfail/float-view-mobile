@@ -217,6 +217,41 @@ fn entity_text_grouping_and_description_normalization_match_native_semantics() {
     assert_eq!(schema.groups[0].subgroups[0].fields, ["x", "::sep::Next"]);
 }
 
+#[test]
+fn descriptions_drop_nonvisible_html_and_preserve_readable_blocks() {
+    for (html, expected) in [
+        (
+            "<HEAD><title>Hidden title</title><style>p, li { white-space: pre-wrap; }</style></HEAD><p>Parking <b>Brake</b></p><p>Possible values:</p><ul><li>Always</li><li>Idle<br/>after stopping</li></ul>",
+            "Parking Brake\n\nPossible values:\n\n• Always\n• Idle\nafter stopping",
+        ),
+        (
+            "<style type=\"text/css\">p { color: red; }</style><script>hidden()</script><p>Visible</p>",
+            "Visible",
+        ),
+        (
+            "plain   text\nwith source whitespace",
+            "plain text with source whitespace",
+        ),
+        ("<p>First</p><p><br /></p><p>Last</p>", "First\n\nLast"),
+        ("<p>Safe</p><style>unterminated style", "Safe"),
+    ] {
+        let escaped = html
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        let xml = schema_xml(
+            &field_xml(
+                "x",
+                &format!("<type>5</type><valInt>0</valInt><description>{escaped}</description>"),
+            ),
+            "<ser>x</ser>",
+            "",
+        );
+        let schema = parse_schema(xml.as_bytes()).expect("valid schema");
+        assert_eq!(schema.fields[0].description, expected);
+    }
+}
+
 fn test_field(
     name: &str,
     field_type: FieldType,

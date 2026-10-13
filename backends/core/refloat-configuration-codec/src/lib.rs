@@ -658,22 +658,73 @@ fn optional_finite(value: &str) -> Result<Option<f64>, ConfigurationError> {
 
 fn sanitize_description(value: &str) -> String {
     let mut result = String::with_capacity(value.len());
-    let mut inside_tag = false;
-    for character in value.chars() {
-        match character {
-            '<' => {
-                inside_tag = true;
-                result.push(' ');
+    let mut remaining = value;
+    let mut hidden = None;
+    while !remaining.is_empty() {
+        let text_end = remaining.find('<').unwrap_or(remaining.len());
+        if hidden.is_none() {
+            // Source newlines are HTML whitespace; only block tags create breaks.
+            result.extend(remaining[..text_end].chars().map(|character| {
+                if character.is_whitespace() {
+                    ' '
+                } else {
+                    character
+                }
+            }));
+        }
+        remaining = &remaining[text_end..];
+        if remaining.is_empty() {
+            break;
+        }
+        let Some(tag_end) = remaining.find('>') else {
+            break;
+        };
+        let tag = remaining[1..tag_end].trim();
+        let closing = tag.starts_with('/');
+        let name = tag
+            .trim_start_matches('/')
+            .split([' ', '\t', '\r', '\n', '/'])
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        remaining = &remaining[tag_end + 1..];
+        if let Some(hidden_name) = hidden {
+            if closing && name == hidden_name {
+                hidden = None;
             }
-            '>' => {
-                inside_tag = false;
-                result.push(' ');
+            continue;
+        }
+        match name.as_str() {
+            "head" | "style" | "script" if !closing => {
+                hidden = Some(match name.as_str() {
+                    "head" => "head",
+                    "style" => "style",
+                    _ => "script",
+                })
             }
-            _ if !inside_tag => result.push(character),
+            "p" | "div" | "ul" | "ol" => result.push_str("\n\n"),
+            "br" => result.push('\n'),
+            "li" if !closing => {
+                result.push('\n');
+                result.push_str("• ");
+            }
             _ => {}
         }
     }
-    result.split_whitespace().collect::<Vec<_>>().join(" ")
+    let mut normalized = String::with_capacity(result.len());
+    let mut breaks = 0;
+    for line in result.split('\n') {
+        let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !line.is_empty() {
+            if !normalized.is_empty() {
+                normalized.push_str(if breaks > 1 { "\n\n" } else { "\n" });
+            }
+            normalized.push_str(&line);
+            breaks = 0;
+        }
+        breaks += 1;
+    }
+    normalized
 }
 
 /// Compute the exact Refloat/VESC CRC32C wire signature for ordered fields.

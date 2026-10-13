@@ -135,6 +135,33 @@ fn every_audited_schema_matches_exact_source_evidence() {
         assert!(!kp.description.contains('<'));
         assert!(!kp.description.contains('>'));
         assert!(!kp.description.is_empty());
+        for field in &schema.fields {
+            assert!(
+                !field.description.contains("white-space:"),
+                "{}: {}",
+                release.version,
+                field.name
+            );
+        }
+        if let Some(parking_brake) = schema
+            .fields
+            .iter()
+            .find(|field| field.name == "parking_brake_mode")
+        {
+            assert!(
+                parking_brake
+                    .description
+                    .starts_with("Parking Brake is a strong brake")
+            );
+            assert!(parking_brake.description.contains("\n\nPossible values:"));
+            for choice in ["Always", "Idle", "Never"] {
+                assert!(
+                    parking_brake
+                        .description
+                        .contains(&format!("\n• {choice}:"))
+                );
+            }
+        }
         assert_eq!(schema.groups[0].name, "General");
         assert!(!schema.groups[0].subgroups.is_empty());
     }
