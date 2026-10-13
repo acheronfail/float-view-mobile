@@ -74,10 +74,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             socket.send(JSON.stringify(message));
           });
         });
+        let delaySeries = false;
         const ends: number[] = [];
         await page.route('**/api/session-data', async (route) => {
           const request = route.request().postDataJSON();
-          if (request.kind === 'series') ends.push(request.range.endElapsedMs);
+          if (request.kind === 'series') {
+            ends.push(request.range.endElapsedMs);
+            if (delaySeries) await new Promise((resolve) => setTimeout(resolve, 800));
+          }
           if (request.kind === 'locations') {
             await route.fulfill({
               json: {
@@ -173,7 +177,34 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await legend.click();
         const showLegend = page.getByRole('button', { name: hiddenLabel, exact: true });
         await showLegend.waitFor();
-        await page.getByRole('button', { name: 'Jump to live', exact: true }).click();
+        if (name === 'webkit') {
+          await page.getByRole('button', { name: 'Chart mode: info. Switch to zoom mode', exact: true }).tap();
+          const lowerChart = page.locator('[data-history-group] svg').nth(4);
+          await lowerChart.scrollIntoViewIfNeeded();
+          await lowerChart.evaluate((node) => node.setAttribute('data-zoom-preserved', 'yes'));
+          const beforeScroll = await page.evaluate(() => window.scrollY);
+          const zoomBox = (await lowerChart.boundingBox())!;
+          delaySeries = true;
+          const beforeZoomRequests = ends.length;
+          await page.mouse.move(zoomBox.x + zoomBox.width * 0.2, zoomBox.y + zoomBox.height / 2);
+          await page.mouse.down();
+          await page.mouse.move(zoomBox.x + zoomBox.width * 0.8, zoomBox.y + zoomBox.height / 2);
+          await page.mouse.up();
+          await page.waitForFunction(() => document.querySelector('[data-zoom-preserved="yes"]') !== null);
+          await page.waitForTimeout(250);
+          assert(ends.length > beforeZoomRequests, 'zoom must request a new range');
+          assert.equal(await lowerChart.getAttribute('data-zoom-preserved'), 'yes');
+          assert(
+            Math.abs((await page.evaluate(() => window.scrollY)) - beforeScroll) < 80,
+            'zoom must preserve the scroll position while chart data loads'
+          );
+          await page.waitForTimeout(900);
+          assert.equal(await lowerChart.getAttribute('data-zoom-preserved'), 'yes');
+          delaySeries = false;
+        }
+        const jump = page.getByRole('button', { name: 'Jump to live', exact: true });
+        if (name === 'webkit') await jump.tap();
+        else await jump.click();
         await page.getByText('Recording · Following live', { exact: true }).waitFor();
         await riderPosition.waitFor();
         await page.waitForTimeout(500);
@@ -189,7 +220,16 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert(await chart.isVisible());
         failRefresh = false;
         await page.getByText(/Could not refresh this ride/).waitFor({ state: 'hidden' });
-        await page.getByRole('link', { name: 'Back to Live', exact: true }).click();
+        const back = page.getByRole('link', { name: 'Back to board', exact: true });
+        await back.dispatchEvent('pointerdown', { pointerId: 31, isPrimary: false, button: 0 });
+        await back.dispatchEvent('pointerup', { pointerId: 31, isPrimary: false, button: 0 });
+        assert.match(page.url(), new RegExp(sessionId));
+        if (name === 'webkit') await back.tap();
+        else {
+          await back.focus();
+          await page.keyboard.press('Enter');
+        }
+        await page.waitForURL(/#\/live$/);
         await menu.click();
         await current.waitFor();
         const afterReturn = metadataRequests;

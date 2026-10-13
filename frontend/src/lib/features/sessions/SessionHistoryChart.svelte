@@ -817,7 +817,9 @@
         })}>Retry chart data</button
     >{/if}
 
-  {#if result}
+  <!-- Keep chart frames mounted while range queries replace their data. Removing
+       them clamps the page scroll and interrupts captured touch gestures. -->
+  {#if fields.length}
     <div class="mt-3 space-y-3">
       {#each fieldGroups as group, groupIndex (groupIndex)}
         <div
@@ -836,7 +838,7 @@
 
           {#each chartGroupsForRequestGroup(groupIndex) as chartGroup (chartGroup.id)}
             {@const chartModel = chartModels.get(chartGroup.id)}
-            {@const domain = chartModel?.domain ?? (markers.length || filterByMap ? { min: 0, max: 1 } : null)}
+            {@const domain = chartModel?.domain ?? { min: 0, max: 1 }}
             {@const hasColumns = chartModel?.hasColumns ?? false}
             {@const hasFiniteValues = chartModel?.hasFiniteValues ?? false}
             {@const yTicks = chartModel?.yTicks ?? []}
@@ -847,7 +849,7 @@
             <div class="nonselectable-surface">
               <SectionTitle title={chartGroup.title} detail={chartGroup.unit ?? 'value'} />
 
-              {#if domain && ((hasColumns && hasFiniteValues) || markers.length || filterByMap)}
+              {#if domain}
                 <div class="mt-2 flex items-stretch gap-1">
                   <div
                     class="flex h-36 shrink-0 flex-col justify-between text-right text-[8px] leading-none text-muted"
@@ -1057,7 +1059,10 @@
                     {/if}
                   </div>
                 </div>
-                {#if !hasFiniteValues}<p class="mt-1 text-xs text-muted">No finite samples in this range.</p>{/if}
+                <p class="mt-1 min-h-4 text-xs text-muted">
+                  {#if !hasColumns}Waiting for this field group.
+                  {:else if !hasFiniteValues}No finite samples in this range.{/if}
+                </p>
                 {#if chartGroup.fields.some( (field) => result?.columns[field.name]?.values.some((value) => value === null) )}
                   <p class="text-[10px] text-muted">Null or time gaps are shown as breaks.</p>
                 {/if}
@@ -1119,7 +1124,7 @@
       <button
         type="button"
         class="flex size-14 touch-manipulation flex-col items-center justify-center rounded-full border border-outline bg-accent text-[10px] font-bold tracking-[0.12em] text-on-accent uppercase shadow-xl"
-        aria-label={`Chart mode: ${interactionMode}. Switch to ${nextInteractionMode()} mode`}
+        aria-label="Reset chart zoom"
         disabled={filterByMap}
         title={filterByMap ? 'Map controls the chart range' : 'Reset chart zoom'}
         onpointerdown={(event) => activateFromPointer(event, reset)}

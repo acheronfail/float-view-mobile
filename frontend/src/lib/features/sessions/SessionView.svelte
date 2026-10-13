@@ -172,7 +172,7 @@
     appHeader.set(headerOwner, {
       title: isActive ? 'Current ride' : (sessionStartDateLabel(session?.startedAt) ?? 'Session'),
       backHref: isCurrentRide ? '#/live' : returnHref,
-      backLabel: isCurrentRide ? 'Back to Live' : owningBoardSavedDeviceId ? 'Board sessions' : 'Sessions',
+      backLabel: isCurrentRide ? 'Back to board' : owningBoardSavedDeviceId ? 'Board sessions' : 'Sessions',
       ...(session
         ? {
             menuLabel: 'Session actions',

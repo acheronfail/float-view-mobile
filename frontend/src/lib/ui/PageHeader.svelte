@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
+  import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from './activation';
   import type { Snippet } from 'svelte';
   import type { AppHeaderAction } from '$lib/app/header';
   import Icon from './Icon.svelte';
@@ -71,7 +73,19 @@
   ></span>
   <div class="min-w-0">
     {#if backHref}
-      <a class="inline-flex items-center text-accent" href={backHref}>
+      <a
+        class="inline-flex min-h-11 touch-manipulation items-center text-accent"
+        href={backHref}
+        onpointerdown={(event) => {
+          const href = backHref;
+          activateFromPointer(event, () => goto(href));
+        }}
+        onclick={(event) => {
+          event.preventDefault();
+          const href = backHref;
+          activateFromKeyboardOrAssistiveClick(event, () => goto(href));
+        }}
+      >
         <Icon name="arrow-left" class="mr-1 text-xl" />
         {backLabel}
       </a>
