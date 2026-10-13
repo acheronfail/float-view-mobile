@@ -16,6 +16,7 @@
   import { RefloatConfigurationController } from '$lib/features/connection/refloat-configuration.svelte';
   import { liveCharging } from '$lib/features/connection/charging';
   import { liveStatus } from '$lib/features/connection/live-status';
+  import { lightingMenuActions } from '$lib/features/connection/lighting';
   import LiveCharts from '$lib/features/connection/LiveCharts.svelte';
   import LiveView from '$lib/features/connection/LiveView.svelte';
   import BmsView from '$lib/features/connection/BmsView.svelte';
@@ -228,6 +229,18 @@
               },
             ]
           : []),
+        ...lightingMenuActions(connection).map((action) => ({
+          label: action.label,
+          icon: action.control === 'leds' ? ('lightbulb' as const) : ('flashlight' as const),
+          group: 'Refloat',
+          checked: action.checked,
+          disabled: action.disabled,
+          pending: action.pending,
+          onactivate: () => {
+            if (action.disabled || action.checked === null) return;
+            void backendState.setRefloatControl(action.control, !action.checked);
+          },
+        })),
         ...refloatMenuActions(connection).map((action) => ({
           label: action.label,
           icon:

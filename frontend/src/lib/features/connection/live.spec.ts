@@ -1,4 +1,4 @@
-import { lightingBox } from './lighting';
+import { lightingBox, lightingMenuActions } from './lighting';
 import { emptyEstimate } from '../../../../backend-mock/battery';
 import { describe, expect, it } from 'vitest';
 import type { ActiveConnection } from '$lib/backend/contract';
@@ -57,6 +57,29 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
 });
 
 describe('live board behavior', () => {
+  it('offers lighting menu switches using confirmed state and shared availability gates', () => {
+    const ready = connection('ready');
+    expect(lightingMenuActions(ready)).toEqual([]);
+    ready.refloatControls = { ...refloatControls };
+    expect(lightingMenuActions(ready)).toMatchObject([
+      { control: 'leds', label: 'LEDs', checked: true, disabled: false, pending: false },
+      { control: 'headlights', label: 'Headlights', checked: false, disabled: false, pending: false },
+    ]);
+    ready.refloatControls.pendingAction = 'leds';
+    expect(lightingMenuActions(ready)).toMatchObject([
+      { checked: true, disabled: true, pending: true },
+      { checked: false, disabled: true, pending: false },
+    ]);
+    ready.refloatControls = { ...refloatControls, headlightsEnabled: null };
+    expect(lightingMenuActions(ready)[1]).toMatchObject({ checked: null, disabled: true, status: 'Unknown' });
+    ready.state = 'reconnecting';
+    expect(lightingMenuActions(ready).every((action) => action.disabled)).toBe(true);
+    ready.refloatControls.lightingAvailable = false;
+    expect(lightingMenuActions(ready)).toEqual([]);
+    ready.refloatControls = { ...refloatControls, status: 'unavailable' };
+    expect(lightingMenuActions(ready)).toEqual([]);
+  });
+
   it('dims retained readings for every state except ready', () => {
     expect(readingsAreDimmed(connection('ready'))).toBe(false);
     expect(readingsAreDimmed(connection('reconnecting'))).toBe(true);

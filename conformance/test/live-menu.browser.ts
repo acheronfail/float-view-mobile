@@ -183,6 +183,47 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await menu.tap();
       assert.equal(await page.getByRole('button', { name: 'LEDs', exact: true }).count(), 0);
       assert.equal(await page.getByRole('button', { name: 'Headlights', exact: true }).count(), 0);
+      const menuLeds = actionOverlay.getByRole('switch', { name: 'LEDs', exact: true });
+      const menuHeadlights = actionOverlay.getByRole('switch', { name: 'Headlights', exact: true });
+      assert.equal(await menuLeds.getAttribute('aria-checked'), 'true');
+      assert.equal(await menuHeadlights.getAttribute('aria-checked'), 'false');
+      await menuLeds.click({ button: 'right' });
+      await menuLeds.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
+      await menuLeds.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
+      assert.equal(requests.length, 0);
+      await menuLeds.tap();
+      await menuLeds.and(page.locator('[aria-busy="true"]')).waitFor();
+      assert.deepEqual(requests, [{ control: 'leds', enabled: false }]);
+      assert.equal(await menuLeds.getAttribute('aria-checked'), 'true');
+      assert.equal(await menuLeds.isDisabled(), true);
+      assert.equal(await menuHeadlights.isDisabled(), true);
+      assert.equal(await menu.getAttribute('aria-expanded'), 'true');
+      complete!(true);
+      await page.getByRole('alert').filter({ hasText: 'Control confirmation timed out' }).waitFor();
+      await page.waitForFunction(() =>
+        document.querySelector('dialog [role="switch"][aria-label="LEDs"]')?.matches(':enabled')
+      );
+      assert.equal(await menuLeds.getAttribute('aria-checked'), 'true');
+      await menuHeadlights.focus();
+      await page.keyboard.press('Space');
+      await menuHeadlights.and(page.locator('[aria-busy="true"]')).waitFor();
+      assert.deepEqual(requests.at(-1), { control: 'headlights', enabled: true });
+      complete!();
+      await page.waitForFunction(
+        () =>
+          document.querySelector('dialog [role="switch"][aria-label="Headlights"]')?.getAttribute('aria-checked') ===
+          'true'
+      );
+      assert.equal(requests.length, 2, 'pointer and keyboard activations each submit once');
+      assert.equal(await menu.getAttribute('aria-expanded'), 'true');
+      controls.headlightsEnabled = null;
+      const unknownMenuLight = actionOverlay.getByRole('button', { name: 'Headlights', exact: true });
+      await unknownMenuLight.getByText('Unknown').waitFor();
+      assert.equal(await unknownMenuLight.isDisabled(), true);
+      assert.equal(await menuHeadlights.count(), 0);
+      controls.headlightsEnabled = false;
+      await menuHeadlights.waitFor();
+      requests.length = 0;
       await page.keyboard.press('Escape');
       assert.equal(await menu.evaluate((el) => el === document.activeElement), true);
       const leds = page.getByRole('switch', { name: 'LEDs', exact: true });
@@ -226,7 +267,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await menu.getAttribute('aria-expanded'), 'false');
       complete!();
       await page.waitForFunction(
-        () => document.querySelector('[role="switch"][aria-label="LEDs"]')?.getAttribute('aria-checked') === 'false'
+        () =>
+          document
+            .querySelector('[aria-keyshortcuts="Shift+Enter"][role="switch"][aria-label="LEDs"]')
+            ?.getAttribute('aria-checked') === 'false'
       );
       await headlights.focus();
       await page.keyboard.press('Space');
@@ -238,7 +282,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       complete!();
       await page.waitForFunction(
         () =>
-          document.querySelector('[role="switch"][aria-label="Headlights"]')?.getAttribute('aria-checked') === 'true'
+          document
+            .querySelector('[aria-keyshortcuts="Shift+Enter"][role="switch"][aria-label="Headlights"]')
+            ?.getAttribute('aria-checked') === 'true'
       );
       await leds.focus();
       await page.keyboard.press('Enter');
@@ -248,14 +294,20 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('alert').filter({ hasText: 'Control confirmation timed out' }).waitFor();
       assert.equal(await leds.getAttribute('aria-checked'), 'false');
       await page.waitForFunction(
-        () => document.querySelector('[role="switch"][aria-label="LEDs"]')?.getAttribute('aria-disabled') === 'false'
+        () =>
+          document
+            .querySelector('[aria-keyshortcuts="Shift+Enter"][role="switch"][aria-label="LEDs"]')
+            ?.getAttribute('aria-disabled') === 'false'
       );
       await leds.dispatchEvent('click', { detail: 0 });
       await leds.and(page.locator('[aria-busy="true"]')).waitFor();
       assert.equal(requests.length, 4);
       complete!();
       await page.waitForFunction(
-        () => document.querySelector('[role="switch"][aria-label="LEDs"]')?.getAttribute('aria-checked') === 'true'
+        () =>
+          document
+            .querySelector('[aria-keyshortcuts="Shift+Enter"][role="switch"][aria-label="LEDs"]')
+            ?.getAttribute('aria-checked') === 'true'
       );
       await headlights.click();
       await headlights.and(page.locator('[aria-busy="true"]')).waitFor();
@@ -269,7 +321,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       complete!();
       await page.waitForFunction(
         () =>
-          document.querySelector('[role="switch"][aria-label="Headlights"]')?.getAttribute('aria-checked') === 'false'
+          document
+            .querySelector('[aria-keyshortcuts="Shift+Enter"][role="switch"][aria-label="Headlights"]')
+            ?.getAttribute('aria-checked') === 'false'
       );
       controls.headlightsEnabled = null;
       const unknown = page.getByRole('button', { name: 'Headlights', exact: true });

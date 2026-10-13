@@ -61,8 +61,8 @@ save/discard flow; these panels have no swipe or backdrop dismissal. Other heade
 compact presentation.
 
 The connected-board action overlay consumes only authoritative `RefloatControls`. It does
-not infer package versions, protocol commands, or confirmed values. Lighting lives in configurable boxes with stable labels and switches that retain confirmed state and show pending
-feedback. Unknown lighting state is displayed explicitly
+not infer package versions, protocol commands, or confirmed values. Lighting lives in configurable boxes and the Refloat menu group with stable labels and switches that retain confirmed state and show pending
+feedback. Menu lighting toggles keep the overlay open. Unknown lighting state is displayed explicitly
 without an off switch. Package and flywheel controls use action labels, with an
 ellipsis when confirmation follows. These controls and conditional fatal clear remain disabled until
 the native owner reports ready and writable state, and no frontend state is

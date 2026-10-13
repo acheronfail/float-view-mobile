@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import type { AppHeaderAction } from './header';
   import Icon from '$lib/ui/Icon.svelte';
+  import ToggleIndicator from '$lib/ui/ToggleIndicator.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import { wrappedDialogFocus } from '$lib/ui/dialog';
 
@@ -56,7 +57,8 @@
   }
 
   function activate(action: AppHeaderAction, keyboard: boolean) {
-    if (action.disabled || action.pending || unavailable || activationFrame !== undefined) return;
+    if (action.disabled || action.pending || action.checked === null || unavailable || activationFrame !== undefined)
+      return;
     if (keyboard) {
       void action.onactivate(() => close(true));
       return;
@@ -65,7 +67,7 @@
     // those finish before handing focus to another dialog or route.
     activationFrame = requestAnimationFrame(() => {
       activationFrame = undefined;
-      if (!open || action.disabled || action.pending || unavailable) return;
+      if (!open || action.disabled || action.pending || action.checked === null || unavailable) return;
       void action.onactivate(() => close(false));
     });
   }
@@ -132,8 +134,11 @@
                 <button
                   type="button"
                   aria-label={action.label}
+                  role={typeof action.checked === 'boolean' ? 'switch' : undefined}
+                  aria-checked={typeof action.checked === 'boolean' ? action.checked : undefined}
+                  aria-describedby={action.checked === null ? `${titleId}-unknown-${action.label}` : undefined}
                   aria-busy={action.pending || undefined}
-                  disabled={action.disabled || action.pending}
+                  disabled={action.disabled || action.pending || action.checked === null}
                   class="flex min-h-14 min-w-0 touch-pan-y items-center gap-2 rounded-lg border border-outline bg-surface px-3 py-2 text-left hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
                   class:text-danger={action.appearance === 'destructive'}
                   class:text-warning={action.appearance === 'warning'}
@@ -146,10 +151,15 @@
                     <span class="block text-sm font-medium">{action.label}</span>
                     {#if action.pending}
                       <span class="block text-xs text-muted">Pending…</span>
+                    {:else if action.checked === null}
+                      <span id={`${titleId}-unknown-${action.label}`} class="block text-xs text-muted">Unknown</span>
                     {:else if action.disabled}
                       <span class="block text-xs text-muted">Unavailable</span>
                     {/if}
                   </span>
+                  {#if typeof action.checked === 'boolean'}
+                    <ToggleIndicator checked={action.checked} />
+                  {/if}
                   {#if action.appearance === 'warning' && action.icon !== 'triangle-alert'}
                     <Icon name="triangle-alert" class="shrink-0 text-lg" />
                   {/if}

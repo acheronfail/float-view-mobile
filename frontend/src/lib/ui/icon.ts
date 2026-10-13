@@ -9,6 +9,8 @@ export const iconClasses = {
   list: 'i-lucide-list',
   'chart-no-axes-combined': 'i-lucide-chart-no-axes-combined',
   power: 'i-lucide-power',
+  lightbulb: 'i-lucide-lightbulb',
+  flashlight: 'i-lucide-flashlight',
   'rotate-cw': 'i-lucide-rotate-cw',
   'sliders-horizontal': 'i-lucide-sliders-horizontal',
   'sliders-vertical': 'i-lucide-sliders-vertical',
