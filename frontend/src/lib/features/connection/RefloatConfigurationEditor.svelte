@@ -126,9 +126,7 @@
       {#if !(controller.loading && !controller.pages.length) && !controller.error}
         <div class="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
           <span>
-            Source: <strong
-              >{controller.source === 'current' ? 'Current device values' : 'Persistent firmware defaults'}</strong
-            >
+            Source: <strong>{controller.source === 'current' ? 'Current device values' : 'Firmware defaults'}</strong>
           </span>
           <span>{controller.diff.length} changed</span>
         </div>

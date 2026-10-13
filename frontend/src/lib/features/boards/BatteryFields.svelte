@@ -260,9 +260,7 @@
       }}
     />
     <span id="battery-capacity-help" class="mt-1 block text-xs text-muted">
-      Full pack capacity: two parallel 4.5 Ah cells give 9 Ah. Series count does not multiply Ah. Leave blank if
-      unknown. Capacity enables charge tracking with gradual settled-voltage correction; without it, the estimate
-      follows smoothed voltage.
+      Total battery capacity in Ah. Leave blank if unknown.
     </span>
     {#if batteryCapacityAh != null && !validCapacity(batteryCapacityAh)}
       <span role="alert" class="mt-1 block text-xs text-warning">Enter a capacity from 0.1 to 200 Ah.</span>

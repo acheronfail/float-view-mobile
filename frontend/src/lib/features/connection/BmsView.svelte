@@ -64,7 +64,7 @@
 
   {#if bms.status === 'unavailable'}
     <p role="status" class="rounded-lg border border-warning/50 bg-warning/10 p-3">
-      BMS values are unavailable. Any values below are retained from their original observation time.
+      BMS readings are unavailable. Readings below may be out of date.
     </p>
   {/if}
 

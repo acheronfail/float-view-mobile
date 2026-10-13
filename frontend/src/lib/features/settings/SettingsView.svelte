@@ -82,7 +82,6 @@
             onchange={(value) => backendState.updateSessionSettings({ includeGpsLocationWhenExporting: value })}
           />
         </div>
-        <p class="text-xs text-muted">Location capture is native-owned and stops outside active riding.</p>
       </div>
       <label class="mt-3 block text-sm text-muted">
         Minimum ride distance (meters)
@@ -100,7 +99,7 @@
         />
       </label>
       <label class="mt-3 block text-sm text-muted">
-        History gap threshold (seconds)
+        Chart gap length (seconds)
         <input
           class={inputClass}
           type="number"
@@ -119,9 +118,7 @@
             });
           }}
         />
-        <span id="history-gap-help" class="mt-1 block text-xs"
-          >Automatic uses the captured persistence and retained-resolution policy for each session.</span
-        >
+        <span id="history-gap-help" class="mt-1 block text-xs">Leave on Automatic for easy setup.</span>
       </label>
     </div>
 
@@ -148,7 +145,6 @@
 
     <div>
       <SectionTitle title="Logging" />
-      <p class="mt-1 text-xs text-muted">These apply natively, including while the frontend is not running.</p>
       <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label class="text-sm text-muted"
           >Idle samples / second
@@ -181,7 +177,7 @@
           />
         </label>
         <label class="text-sm text-muted"
-          >Ride-state probes / second
+          >Ride detection checks / second
           <input
             class={inputClass}
             type="number"
@@ -196,7 +192,7 @@
           />
         </label>
         <label class="text-sm text-muted"
-          >Post-ride high-rate tail (seconds)
+          >Keep detailed recording after a ride (seconds)
           <input
             class={inputClass}
             type="number"

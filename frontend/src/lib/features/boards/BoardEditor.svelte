@@ -161,10 +161,7 @@
       </p>
     {/if}
     {#if batteryOnly}
-      <p class="text-sm text-muted">
-        Until battery setup is complete, the percentage reported by the board is shown when available. Configure the
-        battery to use the shared charge estimate.
-      </p>
+      <p class="text-sm text-muted">Set up your battery for a more accurate charge estimate.</p>
     {/if}
     <div class="mt-4 grid gap-3 sm:grid-cols-2">
       {#if !batteryOnly}

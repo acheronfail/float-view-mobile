@@ -116,10 +116,7 @@
 {/if}
 <section class="grid min-h-[65vh] gap-4 lg:grid-cols-[minmax(14rem,0.7fr)_1.3fr]">
   <div>
-    <p class="mb-3 text-sm text-muted">
-      Tunes are complete exact-version Refloat configurations. They are not upstream QML curated Tunes and are not
-      migrated between versions.
-    </p>
+    <p class="mb-3 text-sm text-muted">Tunes work with the Refloat version they were saved from.</p>
     <div class="grid gap-2">
       {#each tunes as tune (tune.tuneId)}
         <button

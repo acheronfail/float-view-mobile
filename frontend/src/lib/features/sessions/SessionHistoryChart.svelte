@@ -1060,14 +1060,11 @@
                   </div>
                 </div>
                 <p class="mt-1 min-h-4 text-xs text-muted">
-                  {#if !hasColumns}Waiting for this field group.
-                  {:else if !hasFiniteValues}No finite samples in this range.{/if}
+                  {#if !hasColumns}Loading readings…
+                  {:else if !hasFiniteValues}No readings in this range.{/if}
                 </p>
-                {#if chartGroup.fields.some( (field) => result?.columns[field.name]?.values.some((value) => value === null) )}
-                  <p class="text-[10px] text-muted">Null or time gaps are shown as breaks.</p>
-                {/if}
-              {:else if hasColumns}<p class="mt-1 text-xs text-muted">No finite samples in this range.</p>
-              {:else}<p class="mt-1 text-xs text-muted">Waiting for this field group.</p>{/if}
+              {:else if hasColumns}<p class="mt-1 text-xs text-muted">No readings in this range.</p>
+              {:else}<p class="mt-1 text-xs text-muted">Loading readings…</p>{/if}
 
               {#if chartGroup.fields.length > 1}
                 <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1" role="group" aria-label={`${chartGroup.title} series`}>
@@ -1098,9 +1095,7 @@
         </div>
       {/each}
     </div>
-  {:else if !loading && !filterByMap}<p class="mt-2 text-sm text-muted">
-      No retained numeric history is available.
-    </p>{/if}
+  {:else if !loading && !filterByMap}<p class="mt-2 text-sm text-muted">No recorded readings available.</p>{/if}
 
   {#if !touchDevice && isZoomed}
     <div class="mt-2 flex flex-wrap items-center justify-between gap-2">

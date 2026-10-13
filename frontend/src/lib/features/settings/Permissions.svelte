@@ -36,7 +36,7 @@
   };
   const guidance: Record<PermissionGuidance, string> = {
     none: '',
-    checking: 'Current access could not be established. Return to the app to refresh.',
+    checking: 'Couldn’t check permission. Return to the app to try again.',
     restricted: 'Access is restricted by the operating system or device policy.',
     unsupportedHardware: 'Bluetooth hardware is unavailable on this device.',
     servicesDisabled: 'The system service is off. Enable it in system settings; your permission grant is unchanged.',
@@ -68,9 +68,6 @@
 
 <section aria-label="Permissions">
   <SectionTitle title="Permissions" />
-  <p class="mt-2 text-sm text-muted">
-    Access is managed by your operating system. These actions do not enable recording or connect to a board.
-  </p>
   {#if backendState.permissionError}<p role="alert" class="mt-2 text-sm text-danger">
       {backendState.permissionError} Use the system settings instructions below if navigation failed.
     </p>{/if}
@@ -86,11 +83,7 @@
         {#if row.permission === 'notifications' || row.permission === 'liveUpdates'}<p class="text-xs text-muted">
             Optional. Bluetooth and recording work without this access.
           </p>
-        {:else if row.optional}<p class="text-xs text-muted">
-            Optional for board-only use. Ride location recording is {backendState.settings?.locationRecordingEnabled
-              ? 'on'
-              : 'off'}.
-          </p>{/if}
+        {/if}
         {#if row.accuracy !== 'unknown'}<p class="text-sm">
             {row.accuracy === 'precise' ? 'Precise' : 'Approximate'} location
           </p>{/if}

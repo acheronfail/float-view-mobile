@@ -161,11 +161,8 @@
     </div>
     {#if connection.batteryEstimate.method}
       <p class="px-2 text-xs text-muted" aria-label="Battery estimation method">
-        {connection.batteryEstimate.method === 'charge_integrated'
-          ? 'Charge tracking with gradual settled-voltage correction.'
-          : 'Smoothed voltage estimate.'}
-        {#if connection.batteryEstimate.provisional}Provisional — waiting for stable, low-load readings to converge.{/if}
-        Approximate charge, not a measured capacity or range guarantee.
+        Estimated battery charge.
+        {#if connection.batteryEstimate.provisional}Waiting for stable readings…{/if}
       </p>
     {/if}
     <TelemetrySection
