@@ -241,19 +241,14 @@ impl ProductStore {
                 Ok(c)
             })
             .transpose()?;
-        let mut statement=self.catalog.prepare(&format!("{SELECT} WHERE pending_delete=0 AND (? IS NULL OR device_history_id=?) AND (?=0 OR state<>'active') AND (? IS NULL OR started_at_ms<? OR (started_at_ms=? AND session_id<?)) ORDER BY started_at_ms DESC,session_id DESC LIMIT ?"))?;
-        let started = c.as_ref().map(|c| c.started);
-        let key = c.as_ref().map(|c| &c.id);
+        let sql = list_sql(history.is_some(), completed_only, c.is_some());
+        let mut statement = self.catalog.prepare_cached(&sql)?;
         let mut items = statement
             .query_map(
                 params![
                     history,
-                    history,
-                    completed_only,
-                    started,
-                    started,
-                    started,
-                    key,
+                    c.as_ref().map(|c| c.started),
+                    c.as_ref().map(|c| &c.id),
                     limit + 1
                 ],
                 row,
@@ -286,6 +281,23 @@ impl ProductStore {
         Ok(SessionPage { items, next_cursor })
     }
 }
+fn list_sql(has_history: bool, completed_only: bool, has_cursor: bool) -> String {
+    // Keep optional predicates out of SQL OR clauses so SQLite can seek
+    // into the board/time index, including on deep keyset pages.
+    let mut sql = format!("{SELECT} WHERE pending_delete=0");
+    if has_history {
+        sql.push_str(" AND device_history_id=?1");
+    }
+    if completed_only {
+        sql.push_str(" AND state<>'active'");
+    }
+    if has_cursor {
+        sql.push_str(" AND (started_at_ms,session_id)<(?2,?3)");
+    }
+    sql.push_str(" ORDER BY started_at_ms DESC,session_id DESC LIMIT ?4");
+    sql
+}
+
 const SELECT: &str = "SELECT session_id,job_id,device_history_id,device_snapshot_json,profile_snapshot_json,profile_revision,started_at_ms,ended_at_ms,state,integrity,committed_sequence,committed_event_sequence,committed_elapsed_ms,sample_count,stored_sample_count,event_count,history_revision,riding_elapsed_ms,total_elapsed_ms,distance_m,max_speed_mps,max_duty_cycle,committed_location_sequence,committed_location_elapsed_ms,recorded_location_count,stored_location_count,location_status FROM session_catalog";
 fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
     fn snapshot(r: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<serde_json::Value> {
@@ -367,4 +379,41 @@ pub(crate) fn apply_marker(db: &rusqlite::Connection, id: &str, m: &CommitMarker
         return Err(Error::NotFound);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod query_plan_tests {
+    use super::*;
+    #[test]
+    fn session_pages_seek_into_filter_and_cursor_indexes_without_sorting() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch(crate::CATALOG_SCHEMA).unwrap();
+        for history in [None, Some("board")] {
+            for completed in [false, true] {
+                for cursor in [false, true] {
+                    let sql = format!(
+                        "EXPLAIN QUERY PLAN {}",
+                        list_sql(history.is_some(), completed, cursor)
+                    );
+                    let mut statement = db.prepare(&sql).unwrap();
+                    let plan = statement
+                        .query_map(params![history, 100, "id", 101], |r| r.get::<_, String>(3))
+                        .unwrap()
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                        .unwrap()
+                        .join("; ");
+                    let index = if history.is_some() {
+                        "session_catalog_device_started"
+                    } else {
+                        "session_catalog_started"
+                    };
+                    assert!(plan.contains(index), "{plan}");
+                    assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+                    if cursor {
+                        assert!(plan.contains("(started_at_ms,session_id)<"), "{plan}");
+                    }
+                }
+            }
+        }
+    }
 }

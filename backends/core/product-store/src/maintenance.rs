@@ -152,7 +152,18 @@ impl ProductStore {
         let Some(job) = self.maintenance()? else {
             return Ok(0);
         };
-        Ok(self.catalog.query_row("SELECT COALESCE(SUM(sample_count),0) FROM session_catalog WHERE pending_delete=0 AND state<>'active' AND ((?='one' AND session_id=?) OR (?='all' AND session_id<=?))",params![job.scope,job.session_id,job.scope,job.upper_session_id],|r|r.get(0))?)
+        let (sql, key) = match job.scope.as_str() {
+            "one" => (
+                "SELECT COALESCE(SUM(sample_count),0) FROM session_catalog WHERE pending_delete=0 AND state<>'active' AND session_id=?",
+                job.session_id.as_deref(),
+            ),
+            "all" => (
+                "SELECT COALESCE(SUM(sample_count),0) FROM session_catalog WHERE pending_delete=0 AND state<>'active' AND session_id<=?",
+                job.upper_session_id.as_deref(),
+            ),
+            _ => return Err(Error::Corrupt),
+        };
+        Ok(self.catalog.query_row(sql, [key], |row| row.get(0))?)
     }
     pub fn maintenance(&self) -> Result<Option<Maintenance>> {
         Ok(self.catalog.query_row("SELECT operation_id,kind,scope,session_id,state,target_resolution_seconds,upper_session_id,last_session_id,completed_sessions,skipped_sessions,retained_samples,reclaimable_bytes,error FROM session_maintenance_job WHERE singleton=1", [], |r| Ok(Maintenance {

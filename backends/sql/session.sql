@@ -95,6 +95,9 @@ CREATE TABLE IF NOT EXISTS session_event (
   kind TEXT NOT NULL,
   details_json TEXT NOT NULL
 );
+-- Sample deletion must seek referencing events rather than scan the event
+-- table for each removed sample during pruning.
+CREATE INDEX IF NOT EXISTS session_event_source_sample ON session_event(source_sample_sequence);
 CREATE INDEX IF NOT EXISTS session_event_elapsed ON session_event(monotonic_elapsed_ms, sequence);
 
 CREATE INDEX IF NOT EXISTS session_ride_markers ON session_event(monotonic_elapsed_ms, sequence) WHERE kind = 'session_marker';

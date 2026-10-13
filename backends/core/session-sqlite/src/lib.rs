@@ -289,8 +289,9 @@ impl SessionWriter {
         for value in &validated {
             let sample = value.sample;
             let inserted = transaction
+                .prepare_cached(INSERT_SAMPLE)
+                .map_err(map_sqlite)?
                 .execute(
-                    INSERT_SAMPLE,
                     named_params! {
                         ":sequence": sqlite_integer(sample.sequence)?,
                         ":observed": sample.observed_at_epoch_ms,
@@ -361,8 +362,9 @@ impl SessionWriter {
             for (field, numeric) in numeric_values(sample) {
                 if numeric.is_some() {
                     transaction
+                        .prepare_cached("INSERT OR IGNORE INTO session_numeric_field(field_name, source, first_sequence) VALUES (?, 'stable', ?)")
+                        .map_err(map_sqlite)?
                         .execute(
-                            "INSERT OR IGNORE INTO session_numeric_field(field_name, source, first_sequence) VALUES (?, 'stable', ?)",
                             params![field, sequence],
                         )
                         .map_err(map_sqlite)?;
@@ -370,8 +372,9 @@ impl SessionWriter {
             }
             for extension in &sample.extensions {
                 transaction
+                    .prepare_cached("INSERT OR IGNORE INTO session_numeric_field(field_name, source, first_sequence) VALUES (?, 'extension', ?)")
+                    .map_err(map_sqlite)?
                     .execute(
-                        "INSERT OR IGNORE INTO session_numeric_field(field_name, source, first_sequence) VALUES (?, 'extension', ?)",
                         params![extension.name, sequence],
                     )
                     .map_err(map_sqlite)?;
@@ -388,8 +391,9 @@ impl SessionWriter {
                 let details_json =
                     serde_json::to_string(&details).map_err(|_| WriterError::InvalidInput)?;
                 transaction
+                    .prepare_cached("INSERT INTO session_event(sequence, source_sample_sequence, observed_at_ms, monotonic_elapsed_ms, kind, details_json) VALUES (?, ?, ?, ?, ?, ?)")
+                    .map_err(map_sqlite)?
                     .execute(
-                        "INSERT INTO session_event(sequence, source_sample_sequence, observed_at_ms, monotonic_elapsed_ms, kind, details_json) VALUES (?, ?, ?, ?, ?, ?)",
                         params![
                             sqlite_integer(event_sequence)?,
                             sequence,
@@ -1220,6 +1224,7 @@ fn validate_database(connection: &Connection) -> Result<(), WriterError> {
         ("index", "location_elapsed"),
         ("index", "sample_elapsed"),
         ("index", "session_event_elapsed"),
+        ("index", "session_event_source_sample"),
         ("index", "session_ride_markers"),
         ("table", "commit_marker"),
         ("table", "location"),

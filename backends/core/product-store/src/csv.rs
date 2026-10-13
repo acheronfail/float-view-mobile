@@ -25,7 +25,8 @@ pub(crate) fn write(
     emit(&mut output, &mut written, header.as_bytes())?;
     let mut statement = db.prepare(SELECT)?;
     let mut rows = statement.query([])?;
-    let mut location=db.prepare("SELECT accuracy_m,longitude,latitude FROM location WHERE monotonic_elapsed_ms BETWEEN ? AND ? ORDER BY ABS(monotonic_elapsed_ms-?),location_sequence LIMIT 1")?;
+    let mut before = db.prepare(LOCATION_BEFORE)?;
+    let mut after = db.prepare(LOCATION_AFTER)?;
     while let Some(row) = rows.next()? {
         cancel.check()?;
         let mut line = String::new();
@@ -49,16 +50,15 @@ pub(crate) fn write(
                 .get::<_, String>(3)?
                 .parse::<i64>()
                 .map_err(|_| Error::Corrupt)?;
-            let values = location
-                .query_row(
-                    params![
-                        elapsed.saturating_sub(10000),
-                        elapsed.saturating_add(10000),
-                        elapsed
-                    ],
-                    |r| Ok([r.get::<_, Option<f64>>(0)?, r.get(1)?, r.get(2)?]),
-                )
-                .optional()?;
+            // Only the nearest predecessor and successor can win. Each query
+            // seeks an elapsed-time boundary and then the earliest tied sequence.
+            let before = location_candidate(&mut before, elapsed.saturating_sub(10000), elapsed)?;
+            let after = location_candidate(&mut after, elapsed, elapsed.saturating_add(10000))?;
+            let values = [before, after]
+                .into_iter()
+                .flatten()
+                .min_by_key(|candidate| (candidate.elapsed.abs_diff(elapsed), candidate.sequence))
+                .map(|candidate| candidate.values);
             for value in values.unwrap_or([None; 3]) {
                 line.push(',');
                 if let Some(v) = value {
@@ -95,5 +95,86 @@ fn escape(text: &str, out: &mut String) {
         out.push('"');
     } else {
         out.push_str(text);
+    }
+}
+
+// MAX/MIN seek the existing elapsed index. The outer equality resolves ties
+// by sequence without sorting an entire ten-second neighborhood per sample.
+const LOCATION_BEFORE: &str = "SELECT accuracy_m,longitude,latitude,monotonic_elapsed_ms,location_sequence FROM location WHERE monotonic_elapsed_ms=(SELECT MAX(monotonic_elapsed_ms) FROM location WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2) ORDER BY location_sequence LIMIT 1";
+const LOCATION_AFTER: &str = "SELECT accuracy_m,longitude,latitude,monotonic_elapsed_ms,location_sequence FROM location WHERE monotonic_elapsed_ms=(SELECT MIN(monotonic_elapsed_ms) FROM location WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2) ORDER BY location_sequence LIMIT 1";
+struct LocationCandidate {
+    values: [Option<f64>; 3],
+    elapsed: i64,
+    sequence: i64,
+}
+fn location_candidate(
+    statement: &mut rusqlite::Statement<'_>,
+    start: i64,
+    end: i64,
+) -> Result<Option<LocationCandidate>> {
+    Ok(statement
+        .query_row(params![start, end], |row| {
+            Ok(LocationCandidate {
+                values: [row.get(0)?, row.get(1)?, row.get(2)?],
+                elapsed: row.get(3)?,
+                sequence: row.get(4)?,
+            })
+        })
+        .optional()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn indexed_gps_candidates_match_neighborhood_sort_with_ties_gaps_and_limits() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(float_view_session_sqlite::SESSION_SCHEMA)
+            .unwrap();
+        let tx = db.unchecked_transaction().unwrap();
+        for n in 1..=3000 {
+            let elapsed = if n < 2000 { n / 3 * 100 } else { n * 1000 };
+            tx.execute("INSERT INTO location(location_sequence,observed_at_ms,monotonic_elapsed_ms,latitude,longitude,accuracy_m) VALUES (?1,?2,?2,0,?3,3)",params![n,elapsed,(n%3) as f64]).unwrap();
+        }
+        tx.commit().unwrap();
+        let mut before = db.prepare(LOCATION_BEFORE).unwrap();
+        let mut after = db.prepare(LOCATION_AFTER).unwrap();
+        for elapsed in [
+            0,
+            50,
+            100,
+            150,
+            10000,
+            50000,
+            200000,
+            1990000,
+            2000000,
+            2000500,
+            i64::MAX - 100,
+            i64::MAX,
+        ] {
+            let left =
+                location_candidate(&mut before, elapsed.saturating_sub(10000), elapsed).unwrap();
+            let right =
+                location_candidate(&mut after, elapsed, elapsed.saturating_add(10000)).unwrap();
+            let winner = [left, right]
+                .into_iter()
+                .flatten()
+                .min_by_key(|c| (c.elapsed.abs_diff(elapsed), c.sequence))
+                .map(|c| c.sequence);
+            let expected=db.query_row("SELECT location_sequence FROM location WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2 ORDER BY ABS(monotonic_elapsed_ms-?3),location_sequence LIMIT 1",params![elapsed.saturating_sub(10000),elapsed.saturating_add(10000),elapsed],|r|r.get::<_,i64>(0)).optional().unwrap();
+            assert_eq!(winner, expected, "elapsed={elapsed}");
+        }
+        for sql in [LOCATION_BEFORE, LOCATION_AFTER] {
+            let mut statement = db.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+            let plan = statement
+                .query_map([0, 10000], |r| r.get::<_, String>(3))
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+                .join("; ");
+            assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+            assert!(plan.contains("SEARCH location"), "{plan}");
+        }
     }
 }

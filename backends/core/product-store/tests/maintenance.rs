@@ -159,3 +159,29 @@ fn preview_changes_no_session_data_and_new_job_rejects_active_sessions() {
         Err(Error::ActiveSession)
     );
 }
+
+#[test]
+fn recorded_sample_totals_follow_scope_visibility_and_deleted_targets() {
+    let (dir, mut store, ids) = setup();
+    assert_eq!(store.maintenance_recorded_samples().unwrap(), 0);
+    let one = store.begin_maintenance(Some(&ids[0]), 10, true, 1).unwrap();
+    assert_eq!(store.maintenance_recorded_samples().unwrap(), 100);
+    store.delete_session(&ids[0]).unwrap();
+    assert_eq!(store.maintenance_recorded_samples().unwrap(), 0);
+    store.cancel_maintenance(&one.operation_id, 2).unwrap();
+    store.begin_maintenance(None, 10, true, 3).unwrap();
+    assert_eq!(store.maintenance_recorded_samples().unwrap(), 200);
+    let db = Connection::open(dir.file("catalog.sqlite")).unwrap();
+    db.execute(
+        "UPDATE session_catalog SET pending_delete=1 WHERE session_id=?",
+        [&ids[1]],
+    )
+    .unwrap();
+    assert_eq!(store.maintenance_recorded_samples().unwrap(), 100);
+    db.execute(
+        "UPDATE session_catalog SET state='active' WHERE session_id=?",
+        [&ids[2]],
+    )
+    .unwrap();
+    assert_eq!(store.maintenance_recorded_samples().unwrap(), 0);
+}

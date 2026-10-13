@@ -198,19 +198,20 @@ impl ProductStore {
                 Ok(c)
             })
             .transpose()?;
-        let mut statement=self.catalog.prepare(&format!("{SELECT} WHERE package_name=? AND package_version=? AND schema_fingerprint=? AND wire_signature=? AND (? IS NULL OR updated_at_ms<? OR (updated_at_ms=? AND configuration_id<?)) ORDER BY updated_at_ms DESC,configuration_id DESC LIMIT ?"))?;
-        let updated = cursor.as_ref().map(|c| c.updated);
-        let id = cursor.as_ref().map(|c| &c.id);
+        let cursor_filter = if cursor.is_some() {
+            " AND (updated_at_ms,configuration_id)<(?5,?6)"
+        } else {
+            ""
+        };
+        let mut statement = self.catalog.prepare_cached(&format!("{SELECT} WHERE package_name=?1 AND package_version=?2 AND schema_fingerprint=?3 AND wire_signature=?4{cursor_filter} ORDER BY updated_at_ms DESC,configuration_id DESC LIMIT ?7"))?;
         let rows = statement.query_map(
             params![
                 identity.package_name,
                 identity.package_version,
                 identity.schema_fingerprint,
                 identity.wire_signature,
-                updated,
-                updated,
-                updated,
-                id,
+                cursor.as_ref().map(|c| c.updated),
+                cursor.as_ref().map(|c| &c.id),
                 limit + 1
             ],
             row,

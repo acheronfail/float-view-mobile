@@ -75,16 +75,16 @@ CREATE TABLE IF NOT EXISTS session_catalog (
   location_status TEXT NOT NULL DEFAULT 'disabled',
   pending_delete INTEGER NOT NULL DEFAULT 0 CHECK (pending_delete IN (0, 1))
 );
+-- Match equality filters followed by the complete keyset ordering. Avoid
+-- indexing live distance/duration aggregates: those change on every batch.
 CREATE INDEX IF NOT EXISTS session_catalog_device_started
-  ON session_catalog(device_history_id, started_at_ms DESC);
+  ON session_catalog(device_history_id, pending_delete, started_at_ms DESC, session_id DESC);
 CREATE INDEX IF NOT EXISTS session_catalog_started
-  ON session_catalog(started_at_ms DESC, session_id DESC);
-CREATE INDEX IF NOT EXISTS session_catalog_total_elapsed
-  ON session_catalog(total_elapsed_ms DESC, session_id DESC);
-CREATE INDEX IF NOT EXISTS session_catalog_distance
-  ON session_catalog(distance_m DESC, session_id DESC);
+  ON session_catalog(pending_delete, started_at_ms DESC, session_id DESC);
 CREATE INDEX IF NOT EXISTS session_catalog_pending_delete
-  ON session_catalog(pending_delete, started_at_ms DESC);
+  ON session_catalog(pending_delete, session_id);
+CREATE INDEX IF NOT EXISTS session_catalog_active
+  ON session_catalog(device_history_id, session_id) WHERE state = 'active';
 
 CREATE TABLE IF NOT EXISTS settings (
   singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),

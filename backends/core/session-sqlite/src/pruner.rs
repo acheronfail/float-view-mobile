@@ -15,6 +15,7 @@ use super::{CommitMarker, WriterError, read_marker, validate_database};
 
 pub const MAX_PRUNE_SOURCE_ROWS: usize = 200_000;
 const MAX_TARGET_RESOLUTION_SECONDS: u64 = 300;
+const PRUNE_LOCATIONS: &str = "DELETE FROM location WHERE NOT EXISTS (SELECT 1 FROM sample WHERE sample.monotonic_elapsed_ms BETWEEN location.monotonic_elapsed_ms - ?1 AND location.monotonic_elapsed_ms + ?1)";
 const PRUNE_POLICY: &str = "m4-source-v1";
 static PRUNER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -427,10 +428,7 @@ fn apply_plan(
         .and_then(|value| i64::try_from(value).ok())
         .ok_or(PruneError::InvalidInput)?;
     transaction
-        .execute(
-            "DELETE FROM location WHERE NOT EXISTS (SELECT 1 FROM sample WHERE ABS(sample.monotonic_elapsed_ms - location.monotonic_elapsed_ms) <= ?)",
-            [neighborhood_ms],
-        )
+        .execute(PRUNE_LOCATIONS, [neighborhood_ms])
         .map_err(map_sqlite)?;
     transaction
         .execute(
@@ -495,5 +493,54 @@ fn map_sqlite(error: rusqlite::Error) -> PruneError {
             PruneError::Io
         }
         _ => PruneError::Database,
+    }
+}
+
+#[cfg(test)]
+mod query_plan_tests {
+    use super::*;
+    #[test]
+    fn location_pruning_uses_sample_range_index_and_keeps_inclusive_boundaries() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(super::super::SESSION_SCHEMA).unwrap();
+        db.execute_batch("INSERT INTO sample(sequence,observed_at_ms,monotonic_elapsed_ms,ride_state) VALUES (1,100,100,'idle'),(2,500,500,'idle'); INSERT INTO location(location_sequence,observed_at_ms,monotonic_elapsed_ms,latitude,longitude) VALUES (1,0,0,0,0),(2,200,200,0,0),(3,300,300,0,0),(4,400,400,0,0),(5,600,600,0,0),(6,601,601,0,0);").unwrap();
+        let mut statement = db
+            .prepare(&format!("EXPLAIN QUERY PLAN {PRUNE_LOCATIONS}"))
+            .unwrap();
+        let plan = statement
+            .query_map([100], |r| r.get::<_, String>(3))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+            .join("; ");
+        assert!(
+            plan.contains("SEARCH sample USING COVERING INDEX sample_elapsed"),
+            "{plan}"
+        );
+        db.execute(PRUNE_LOCATIONS, [100]).unwrap();
+        let mut statement = db
+            .prepare("SELECT location_sequence FROM location ORDER BY location_sequence")
+            .unwrap();
+        let retained = statement
+            .query_map([], |r| r.get::<_, u64>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(retained, vec![1, 2, 4, 5]);
+        let mut statement = db
+            .prepare(
+                "EXPLAIN QUERY PLAN SELECT 1 FROM session_event WHERE source_sample_sequence=?",
+            )
+            .unwrap();
+        let plan = statement
+            .query_map([1], |r| r.get::<_, String>(3))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+            .join("; ");
+        assert!(
+            plan.contains("SEARCH session_event USING COVERING INDEX session_event_source_sample"),
+            "{plan}"
+        );
     }
 }

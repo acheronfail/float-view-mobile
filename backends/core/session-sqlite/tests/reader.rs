@@ -509,3 +509,59 @@ fn cancellation_flag_is_sticky_and_does_not_interrupt_another_reader() {
         2
     );
 }
+
+#[test]
+fn continued_location_pages_preserve_ties_ranges_and_reject_backwards_time() {
+    let directory = TestDirectory::new();
+    let (path, boundary) = fixture(&directory, "continued-gps.sqlite");
+    let mut reader = SessionReader::open(&path).unwrap();
+    let page = reader
+        .location_page(10000, 30000, 100, Some(1), boundary)
+        .unwrap();
+    assert_eq!(
+        page.rows
+            .iter()
+            .map(|r| r.location_sequence)
+            .collect::<Vec<_>>(),
+        vec![2, 3]
+    );
+    assert!(
+        reader
+            .location_page(30000, 40000, 100, Some(1), boundary)
+            .unwrap()
+            .rows
+            .is_empty()
+    );
+    let db = Connection::open(&path).unwrap();
+    db.execute(
+        "UPDATE location SET monotonic_elapsed_ms=10000 WHERE location_sequence=3",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        reader
+            .location_page(0, 30000, 100, Some(1), boundary)
+            .unwrap()
+            .rows
+            .iter()
+            .map(|r| r.location_sequence)
+            .collect::<Vec<_>>(),
+        vec![2, 3]
+    );
+    db.execute(
+        "UPDATE location SET monotonic_elapsed_ms=5000 WHERE location_sequence=3",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        reader.location_page(0, 30000, 100, Some(1), boundary),
+        Err(ReaderError::Incompatible)
+    );
+    // Missing cursors still mean greater-than, not an offset or failed lookup.
+    db.execute("DELETE FROM location WHERE location_sequence=2", [])
+        .unwrap();
+    let page = reader
+        .location_page(0, 30000, 100, Some(2), boundary)
+        .unwrap();
+    assert_eq!(page.rows[0].location_sequence, 3);
+}

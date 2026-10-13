@@ -421,12 +421,19 @@ impl SessionReader {
         let (after_elapsed, after_sequence) = after
             .map(|key| (key.elapsed_ms, key.sequence))
             .unwrap_or((0, 0));
-        let sql = "SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json FROM session_event WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2 AND sequence <= ?3 AND (?4 = 0 OR monotonic_elapsed_ms > ?5 OR (monotonic_elapsed_ms = ?5 AND sequence > ?6)) AND kind IN ('packageState','packageMode','footpadState','stopCondition','setpointAdjustment','wheelslip','darkride','charging','alertReason','firmwareFault') ORDER BY monotonic_elapsed_ms, sequence LIMIT ?7";
-        let mut statement = transaction.prepare(sql).map_err(map_sqlite)?;
+        let cursor_filter = if after_present {
+            " AND (monotonic_elapsed_ms,sequence)>(?5,?6)"
+        } else {
+            ""
+        };
+        let sql = format!(
+            "SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json FROM session_event WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2 AND sequence <= ?3 {cursor_filter} AND kind IN ('packageState','packageMode','footpadState','stopCondition','setpointAdjustment','wheelslip','darkride','charging','alertReason','firmwareFault') ORDER BY monotonic_elapsed_ms, sequence LIMIT ?7"
+        );
+        let mut statement = transaction.prepare_cached(&sql).map_err(map_sqlite)?;
         let mapped = statement
             .query_map(
                 rusqlite::params![
-                    to_i64(start_elapsed_ms)?,
+                    to_i64(start_elapsed_ms.max(after_elapsed))?,
                     to_i64(end_elapsed_ms)?,
                     to_i64(boundary.event_sequence)?,
                     i64::from(after_present),
@@ -500,9 +507,11 @@ impl SessionReader {
         if after > boundary.location_sequence {
             return Err(ReaderError::InvalidInput);
         }
-        let mut statement = transaction
-            .prepare("SELECT location_sequence, monotonic_elapsed_ms, observed_at_ms, latitude, longitude, accuracy_m FROM location WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2 AND location_sequence <= ?3 AND location_sequence > ?4 ORDER BY monotonic_elapsed_ms, location_sequence LIMIT ?5")
-            .map_err(map_sqlite)?;
+        // Continuations seek directly by their sequence cursor. Valid location
+        // streams have nondecreasing elapsed times; validate that invariant below
+        // rather than rescanning the elapsed index from the beginning of the range.
+        let sql = location_page_sql(after_location_sequence.is_some());
+        let mut statement = transaction.prepare_cached(sql).map_err(map_sqlite)?;
         let mapped = statement
             .query_map(
                 rusqlite::params![
@@ -526,6 +535,7 @@ impl SessionReader {
             .map_err(map_sqlite)?;
         let mut rows = Vec::new();
         let mut previous_location_sequence = after;
+        let mut previous_elapsed = None;
         for row in mapped {
             let (sequence, elapsed, observed, latitude, longitude, accuracy) =
                 row.map_err(map_sqlite)?;
@@ -539,10 +549,13 @@ impl SessionReader {
                 return Err(ReaderError::Incompatible);
             }
             let location_sequence = from_i64(sequence)?;
-            if location_sequence <= previous_location_sequence {
+            if location_sequence <= previous_location_sequence
+                || previous_elapsed.is_some_and(|previous| elapsed < previous)
+            {
                 return Err(ReaderError::Incompatible);
             }
             previous_location_sequence = location_sequence;
+            previous_elapsed = Some(elapsed);
             rows.push(LocationRecord {
                 location_sequence,
                 elapsed_ms: from_i64(elapsed)?,
@@ -586,6 +599,14 @@ impl SessionReader {
         self.connection
             .transaction_with_behavior(TransactionBehavior::Deferred)
             .map_err(map_sqlite)
+    }
+}
+
+fn location_page_sql(continued: bool) -> &'static str {
+    if continued {
+        "SELECT location_sequence, monotonic_elapsed_ms, observed_at_ms, latitude, longitude, accuracy_m FROM location WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2 AND location_sequence <= ?3 AND location_sequence > ?4 ORDER BY location_sequence LIMIT ?5"
+    } else {
+        "SELECT location_sequence, monotonic_elapsed_ms, observed_at_ms, latitude, longitude, accuracy_m FROM location WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2 AND location_sequence <= ?3 AND location_sequence > ?4 ORDER BY monotonic_elapsed_ms, location_sequence LIMIT ?5"
     }
 }
 
@@ -697,28 +718,31 @@ fn query_samples(
 ) -> Result<Vec<SampleRecord>, ReaderError> {
     let mut values = Vec::new();
     let expressions = field_expressions(fields, &mut values)?;
-    let after_present = after.is_some();
-    let after = after.unwrap_or(SampleKey {
-        elapsed_ms: 0,
-        sequence: 0,
-    });
+    // Start at the cursor; the tuple comparison resolves tied times.
     values.extend([
-        Value::Integer(to_i64(start_elapsed_ms)?),
+        Value::Integer(to_i64(
+            start_elapsed_ms.max(after.map_or(0, |key| key.elapsed_ms)),
+        )?),
         Value::Integer(to_i64(end_elapsed_ms)?),
         Value::Integer(to_i64(published_sequence)?),
-        Value::Integer(i64::from(after_present)),
-        Value::Integer(to_i64(after.elapsed_ms)?),
-        Value::Integer(to_i64(after.elapsed_ms)?),
-        Value::Integer(to_i64(after.sequence)?),
-        Value::Integer(to_i64(limit as u64)?),
     ]);
+    let cursor_filter = if let Some(after) = after {
+        values.extend([
+            Value::Integer(to_i64(after.elapsed_ms)?),
+            Value::Integer(to_i64(after.sequence)?),
+        ]);
+        " AND (monotonic_elapsed_ms,sequence)>(?,?)"
+    } else {
+        ""
+    };
+    values.push(Value::Integer(to_i64(limit as u64)?));
     let selected = if expressions.is_empty() {
         String::new()
     } else {
         format!(", {}", expressions.join(", "))
     };
     let sql = format!(
-        "SELECT sequence, monotonic_elapsed_ms, ride_state{selected} FROM sample WHERE monotonic_elapsed_ms BETWEEN ? AND ? AND sequence <= ? AND (? = 0 OR monotonic_elapsed_ms > ? OR (monotonic_elapsed_ms = ? AND sequence > ?)) ORDER BY monotonic_elapsed_ms, sequence LIMIT ?"
+        "SELECT sequence, monotonic_elapsed_ms, ride_state{selected} FROM sample WHERE monotonic_elapsed_ms BETWEEN ? AND ? AND sequence <= ? {cursor_filter} ORDER BY monotonic_elapsed_ms, sequence LIMIT ?"
     );
     let mut statement = transaction.prepare(&sql).map_err(map_sqlite)?;
     let mapped = statement
@@ -1060,5 +1084,28 @@ mod tests {
             ),
             "EventRecord([redacted])"
         );
+    }
+}
+
+#[cfg(test)]
+mod location_query_tests {
+    use super::*;
+    #[test]
+    fn continuation_seeks_primary_key_without_sorting() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(super::super::SESSION_SCHEMA).unwrap();
+        let mut statement = db
+            .prepare(&format!("EXPLAIN QUERY PLAN {}", location_page_sql(true)))
+            .unwrap();
+        let plan = statement
+            .query_map([0, 1000000, 1000000, 900000, 101], |row| {
+                row.get::<_, String>(3)
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+            .join("; ");
+        assert!(plan.contains("USING INTEGER PRIMARY KEY"), "{plan}");
+        assert!(!plan.contains("TEMP B-TREE"), "{plan}");
     }
 }
