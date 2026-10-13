@@ -926,6 +926,8 @@ fn stable_column(name: &str) -> Option<&'static str> {
         "dutyCycle" => "duty_cycle",
         "controllerTempC" => "controller_temp_c",
         "motorTempC" => "motor_temp_c",
+        "bmsCircuitryTempC" => "bms_circuitry_temp_c",
+        "bmsHighestCellTempC" => "bms_highest_cell_temp_c",
         "motorCurrentA" => "motor_current_a",
         "batteryCurrentA" => "battery_current_a",
         "erpm" => "erpm",
@@ -1012,6 +1014,8 @@ mod tests {
             "dutyCycle",
             "controllerTempC",
             "motorTempC",
+            "bmsCircuitryTempC",
+            "bmsHighestCellTempC",
             "motorCurrentA",
             "batteryCurrentA",
             "erpm",
@@ -1045,7 +1049,7 @@ mod tests {
             "chargingCurrentA",
             "chargingVoltageV",
         ];
-        assert_eq!(fields.len(), 36);
+        assert_eq!(fields.len(), 38);
         assert!(
             fields
                 .into_iter()

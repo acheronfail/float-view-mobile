@@ -3,6 +3,8 @@ export type StableSessionFieldName =
   | 'dutyCycle'
   | 'controllerTempC'
   | 'motorTempC'
+  | 'bmsCircuitryTempC'
+  | 'bmsHighestCellTempC'
   | 'motorCurrentA'
   | 'batteryCurrentA'
   | 'erpm'
@@ -178,6 +180,24 @@ export const sessionFieldMetadata = {
     chart: {
       group: 'temperature',
       color: 'var(--app-danger)',
+      precision: 1,
+    },
+  },
+  bmsCircuitryTempC: {
+    displayName: 'BMS temp',
+    unit: '°C',
+    chart: {
+      group: 'temperature',
+      color: '#a78bfa',
+      precision: 1,
+    },
+  },
+  bmsHighestCellTempC: {
+    displayName: 'Cells temp',
+    unit: '°C',
+    chart: {
+      group: 'temperature',
+      color: '#2dd4bf',
       precision: 1,
     },
   },

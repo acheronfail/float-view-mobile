@@ -138,6 +138,8 @@ pub fn sample_with(
         duty_cycle: None,
         controller_temp_c: None,
         motor_temp_c: None,
+        bms_circuitry_temp_c: None,
+        bms_highest_cell_temp_c: None,
         motor_current_a: None,
         battery_current_a: None,
         erpm: None,

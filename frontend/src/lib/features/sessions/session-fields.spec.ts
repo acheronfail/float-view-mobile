@@ -43,12 +43,23 @@ describe('session chart field metadata', () => {
   });
 
   it('groups compatible temperature fields in metadata order', () => {
-    const groups = sessionChartGroups([{ name: 'motorTempC' }, { name: 'controllerTempC' }, { name: 'speedKph' }]);
+    const groups = sessionChartGroups([
+      { name: 'motorTempC' },
+      { name: 'bmsHighestCellTempC' },
+      { name: 'controllerTempC' },
+      { name: 'bmsCircuitryTempC' },
+      { name: 'speedKph' },
+    ]);
     const temperature = groups.find((group) => group.id === 'temperature');
 
     expect(temperature?.title).toBe('Temperature');
     expect(temperature?.unit).toBe('°C');
-    expect(temperature?.fields.map((field) => field.name)).toEqual(['controllerTempC', 'motorTempC']);
+    expect(temperature?.fields.map((field) => field.name)).toEqual([
+      'controllerTempC',
+      'motorTempC',
+      'bmsCircuitryTempC',
+      'bmsHighestCellTempC',
+    ]);
     expect(groups.map((group) => group.id)).toEqual(['speedKph', 'temperature']);
   });
 

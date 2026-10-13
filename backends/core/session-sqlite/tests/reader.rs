@@ -37,6 +37,8 @@ fn fixture(directory: &TestDirectory, name: &str) -> (std::path::PathBuf, Publis
     samples[0].speed_kph = Some(10.0);
     samples[0].package_state = Some(PackageState::Ready);
     samples[1].speed_kph = Some(20.0);
+    samples[1].bms_circuitry_temp_c = Some(38.5);
+    samples[1].bms_highest_cell_temp_c = Some(29.25);
     samples[1].package_state = Some(PackageState::Running);
     samples[1].ride_state = RideState::Riding;
     samples[1].extensions.push(extension("fixtureValue", 2.5));
@@ -79,10 +81,27 @@ fn literal_requests_project_metadata_fields_pages_and_reduction() {
             .map(|field| (field.name.as_str(), field.source))
             .collect::<Vec<_>>(),
         vec![
+            ("bmsCircuitryTempC", FieldSource::Stable),
+            ("bmsHighestCellTempC", FieldSource::Stable),
             ("fixtureValue", FieldSource::Extension),
             ("speedKph", FieldSource::Stable)
         ]
     );
+
+    let temperatures = reader
+        .sample_page(
+            &[
+                "bmsCircuitryTempC".to_owned(),
+                "bmsHighestCellTempC".to_owned(),
+            ],
+            0,
+            30_000,
+            4,
+            None,
+            boundary,
+        )
+        .expect("BMS temperature page");
+    assert_eq!(temperatures.rows[1].values, vec![Some(38.5), Some(29.25)]);
 
     let selected = vec!["speedKph".to_owned(), "fixtureValue".to_owned()];
     let first = reader

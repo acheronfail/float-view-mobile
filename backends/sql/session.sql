@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS sample (
   duty_cycle REAL,
   controller_temp_c REAL,
   motor_temp_c REAL,
+  bms_circuitry_temp_c REAL,
+  bms_highest_cell_temp_c REAL,
   footpad_state TEXT,
   motor_current_a REAL,
   battery_current_a REAL,

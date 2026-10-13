@@ -17,6 +17,7 @@ use std::{
 };
 const META: &str =
     "CREATE TABLE float_view_archive_metadata(key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)";
+const ARCHIVE_FORMAT_VERSION: &str = "4";
 const MAX_MANIFEST: usize = 65_536;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -118,7 +119,7 @@ impl ImportSink {
             [],
             |r| r.get(0),
         )?;
-        if version != "3" || count != 2 {
+        if version != ARCHIVE_FORMAT_VERSION || count != 2 {
             return Err(Error::InvalidInput);
         }
         let manifest: Manifest = serde_json::from_str(&text).map_err(|_| Error::InvalidInput)?;
@@ -208,7 +209,7 @@ impl ArchiveExport {
                     }
                 }
                 dest.execute_batch(META)?;
-                dest.execute("INSERT INTO float_view_archive_metadata(key,value) VALUES ('format_version','3'),('session',?)",[json(&self.manifest,MAX_MANIFEST)?])?;
+                dest.execute("INSERT INTO float_view_archive_metadata(key,value) VALUES ('format_version',?),('session',?)",params![ARCHIVE_FORMAT_VERSION,json(&self.manifest,MAX_MANIFEST)?])?;
                 dest.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
                 dest.close().map_err(|(_, e)| Error::from(e))?;
             }

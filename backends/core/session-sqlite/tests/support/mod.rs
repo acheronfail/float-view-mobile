@@ -61,6 +61,8 @@ pub fn sample(sequence: u64, elapsed_ms: u64) -> NormalizedSample {
         duty_cycle: None,
         controller_temp_c: None,
         motor_temp_c: None,
+        bms_circuitry_temp_c: None,
+        bms_highest_cell_temp_c: None,
         motor_current_a: None,
         battery_current_a: None,
         erpm: None,

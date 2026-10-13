@@ -169,6 +169,8 @@ and falls back to available sensors when the BMS is missing or stale. The temper
 Cells uses the reported cell maximum, and BMS uses the shared service’s circuitry
 maximum. The rolling temperature chart adds the same BMS and Cells readings while the BMS is present. The Cells bar reaches red at 45°C; other temperature bars reach red at
 60°C. Four bars retain their 12 px height and grow the widget vertically.
+Fresh BMS circuitry and highest-cell temperatures are also recorded with board session samples and appear in the
+session temperature chart when those fields are present in the archive.
 Signed battery power is pack
 voltage times battery current; its displayed sign controls draw/regen labels and
 theme-aware colours. Interpolation respects reduced motion.

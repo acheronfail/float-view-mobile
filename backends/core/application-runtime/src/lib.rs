@@ -23,6 +23,7 @@ use session::{CommitMarker, LocationObservation, SessionMetadata, SessionWriter,
 
 pub const MAX_RUNTIME_EFFECTS: usize = coordinator::MAX_TRANSITION_EFFECTS * 2;
 pub const MAX_SESSION_PATH_BYTES: usize = 4_096;
+const BMS_PERSISTENCE_MAX_AGE_MS: i64 = 5_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SessionMode {
@@ -120,6 +121,7 @@ pub struct ApplicationRuntime {
     stream: StreamDecoder,
     session: Option<SessionWriter>,
     session_marker: Option<CommitMarker>,
+    latest_bms: Option<coordinator::bms::BmsObservation>,
 }
 
 impl Default for ApplicationRuntime {
@@ -153,6 +155,7 @@ impl ApplicationRuntime {
             stream: StreamDecoder::new(),
             session: None,
             session_marker: None,
+            latest_bms: None,
         }
     }
 
@@ -180,6 +183,7 @@ impl ApplicationRuntime {
                     coordinator::Command::Begin(_) | coordinator::Command::Reset { .. }
                 ) {
                     self.stream = StreamDecoder::new();
+                    self.latest_bms = None;
                 }
                 let effects = self.application.apply(command)?;
                 self.translate(effects)
@@ -319,7 +323,17 @@ impl ApplicationRuntime {
                 CoordinatorEffect::PublishTelemetry(sample) => {
                     if let Some(writer) = self.session.as_mut() {
                         let started = std::time::Instant::now();
-                        let result = writer.append_samples(std::slice::from_ref(sample.as_ref()));
+                        let persisted = persisted_sample(
+                            sample.as_ref(),
+                            self.latest_bms.as_ref().map(|bms| {
+                                (
+                                    bms.observed_at_epoch_ms,
+                                    bms.highest_circuitry_temperature_c(),
+                                    bms.highest_cell_temperature_c,
+                                )
+                            }),
+                        );
+                        let result = writer.append_samples(std::slice::from_ref(&persisted));
                         if self.persistence_us.len() < 128 {
                             self.persistence_us
                                 .push(started.elapsed().as_micros().min(u64::MAX as u128) as u64);
@@ -341,11 +355,35 @@ impl ApplicationRuntime {
                         Effect::Application(CoordinatorEffect::PublishTelemetry(sample)),
                     )?;
                 }
+                CoordinatorEffect::PublishBmsObservation(observation) => {
+                    self.latest_bms = Some((*observation).clone());
+                    push_bounded(
+                        &mut output,
+                        Effect::Application(CoordinatorEffect::PublishBmsObservation(observation)),
+                    )?;
+                }
                 other => push_bounded(&mut output, Effect::Application(other))?,
             }
         }
         Ok(output)
     }
+}
+
+fn persisted_sample(
+    sample: &telemetry::NormalizedSample,
+    bms_temperatures: Option<(i64, f64, f64)>,
+) -> telemetry::NormalizedSample {
+    let mut persisted = sample.clone();
+    if let Some((observed_at_epoch_ms, circuitry_c, highest_cell_c)) = bms_temperatures
+        && sample
+            .observed_at_epoch_ms
+            .checked_sub(observed_at_epoch_ms)
+            .is_some_and(|age| (0..BMS_PERSISTENCE_MAX_AGE_MS).contains(&age))
+    {
+        persisted.bms_circuitry_temp_c = Some(circuitry_c);
+        persisted.bms_highest_cell_temp_c = Some(highest_cell_c);
+    }
+    persisted
 }
 
 fn validate_path(path: &Path) -> Result<(), RuntimeError> {
@@ -423,6 +461,8 @@ mod tests {
             duty_cycle: Some(0.0),
             controller_temp_c: Some(20.0),
             motor_temp_c: Some(20.0),
+            bms_circuitry_temp_c: None,
+            bms_highest_cell_temp_c: None,
             motor_current_a: Some(0.0),
             battery_current_a: Some(0.0),
             erpm: Some(0.0),
@@ -936,6 +976,25 @@ mod tests {
                 .expect_err("duplicate"),
             RuntimeError::SessionAlreadyAttached
         );
+    }
+
+    #[test]
+    fn session_samples_capture_only_fresh_bms_temperatures() {
+        let value = sample(1);
+        let observed = value.observed_at_epoch_ms;
+        let fresh = persisted_sample(&value, Some((observed - 4_999, 38.5, 29.25)));
+        assert_eq!(fresh.bms_circuitry_temp_c, Some(38.5));
+        assert_eq!(fresh.bms_highest_cell_temp_c, Some(29.25));
+
+        for bms in [
+            Some((observed - 5_000, 40.0, 30.0)),
+            Some((observed + 1, 40.0, 30.0)),
+            None,
+        ] {
+            let omitted = persisted_sample(&value, bms);
+            assert_eq!(omitted.bms_circuitry_temp_c, None);
+            assert_eq!(omitted.bms_highest_cell_temp_c, None);
+        }
     }
 
     #[test]

@@ -102,7 +102,8 @@
   const MIN_SELECTION_PIXELS = 8;
   const INTERACTION_MODES = ['info', 'zoom', 'pan'] as const;
   const MAX_FIELDS_PER_SERIES_REQUEST = MAX_SESSION_DATA_FIELDS;
-  const FIRST_VISIBLE_GROUP_FIELDS = 9;
+  // Keep the complete primary temperature group in the initial request.
+  const FIRST_VISIBLE_GROUP_FIELDS = 11;
 
   type InteractionMode = (typeof INTERACTION_MODES)[number];
   let interactionMode = $state<InteractionMode>('info');

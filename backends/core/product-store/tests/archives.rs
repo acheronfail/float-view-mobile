@@ -168,7 +168,7 @@ fn csv_columns_gps_privacy_ties_and_tolerance_match_native_encoding() {
         .run(&cancel)
         .unwrap();
     let plain = fs::read_to_string(export.path()).unwrap();
-    assert_eq!(plain.lines().next().unwrap().split(',').count(), 52);
+    assert_eq!(plain.lines().next().unwrap().split(',').count(), 54);
     assert!(!plain.contains("gpsLatitude"));
     assert_eq!(
         plain.lines().next().unwrap(),

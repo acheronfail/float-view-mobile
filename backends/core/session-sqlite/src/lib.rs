@@ -311,6 +311,8 @@ impl SessionWriter {
                         ":duty": sample.duty_cycle,
                         ":controller_temp": sample.controller_temp_c,
                         ":motor_temp": sample.motor_temp_c,
+                        ":bms_circuitry_temp": sample.bms_circuitry_temp_c,
+                        ":bms_highest_cell_temp": sample.bms_highest_cell_temp_c,
                         ":footpad_state": sample.footpad_state.map(footpad_state),
                         ":extension_json": value.extension_json,
                         ":motor_current": sample.motor_current_a,
@@ -587,7 +589,7 @@ const INSERT_SAMPLE: &str = "INSERT OR IGNORE INTO sample(
 sequence, observed_at_ms, slow_observed_at_ms, monotonic_elapsed_ms, ride_state,
 package_state, package_mode, stop_condition, setpoint_adjustment, wheelslip, darkride,
 charging, alert_reason, firmware_fault, raw_pack_voltage_v, duty_cycle, controller_temp_c,
-motor_temp_c, footpad_state, extension_json, motor_current_a, battery_current_a, erpm,
+motor_temp_c, bms_circuitry_temp_c, bms_highest_cell_temp_c, footpad_state, extension_json, motor_current_a, battery_current_a, erpm,
 speed_kph, pitch_deg, balance_pitch_deg, roll_deg, directional_motor_current_a,
 filtered_motor_current_a, requested_balance_current_a, booster_current_a,
 field_weakening_current_a, footpad_adc_1_v, footpad_adc_2_v, remote_input, setpoint_deg,
@@ -598,7 +600,7 @@ watt_hours_charged_wh, battery_level, charging_current_a, charging_voltage_v
 ) VALUES (
 :sequence, :observed, :slow_observed, :elapsed, :ride_state, :package_state, :package_mode,
 :stop_condition, :setpoint_adjustment, :wheelslip, :darkride, :charging, :alert_reason,
-:firmware_fault, :pack_voltage, :duty, :controller_temp, :motor_temp, :footpad_state,
+:firmware_fault, :pack_voltage, :duty, :controller_temp, :motor_temp, :bms_circuitry_temp, :bms_highest_cell_temp, :footpad_state,
 :extension_json, :motor_current, :battery_current, :erpm, :speed, :pitch, :balance_pitch,
 :roll, :directional_motor_current, :filtered_motor_current, :requested_balance_current,
 :booster_current, :field_weakening_current, :footpad_adc_1, :footpad_adc_2, :remote_input,
@@ -915,12 +917,14 @@ fn aggregate_samples(transaction: &Transaction<'_>) -> Result<Aggregate, WriterE
     })
 }
 
-fn numeric_values(sample: &NormalizedSample) -> [(&'static str, Option<f64>); 36] {
+fn numeric_values(sample: &NormalizedSample) -> [(&'static str, Option<f64>); 38] {
     [
         ("packVoltageV", sample.pack_voltage_v),
         ("dutyCycle", sample.duty_cycle),
         ("controllerTempC", sample.controller_temp_c),
         ("motorTempC", sample.motor_temp_c),
+        ("bmsCircuitryTempC", sample.bms_circuitry_temp_c),
+        ("bmsHighestCellTempC", sample.bms_highest_cell_temp_c),
         ("motorCurrentA", sample.motor_current_a),
         ("batteryCurrentA", sample.battery_current_a),
         ("erpm", sample.erpm),
