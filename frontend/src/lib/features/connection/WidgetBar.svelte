@@ -7,6 +7,7 @@
     label,
     detail,
     detailClass = '',
+    compact = false,
     tickValues = [],
     minimum = 0,
     showTicks = true,
@@ -24,6 +25,7 @@
     label?: string;
     detail?: string;
     detailClass?: string;
+    compact?: boolean;
     tickValues?: readonly number[];
     minimum?: number;
     showTicks?: boolean;
@@ -89,7 +91,7 @@
 
   {#if detail != null}
     <output
-      class={`${label ? 'w-[4.5rem]' : 'min-w-[2.5rem]'} shrink-0 text-right font-mono text-sm font-semibold tabular-nums ${detailClass}`}
+      class={`${label ? 'w-[4.5rem]' : 'min-w-[2.5rem]'} shrink-0 text-right font-mono ${compact ? 'text-xs leading-4' : 'text-sm'} font-semibold tabular-nums ${detailClass}`}
     >
       {detail}
     </output>

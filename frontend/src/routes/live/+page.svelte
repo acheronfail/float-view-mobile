@@ -511,7 +511,16 @@
 
     {#if view === 'normal'}
       <div class="h-full min-h-0 flex-1 overflow-hidden">
-        <LiveView {charging} onconfigure={openBatteryConfigure} />
+        <LiveView
+          {charging}
+          {nowMs}
+          onconfigure={openBatteryConfigure}
+          onbms={bmsMenuVisible(connection.bms)
+            ? () => {
+                bmsOpen = true;
+              }
+            : undefined}
+        />
       </div>
     {:else}
       <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-auto" style="--section-header-top: 0px">

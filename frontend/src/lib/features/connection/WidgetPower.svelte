@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import type { LiveSample, BatteryEstimate } from '../../backend/contract';
   import { colorForBattery } from './gauge-colors';
   import { batteryPresentation } from './battery';
@@ -11,13 +13,29 @@
     charging = sample?.charging === true,
     savedBoard = false,
     onconfigure,
+    onbms,
   }: {
     charging?: boolean;
     savedBoard?: boolean;
+    onbms?: () => void;
     onconfigure?: (trigger: HTMLButtonElement) => void;
     sample: LiveSample | null | undefined;
     estimate: BatteryEstimate | null | undefined;
   } = $props();
+
+  let activationFrame: number | undefined;
+  onMount(() => () => {
+    if (activationFrame !== undefined) cancelAnimationFrame(activationFrame);
+  });
+
+  function openBmsFromPointer() {
+    if (activationFrame !== undefined) return;
+    // Let synthesized touch mouse events finish before the overlay takes focus.
+    activationFrame = requestAnimationFrame(() => {
+      activationFrame = undefined;
+      onbms?.();
+    });
+  }
 
   const labelValues = Array.from({ length: 6 }, (_, index) => index * 20);
 
@@ -27,7 +45,16 @@
   const batteryColor = $derived(colorForBattery(batteryPercent));
 </script>
 
-<section class="flex h-full min-h-0 flex-col overflow-hidden" aria-labelledby="power-title">
+<section class="relative flex h-full min-h-0 flex-col overflow-hidden" aria-labelledby="power-title">
+  {#if onbms}
+    <button
+      type="button"
+      class="absolute inset-0 z-10 touch-manipulation rounded-sm"
+      aria-label="Open battery management system"
+      onpointerdown={(event) => activateFromPointer(event, openBmsFromPointer, { scrollable: true })}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, onbms)}
+    ></button>
+  {/if}
   <div class="mb-3 flex shrink-0 items-baseline justify-between gap-3">
     <h2
       id="power-title"
@@ -79,7 +106,9 @@
         fillStyle={`--battery-color: ${batteryColor}`}
       />
     </div>
-    {#if battery.needsSetup && onconfigure}<BatterySetupWarning {onconfigure} />{/if}
+    {#if battery.needsSetup && onconfigure}
+      <div class="relative z-20"><BatterySetupWarning {onconfigure} /></div>
+    {/if}
   </div>
 </section>
 

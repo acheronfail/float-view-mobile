@@ -1,6 +1,15 @@
 <script lang="ts">
-  let { onconfigure, charging = false }: { onconfigure?: (trigger: HTMLButtonElement) => void; charging?: boolean } =
-    $props();
+  let {
+    onconfigure,
+    onbms,
+    nowMs,
+    charging = false,
+  }: {
+    onconfigure?: (trigger: HTMLButtonElement) => void;
+    onbms?: () => void;
+    nowMs: number;
+    charging?: boolean;
+  } = $props();
   import { backendState } from '$lib/backend/state.svelte';
   import { readingsAreDimmed } from './live';
   import WidgetNumbers from './WidgetNumbers.svelte';
@@ -48,12 +57,13 @@
       </div>
 
       <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
-        <WidgetTemperatures {sample} />
+        <WidgetTemperatures {sample} bms={connection.bms} {nowMs} />
       </div>
 
       <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
         <WidgetPower
           {charging}
+          {onbms}
           {onconfigure}
           savedBoard={!!connection?.savedDeviceId && connection?.deviceKind === 'board'}
           {sample}
