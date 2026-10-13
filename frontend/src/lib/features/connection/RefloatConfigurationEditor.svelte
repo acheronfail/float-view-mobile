@@ -102,6 +102,12 @@
       <p class="text-muted">Loading audited Refloat schema…</p>
     {:else if controller.error}
       <p role="alert" class="text-warning">{controller.error}</p>
+      <button
+        type="button"
+        class="touch-manipulation rounded-lg bg-elevated px-4 py-2"
+        onpointerdown={(event) => activateFromPointer(event, () => controller.open())}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.open())}>Retry</button
+      >
     {:else}
       <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline p-3 text-sm">
         <span>

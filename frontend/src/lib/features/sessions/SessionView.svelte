@@ -251,7 +251,7 @@
       },
     });
     void backendState.openSession(sessionId).then((opened) => {
-      if (active && !opened) void goto(returnHref, { replaceState: true });
+      if (active && !opened && backendState.sessionNotFound) void goto(returnHref, { replaceState: true });
     });
     return () => {
       active = false;
@@ -404,7 +404,21 @@
   {:else}
     <p class="mt-3 text-muted">Loading session…</p>
   {/if}
-  {#if backendState.error}<p role="alert" class="mt-3 text-warning">{backendState.error}</p>{/if}
+  {#if backendState.error}
+    <p role="alert" class="mt-3 text-warning">{backendState.error}</p>
+    {#if !backendState.selectedSession}<button
+        type="button"
+        class="mt-3 touch-manipulation rounded-lg bg-elevated px-4 py-2"
+        onpointerdown={(event) =>
+          activateFromPointer(event, () => {
+            void backendState.openSession(sessionId);
+          })}
+        onclick={(event) =>
+          activateFromKeyboardOrAssistiveClick(event, () => {
+            void backendState.openSession(sessionId);
+          })}>Retry</button
+      >{/if}
+  {/if}
 </section>
 
 <PruneDialog

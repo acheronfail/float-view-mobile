@@ -57,6 +57,23 @@ export async function runConformance(target: Target) {
       })
     );
     assertState(initial);
+    const checkpoint = { version: 1 as const, route: { kind: 'settings' as const }, live: null, surface: null };
+    assert.equal(await client.request('uiState.get', {}), null);
+    assert.deepEqual(await client.request('uiState.set', { checkpoint }), { accepted: true });
+    assert.deepEqual(await client.request('uiState.get', {}), checkpoint);
+    assert.equal((await client.request('state.get', {})).revision, initial.revision);
+    for (const invalid of [
+      { ...checkpoint, version: 2 },
+      { ...checkpoint, draft: {} },
+      { ...checkpoint, surface: { kind: 'liveCharts' } },
+      { ...checkpoint, route: { kind: 'session', sessionId: 'é'.repeat(257), savedDeviceId: null } },
+      {
+        ...checkpoint,
+        route: { kind: 'session', sessionId: '\u0001'.repeat(512), savedDeviceId: '\u0001'.repeat(512) },
+      },
+    ])
+      await expectError(client.request('uiState.set', { checkpoint: invalid } as never), 'invalid_request');
+    assert.deepEqual(await client.request('uiState.get', {}), checkpoint);
     for (const params of [
       { permission: 'unknown', action: 'requestPermission' },
       { permission: 'location', action: 'launchUrl' },
@@ -112,6 +129,9 @@ export async function runConformance(target: Target) {
     client = await ConformanceClient.open(replacementEndpoint.url, replacementEndpoint.origin);
     const restored = await client.request('state.get', {});
     assertState(restored);
+    assert.deepEqual(await client.request('uiState.get', {}), checkpoint);
+    await client.request('uiState.set', { checkpoint: null });
+    assert.equal(await client.request('uiState.get', {}), null);
     assert.ok(restored.revision >= scanned.revision);
     assert.deepEqual(
       restored.discoveredDevices.map((device) => device.deviceId),
@@ -1280,6 +1300,8 @@ function required<T>(value: T | null | undefined, message: string): T {
 export const mandatoryMethods: BackendMethod[] = [
   'permissions.recover',
   'state.get',
+  'uiState.get',
+  'uiState.set',
   'diagnostics.report',
   'bluetooth.requestPermission',
   'location.requestPermission',

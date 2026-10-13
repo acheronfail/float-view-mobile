@@ -111,6 +111,19 @@ it('closes malformed permission inventories and notifies closure once', async ()
   expect(closed).toBe(1);
 });
 
+it('rejects malformed checkpoints and accepts an empty process checkpoint', async () => {
+  const valid = setup();
+  const empty = valid.client.request('uiState.get', {});
+  valid.socket.receive({ id: 1, result: null });
+  await expect(empty).resolves.toBeNull();
+  valid.client.close();
+  const malformed = setup();
+  const pending = malformed.client.request('uiState.get', {});
+  malformed.socket.receive({ id: 1, result: { version: 2, route: { kind: 'settings' }, live: null, surface: null } });
+  await expect(pending).rejects.toThrow('invalid UI checkpoint');
+  expect(malformed.client.isOpen).toBe(false);
+});
+
 it('reports bounded delivery timings at most once per ten seconds without revising state', async () => {
   let now = 0;
   const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);

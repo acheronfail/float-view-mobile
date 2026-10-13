@@ -11,17 +11,18 @@
     actions,
     unavailable = false,
     button = $bindable(),
+    open = $bindable(false),
   }: {
     label: string;
     subtitle: string;
     actions: AppHeaderAction[];
     unavailable?: boolean;
     button?: HTMLButtonElement;
+    open?: boolean;
   } = $props();
 
   const titleId = $props.id();
   let dialog: HTMLDialogElement;
-  let open = $state(false);
   let activationFrame: number | undefined;
   const groups = $derived([...new Set(actions.map((action) => action.group ?? 'Actions'))]);
 
@@ -31,6 +32,8 @@
   });
 
   $effect(() => {
+    if (open && !dialog.open && !unavailable) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
     if (unavailable && open) close(false);
   });
 

@@ -826,8 +826,27 @@ export interface Accepted {
   accepted: true;
 }
 
+/** Process-memory presentation only; never product or device authority. */
+export type UiRoute =
+  | { kind: 'home' | 'sessions' | 'settings' | 'live' | 'bms' }
+  | { kind: 'boardHistory'; savedDeviceId: string }
+  | { kind: 'session'; sessionId: string; savedDeviceId: string | null };
+export type UiSurface =
+  | { kind: 'liveActions' | 'liveCharts' | 'bmsDetails' | 'refloatConfiguration' | 'refloatTunes' | 'boardActions' }
+  | { kind: 'boardConfiguration'; savedDeviceId: string; batteryOnly: boolean };
+export interface UiCheckpoint {
+  version: 1;
+  route: UiRoute;
+  live: { deviceId: string; mode: 'normal' | 'detailed' } | null;
+  surface: UiSurface | null;
+}
+export const MAX_UI_CHECKPOINT_BYTES = 4096;
+export const MAX_UI_TARGET_BYTES = 512;
+
 export interface BackendMethods {
   'state.get': { params: EmptyParams; result: AppState };
+  'uiState.get': { params: EmptyParams; result: UiCheckpoint | null };
+  'uiState.set': { params: { checkpoint: UiCheckpoint | null }; result: Accepted };
   /** Bounded, best-effort UI timing summary; never changes public state. */
   'diagnostics.report': {
     params: { snapshots: number; max_sample_age_ms: number; max_delivery_gap_ms: number; max_handler_ms: number };

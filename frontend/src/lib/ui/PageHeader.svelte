@@ -18,6 +18,7 @@
     actions,
     menuPresentation,
     menuUnavailable = false,
+    menuOpen = $bindable(false),
     backHref,
     backLabel = 'Back',
     headerHeight = $bindable(0),
@@ -34,6 +35,7 @@
     actions?: AppHeaderAction[];
     menuPresentation?: 'overlay';
     menuUnavailable?: boolean;
+    menuOpen?: boolean;
     backHref?: string;
     backLabel?: string;
     headerHeight?: number;
@@ -83,9 +85,16 @@
   </div>
   {#if actions?.length && menuLabel}
     {#if menuPresentation === 'overlay'}
-      <HeaderActionOverlay label={menuLabel} subtitle={title} {actions} unavailable={menuUnavailable} bind:button />
+      <HeaderActionOverlay
+        label={menuLabel}
+        subtitle={title}
+        {actions}
+        unavailable={menuUnavailable}
+        bind:button
+        bind:open={menuOpen}
+      />
     {:else}
-      <Menu label={menuLabel} bind:button>
+      <Menu label={menuLabel} bind:button bind:menuOpen>
         {#snippet children(closeMenu)}
           {#each actions as action (action.label)}
             <MenuItem

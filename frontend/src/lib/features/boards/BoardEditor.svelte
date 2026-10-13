@@ -55,9 +55,18 @@
 
   onMount(() => {
     active = true;
-    void backendState.openBoardProfile(savedDeviceId).then((opened) => {
+    void loadProfile();
+    return () => {
+      active = false;
+      backendState.closeBoardProfile();
+    };
+  });
+
+  function loadProfile() {
+    return backendState.openBoardProfile(savedDeviceId).then((opened) => {
       if (!active) return;
       if (!opened) {
+        if (!backendState.boardProfileNotFound) return;
         if (embedded) onclose?.();
         else void goto('#/sessions', { replaceState: true });
         return;
@@ -75,11 +84,7 @@
       preferredCanId = typeof values?.preferredCanId === 'number' ? values.preferredCanId : undefined;
       preferredBmsCanId = typeof values?.preferredBmsCanId === 'number' ? values.preferredBmsCanId : undefined;
     });
-    return () => {
-      active = false;
-      backendState.closeBoardProfile();
-    };
-  });
+  }
 
   function enqueue(action: () => Promise<void>) {
     const ownerId = savedDeviceId;
@@ -277,5 +282,11 @@
     {/if}
   {:else if backendState.error}
     <p role="alert" class="mt-3 text-warning">{backendState.error}</p>
+    <button
+      type="button"
+      class="mt-3 touch-manipulation rounded-lg bg-elevated px-4 py-2"
+      onpointerdown={(event) => activateFromPointer(event, loadProfile)}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, loadProfile)}>Retry</button
+    >
   {/if}
 </section>

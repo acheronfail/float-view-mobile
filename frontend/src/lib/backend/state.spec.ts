@@ -268,6 +268,33 @@ describe('BackendState', () => {
     expect(permissionOutcome(bluetooth(permission))).toBe(outcome);
   });
 
+  it.each(['not_found', 'unavailable'] as const)(
+    'distinguishes %s from a transient detail load failure',
+    async (code) => {
+      const client = new FakeClient();
+      const store = new BackendState(
+        async () => ({ webSocketUrl: 'ws://test' }),
+        async () => client as unknown as ApiClient
+      );
+      await store.connect();
+      const original = client.request.bind(client);
+      client.request = async <M extends BackendMethod>(
+        method: M,
+        params: BackendParams<M>
+      ): Promise<BackendResult<M>> => {
+        if (method === 'session.get' || method === 'boardProfile.get')
+          throw new ApiRequestError({ code, message: 'Load failed' });
+        return original(method, params);
+      };
+      expect(await store.openSession('session')).toBe(false);
+      expect(store.sessionNotFound).toBe(code === 'not_found');
+      expect(await store.openBoardProfile('saved-board')).toBe(false);
+      expect(store.boardProfileNotFound).toBe(code === 'not_found');
+      expect(store.status).toBe('connected');
+      store.close();
+    }
+  );
+
   it('loads one authoritative state and accepts only newer events', async () => {
     const client = new FakeClient();
     const store = new BackendState(

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { getContext, onDestroy, tick } from 'svelte';
+  import { getContext, onMount, onDestroy, tick } from 'svelte';
+  import { UI_RESTORATION, type UiRestoration, uiHref } from '$lib/app/ui-restoration.svelte';
   import { goto } from '$app/navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
@@ -10,12 +11,29 @@
   import BoardEditor from './BoardEditor.svelte';
 
   let { savedDeviceId }: { savedDeviceId: string } = $props();
+  const restoration = getContext<UiRestoration>(UI_RESTORATION);
+  let presentationReady = $state(false);
   let configureOpen = $state(false);
   let forgetConfirmationOpen = $state(false);
   let forgetting = $state(false);
   let editor = $state<BoardEditor>();
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   const headerOwner = '/sessions/boards/[savedDeviceId]';
+  onMount(() => {
+    const checkpoint = restoration.take('boardHistory');
+    configureOpen =
+      checkpoint?.surface?.kind === 'boardConfiguration' && checkpoint.surface.savedDeviceId === savedDeviceId;
+    presentationReady = true;
+  });
+  $effect(() => {
+    if (!presentationReady) return;
+    restoration.present(
+      uiHref({ kind: 'boardHistory', savedDeviceId }),
+      null,
+      configureOpen ? { kind: 'boardConfiguration', savedDeviceId, batteryOnly: false } : null
+    );
+  });
+
   const board = $derived(backendState.savedDevices.find((value) => value.savedDeviceId === savedDeviceId));
   const active = $derived(backendState.snapshot?.activeConnection?.savedDeviceId === savedDeviceId);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');

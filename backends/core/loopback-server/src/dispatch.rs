@@ -188,6 +188,21 @@ impl Backend {
                     .report_ui_diagnostics(report)?;
                 return Ok(json!({"accepted":true}));
             }
+            "uiState.get" => {
+                p.only(&[])?;
+                let service = self.service.lock().map_err(|_| Failure::Internal)?;
+                return serde_json::to_value(service.ui_checkpoint())
+                    .map_err(|_| Failure::Internal);
+            }
+            "uiState.set" => {
+                p.only(&["checkpoint"])?;
+                let value = p.0.get("checkpoint").ok_or(Failure::InvalidRequest)?;
+                self.service
+                    .lock()
+                    .map_err(|_| Failure::Internal)?
+                    .set_ui_checkpoint(value.clone())?;
+                return Ok(json!({"accepted":true}));
+            }
             "state.get" => {
                 p.only(&[])?;
                 return self.snapshot();

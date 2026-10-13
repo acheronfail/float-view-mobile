@@ -46,6 +46,15 @@ fn status(response: &[u8], code: &str) {
 fn listener_lifecycle_preserves_assets_token_and_rejects_failed_bind() {
     let html = b"<!doctype html>\n<body>\xF0\x9F\x9A\xB2</body>";
     let server = support::server(Platform::Macos, html).unwrap();
+    let checkpoint =
+        serde_json::json!({"version":1,"route":{"kind":"settings"},"live":null,"surface":null});
+    server
+        .backend
+        .service
+        .lock()
+        .unwrap()
+        .set_ui_checkpoint(checkpoint.clone())
+        .unwrap();
     let token = server.token().to_owned();
     let port = server.start(0).unwrap();
     assert_eq!(server.start(port), Err(ServerError::AlreadyRunning));
@@ -66,6 +75,10 @@ fn listener_lifecycle_preserves_assets_token_and_rejects_failed_bind() {
     second.stop().unwrap();
     server.start(port).unwrap();
     assert_eq!(server.token(), token);
+    assert_eq!(
+        serde_json::to_value(server.backend.service.lock().unwrap().ui_checkpoint()).unwrap(),
+        checkpoint
+    );
     status(&http(&server, "/api/bootstrap", "", b""), "200");
     server.stop().unwrap();
 }

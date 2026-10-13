@@ -1,3 +1,4 @@
+import { validUiCheckpoint } from './ui-checkpoint';
 import { validatePermissions } from './permissions';
 import type {
   AppState,
@@ -133,7 +134,7 @@ export class ApiClient {
       try {
         validatePermissions(envelope.data.permissions);
       } catch {
-        this.failProtocol('Backend sent an invalid permission inventory');
+        this.failProtocol('Backend sent an invalid result');
         return;
       }
       const started = performance.now();
@@ -170,12 +171,15 @@ export class ApiClient {
     if ('error' in envelope && envelope.error) request.reject(new ApiRequestError(envelope.error));
     else if ('result' in envelope) {
       try {
+        if (request.method === 'uiState.get' && envelope.result !== null && !validUiCheckpoint(envelope.result))
+          throw new ApiProtocolError('Invalid UI checkpoint');
         if (request.method === 'state.get') validatePermissions((envelope.result as AppState)?.permissions);
         if (request.method === 'permissions.recover') validatePermissions(envelope.result);
         request.resolve(envelope.result);
       } catch {
-        request.reject(new ApiProtocolError('Backend sent an invalid permission inventory'));
-        this.close(1002, 'Invalid permission inventory');
+        const reason = request.method === 'uiState.get' ? 'invalid UI checkpoint' : 'invalid permission inventory';
+        request.reject(new ApiProtocolError(`Backend sent an ${reason}`));
+        this.close(1002, reason);
       }
     } else request.reject(new ApiProtocolError('Backend response has no result or error'));
   };

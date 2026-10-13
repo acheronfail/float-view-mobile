@@ -1,6 +1,7 @@
 import { validateRideMarker } from './session-data';
 import type {
   AppState,
+  UiCheckpoint,
   PermissionRow,
   BluetoothState,
   BoardProfile,
@@ -53,6 +54,8 @@ export class BackendState {
   permissionError = $state<string | null>(null);
   permissionBusy = $state(false);
   selectedSession = $state<SessionSummary | null>(null);
+  sessionNotFound = $state(false);
+  boardProfileNotFound = $state(false);
   sessionMetadata = $state<SessionMetadata | null>(null);
   selectedBoardProfile = $state<BoardProfile | null>(null);
   exportStatus = $state<string | null>(null);
@@ -137,6 +140,26 @@ export class BackendState {
       this.status = 'failed';
       this.error = message(error);
     }
+  }
+
+  async getUiCheckpoint(): Promise<UiCheckpoint | null> {
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    return this.client.request('uiState.get', {});
+  }
+
+  async setUiCheckpoint(checkpoint: UiCheckpoint | null): Promise<void> {
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    await this.client.request('uiState.set', { checkpoint });
+  }
+
+  async validateUiTarget(
+    route: import('./contract').UiRoute,
+    surface: import('./contract').UiSurface | null
+  ): Promise<void> {
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    if (route.kind === 'session') await this.client.request('session.get', { sessionId: route.sessionId });
+    if (surface?.kind === 'boardConfiguration')
+      await this.client.request('boardProfile.get', { savedDeviceId: surface.savedDeviceId });
   }
 
   async scan(): Promise<void> {
@@ -400,7 +423,15 @@ export class BackendState {
     const generation = ++this.boardProfileGeneration;
     this.selectedBoardProfile = null;
     const opened = await this.run(async (client) => {
-      const profile = await client.request('boardProfile.get', { savedDeviceId });
+      this.boardProfileNotFound = false;
+      let profile: BoardProfile;
+      try {
+        profile = await client.request('boardProfile.get', { savedDeviceId });
+      } catch (error) {
+        if (generation === this.boardProfileGeneration)
+          this.boardProfileNotFound = error instanceof ApiRequestError && error.code === 'not_found';
+        throw error;
+      }
       if (generation === this.boardProfileGeneration) this.selectedBoardProfile = profile;
     });
     return opened && generation === this.boardProfileGeneration;
@@ -439,7 +470,15 @@ export class BackendState {
   async openSession(sessionId: string): Promise<boolean> {
     const generation = ++this.sessionGeneration;
     return this.run(async (client) => {
-      const metadata = await client.request('session.get', { sessionId });
+      this.sessionNotFound = false;
+      let metadata: SessionMetadata;
+      try {
+        metadata = await client.request('session.get', { sessionId });
+      } catch (error) {
+        if (generation === this.sessionGeneration)
+          this.sessionNotFound = error instanceof ApiRequestError && error.code === 'not_found';
+        throw error;
+      }
       if (generation !== this.sessionGeneration) return;
       this.sessionMetadata = metadata;
       this.selectedSession = metadata.summary;

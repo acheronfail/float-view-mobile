@@ -1,5 +1,7 @@
 <script lang="ts">
   import { getContext, onDestroy, onMount, tick } from 'svelte';
+  import { UI_RESTORATION, type UiRestoration, uiDiagnostic } from '$lib/app/ui-restoration.svelte';
+  import type { UiSurface } from '$lib/backend/contract';
   import { goto } from '$app/navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
@@ -38,7 +40,8 @@
   ] as const;
   type View = (typeof viewOptions)[number]['type'];
 
-  // TODO: persist this state
+  const restoration = getContext<UiRestoration>(UI_RESTORATION);
+  let presentationReady = $state(false);
   let view = $state<View>('normal');
   let configuration = $state<{ savedDeviceId: string; batteryOnly: boolean; trigger?: HTMLButtonElement } | null>(null);
   let liveChartsOpen = $state(false);
@@ -58,6 +61,65 @@
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   const headerOwner = '/live';
   const connection = $derived(backendState.snapshot?.activeConnection);
+  onMount(() => {
+    const checkpoint = restoration.take('live');
+    if (checkpoint?.live && checkpoint.live.deviceId === connection?.deviceId) {
+      view = checkpoint.live.mode;
+      const surface = checkpoint.surface;
+      const blocked =
+        flywheelOverlayVisible(connection) ||
+        connection?.state === 'selecting_controller' ||
+        !!connection?.connectionIssue ||
+        connection?.firmware?.supported === false;
+      if (surface && !blocked) {
+        switch (surface.kind) {
+          case 'liveCharts':
+            liveChartsOpen = true;
+            break;
+          case 'bmsDetails':
+            bmsOpen = !!connection && bmsMenuVisible(connection.bms);
+            break;
+          case 'refloatConfiguration':
+            refloatConfigurationOpen = connection?.refloatConfiguration?.availability === 'ready';
+            break;
+          case 'refloatTunes':
+            refloatTunesOpen =
+              connection?.refloatConfiguration?.availability === 'ready' &&
+              !!connection.refloatConfiguration.packageVersion &&
+              !!connection.refloatConfiguration.schemaFingerprint;
+            break;
+          case 'boardConfiguration':
+            if (
+              surface.savedDeviceId === connection?.savedDeviceId &&
+              backendState.savedDevices.some((d) => d.savedDeviceId === surface.savedDeviceId)
+            )
+              configuration = { savedDeviceId: surface.savedDeviceId, batteryOnly: surface.batteryOnly };
+            break;
+        }
+      } else if (surface) uiDiagnostic('surface_unavailable', 'live', surface.kind);
+    }
+    presentationReady = true;
+  });
+  $effect(() => {
+    if (!presentationReady) return;
+    let surface: UiSurface | null = configuration
+      ? {
+          kind: 'boardConfiguration',
+          savedDeviceId: configuration.savedDeviceId,
+          batteryOnly: configuration.batteryOnly,
+        }
+      : liveChartsOpen
+        ? { kind: 'liveCharts' }
+        : bmsOpen
+          ? { kind: 'bmsDetails' }
+          : refloatConfigurationOpen
+            ? { kind: 'refloatConfiguration' }
+            : refloatTunesOpen
+              ? { kind: 'refloatTunes' }
+              : null;
+    if (flywheelOverlayVisible(connection)) surface = null;
+    restoration.present('#/live', connection ? { deviceId: connection.deviceId, mode: view } : null, surface);
+  });
   const sample = $derived(connection?.latestSample);
   const live = $derived(connection?.state === 'ready');
   const savedDevice = $derived(

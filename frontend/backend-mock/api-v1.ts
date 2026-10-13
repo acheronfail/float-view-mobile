@@ -1,3 +1,5 @@
+import { validUiCheckpoint } from '../src/lib/backend/ui-checkpoint.ts';
+import type { UiCheckpoint } from '../src/lib/backend/contract.ts';
 import { permissionInventory, locationSummary } from './permissions.ts';
 import { batteryPresets, batteryPresetCatalogVersion, applyBatteryPatch } from './battery-presets.ts';
 import { batteryCellProfiles, emptyEstimate, MockBattery } from './battery.ts';
@@ -253,6 +255,7 @@ function detailedSeriesValues(overrides: Record<string, number>): Record<string,
 }
 
 export class MockBackend {
+  private uiCheckpoint: UiCheckpoint | null = null;
   private rideMarkers = new Map<string, SessionRideMarker[]>();
   markerRows(sessionId: string) {
     return structuredClone(this.rideMarkers.get(sessionId) ?? []);
@@ -376,6 +379,18 @@ export class MockBackend {
           return failure(id, 'invalid_request', 'Invalid diagnostics summary');
         return success(id, { accepted: true });
       }
+      case 'uiState.get':
+        if (Object.keys(params).length) return failure(id, 'invalid_request', 'Invalid checkpoint request');
+        return success(id, structuredClone(this.uiCheckpoint));
+      case 'uiState.set':
+        if (
+          Object.keys(params).length !== 1 ||
+          !('checkpoint' in params) ||
+          (params.checkpoint !== null && !validUiCheckpoint(params.checkpoint))
+        )
+          return failure(id, 'invalid_request', 'Invalid checkpoint');
+        this.uiCheckpoint = structuredClone(params.checkpoint as UiCheckpoint | null);
+        return success(id, { accepted: true });
       case 'state.get':
         return success(id, this.state);
       case 'permissions.recover': {

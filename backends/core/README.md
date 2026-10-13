@@ -70,3 +70,18 @@ incompatible owned development data; ordinary corruption or I/O errors never
 trigger a reset. Do not retain migrations, legacy identity aliases, previous
 format readers or fallback implementations before the first release. See
 AGENTS.md for the persistent policy.
+
+## Process-memory UI checkpoint
+
+`backend-service` retains one typed version-1 checkpoint independently of
+listener lifetime. Authenticated `uiState.get` returns it or null;
+`uiState.set({checkpoint})` atomically replaces it, or clears it when null.
+The shared server exposes both methods through existing C/JNI consumer paths.
+Records are at most 4,096 encoded UTF-8 bytes, target strings at most 512 bytes,
+and route/surface unions reject unknown fields and incompatible combinations.
+
+The checkpoint describes a route, optional Live mode/device target and one
+ordinary surface. The frontend owns current-target eligibility and rendering.
+Checkpoint changes produce no state events, revision increments, product
+writes, BLE effects or exports. A new process starts empty; no schema change,
+migration, browser store or background task is involved.

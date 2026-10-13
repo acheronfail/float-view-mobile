@@ -16,6 +16,7 @@ pub mod permissions;
 mod policy;
 mod process;
 mod projection;
+pub mod ui_state;
 pub use dispatch::Dispatch;
 pub use float_view_product_store::{ExportFormat, SessionLease};
 pub use process::Process;
@@ -31,6 +32,7 @@ pub struct BackendService {
     diagnostics: diagnostics::Diagnostics,
     runtime: ApplicationRuntime,
     stopping: bool,
+    ui_checkpoint: Option<ui_state::Checkpoint>,
     store: ProductStore,
     files: files::Files,
     policy: policy::Policy,
@@ -45,6 +47,7 @@ impl BackendService {
             diagnostics: diagnostics::Diagnostics::default(),
             runtime: ApplicationRuntime::new(),
             stopping: false,
+            ui_checkpoint: None,
             policy: policy::Policy::new(store.settings()?),
             pending: std::collections::BTreeMap::new(),
             store,

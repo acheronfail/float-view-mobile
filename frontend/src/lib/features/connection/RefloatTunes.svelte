@@ -32,7 +32,7 @@
   });
 
   async function initialize() {
-    if (!controller.identity) await controller.open();
+    if (!controller.identity || controller.error) await controller.open();
     await refresh();
   }
 
@@ -106,6 +106,15 @@
   }
 </script>
 
+{#if controller.error || backendState.error}
+  <p role="alert" class="text-warning">{controller.error || backendState.error}</p>
+  <button
+    type="button"
+    class="touch-manipulation rounded-lg bg-elevated px-4 py-2"
+    onpointerdown={(event) => activateFromPointer(event, initialize)}
+    onclick={(event) => activateFromKeyboardOrAssistiveClick(event, initialize)}>Retry</button
+  >
+{/if}
 <section class="grid min-h-[65vh] gap-4 lg:grid-cols-[minmax(14rem,0.7fr)_1.3fr]">
   <div>
     <p class="mb-3 text-sm text-muted">

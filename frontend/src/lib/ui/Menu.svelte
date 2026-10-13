@@ -7,13 +7,14 @@
     label,
     children,
     button = $bindable(),
+    menuOpen = $bindable(false),
   }: {
     label: string;
     children: Snippet<[close: () => void]>;
     button?: HTMLButtonElement;
+    menuOpen?: boolean;
   } = $props();
 
-  let menuOpen = $state(false);
   let menuRoot = $state<HTMLDivElement>();
 
   function closeMenu() {

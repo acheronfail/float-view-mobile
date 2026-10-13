@@ -200,3 +200,31 @@ is bounded to 1,500 samples and resets for device or sequence changes; missing
 values and source gaps break the lines. Stale readings show unavailable values
 while existing points scroll out. Display units match the live widgets. Session
 remains the history review path.
+
+## UI restoration
+
+The application shell saves one explicit version-1 UI checkpoint through
+`uiState.get`/`uiState.set`. The shared process retains it only in memory;
+WebView/server disposal preserves it, process termination clears it. Nothing is
+written to browser storage, SQLite or archives, and no UI work runs in the
+background. The typed contract bounds the encoded record to 4,096 UTF-8 bytes
+and each target to 512 bytes.
+
+The record contains the current route and session/board return context, Live
+normal/detailed mode and at most one allowlisted actions or feature surface.
+Live and board-history owners report their presentation explicitly. One save
+can be in flight with one latest queued replacement; identical records are
+ignored. A change interrupted before acknowledgement can be lost.
+
+An explicit incoming route different from the saved destination takes precedence
+over restoration. Native foreground recreation loads the root URL.
+
+Startup reads current native state and the checkpoint before mounting the
+route. It validates targets, loads normal data and restores eligible surfaces;
+missing targets fall back to their parent while operational failures offer
+retry. Ordinary socket reconnection does not repeat restoration. Debug outcomes
+contain only route kinds and fixed reasons, never target IDs or payloads.
+
+Editors reopen from current values. Drafts, confirmations, operation flags,
+chart/map inspection, scroll/focus position and live-chart samples are not
+restored; presentation restoration never replays a mutation.
