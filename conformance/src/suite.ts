@@ -1248,6 +1248,9 @@ export function assertState(state: AppState) {
     assert.ok(snapshot.cellVoltagesV.length <= 50);
     assert.equal(snapshot.balancing.length, snapshot.cellVoltagesV.length);
     assert.ok(snapshot.temperaturesC.length <= 50);
+    assert.ok(Number.isFinite(snapshot.highestCircuitryTemperatureC));
+    assert.ok(snapshot.highestCircuitryTemperatureC >= snapshot.icTemperatureC);
+    assert.ok(snapshot.highestCircuitryTemperatureC >= snapshot.humiditySensorTemperatureC);
     assert.ok([...snapshot.cellVoltagesV, ...snapshot.temperaturesC].every(Number.isFinite));
     assert.ok(snapshot.balancing.every((value) => typeof value === 'boolean'));
     assert.ok(snapshot.status === null || new TextEncoder().encode(snapshot.status).length <= 40);

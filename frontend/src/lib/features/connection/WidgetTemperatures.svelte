@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { LiveSample } from '../../backend/contract';
-  import { bmsMenuVisible } from './bms';
+  import { bmsMenuVisible, freshBmsSnapshot } from './bms';
   import { liveValue } from './live-values';
   import type { BmsState } from '../../backend/contract';
   import { colorForTemperature } from './gauge-colors';
@@ -26,16 +26,24 @@
   const batteryTemperature = $derived(
     liveValue('bmsHighestCellTempC', sample, 'metric', undefined, undefined, bms, Math.max(nowMs, Date.now())).value
   );
+  const circuitryTemperature = $derived(
+    freshBmsSnapshot(bms, Math.max(nowMs, Date.now()))?.highestCircuitryTemperatureC ?? null
+  );
   const showBattery = $derived(bmsMenuVisible(bms) || batteryTemperature != null);
 
   const readings = $derived([
     { key: 'controller', name: 'VESC', value: sample?.controllerTempC },
     { key: 'motor', name: 'Motor', value: sample?.motorTempC },
-    ...(showBattery ? [{ key: 'battery', name: 'Batt.', value: batteryTemperature }] : []),
+    ...(showBattery
+      ? [
+          { key: 'battery', name: 'Cells', value: batteryTemperature },
+          { key: 'bms', name: 'BMS', value: circuitryTemperature },
+        ]
+      : []),
   ]);
 </script>
 
-<section class="flex h-full min-h-0 flex-col overflow-hidden" aria-labelledby="temperatures-title">
+<section class="flex flex-col" aria-labelledby="temperatures-title">
   <h2
     id="temperatures-title"
     class="mb-3 shrink-0 text-xs font-semibold tracking-[0.16em] text-muted uppercase tall:text-sm taller:text-base"
@@ -43,14 +51,14 @@
     Temperatures
   </h2>
 
-  <div class={`flex h-[4.5rem] shrink-0 flex-col ${showBattery ? 'gap-0.5' : 'gap-3'}`}>
+  <div class={`flex shrink-0 flex-col ${showBattery ? 'min-h-[5.625rem] gap-0.5' : 'h-[4.5rem] gap-3'}`}>
     {#each readings as reading, index (reading.key)}
       <GaugeBar
         value={reading.value}
         {maximum}
         label={reading.name}
         detail={label(reading.value)}
-        ariaLabel={`${reading.key === 'battery' ? 'Battery' : reading.name} temperature`}
+        ariaLabel={`${reading.key === 'battery' ? 'Battery cells' : reading.key === 'bms' ? 'BMS circuitry' : reading.name} temperature`}
         ariaValueText={reading.value == null ? 'Unavailable' : label(reading.value)}
         showTicks
         showLabels={index === readings.length - 1}

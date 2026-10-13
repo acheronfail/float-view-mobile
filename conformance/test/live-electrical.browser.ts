@@ -121,6 +121,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             humiditySensorTemperatureC: 22,
             humidityPercent: 50,
             highestCellTemperatureC: 22,
+            highestCircuitryTemperatureC: 30,
             stateOfCharge: 0.6,
             stateOfHealth: 1,
             reportedCanId: 10,
@@ -535,6 +536,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           stateOfCharge: 0.6,
           temperaturesC: [80],
           highestCellTemperatureC: 80,
+          highestCircuitryTemperatureC: 30,
           cellVoltagesV: [4, 4.1],
         });
         const bmsLevel = page.getByRole('button', { name: 'Choose value for box 1: BMS battery level', exact: true });

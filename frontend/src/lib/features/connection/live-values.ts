@@ -94,7 +94,7 @@ export function liveValue(
     bmsMinCellVoltageV: cells.length ? Math.min(...cells) : null,
     bmsMaxCellVoltageV: cells.length ? Math.max(...cells) : null,
     bmsCellVoltageSpreadV: cells.length ? Math.max(...cells) - Math.min(...cells) : null,
-    bmsHighestCellTempC: snapshot ? highestBatteryTemperature(snapshot) : null,
+    bmsHighestCellTempC: snapshot?.highestCellTemperatureC,
     bmsIcTempC: snapshot?.icTemperatureC,
     bmsHumidityPercent: snapshot?.humidityPercent,
   };
@@ -197,18 +197,13 @@ export function liveValueStatus(field: LiveWidgetField, sample: LiveSample | nul
   return '';
 }
 
-function highestBatteryTemperature(snapshot: NonNullable<BmsState['latestSnapshot']>) {
-  const values = [snapshot.highestCellTemperatureC, ...snapshot.temperaturesC].filter(Number.isFinite);
-  return values.length ? Math.max(...values) : null;
-}
-
 function highestTemperature(sample: LiveSample | null | undefined, bms: BmsState | null | undefined, nowMs: number) {
   const snapshot = freshBmsSnapshot(bms, nowMs);
   const candidates = [
     { label: 'ESC temp', value: sample?.controllerTempC },
     { label: 'Motor temp', value: sample?.motorTempC },
-    { label: 'Battery temp', value: snapshot ? highestBatteryTemperature(snapshot) : null },
-    { label: 'BMS temp', value: snapshot?.icTemperatureC },
+    { label: 'Battery temp', value: snapshot?.highestCellTemperatureC },
+    { label: 'BMS temp', value: snapshot?.highestCircuitryTemperatureC },
     { label: 'Humidity temp', value: snapshot?.humiditySensorTemperatureC },
   ].filter(
     (reading): reading is { label: string; value: number } => reading.value != null && Number.isFinite(reading.value)

@@ -2081,6 +2081,7 @@ function validBmsState(value: BmsState): boolean {
       snapshot.cellVoltagesV.length > 50 ||
       snapshot.balancing.length !== snapshot.cellVoltagesV.length ||
       snapshot.temperaturesC.length > 50 ||
+      !Number.isFinite(snapshot.highestCircuitryTemperatureC) ||
       (snapshot.status !== null && new TextEncoder().encode(snapshot.status).length > 40) ||
       !Number.isInteger(snapshot.reportedCanId) ||
       snapshot.reportedCanId < 0 ||

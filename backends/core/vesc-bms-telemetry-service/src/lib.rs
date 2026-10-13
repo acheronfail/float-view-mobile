@@ -78,6 +78,26 @@ impl Debug for BmsObservation {
 }
 
 impl BmsObservation {
+    /// Keep the firmware's cell maximum separate from circuitry temperatures.
+    pub fn highest_circuitry_temperature_c(&self) -> f64 {
+        let mut highest = self
+            .ic_temperature_c
+            .max(self.humidity_sensor_temperature_c);
+        // The official VBMS version-1 package reports IC, cell min, cell max,
+        // MOSFET, ambient, then cell probes. Other wire families retain their
+        // dedicated IC/environment readings without guessing array semantics.
+        // https://github.com/vedderb/vesc_pkg/blob/main/vbms32/vbms32.lisp
+        if self.data_version == Some(1) && self.temperatures_c.len() >= 5 {
+            highest = highest
+                .max(self.temperatures_c[0])
+                .max(self.temperatures_c[3]);
+            if self.temperatures_c[4] > -50.0 {
+                highest = highest.max(self.temperatures_c[4]);
+            }
+        }
+        highest
+    }
+
     fn from_decoded(
         decoded: &values::BmsValues<'_>,
         route: Route,

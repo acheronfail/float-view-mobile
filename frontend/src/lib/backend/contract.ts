@@ -299,6 +299,8 @@ export interface BmsSnapshot {
   humiditySensorTemperatureC: number;
   humidityPercent: number;
   highestCellTemperatureC: number;
+  /** Highest reported BMS circuitry temperature, excluding cell probes. */
+  highestCircuitryTemperatureC: number;
   stateOfCharge: number;
   stateOfHealth: number;
   reportedCanId: number;

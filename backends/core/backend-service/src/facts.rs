@@ -142,6 +142,7 @@ record!(BmsSnapshot {
     input_ic_current_a: f64, session_amp_hours_ah: f64, session_watt_hours_wh: f64,
     cell_voltages_v: Vec<f64>, balancing: Vec<bool>, temperatures_c: Vec<f64>, ic_temperature_c: f64,
     humidity_sensor_temperature_c: f64, humidity_percent: f64, highest_cell_temperature_c: f64,
+    highest_circuitry_temperature_c: f64,
     state_of_charge: f64, state_of_health: f64, reported_can_id: u8,
     lifetime_charge_amp_hours_ah: f64, lifetime_charge_watt_hours_wh: f64,
     lifetime_discharge_amp_hours_ah: f64, lifetime_discharge_watt_hours_wh: f64,

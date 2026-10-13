@@ -449,6 +449,7 @@ pub(crate) fn bms(v: &c::bms::BmsObservation) -> f::BmsSnapshot {
         humidity_sensor_temperature_c: v.humidity_sensor_temperature_c,
         humidity_percent: v.humidity_percent,
         highest_cell_temperature_c: v.highest_cell_temperature_c,
+        highest_circuitry_temperature_c: v.highest_circuitry_temperature_c(),
         state_of_charge: v.state_of_charge,
         state_of_health: v.state_of_health,
         reported_can_id: v.reported_can_id,

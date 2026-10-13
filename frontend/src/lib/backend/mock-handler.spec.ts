@@ -17,6 +17,7 @@ const bmsSnapshot: BmsSnapshot = {
   humiditySensorTemperatureC: 24,
   humidityPercent: 42,
   highestCellTemperatureC: 25,
+  highestCircuitryTemperatureC: 28,
   stateOfCharge: 0.9,
   stateOfHealth: 0.98,
   reportedCanId: 42,

@@ -48,8 +48,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 mode === 'fresh' || mode === 'stale'
                   ? {
                       observedAt: new Date(Date.now() - (mode === 'stale' ? 10_000 : 0)).toISOString(),
-                      temperaturesC: [29, 34.5],
-                      highestCellTemperatureC: 32,
+                      temperaturesC: [43, 24.9, 26.1, 31.1, -300, 26.1, 24.9, 26.1, 25.8],
+                      highestCellTemperatureC: 26.1,
+                      highestCircuitryTemperatureC: 43,
                       cellVoltagesV: [3.8, 3.81],
                       balancing: [false, false],
                       totalVoltageV: 68.4,
@@ -58,8 +59,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                       inputIcCurrentA: 2,
                       sessionAmpHoursAh: 0,
                       sessionWattHoursWh: 0,
-                      icTemperatureC: 30,
-                      humiditySensorTemperatureC: 28,
+                      icTemperatureC: 43,
+                      humiditySensorTemperatureC: 35.1,
                       humidityPercent: 40,
                       stateOfCharge: 0.8,
                       stateOfHealth: 1,
@@ -86,25 +87,49 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const shortcut = page.getByRole('button', { name: 'Open battery management system', exact: true });
       assert.equal(await shortcut.count(), 0);
       mode = 'detected';
-      const battery = temperatures.getByRole('progressbar', { name: 'Battery temperature', exact: true });
+      const battery = temperatures.getByRole('progressbar', { name: 'Battery cells temperature', exact: true });
       await battery.waitFor();
+      const circuitry = temperatures.getByRole('progressbar', { name: 'BMS circuitry temperature', exact: true });
+      await circuitry.waitFor();
+      assert.equal(await temperatures.getByRole('progressbar').count(), 4);
       assert.equal(await battery.getAttribute('aria-valuetext'), 'Unavailable');
-      assert.equal((await temperatures.boundingBox())!.height, height);
+      assert.ok((await temperatures.boundingBox())!.height >= height + 18);
       mode = 'fresh';
       await page.waitForFunction(
-        () => document.querySelector('[aria-label="Battery temperature"]')?.getAttribute('aria-valuenow') === '34.5'
+        () =>
+          document.querySelector('[aria-label="Battery cells temperature"]')?.getAttribute('aria-valuenow') === '26.1'
       );
-      assert.equal((await temperatures.boundingBox())!.height, height);
+      assert.ok((await temperatures.boundingBox())!.height >= height + 18);
       assert.equal((await battery.boundingBox())!.height, 12);
+      assert.equal((await circuitry.boundingBox())!.height, 12);
+      assert.equal(await circuitry.getAttribute('aria-valuenow'), '43');
+      for (const bar of await temperatures.getByRole('progressbar').all()) {
+        assert.equal((await bar.boundingBox())!.height, 12);
+      }
+      const regionBox = (await temperatures.boundingBox())!;
+      const lastBox = (await circuitry.boundingBox())!;
+      assert.ok(lastBox.y + lastBox.height + 20 <= regionBox.y + regionBox.height + 1);
       await page.waitForFunction(() => {
-        const bar = document.querySelector('[aria-label="Battery temperature"]');
+        const bar = document.querySelector('[aria-label="Battery cells temperature"]');
         const fill = bar?.lastElementChild;
         return (
           !!bar &&
           !!fill &&
-          Math.abs(fill.getBoundingClientRect().width / bar.getBoundingClientRect().width - 0.345) < 0.01
+          Math.abs(fill.getBoundingClientRect().width / bar.getBoundingClientRect().width - 0.261) < 0.01
         );
       });
+      for (const viewport of [
+        { width: 360, height: 640 },
+        { width: 1280, height: 900 },
+      ]) {
+        await page.setViewportSize(viewport);
+        const bounds = (await temperatures.boundingBox())!;
+        const last = (await circuitry.boundingBox())!;
+        assert.ok(last.y + last.height + 20 <= bounds.y + bounds.height + 1);
+        for (const bar of await temperatures.getByRole('progressbar').all())
+          assert.equal((await bar.boundingBox())!.height, 12);
+      }
+      await page.setViewportSize({ width: 390, height: 844 });
       if (name === 'chromium') {
         await page.screenshot({ path: '/tmp/float-view-live-battery-temperature.png' });
         await temperatures.screenshot({ path: '/tmp/float-view-temperature-bars.png' });
@@ -151,8 +176,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       mode = 'stale';
       await page.waitForFunction(
         () =>
-          document.querySelector('[aria-label="Battery temperature"]')?.getAttribute('aria-valuetext') === 'Unavailable'
+          document.querySelector('[aria-label="Battery cells temperature"]')?.getAttribute('aria-valuetext') ===
+          'Unavailable'
       );
+      assert.equal(await circuitry.getAttribute('aria-valuetext'), 'Unavailable');
       mode = 'absent';
       await battery.waitFor({ state: 'hidden' });
       assert.equal(await shortcut.count(), 0);

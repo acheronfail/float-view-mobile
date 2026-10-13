@@ -123,6 +123,7 @@ describe('BMS boxes and highest temperature', () => {
       cellVoltagesV: [4.1, 4.05, 4.08],
       temperaturesC: [31, 47],
       highestCellTemperatureC: 44,
+      highestCircuitryTemperatureC: 40,
       icTemperatureC: 40,
       humiditySensorTemperatureC: 35,
       humidityPercent: 22,
@@ -143,7 +144,7 @@ describe('BMS boxes and highest temperature', () => {
   const reading = (field: import('$lib/backend/contract').LiveWidgetField, state = bms, time = now) =>
     liveValue(field, { ...sample, controllerTempC: 38, motorTempC: 45 }, 'metric', null, null, state, time);
 
-  it('uses BMS fractions, signed current, cell extrema and all battery probes', () => {
+  it('uses BMS fractions, signed current, cell extrema and explicit cell temperature', () => {
     expect(reading('bmsStateOfCharge').value).toBe(75);
     expect(reading('bmsStateOfHealth').value).toBe(98);
     expect(reading('bmsTotalVoltageV').value).toBe(75);
@@ -152,10 +153,10 @@ describe('BMS boxes and highest temperature', () => {
     expect(reading('bmsMinCellVoltageV').value).toBe(4.05);
     expect(reading('bmsMaxCellVoltageV').value).toBe(4.1);
     expect(reading('bmsCellVoltageSpreadV').value).toBeCloseTo(0.05);
-    expect(reading('bmsHighestCellTempC').value).toBe(47);
+    expect(reading('bmsHighestCellTempC').value).toBe(44);
     expect(reading('bmsIcTempC').value).toBe(40);
     expect(reading('bmsHumidityPercent').value).toBe(22);
-    expect(reading('highestTempC')).toMatchObject({ value: 47, label: 'Battery temp' });
+    expect(reading('highestTempC')).toMatchObject({ value: 45, label: 'Motor temp' });
   });
 
   it.each(['not_found', 'discovering', 'unavailable', 'ambiguous'] as const)('falls back when BMS is %s', (status) => {
@@ -180,7 +181,7 @@ describe('BMS boxes and highest temperature', () => {
 
   it('identifies every winning sensor, switches immediately and converts the winner to Fahrenheit', () => {
     for (const [key, label] of [
-      ['icTemperatureC', 'BMS temp'],
+      ['highestCircuitryTemperatureC', 'BMS temp'],
       ['humiditySensorTemperatureC', 'Humidity temp'],
     ] as const) {
       const state = { ...bms, latestSnapshot: { ...bms.latestSnapshot!, [key]: 70 } };

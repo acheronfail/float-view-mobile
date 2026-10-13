@@ -56,7 +56,7 @@
         />
       </div>
 
-      <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
+      <div class:opacity-45={dimmed} class="transition-opacity">
         <WidgetTemperatures {sample} bms={connection.bms} {nowMs} />
       </div>
 
