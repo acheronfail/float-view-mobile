@@ -123,6 +123,61 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 document.documentElement.dataset.theme = 'light';
               });
             }
+            const controls = panel.getByRole('button', { name: 'Section and search controls', exact: true });
+            const search = panel.getByRole('searchbox');
+            const source = panel.getByText('Source:', { exact: false });
+            assert.equal(await source.isVisible(), true);
+            const expandedY = (await scroll.boundingBox())!.y;
+            await controls.click({ button: 'right' });
+            await controls.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
+            await controls.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
+            assert.equal(await controls.getAttribute('aria-expanded'), 'true');
+            await controls.evaluate((el) =>
+              el.addEventListener(
+                'pointerdown',
+                (event) => el.setAttribute('data-test-pointer', String((event as PointerEvent).pointerId)),
+                { once: true }
+              )
+            );
+            await controls.hover();
+            await page.mouse.down();
+            await controls.dispatchEvent('pointercancel', {
+              pointerId: Number(await controls.getAttribute('data-test-pointer')),
+            });
+            await page.mouse.up();
+            assert.equal(await controls.getAttribute('aria-expanded'), 'true');
+            await search.fill('Duty');
+            await controls.tap();
+            assert.equal(await controls.getAttribute('aria-expanded'), 'false', 'touch collapses exactly once');
+            assert.equal(await search.isVisible(), false);
+            assert.equal(await source.isVisible(), false, 'collapse hides the source and changed-count row');
+            assert.ok(expandedY - (await scroll.boundingBox())!.y > 100, 'collapse frees space for fields');
+            assert.match(await controls.innerText(), /Balance.*Filtered/s);
+            if (output && name === 'chromium') {
+              await page.screenshot({ path: `${output}/refloat-configure-collapsed-${viewport.width}.png` });
+            }
+            await controls.focus();
+            await page.keyboard.press('Enter');
+            assert.equal(await controls.getAttribute('aria-expanded'), 'true');
+            assert.equal(await source.isVisible(), true);
+            assert.equal(await search.inputValue(), 'Duty', 'collapse preserves the filter');
+            await search.fill('');
+            const sections = panel.getByRole('group', { name: 'Section', exact: true });
+            await sections.getByRole('button', { name: 'Startup defaults', exact: true }).tap();
+            await controls.focus();
+            await page.keyboard.press('Space');
+            assert.equal(await controls.getAttribute('aria-expanded'), 'false');
+            assert.match(await controls.innerText(), /Startup defaults/);
+            await controls.dispatchEvent('click', { detail: 0 });
+            assert.equal(await controls.getAttribute('aria-expanded'), 'true');
+            assert.equal(
+              await sections
+                .getByRole('button', { name: 'Startup defaults', exact: true })
+                .getAttribute('aria-pressed'),
+              'true',
+              'collapse preserves the selected section'
+            );
+            await sections.getByRole('button', { name: 'Balance', exact: true }).tap();
           }
           if (viewport.width === 390) await done.tap();
           else await page.keyboard.press('Escape');

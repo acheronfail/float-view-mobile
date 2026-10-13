@@ -17,6 +17,7 @@
 
   let { controller }: { controller: RefloatConfigurationController } = $props();
   let writeConfirmation = $state(false);
+  let controlsExpanded = $state(true);
   let selectedSectionKey = $state('');
   let helpField = $state<RefloatConfigurationFieldContract | null>(null);
   let helpTrigger = $state<HTMLButtonElement>();
@@ -50,54 +51,85 @@
   function closeHelp() {
     helpField = null;
   }
+
+  function toggleControls() {
+    controlsExpanded = !controlsExpanded;
+  }
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-labelledby="refloat-configuration-title">
-  <div class="z-10 grid shrink-0 gap-2 bg-surface py-3">
-    <div class="grid gap-2 sm:grid-cols-2">
-      <div class="grid gap-1 text-sm">
-        <span class="font-medium">Section</span>
-        <SegmentedControl
-          label="Section"
-          disabled={controller.loading || !controller.sections.length}
-          value={selectedSection?.key ?? ''}
-          options={controller.sections.map((section) => ({ value: section.key, label: section.label }))}
-          onchange={(value) => {
-            selectedSectionKey = value;
-          }}
-        />
+  <div class="z-10 -mx-4 -mt-px shrink-0 border-y border-outline bg-surface px-4 py-1">
+    <button
+      type="button"
+      aria-label="Section and search controls"
+      aria-expanded={controlsExpanded}
+      aria-controls="refloat-configuration-controls"
+      class="flex min-h-11 w-full touch-manipulation items-center justify-between gap-3 rounded-md text-left text-sm focus-visible:outline-2 focus-visible:outline-accent"
+      onpointerdown={(event) => activateFromPointer(event, toggleControls)}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, toggleControls)}
+    >
+      <span class="min-w-0 font-medium">
+        {controlsExpanded ? 'Section & search' : (selectedSection?.label ?? 'Section & search')}
+        {#if !controlsExpanded && controller.search}<span class="text-muted"> · Filtered</span>{/if}
+      </span>
+      <span class="shrink-0 text-muted">{controlsExpanded ? 'Hide controls' : 'Show controls'}</span>
+    </button>
+    <div id="refloat-configuration-controls" hidden={!controlsExpanded} class="space-y-2 pb-2">
+      <div class="grid gap-2 sm:grid-cols-2">
+        <div class="grid gap-1 text-sm">
+          <span class="font-medium">Section</span>
+          <SegmentedControl
+            label="Section"
+            disabled={controller.loading || !controller.sections.length}
+            value={selectedSection?.key ?? ''}
+            options={controller.sections.map((section) => ({ value: section.key, label: section.label }))}
+            onchange={(value) => {
+              selectedSectionKey = value;
+            }}
+          />
+        </div>
+        <label class="grid gap-1 text-sm">
+          <span class="font-medium">Search this section</span>
+          <input
+            type="search"
+            placeholder="Search fields"
+            class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
+            bind:value={controller.search}
+          />
+        </label>
       </div>
-      <label class="grid gap-1 text-sm">
-        <span class="font-medium">Search this section</span>
-        <input
-          type="search"
-          placeholder="Search fields"
-          class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
-          bind:value={controller.search}
-        />
-      </label>
-    </div>
-    <div class="flex flex-wrap justify-end gap-2">
-      <button
-        type="button"
-        class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
-        disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
-        onpointerdown={(event) => activateFromPointer(event, () => controller.load('current'))}
-        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('current'))}
-        >Read current</button
-      >
-      <button
-        type="button"
-        class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
-        disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
-        onpointerdown={(event) => activateFromPointer(event, () => controller.load('default'))}
-        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('default'))}
-        >Read defaults</button
-      >
+      <div class="flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
+          disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
+          onpointerdown={(event) => activateFromPointer(event, () => controller.load('current'))}
+          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('current'))}
+          >Read current</button
+        >
+        <button
+          type="button"
+          class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
+          disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
+          onpointerdown={(event) => activateFromPointer(event, () => controller.load('default'))}
+          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('default'))}
+          >Read defaults</button
+        >
+      </div>
+      {#if !(controller.loading && !controller.pages.length) && !controller.error}
+        <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline p-3 text-sm">
+          <span>
+            Source: <strong
+              >{controller.source === 'current' ? 'Current device values' : 'Persistent firmware defaults'}</strong
+            >
+          </span>
+          <span>{controller.diff.length} changed</span>
+        </div>
+      {/if}
     </div>
   </div>
 
-  <div class="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pb-3">
+  <div class="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-3">
     {#if controller.loading && !controller.pages.length}
       <p class="text-muted">Loading audited Refloat schema…</p>
     {:else if controller.error}
@@ -109,14 +141,6 @@
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.open())}>Retry</button
       >
     {:else}
-      <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline p-3 text-sm">
-        <span>
-          Source: <strong
-            >{controller.source === 'current' ? 'Current device values' : 'Persistent firmware defaults'}</strong
-          >
-        </span>
-        <span>{controller.diff.length} changed</span>
-      </div>
       {#if controller.summary?.writable === false}
         <p class="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
           Persistent writes are unavailable. The board may be read-only, reconnecting, unsafe, or in flywheel mode.
