@@ -50,13 +50,18 @@ describe('controller selection prompt', () => {
     });
     const text = body.replace(/\s+/g, ' ');
 
-    expect(text).toContain('Choose a controller (2 found)');
+    expect(text).toContain('Choose controller');
     expect(text.indexOf('CAN 7')).toBeLessThan(text.indexOf('CAN 42'));
-    expect(text).toContain('Old VESC · Unknown firmware · VESC 5.03');
+    expect(text).toContain('Old VESC · VESC 5.03');
     expect(text).toContain('THOR300 · Refloat · VESC 6.06');
     expect(body.match(/ disabled(?:>| )/g)).toHaveLength(1);
-    expect(text).toContain('Unsupported');
-    expect(text).toContain('Supported');
+    expect(text).toContain('VESC not supported');
+    expect(text).toContain('Connect');
+    expect(text).toContain('2 CAN addresses responded');
+    expect(text).toContain('check the controller’s CAN ID in VESC Tool');
+    expect(text).not.toContain('Refloat compatibility is checked after');
+    expect(text).not.toContain('Matching names and versions');
+    expect(text).not.toContain('Unknown firmware');
     expect(text).toContain('Disconnect');
     expect(body).toContain('fixed inset-0 z-40 h-dvh w-screen bg-canvas');
   });

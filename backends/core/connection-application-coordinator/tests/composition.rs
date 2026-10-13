@@ -364,7 +364,7 @@ fn can_configuration_is_forwarded_once_and_corrupt_cache_is_removed() {
     facts.preferred_controller_can_id = Some(42);
     can.apply(Command::Begin(facts)).unwrap();
     receive(&mut can, gateway_payload(1), 20);
-    receive(&mut can, motor_configuration_payload(42), 30);
+    receive_can_motor(&mut can, motor_configuration_payload(42), 42, 30);
     receive(&mut can, dynamic_info_payload(), 40);
     receive(&mut can, dynamic_layout_payload(), 50);
     let activation = activate_with_cache(&mut can, 60, Some(configuration_schema_1_2_3()));

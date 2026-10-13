@@ -112,6 +112,19 @@ test('canonical discovery scenarios exercise configured, hinted, mixed, and boun
   assert.equal(payload(request(ambiguous, [34, 42, 0]))[2], 6);
 });
 
+test('CAN route verification returns only the addressed controller ID and rejects other field masks', () => {
+  const automatic = simulator('automatic-can-discovery');
+  assert.deepEqual(payload(request(automatic, [34, 1, 50, 0, 2, 0, 0])), [50, 0, 2, 0, 0, 1]);
+  assert.equal(automatic.requests.at(-1)!.kind, 'controller-route-verification');
+  assert.throws(() => automatic.receive(encodeFrame(Uint8Array.of(34, 2, 50, 0, 2, 0, 0))), /Unknown CAN target/);
+  assert.throws(
+    () => automatic.receive(encodeFrame(Uint8Array.of(34, 1, 50, 0, 0, 0, 0))),
+    /Invalid controller CAN ID request/
+  );
+  const configured = simulator('configured-can-without-ping');
+  assert.deepEqual(payload(request(configured, [34, 42, 50, 0, 2, 0, 0])), [50, 0, 2, 0, 0, 42]);
+});
+
 test('canonical route assertions distinguish direct and CAN polling and reject unsafe commands', () => {
   const direct = new VescSimulator(directThor);
   assert.equal(request(direct, [36, 101, 31]).request.canId, undefined);

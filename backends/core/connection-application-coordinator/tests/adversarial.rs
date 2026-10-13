@@ -285,7 +285,12 @@ fn every_emitted_request_is_read_only_and_bounded() {
     let mut effects = coordinator.apply(Command::Begin(begin_facts(10))).unwrap();
     effects.extend(receive(&mut coordinator, gateway_payload(1), 20));
     effects.extend(receive(&mut coordinator, vec![62, 42], 30));
-    effects.extend(receive(&mut coordinator, motor_payload(42), 40));
+    effects.extend(receive_can_motor(
+        &mut coordinator,
+        motor_payload(42),
+        42,
+        40,
+    ));
     effects.extend(receive(&mut coordinator, legacy_info_payload(), 50));
     effects.extend(activate(&mut coordinator, 60));
     let writes = effects.iter().filter_map(|effect| match effect {
@@ -300,7 +305,7 @@ fn every_emitted_request_is_read_only_and_bounded() {
             payload[0]
         };
         assert!(
-            matches!(command, 0 | 14 | 36 | 62 | 96),
+            matches!(command, 0 | 14 | 36 | 50 | 62 | 96),
             "mutating command {command}"
         );
     }

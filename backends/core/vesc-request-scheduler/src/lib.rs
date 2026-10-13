@@ -47,6 +47,7 @@ impl Priority {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RequestContext {
     ControllerFirmware(Route),
+    ControllerRouteVerification(Route),
     CanPing,
     AuxiliaryCanPing,
     RefloatInfo(Route),
@@ -87,6 +88,7 @@ impl RequestContext {
         match *self {
             Self::CanPing | Self::AuxiliaryCanPing => None,
             Self::ControllerFirmware(route)
+            | Self::ControllerRouteVerification(route)
             | Self::RefloatInfo(route)
             | Self::RefloatLayout(route)
             | Self::RefloatTelemetry(route)
@@ -1098,6 +1100,7 @@ mod tests {
         let can = Route::can(253).unwrap();
         let contexts = vec![
             RequestContext::ControllerFirmware(direct),
+            RequestContext::ControllerRouteVerification(can),
             RequestContext::CanPing,
             RequestContext::AuxiliaryCanPing,
             RequestContext::RefloatInfo(can),
@@ -1144,7 +1147,7 @@ mod tests {
                 .iter()
                 .filter(|context| context.route().is_some())
                 .count(),
-            14
+            15
         );
     }
 

@@ -18,14 +18,15 @@
 </script>
 
 <FullScreenOverlay
-  title={`Choose a controller (${candidates.length} found)`}
+  title="Choose controller"
   titleId="controller-selection-title"
   closeLabel="Disconnect"
   onclose={ondisconnect}
 >
   <p class="mb-4 text-sm text-muted">
-    More than one VESC motor controller responded. Choose the controller fitted to this board.
+    {candidates.length} CAN addresses responded. Select the CAN ID configured for your board’s motor controller.
   </p>
+  <p class="mb-4 text-sm text-muted">If you’re unsure, check the controller’s CAN ID in VESC Tool before choosing.</p>
   <ul class="grid gap-3">
     {#each candidates as candidate (candidate.canId)}
       <li>
@@ -33,18 +34,23 @@
           type="button"
           class="w-full touch-manipulation rounded-xl border border-outline bg-elevated p-4 text-left disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!candidate.vescSupported || pendingCanId !== null || backendState.busy}
-          onpointerdown={(event) => activateFromPointer(event, () => select(candidate.canId))}
+          onpointerdown={(event) => activateFromPointer(event, () => select(candidate.canId), { scrollable: true })}
           onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => select(candidate.canId))}
         >
           <span class="flex items-center justify-between gap-3">
             <strong>CAN {candidate.canId}</strong>
-            <span class={candidate.vescSupported ? 'text-success' : 'text-warning'}>
-              {pendingCanId === candidate.canId ? 'Connecting…' : candidate.vescSupported ? 'Supported' : 'Unsupported'}
+            <span class={candidate.vescSupported ? 'text-primary' : 'text-warning'}>
+              {pendingCanId === candidate.canId
+                ? 'Connecting…'
+                : candidate.vescSupported
+                  ? 'Connect'
+                  : 'VESC not supported'}
             </span>
           </span>
           <span class="mt-1 block text-sm text-muted">
-            {candidate.hardwareName ?? 'Unknown hardware'} ·
-            {candidate.firmwareName ?? 'Unknown firmware'} · VESC {candidate.vescVersion}
+            {[candidate.hardwareName ?? 'Unknown hardware', candidate.firmwareName, `VESC ${candidate.vescVersion}`]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
         </button>
       </li>

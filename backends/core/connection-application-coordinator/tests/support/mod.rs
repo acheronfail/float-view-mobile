@@ -57,6 +57,19 @@ pub fn receive(
         .expect("valid response")
 }
 
+/// Complete both stages of a normal CAN motor probe in existing lifecycle tests.
+pub fn receive_can_motor(
+    coordinator: &mut ConnectionApplicationCoordinator,
+    identity: Vec<u8>,
+    can_id: u8,
+    now_ms: u64,
+) -> Vec<Effect> {
+    let mut effects = receive(coordinator, identity, now_ms);
+    assert_eq!(write(&effects).payload, [34, can_id, 50, 0, 2, 0, 0]);
+    effects.extend(receive(coordinator, vec![50, 0, 2, 0, 0, can_id], now_ms));
+    effects
+}
+
 pub fn activate(coordinator: &mut ConnectionApplicationCoordinator, now_ms: u64) -> Vec<Effect> {
     activate_with_cache(coordinator, now_ms, None)
 }

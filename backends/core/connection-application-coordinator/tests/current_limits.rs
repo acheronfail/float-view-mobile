@@ -24,7 +24,7 @@ fn awaiting_can() -> ConnectionApplicationCoordinator {
     facts.preferred_controller_can_id = Some(42);
     coordinator.apply(Command::Begin(facts)).unwrap();
     receive(&mut coordinator, gateway_payload(1), 20);
-    receive(&mut coordinator, motor_payload(42), 30);
+    receive_can_motor(&mut coordinator, motor_payload(42), 42, 30);
     receive(&mut coordinator, legacy_info_payload(), 40);
     assert_eq!(coordinator.snapshot().phase, Phase::AwaitingActivation);
     coordinator

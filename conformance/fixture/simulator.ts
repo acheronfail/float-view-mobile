@@ -9,6 +9,7 @@ export type VescRequestKind =
   | 'transport-firmware'
   | 'can-ping'
   | 'controller-firmware'
+  | 'controller-route-verification'
   | 'bms-firmware'
   | 'bms-values'
   | 'motor-configuration'
@@ -238,6 +239,13 @@ export class VescSimulator {
         request: { at, command, canId, kind: 'controller-firmware' },
       };
     }
+    if (command === 50) {
+      if (!matchesControllerCanIdRequest(payload)) return this.reject('Invalid controller CAN ID request');
+      return {
+        response: Uint8Array.of(50, 0, 2, 0, 0, canId ?? 0),
+        request: { at, command, canId, kind: 'controller-route-verification' },
+      };
+    }
     if (command === 14) {
       return {
         response: motorConfigurationPayload,
@@ -339,6 +347,13 @@ export class VescSimulator {
       return {
         response: controller.firmware.payload,
         request: { ...base, kind: 'controller-firmware' },
+      };
+    }
+    if (command === 50) {
+      if (!matchesControllerCanIdRequest(payload)) return this.rejectBoard('Invalid controller CAN ID request');
+      return {
+        response: Uint8Array.of(50, 0, 2, 0, 0, controller.canId),
+        request: { ...base, kind: 'controller-route-verification' },
       };
     }
     if (command === 14) {
@@ -554,4 +569,8 @@ function telemetryPhase(controller: ControllerConfiguration, index: number) {
       throw new Error('Controller has no telemetry phases');
     })()
   );
+}
+
+function matchesControllerCanIdRequest(payload: Uint8Array): boolean {
+  return payload.length === 5 && payload.every((byte, index) => byte === [50, 0, 2, 0, 0][index]);
 }

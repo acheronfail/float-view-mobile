@@ -93,7 +93,7 @@ fn preferred_can() -> float_view_connection_application_coordinator::Snapshot {
     coordinator.apply(Command::Begin(facts)).unwrap();
     let probe = receive(&mut coordinator, gateway_payload(1), 20);
     assert_eq!(write(&probe).payload, [34, 42, 0]);
-    let info = receive(&mut coordinator, motor_payload(42), 30);
+    let info = receive_can_motor(&mut coordinator, motor_payload(42), 42, 30);
     assert_eq!(&write(&info).payload[..2], &[34, 42]);
     receive(&mut coordinator, legacy_info_payload(), 40);
     let activation = activate(&mut coordinator, 50);
@@ -156,9 +156,9 @@ fn ambiguous_selection() -> float_view_connection_application_coordinator::Snaps
     assert_eq!(write(&scan).payload, [62]);
     let first = receive(&mut coordinator, vec![62, 42, 7], 30);
     assert_eq!(write(&first).payload, [34, 7, 0]);
-    let second = receive(&mut coordinator, motor_payload(7), 40);
+    let second = receive_can_motor(&mut coordinator, motor_payload(7), 7, 40);
     assert_eq!(write(&second).payload, [34, 42, 0]);
-    receive(&mut coordinator, motor_payload(42), 50);
+    receive_can_motor(&mut coordinator, motor_payload(42), 42, 50);
     assert_eq!(coordinator.snapshot().phase, Phase::SelectingController);
     let selected = coordinator
         .apply(Command::SelectController {

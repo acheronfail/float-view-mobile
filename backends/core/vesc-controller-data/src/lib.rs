@@ -1,7 +1,7 @@
 //! Strict, bounded decoding of the controller data Float View consumes.
 //!
 //! This unselected safe candidate owns only the selected `COMM_GET_VALUES`
-//! prefix and `COMM_GET_MCCONF` current-limit subset. Native hosts retain
+//! prefix, selective controller CAN ID, and `COMM_GET_MCCONF` current-limit subset. Native hosts retain
 //! production request construction, routing, scheduling, and model mapping.
 
 #![forbid(unsafe_code)]
@@ -13,6 +13,9 @@ use std::fmt::{self, Debug, Display, Formatter};
 pub const COMM_GET_VALUES: u8 = 4;
 /// VESC `COMM_GET_MCCONF`.
 pub const COMM_GET_MCCONF: u8 = 14;
+/// VESC `COMM_GET_VALUES_SELECTIVE`, requesting only the controller's CAN ID
+/// (field-mask bit 17, echoed as a big-endian u32 before the one-byte ID).
+pub const CONTROLLER_CAN_ID_REQUEST: [u8; 5] = [50, 0, 2, 0, 0];
 /// Bytes consumed from a complete standard realtime-values response.
 pub const REALTIME_CONSUMED_BYTES: usize = 30;
 /// Bytes consumed before optional motor-configuration fields.
@@ -104,6 +107,17 @@ impl Display for ControllerDataError {
 }
 
 impl Error for ControllerDataError {}
+
+/// Decode the exact echoed field mask and controller ID. No telemetry is requested.
+pub fn decode_controller_can_id(payload: &[u8]) -> Result<u8, ControllerDataError> {
+    match payload {
+        [50, 0, 2, 0, 0, can_id @ 0..=253] => Ok(*can_id),
+        [command, ..] if *command != CONTROLLER_CAN_ID_REQUEST[0] => {
+            Err(ControllerDataError::UnsupportedCommand(*command))
+        }
+        _ => Err(ControllerDataError::TruncatedPayload),
+    }
+}
 
 /// Decode the selected prefix of one standard `COMM_GET_VALUES` response.
 ///
@@ -267,6 +281,29 @@ mod tests {
         0x4248_0000_u32.to_be_bytes(),
         0xC1A0_0000_u32.to_be_bytes(),
     ];
+
+    #[test]
+    fn controller_id_read_is_exact_bounded_and_rejects_other_masks() {
+        for can_id in 0..=253 {
+            assert_eq!(
+                decode_controller_can_id(&[50, 0, 2, 0, 0, can_id]),
+                Ok(can_id)
+            );
+        }
+        let response = [50, 0, 2, 0, 0, 42];
+        for extent in 0..response.len() {
+            assert!(decode_controller_can_id(&response[..extent]).is_err());
+        }
+        for payload in [
+            vec![4, 0, 2, 0, 0, 42],
+            vec![50, 0, 0, 0, 0, 42],
+            vec![50, 0, 2, 0, 0, 254],
+            vec![50, 0, 2, 0, 0, 255],
+            vec![50, 0, 2, 0, 0, 42, 0],
+        ] {
+            assert!(decode_controller_can_id(&payload).is_err());
+        }
+    }
 
     #[test]
     fn committed_realtime_fixtures_match_native_values() {

@@ -399,6 +399,7 @@ pub struct ConnectionApplicationCoordinator {
     preferred_bms_can_id: Option<u8>,
     awaiting_activation: Option<ActivationFacts>,
     direct_firmware_attempt: u8,
+    unverified_controller: Option<discovery::RoutedIdentity>,
     refloat_version: Option<compatibility::WireVersion>,
     refloat_gnss: bool,
     dynamic_layout: Option<dynamic::DynamicLayout>,
@@ -429,6 +430,7 @@ impl Default for ConnectionApplicationCoordinator {
             preferred_bms_can_id: None,
             awaiting_activation: None,
             direct_firmware_attempt: 0,
+            unverified_controller: None,
             refloat_version: None,
             refloat_gnss: false,
             dynamic_layout: None,
@@ -673,6 +675,19 @@ impl ConnectionApplicationCoordinator {
             return Err(CoordinatorError::InvalidObservationTime);
         }
         let expected = expected_response(&payload)?;
+        // Forwarded replies omit their source route. Require the controller's
+        // own CAN ID before admitting a motor identity to discovery. A late ID
+        // reply for another route must leave this request and deadline intact.
+        if expected.command == controller_data::CONTROLLER_CAN_ID_REQUEST[0]
+            && let Some(request) = self.scheduler.snapshot().in_flight
+            && let scheduler::RequestContext::ControllerRouteVerification(scheduler::Route::Can(
+                can_id,
+            )) = request.context
+            && let Ok(reported_id) = controller_data::decode_controller_can_id(&payload)
+            && reported_id != can_id
+        {
+            return Ok(vec![Effect::Diagnostic(Diagnostic::UnexpectedResponse)]);
+        }
         // Fast and slow command-33 replies share a command ID, but echo different
         // field masks. A late reply must not retire the other request's deadline.
         if expected.command == CUSTOM_APP_DATA_COMMAND
@@ -1105,6 +1120,7 @@ impl ConnectionApplicationCoordinator {
         self.standalone_bms = false;
         self.awaiting_activation = None;
         self.direct_firmware_attempt = 0;
+        self.unverified_controller = None;
         self.refloat_version = None;
         self.refloat_gnss = false;
         self.dynamic_layout = None;
@@ -1318,6 +1334,9 @@ impl ConnectionApplicationCoordinator {
         match request.context.clone() {
             scheduler::RequestContext::ControllerFirmware(route) => {
                 self.complete_controller_firmware(route, outcome, now_ms, effects)
+            }
+            scheduler::RequestContext::ControllerRouteVerification(route) => {
+                self.complete_controller_route_verification(route, outcome, now_ms, effects)
             }
             scheduler::RequestContext::CanPing => {
                 self.complete_controller_can_ping(outcome, now_ms, effects)
@@ -1577,6 +1596,28 @@ impl ConnectionApplicationCoordinator {
                         let discovery::Route::Can(can_id) = route else {
                             unreachable!();
                         };
+                        if identity.hardware_type == firmware::MOTOR_HARDWARE_TYPE {
+                            self.unverified_controller =
+                                Some(discovery::RoutedIdentity { route, identity });
+                            let facts = scheduler::RequestFacts {
+                                payload: routed_payload(
+                                    route,
+                                    &controller_data::CONTROLLER_CAN_ID_REQUEST,
+                                )?,
+                                expected_response: scheduler::ExpectedResponse {
+                                    command: controller_data::CONTROLLER_CAN_ID_REQUEST[0],
+                                    refloat_command: None,
+                                },
+                                priority: scheduler::Priority::ControllerIdentification,
+                                context: scheduler::RequestContext::ControllerRouteVerification(
+                                    scheduler::Route::Can(can_id),
+                                ),
+                                timeout_ms: CAN_PROBE_TIMEOUT_MS,
+                                generation: self.scheduler.snapshot().generation,
+                                expects_response: true,
+                            };
+                            return self.enqueue(facts, now_ms, effects);
+                        }
                         let transition =
                             self.discovery
                                 .accept_can_identity(can_id, identity, self.continuity);
@@ -1616,6 +1657,43 @@ impl ConnectionApplicationCoordinator {
             scheduler::Completion::Cancelled | scheduler::Completion::StaleGeneration => Ok(()),
             scheduler::Completion::Sent => {
                 push_effect(effects, Effect::Diagnostic(Diagnostic::UnexpectedResponse))
+            }
+        }
+    }
+
+    fn complete_controller_route_verification(
+        &mut self,
+        route: scheduler::Route,
+        outcome: scheduler::Completion,
+        now_ms: u64,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), CoordinatorError> {
+        let Some(pending) = self.unverified_controller.take() else {
+            return Ok(());
+        };
+        let scheduler::Route::Can(can_id) = route else {
+            return Err(CoordinatorError::InvalidPayload);
+        };
+        if pending.route != discovery::Route::Can(can_id) {
+            return Err(CoordinatorError::InvalidPayload);
+        }
+        match outcome {
+            scheduler::Completion::Response(payload)
+                if controller_data::decode_controller_can_id(&payload) == Ok(can_id) =>
+            {
+                let transition =
+                    self.discovery
+                        .accept_can_identity(can_id, pending.identity, self.continuity);
+                self.process_discovery(transition, now_ms, effects)
+            }
+            scheduler::Completion::Cancelled | scheduler::Completion::StaleGeneration => Ok(()),
+            _ => {
+                // A false scan address, malformed reply or timeout cannot
+                // become a candidate or overwrite a saved routing hint.
+                push_effect(effects, Effect::Diagnostic(Diagnostic::UnexpectedResponse))?;
+                let generation = self.discovery.snapshot().probe_generation;
+                let transition = self.discovery.can_probe_timed_out(can_id, generation);
+                self.process_discovery(transition, now_ms, effects)
             }
         }
     }
