@@ -146,7 +146,16 @@ summary {
   -webkit-tap-highlight-color: transparent;
 }
 
-a {
+/* Long presses on controls and continuously updated visuals are gestures, not
+ * requests to select their labels or open Safari's text/link callout. Keep
+ * ordinary page text and editable fields selectable. */
+button,
+a,
+summary,
+.nonselectable-surface,
+.nonselectable-surface * {
+  -webkit-user-select: none;
+  user-select: none;
   -webkit-touch-callout: none;
 }
 

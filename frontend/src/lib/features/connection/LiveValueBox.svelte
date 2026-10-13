@@ -100,7 +100,6 @@
     aria-describedby={`live-number-${slot} live-box-help-${slot}`}
     aria-keyshortcuts="Shift+Enter"
     class="flex h-14 w-full min-w-0 touch-pan-y items-center justify-center rounded-lg border border-outline bg-surface px-1 py-1.5 text-center select-none focus-visible:outline-2 focus-visible:outline-accent"
-    style="-webkit-touch-callout: none"
     onclick={(event) => activateFromKeyboardOrAssistiveClick(event, keyboardActivate)}
     onkeydown={(event) => {
       if (

@@ -80,7 +80,10 @@
     <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       {#each liveChartGroups as group (group.title)}
         {@const geometry = liveChartGeometry(points, group.fields, units, now)}
-        <section aria-label={group.title} class="mb-4 border-t border-outline bg-surface pt-3 pb-2">
+        <section
+          aria-label={group.title}
+          class="nonselectable-surface mb-4 border-t border-outline bg-surface pt-3 pb-2"
+        >
           <h3 class="mb-2 px-4 text-xs font-semibold tracking-wider text-muted uppercase">{group.title}</h3>
           <div class="mb-3 flex flex-wrap gap-x-5 gap-y-1 px-4">
             {#each group.fields as field, index (field)}

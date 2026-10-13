@@ -844,7 +844,7 @@
             {@const zero = chartModel?.zero ?? null}
             {@const tooltipEntries = inspectionVisible && domain ? chartTooltipEntries(chartGroup, domain) : []}
             {@const tooltipAnchor = tooltipEntries[0]?.point ?? null}
-            <div>
+            <div class="nonselectable-surface">
               <SectionTitle title={chartGroup.title} detail={chartGroup.unit ?? 'value'} />
 
               {#if domain && ((hasColumns && hasFiniteValues) || markers.length || filterByMap)}
