@@ -44,6 +44,7 @@ pub fn sample(sequence: u64, elapsed_ms: u64) -> NormalizedSample {
         observed_at_epoch_ms: 1_000_000 + elapsed_ms as i64,
         slow_observed_at_epoch_ms: None,
         elapsed_ms,
+        riding_elapsed_ms: 0,
         ride_state: RideState::Idle,
         package_state: None,
         package_mode: None,

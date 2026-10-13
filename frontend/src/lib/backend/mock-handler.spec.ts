@@ -73,6 +73,29 @@ describe('deterministic mock backend', () => {
     });
   });
 
+  it('accumulates ride time independently of idle time for saved and guest boards', () => {
+    for (const trackingMode of ['saved', 'guest']) {
+      const backend = new MockBackend();
+      backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+      backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode } });
+      const sample = () =>
+        (backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection!
+          .latestSample!;
+      backend.publishTelemetry();
+      backend.publishTelemetry();
+      const riding = sample().ridingElapsedMs;
+      expect(riding).toBeGreaterThan(0);
+      for (const state of ['idle', 'unknown'] as const) {
+        backend.simulateRideState(state);
+        backend.publishTelemetry();
+        expect(sample().ridingElapsedMs).toBe(riding);
+      }
+      backend.publishTelemetry();
+      expect(sample().ridingElapsedMs).toBeGreaterThan(riding);
+      expect(sample().elapsedMs).toBeGreaterThan(sample().ridingElapsedMs);
+    }
+  });
+
   it('keeps guest telemetry and controller selection out of durable state', () => {
     const backend = new MockBackend();
     backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });

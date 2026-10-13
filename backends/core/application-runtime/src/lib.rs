@@ -406,6 +406,7 @@ mod tests {
             observed_at_epoch_ms: 1_700_000_000_000 + sequence as i64,
             slow_observed_at_epoch_ms: None,
             elapsed_ms: sequence * 100,
+            riding_elapsed_ms: 0,
             ride_state: RideState::Idle,
             package_state: Some(PackageState::Ready),
             package_mode: Some(PackageMode::Normal),

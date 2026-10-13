@@ -25,7 +25,7 @@ export const liveValueCatalog = {
   speedKph: { name: 'Speed', label: 'Speed', unit: 'km/h', digits: 1 },
   distanceM: { name: 'Trip distance', label: 'Distance', unit: 'km', digits: 2 },
   odometerM: { name: 'Odometer', label: 'Odometer', unit: 'km', digits: 2 },
-  elapsedMs: { name: 'Session time', label: 'Time', unit: '', digits: 0 },
+  elapsedMs: { name: 'Ride time', label: 'Ride time', unit: '', digits: 0 },
   erpm: { name: 'Electrical RPM', label: 'ERPM', unit: 'ERPM', digits: 0 },
   controllerTempC: { name: 'Controller temperature', label: 'ESC temp', unit: '°C', digits: 1 },
   motorTempC: { name: 'Motor temperature', label: 'Motor temp', unit: '°C', digits: 1 },
@@ -104,21 +104,23 @@ export function liveValue(
     ...(load ? { label: { duty: 'Duty', motor: 'Motor', battery: 'Battery' }[load.source] } : {}),
   };
   let value =
-    field === 'highestTempC'
-      ? hottest?.value
-      : field in bmsValues
-        ? bmsValues[field as keyof typeof bmsValues]
-        : field === 'driveLoad'
-          ? load?.percentage
-          : field === 'powerW'
-            ? sample?.packVoltageV == null || sample.batteryCurrentA == null
-              ? null
-              : sample.packVoltageV * sample.batteryCurrentA
-            : field === 'estimatedBatteryLevel'
-              ? estimatedLevel
-              : field === 'empty' || field === 'headlights' || field === 'leds'
+    field === 'elapsedMs'
+      ? sample?.ridingElapsedMs
+      : field === 'highestTempC'
+        ? hottest?.value
+        : field in bmsValues
+          ? bmsValues[field as keyof typeof bmsValues]
+          : field === 'driveLoad'
+            ? load?.percentage
+            : field === 'powerW'
+              ? sample?.packVoltageV == null || sample.batteryCurrentA == null
                 ? null
-                : (sample?.[field as keyof LiveSample] as number | null | undefined);
+                : sample.packVoltageV * sample.batteryCurrentA
+              : field === 'estimatedBatteryLevel'
+                ? estimatedLevel
+                : field === 'empty' || field === 'headlights' || field === 'leds'
+                  ? null
+                  : (sample?.[field as keyof LiveSample] as number | null | undefined);
   let unit: string = definition.unit;
   if (value == null || !Number.isFinite(value)) return { ...definition, value: null, unit: displayUnit(unit, units) };
   if (field === 'batteryLevel' || field === 'estimatedBatteryLevel' || field === 'dutyCycle') value *= 100;

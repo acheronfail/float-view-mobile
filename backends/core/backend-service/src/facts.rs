@@ -149,7 +149,7 @@ record!(BmsSnapshot {
 });
 record!(Bms { status: String, connection: Option<Route>, candidates: Vec<BmsCandidate>, latest_snapshot: Option<BmsSnapshot> });
 record!(LiveSample {
-    sequence: u64, observed_at: String, slow_observed_at: Option<String>, elapsed_ms: u64,
+    sequence: u64, observed_at: String, slow_observed_at: Option<String>, elapsed_ms: u64, riding_elapsed_ms: u64,
     ride_state: String, package_state: Option<String>, package_mode: Option<String>, footpad_state: Option<String>,
     stop_condition: Option<String>, setpoint_adjustment: Option<String>, wheelslip: Option<bool>, darkride: Option<bool>,
     charging: Option<bool>, alert_reason: Option<String>, firmware_fault: Option<String>,

@@ -19,6 +19,14 @@ describe('live value selection', () => {
     expect(defaultLiveWidgetSlots).toEqual(['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM']);
     expect(Object.keys(liveValueCatalog)).toEqual([...liveWidgetFields]);
   });
+  it('uses native riding time rather than the session timeline, including while idle', () => {
+    for (const rideState of ['riding', 'idle', 'unknown'] as const) {
+      expect(
+        liveValue('elapsedMs', { ...sample, elapsedMs: 90_000, ridingElapsedMs: 12_000, rideState }, 'metric')
+      ).toMatchObject({ name: 'Ride time', value: 12_000 });
+    }
+    expect(liveValue('elapsedMs', null, 'metric').value).toBeNull();
+  });
   it('keeps sign, units and missing values', () => {
     expect(liveValue('powerW', sample, 'metric').value).toBe(-300);
     expect(liveValue('powerW', { ...sample, packVoltageV: null }, 'metric').value).toBeNull();

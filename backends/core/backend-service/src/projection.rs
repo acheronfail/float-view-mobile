@@ -377,6 +377,7 @@ pub(crate) fn sample(v: &telemetry::NormalizedSample) -> f::LiveSample {
         observed_at: date(v.observed_at_epoch_ms),
         slow_observed_at: v.slow_observed_at_epoch_ms.map(date),
         elapsed_ms: v.elapsed_ms,
+        riding_elapsed_ms: v.riding_elapsed_ms,
         ride_state: camel(v.ride_state),
         package_state: v.package_state.map(camel),
         package_mode: v.package_mode.map(camel),

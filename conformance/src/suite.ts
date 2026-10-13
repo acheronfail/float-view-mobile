@@ -661,6 +661,9 @@ async function createCompletedSession(
   }
   await exerciseRefloatConfiguration(client, connected);
   if (connected.activeConnection.latestSample) {
+    const sample = connected.activeConnection.latestSample;
+    assert.ok(Number.isSafeInteger(sample.ridingElapsedMs) && sample.ridingElapsedMs >= 0);
+    assert.ok(sample.ridingElapsedMs <= sample.elapsedMs);
     assert.deepEqual(Object.keys(connected.activeConnection.latestSample).sort(), [
       'alertReason',
       'ampHoursChargedAh',
@@ -702,6 +705,7 @@ async function createCompletedSession(
       'remoteSetpointDeg',
       'requestedBalanceCurrentA',
       'rideState',
+      'ridingElapsedMs',
       'rollDeg',
       'sequence',
       'setpointAdjustment',

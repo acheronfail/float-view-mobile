@@ -1048,6 +1048,9 @@ export class MockBackend {
       observedAt: new Date().toISOString(),
       slowObservedAt: new Date(Date.now() - 250).toISOString(),
       elapsedMs,
+      ridingElapsedMs:
+        (active.latestSample?.ridingElapsedMs ?? 0) +
+        (active.latestSample?.rideState === 'riding' ? this.state.settings.ridingPersistIntervalMs : 0),
       rideState: 'riding' as const,
       packageState: 'running' as const,
       packageMode: 'normal' as const,
@@ -1101,7 +1104,7 @@ export class MockBackend {
       ? {
           ...active.activeSession,
           sampleCount: sequence,
-          ridingElapsedMs: elapsedMs,
+          ridingElapsedMs: latestSample.ridingElapsedMs,
           totalElapsedMs: elapsedMs,
           maxSpeedMps: latestSample.speedKph / 3.6,
           maxDutyCycle: latestSample.dutyCycle,

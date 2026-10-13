@@ -91,7 +91,7 @@
           'Active firmware fault',
           sample ? (sample.firmwareFault ? telemetryState(sample.firmwareFault) : 'None') : 'Unavailable',
         ],
-        ['Session time', duration(sample?.elapsedMs)],
+        ['Ride time', duration(sample?.ridingElapsedMs)],
       ] as [string, string][]}
     />
     <p class="px-2 text-xs text-muted">The board retains the last reported beep reason after the beep ends.</p>

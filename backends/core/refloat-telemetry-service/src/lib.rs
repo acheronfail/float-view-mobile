@@ -260,6 +260,7 @@ pub struct NormalizedSample {
     pub observed_at_epoch_ms: i64,
     pub slow_observed_at_epoch_ms: Option<i64>,
     pub elapsed_ms: u64,
+    pub riding_elapsed_ms: u64,
     pub ride_state: RideState,
     pub package_state: Option<PackageState>,
     pub package_mode: Option<PackageMode>,
@@ -532,6 +533,8 @@ pub struct RefloatTelemetryService {
     poll_timer: Option<TimerToken>,
     polling_interval_ms: Option<u64>,
     started_at_ms: Option<u64>,
+    last_sample_at_ms: Option<u64>,
+    riding_elapsed_ms: u64,
     sequence: u64,
     previous_ride_state: RideState,
     post_ride_probe_until_ms: Option<u64>,
@@ -570,6 +573,8 @@ impl Default for RefloatTelemetryService {
             poll_timer: None,
             polling_interval_ms: None,
             started_at_ms: None,
+            last_sample_at_ms: None,
+            riding_elapsed_ms: 0,
             sequence: 0,
             previous_ride_state: RideState::Unknown,
             post_ride_probe_until_ms: None,
@@ -912,13 +917,27 @@ impl RefloatTelemetryService {
         if self.polling_interval_ms != Some(target_interval) {
             self.preflight_immediate_request(now_ms, true)?;
         }
-        let sample = self.normalized_sample(
+        // Only continuous, observed riding intervals advance the live ride clock.
+        // Starting/reconnecting cannot attribute the preceding idle/offline gap to riding.
+        let riding_delta = if self.previous_ride_state == RideState::Riding
+            && record.ride_state == RideState::Riding
+        {
+            self.last_sample_at_ms
+                .map_or(0, |last| now_ms.saturating_sub(last))
+        } else {
+            0
+        };
+        let next_riding_elapsed_ms = self.riding_elapsed_ms.saturating_add(riding_delta);
+        let mut sample = self.normalized_sample(
             record,
             next_sequence,
             observed_at_epoch_ms,
             now_ms.saturating_sub(started_at_ms),
         );
 
+        sample.riding_elapsed_ms = next_riding_elapsed_ms;
+        self.riding_elapsed_ms = next_riding_elapsed_ms;
+        self.last_sample_at_ms = Some(now_ms);
         self.pending_request = None;
         self.started_at_ms = Some(started_at_ms);
         self.sequence = next_sequence;
@@ -941,6 +960,7 @@ impl RefloatTelemetryService {
 
     fn reset(&mut self) -> Vec<Effect> {
         self.started_at_ms = None;
+        self.riding_elapsed_ms = 0;
         self.sequence = 0;
         self.reset_connection()
     }
@@ -957,6 +977,7 @@ impl RefloatTelemetryService {
 
     fn stop_active(&mut self) -> Vec<Effect> {
         self.active = false;
+        self.last_sample_at_ms = None;
         let mut effects = Vec::new();
         if let Some(token) = self.poll_timer.take() {
             effects.push(Effect::CancelTimer(token));
@@ -1197,6 +1218,7 @@ impl RefloatTelemetryService {
             observed_at_epoch_ms,
             slow_observed_at_epoch_ms: slow.as_ref().map(|value| value.observed_at_epoch_ms),
             elapsed_ms,
+            riding_elapsed_ms: self.riding_elapsed_ms,
             ride_state: value.ride_state,
             package_state: value.package_state,
             package_mode: value.package_mode,
@@ -2291,6 +2313,94 @@ mod tests {
         let sample = published(&effects);
         assert_eq!(sample.odometer_m, Some(33.0));
         assert_eq!(sample.slow_observed_at_epoch_ms, Some(9_000));
+    }
+
+    #[test]
+    fn ride_clock_pauses_for_idle_unknown_and_reconnect_and_resets_for_new_session() {
+        let mut service = RefloatTelemetryService::default();
+        start(&mut service, TelemetryFamily::LegacyFixed, Route::Direct, 0);
+        let observe = |service: &mut RefloatTelemetryService, at, state| {
+            service
+                .apply(Command::Refresh {
+                    service_generation: 7,
+                    now_ms: at,
+                })
+                .unwrap();
+            let effects = receive(
+                service,
+                DecodedTelemetry::Legacy(legacy::LegacyTelemetry::Sample(legacy_sample(
+                    state, 1.0,
+                ))),
+                at,
+                at as i64,
+            );
+            published(&effects).clone()
+        };
+        use legacy::PackageState::{Ready, Running};
+        assert_eq!(observe(&mut service, 100, Ready).riding_elapsed_ms, 0);
+        assert_eq!(observe(&mut service, 10_000, Running).riding_elapsed_ms, 0);
+        assert_eq!(
+            observe(&mut service, 11_000, Running).riding_elapsed_ms,
+            1_000
+        );
+        assert_eq!(
+            observe(&mut service, 12_000, Ready).riding_elapsed_ms,
+            1_000
+        );
+        assert_eq!(
+            observe(&mut service, 20_000, Running).riding_elapsed_ms,
+            1_000
+        );
+        assert_eq!(
+            observe(&mut service, 21_000, Running).riding_elapsed_ms,
+            2_000
+        );
+        service
+            .apply(Command::Refresh {
+                service_generation: 7,
+                now_ms: 22_000,
+            })
+            .unwrap();
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Legacy(legacy::LegacyTelemetry::ActiveFirmwareFault(
+                legacy::ActiveFirmwareFault {
+                    raw_code: 255,
+                    fault: legacy::FirmwareFault::Unknown,
+                },
+            )),
+            22_000,
+            22_000,
+        );
+        assert_eq!(published(&effects).ride_state, RideState::Unknown);
+        assert_eq!(published(&effects).riding_elapsed_ms, 2_000);
+        assert_eq!(
+            observe(&mut service, 30_000, Running).riding_elapsed_ms,
+            2_000
+        );
+        // Losing the connection preserves the total, never integrating the offline gap.
+        service.apply(Command::ResetConnection).unwrap();
+        start(
+            &mut service,
+            TelemetryFamily::LegacyFixed,
+            Route::Direct,
+            50_000,
+        );
+        let sample = observe(&mut service, 50_000, Running);
+        assert_eq!(sample.riding_elapsed_ms, 2_000);
+        assert_eq!(sample.elapsed_ms, 49_900);
+        assert_eq!(
+            observe(&mut service, 51_000, Running).riding_elapsed_ms,
+            3_000
+        );
+        service.apply(Command::Reset).unwrap();
+        start(
+            &mut service,
+            TelemetryFamily::LegacyFixed,
+            Route::Direct,
+            60_000,
+        );
+        assert_eq!(observe(&mut service, 60_000, Running).riding_elapsed_ms, 0);
     }
 
     #[test]

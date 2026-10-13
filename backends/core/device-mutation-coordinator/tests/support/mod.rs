@@ -121,6 +121,7 @@ pub fn sample_with(
         observed_at_epoch_ms: 1_700_000_000_000 + i64::try_from(sequence).unwrap(),
         slow_observed_at_epoch_ms: None,
         elapsed_ms: sequence,
+        riding_elapsed_ms: 0,
         ride_state,
         package_state: Some(package_state),
         package_mode: Some(package_mode),

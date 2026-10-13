@@ -32,7 +32,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           savedDeviceId: profile.savedDeviceId,
           expectedRevision: profile.revision,
           patch: {
-            liveWidgetSlots: ['fieldWeakeningCurrentA', 'motorCurrentA', 'batteryCurrentA', 'powerW', 'distanceM'],
+            liveWidgetSlots: ['fieldWeakeningCurrentA', 'motorCurrentA', 'elapsedMs', 'powerW', 'distanceM'],
           },
         });
         const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
@@ -75,6 +75,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                   : null;
             if (state?.activeConnection?.latestSample)
               Object.assign(state.activeConnection.latestSample, {
+                elapsedMs: 90_000,
+                ridingElapsedMs: 12_000,
                 fieldWeakeningCurrentA: fw,
                 batteryCurrentA: amps,
                 motorCurrentA: 32.4,
@@ -188,6 +190,19 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.match(await field.innerText(), /0\.7/);
         const distanceBox = page.getByRole('button', { name: 'Choose value for box 5: Trip distance', exact: true });
         await distanceBox.waitFor();
+        const rideTimer = page.getByRole('button', { name: 'Choose value for box 3: Ride time', exact: true });
+        await rideTimer.getByText('0:00:12', { exact: true }).waitFor();
+        await page.waitForTimeout(1100);
+        assert.match(await rideTimer.innerText(), /0:00:12/);
+        const timerProfile = await client.request('boardProfile.get', { savedDeviceId: active.savedDeviceId! });
+        await client.request('boardProfile.update', {
+          savedDeviceId: timerProfile.savedDeviceId,
+          expectedRevision: timerProfile.revision,
+          patch: {
+            liveWidgetSlots: ['fieldWeakeningCurrentA', 'motorCurrentA', 'batteryCurrentA', 'powerW', 'distanceM'],
+          },
+        });
+        await page.getByRole('button', { name: 'Choose value for box 3: Battery current', exact: true }).waitFor();
         assert.equal(await page.getByRole('button', { name: /^Choose value for box/ }).count(), 5);
         assert.equal(await page.locator('[aria-label="Live number widgets"] button').count(), 4);
         assert.equal(

@@ -204,7 +204,10 @@ export interface LiveSample {
   sequence: number;
   observedAt: string;
   slowObservedAt: string | null;
+  /** Session timeline, including idle and disconnected time. */
   elapsedMs: number;
+  /** Native-owned accumulated time between consecutive riding observations; offline gaps excluded. */
+  ridingElapsedMs: number;
   rideState: RideState;
   packageState: PackageState | null;
   packageMode: PackageMode | null;
