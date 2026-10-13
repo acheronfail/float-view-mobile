@@ -18,9 +18,10 @@ export function colorForBattery(percent: number | null) {
   return rgb(interpolate(green, yellow, (50 - percent) / 15));
 }
 
-export function colorForTemperature(value: number | null | undefined) {
+export function colorForTemperature(value: number | null | undefined, redAt = 60) {
   if (value == null || value <= 30) return rgb(green);
-  if (value >= 60) return rgb(red);
-  if (value >= 45) return rgb(interpolate(orange, red, (value - 45) / 15));
-  return rgb(interpolate(green, orange, (value - 30) / 15));
+  if (value >= redAt) return rgb(red);
+  const orangeAt = (30 + redAt) / 2;
+  if (value >= orangeAt) return rgb(interpolate(orange, red, (value - orangeAt) / (redAt - orangeAt)));
+  return rgb(interpolate(green, orange, (value - 30) / (orangeAt - 30)));
 }

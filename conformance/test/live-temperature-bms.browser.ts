@@ -31,6 +31,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
+      let cellTemperature = 26.1;
       let mode: 'absent' | 'detected' | 'fresh' | 'stale' = 'absent';
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
       await page.routeWebSocket('**/api/ws?*', (socket) => {
@@ -49,7 +50,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                   ? {
                       observedAt: new Date(Date.now() - (mode === 'stale' ? 10_000 : 0)).toISOString(),
                       temperaturesC: [43, 24.9, 26.1, 31.1, -300, 26.1, 24.9, 26.1, 25.8],
-                      highestCellTemperatureC: 26.1,
+                      highestCellTemperatureC: cellTemperature,
                       highestCircuitryTemperatureC: 43,
                       cellVoltagesV: [3.8, 3.81],
                       balancing: [false, false],
@@ -106,8 +107,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       for (const bar of await temperatures.getByRole('progressbar').all()) {
         assert.equal((await bar.boundingBox())!.height, 12);
       }
+      assert.ok((await battery.boundingBox())!.y > (await circuitry.boundingBox())!.y);
       const regionBox = (await temperatures.boundingBox())!;
-      const lastBox = (await circuitry.boundingBox())!;
+      const lastBox = (await battery.boundingBox())!;
       assert.ok(lastBox.y + lastBox.height + 20 <= regionBox.y + regionBox.height + 1);
       await page.waitForFunction(() => {
         const bar = document.querySelector('[aria-label="Battery cells temperature"]');
@@ -124,7 +126,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       ]) {
         await page.setViewportSize(viewport);
         const bounds = (await temperatures.boundingBox())!;
-        const last = (await circuitry.boundingBox())!;
+        const last = (await battery.boundingBox())!;
         assert.ok(last.y + last.height + 20 <= bounds.y + bounds.height + 1);
         for (const bar of await temperatures.getByRole('progressbar').all())
           assert.equal((await bar.boundingBox())!.height, 12);
@@ -134,6 +136,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.screenshot({ path: '/tmp/float-view-live-battery-temperature.png' });
         await temperatures.screenshot({ path: '/tmp/float-view-temperature-bars.png' });
       }
+      cellTemperature = 45;
+      await page.waitForFunction(() => {
+        const bar = document.querySelector('[aria-label="Battery cells temperature"]');
+        return (
+          bar?.getAttribute('aria-valuenow') === '45' &&
+          (bar.lastElementChild as HTMLElement)?.style.getPropertyValue('--temperature-color') === 'rgb(220, 38, 38)'
+        );
+      });
       const dialog = page.getByRole('dialog', { name: 'Battery management system', exact: true });
       await shortcut.click({ button: 'right' });
       await shortcut.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });

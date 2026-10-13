@@ -36,8 +36,8 @@
     { key: 'motor', name: 'Motor', value: sample?.motorTempC },
     ...(showBattery
       ? [
-          { key: 'battery', name: 'Cells', value: batteryTemperature },
           { key: 'bms', name: 'BMS', value: circuitryTemperature },
+          { key: 'battery', name: 'Cells', value: batteryTemperature },
         ]
       : []),
   ]);
@@ -67,7 +67,7 @@
         compact={showBattery}
         heightClass={showBattery ? 'h-3' : 'h-5'}
         fillClass="bg-linear-to-r from-green-600 to-[var(--temperature-color)]"
-        fillStyle={`--temperature-color: ${colorForTemperature(reading.value)}`}
+        fillStyle={`--temperature-color: ${colorForTemperature(reading.value, reading.key === 'battery' ? 45 : 60)}`}
       />
     {/each}
   </div>
