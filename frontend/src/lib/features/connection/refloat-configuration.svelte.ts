@@ -69,7 +69,7 @@ export class RefloatConfigurationController {
   position = $state<RefloatEditorDraft['position']>({
     sectionKey: '',
     search: '',
-    controlsExpanded: true,
+    controlsExpanded: false,
     scrollTop: 0,
   });
   inputs = $state<Record<string, string>>({});

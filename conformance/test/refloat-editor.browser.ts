@@ -44,6 +44,35 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
       const number = () => page.getByRole('spinbutton', { name: 'Duty Tiltback', exact: true });
       await number().fill('0.85');
+      const controls = () => page.getByRole('button', { name: 'Section and search controls', exact: true });
+      const section = () => page.locator('select[aria-label="Section"]');
+      assert.equal(await controls().getAttribute('aria-expanded'), 'false');
+      const balanceKey = await section().inputValue();
+      const startupKey = await section()
+        .locator('option')
+        .filter({ hasText: 'Startup defaults' })
+        .getAttribute('value');
+      assert.ok(startupKey);
+      // WebKit's native popup is outside Playwright's controllable page surface.
+      if (name === 'chromium') {
+        await section().tap();
+        assert.equal(await controls().getAttribute('aria-expanded'), 'false');
+        await page.keyboard.press('Escape');
+      }
+      await section().selectOption(startupKey);
+      await page.getByRole('heading', { name: 'Lighting · Startup defaults', exact: true }).waitFor();
+      assert.equal(await controls().getAttribute('aria-expanded'), 'false');
+      await section().focus();
+      await page.keyboard.press('Home');
+      await page.keyboard.press('Tab');
+      await number().waitFor();
+      assert.equal(await section().inputValue(), balanceKey);
+      assert.equal(await controls().getAttribute('aria-expanded'), 'false');
+      await controls().dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
+      await controls().dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
+      assert.equal(await controls().getAttribute('aria-expanded'), 'false');
+      await controls().tap();
+      assert.equal(await controls().getAttribute('aria-expanded'), 'true');
       await page.getByRole('button', { name: 'Startup defaults', exact: true }).tap();
       await page
         .getByRole('group', { name: 'LEDs On (persistent startup default)', exact: true })

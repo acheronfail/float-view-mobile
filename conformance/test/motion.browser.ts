@@ -72,8 +72,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.keyboard.press('Enter');
       const editor = page.getByRole('dialog', { name: 'Configure Refloat', exact: true });
       const search = editor.getByRole('searchbox');
-      await search.fill('Duty');
       const disclosure = editor.getByRole('button', { name: 'Section and search controls', exact: true });
+      await disclosure.focus();
+      await page.keyboard.press('Enter');
+      await search.fill('Duty');
       await disclosure.focus();
       await page.keyboard.press('Enter');
       assert.equal(await disclosure.getAttribute('aria-expanded'), 'false');

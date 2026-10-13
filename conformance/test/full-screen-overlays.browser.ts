@@ -124,6 +124,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               });
             }
             const controls = panel.getByRole('button', { name: 'Section and search controls', exact: true });
+            if ((await controls.getAttribute('aria-expanded')) === 'false') await controls.tap();
             const search = panel.getByRole('searchbox');
             const source = panel.getByText('Source:', { exact: false });
             assert.equal(await source.isVisible(), true);
@@ -152,7 +153,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             assert.equal(await search.isVisible(), false);
             assert.equal(await source.isVisible(), false, 'collapse hides the source and changed-count row');
             assert.ok(expandedY - (await scroll.boundingBox())!.y > 100, 'collapse frees space for fields');
-            assert.match(await controls.innerText(), /Balance.*Filtered/s);
+            assert.match(await controls.innerText(), /Filtered/);
+            assert.equal(
+              await panel.getByRole('combobox', { name: 'Section', exact: true }).locator('option:checked').innerText(),
+              'Balance'
+            );
             if (output && name === 'chromium') {
               await page.screenshot({ path: `${output}/refloat-configure-collapsed-${viewport.width}.png` });
             }
@@ -167,7 +172,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             await controls.focus();
             await page.keyboard.press('Space');
             assert.equal(await controls.getAttribute('aria-expanded'), 'false');
-            assert.match(await controls.innerText(), /Startup defaults/);
+            assert.equal(
+              await panel.getByRole('combobox', { name: 'Section', exact: true }).locator('option:checked').innerText(),
+              'Startup defaults'
+            );
             await controls.dispatchEvent('click', { detail: 0 });
             assert.equal(await controls.getAttribute('aria-expanded'), 'true');
             assert.equal(

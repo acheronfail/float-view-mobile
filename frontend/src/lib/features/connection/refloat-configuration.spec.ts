@@ -181,14 +181,23 @@ describe('generated Refloat configuration', () => {
     expect(resolveRefloatConfigurationSection([], selected.key)).toBeNull();
   });
 
-  it('renders a segmented selector and exactly one selected logical section with scoped empty search results', async () => {
+  it('starts collapsed with a quick selector and retains full controls and scoped search', async () => {
     const controller = new RefloatConfigurationController(new FakeBackend());
     await controller.open();
     const initial = render(RefloatConfigurationEditor, { props: { controller } }).body.replace(/\s+/g, ' ');
 
-    expect(initial).toContain('<span class="font-medium">Section</span>');
-    expect(initial).toMatch(/aria-pressed="true"[^>]*>Ride<\/button>/);
-    expect(initial).toMatch(/aria-pressed="false"[^>]*>Other<\/button>/);
+    expect(controller.position.controlsExpanded).toBe(false);
+    expect(initial).toContain('aria-expanded="false"');
+    expect(initial).toContain('<select aria-label="Section"');
+    expect(initial).toContain('>Ride</option>');
+    expect(initial).toContain('>Other</option>');
+    expect(initial).not.toContain('Search this section');
+
+    controller.setPosition({ controlsExpanded: true });
+    const expanded = render(RefloatConfigurationEditor, { props: { controller } }).body.replace(/\s+/g, ' ');
+    expect(expanded).toContain('<span class="font-medium">Section</span>');
+    expect(expanded).toMatch(/aria-pressed="true"[^>]*>Ride<\/button>/);
+    expect(expanded).toMatch(/aria-pressed="false"[^>]*>Other<\/button>/);
     expect(initial).toContain('General · Ride');
     expect(initial).toContain('Show help for gain');
     expect(initial).not.toContain('Show help for label');
@@ -210,7 +219,7 @@ describe('generated Refloat configuration', () => {
     controller.draft = structuredClone(values);
 
     const body = render(RefloatConfigurationEditor, { props: { controller } }).body;
-    expect(body.match(/>Tune<\/button>/g)).toHaveLength(1);
+    expect(body.match(/>Tune<\/option>/g)).toHaveLength(1);
     expect(body).toContain('Show help for gain');
     expect(body).toContain('Show help for enabled');
     expect(body).not.toContain('Show help for label');

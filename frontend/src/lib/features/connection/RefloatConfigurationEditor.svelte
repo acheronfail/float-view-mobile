@@ -56,6 +56,11 @@
     helpField = null;
   }
 
+  function selectSection(sectionKey: string) {
+    controller.setPosition({ sectionKey, scrollTop: 0 });
+    if (scroller) scroller.scrollTop = 0;
+  }
+
   function toggleControls() {
     controller.setPosition({ controlsExpanded: !controlsExpanded });
   }
@@ -63,21 +68,37 @@
 
 <section class="flex h-full min-h-0 flex-col" aria-labelledby="refloat-configuration-title">
   <div class="z-10 -mx-4 -mt-px shrink-0 border-y border-outline bg-surface px-4 py-1">
-    <button
-      type="button"
-      aria-label="Section and search controls"
-      aria-expanded={controlsExpanded}
-      aria-controls="refloat-configuration-controls"
-      class="flex min-h-11 w-full touch-manipulation items-center justify-between gap-3 rounded-md text-left text-sm focus-visible:outline-2 focus-visible:outline-accent"
-      onpointerdown={(event) => activateFromPointer(event, toggleControls)}
-      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, toggleControls)}
-    >
-      <span class="min-w-0 font-medium">
-        {controlsExpanded ? 'Section & search' : (selectedSection?.label ?? 'Section & search')}
-        {#if !controlsExpanded && controller.search}<span class="text-muted"> · Filtered</span>{/if}
-      </span>
-      <span class="shrink-0 text-muted">{controlsExpanded ? 'Hide controls' : 'Show controls'}</span>
-    </button>
+    <div class="flex min-h-11 items-center text-sm">
+      {#if !controlsExpanded}
+        <select
+          aria-label="Section"
+          class="min-h-11 max-w-[65%] min-w-0 touch-manipulation rounded-md bg-surface font-medium focus-visible:outline-2 focus-visible:outline-accent"
+          disabled={controller.loading || !controller.sections.length}
+          value={selectedSection?.key ?? ''}
+          onchange={(event) => selectSection(event.currentTarget.value)}
+        >
+          {#each controller.sections as section (section.key)}
+            <option value={section.key}>{section.label}</option>
+          {/each}
+        </select>
+      {/if}
+      <button
+        type="button"
+        aria-label="Section and search controls"
+        aria-expanded={controlsExpanded}
+        aria-controls="refloat-configuration-controls"
+        class="flex min-h-11 min-w-0 flex-1 touch-manipulation items-center justify-between gap-3 rounded-md text-left focus-visible:outline-2 focus-visible:outline-accent"
+        onpointerdown={(event) => activateFromPointer(event, toggleControls)}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, toggleControls)}
+      >
+        <span class="min-w-0 font-medium">
+          {#if controlsExpanded}Section & search{:else if controller.search}<span class="text-muted">
+              · Filtered</span
+            >{/if}
+        </span>
+        <span class="shrink-0 text-muted">{controlsExpanded ? 'Hide controls' : 'Show controls'}</span>
+      </button>
+    </div>
     {#if controlsExpanded}
       <div id="refloat-configuration-controls" in:expandControls out:collapseControls class="space-y-2 pb-2">
         <div class="grid gap-2 sm:grid-cols-2">
@@ -88,10 +109,7 @@
               disabled={controller.loading || !controller.sections.length}
               value={selectedSection?.key ?? ''}
               options={controller.sections.map((section) => ({ value: section.key, label: section.label }))}
-              onchange={(value) => {
-                controller.setPosition({ sectionKey: value, scrollTop: 0 });
-                if (scroller) scroller.scrollTop = 0;
-              }}
+              onchange={selectSection}
             />
           </div>
           <label class="grid gap-1 text-sm">
