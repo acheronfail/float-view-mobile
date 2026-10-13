@@ -35,7 +35,6 @@ just dev
 just build
 just run android|ios|macos [target]
 just ipa # Build an IPA for AltStore; see backends/apple/README.md.
-just ipa-copy # Build an IPA and copy it to VLC on a connected iOS device.
 just test frontend|conformance|apple|android|core|fixture|all
 just conformance direct|mock|android|ios|macos
 just conformance-physical macos <fixture-port>

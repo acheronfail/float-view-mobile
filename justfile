@@ -114,12 +114,7 @@ build:
     cp frontend/build/index.html backends/apple/macos/Resources/index.html
 
 # Build a device IPA for AltStore to sign and install; no connected device required.
-ipa: (_ipa "false")
-
-# Build an IPA and copy it to VLC's Documents on a connected iOS device.
-ipa-copy: (_ipa "true")
-
-_ipa copy: build
+ipa: build
     #!/usr/bin/env bash
     set -euo pipefail
     derived_data=/tmp/float-view-ios-ipa
@@ -145,9 +140,6 @@ _ipa copy: build
     unzip -tq "$staging/FloatView.ipa"
     mv -f "$staging/FloatView.ipa" "$output"
     printf 'AltStore IPA: %s\n' "$output"
-    if [[ "{{ copy }}" == "true" ]]; then
-      pymobiledevice3 apps push --documents org.videolan.vlc-ios "$output" "/Documents/$(basename "$output")"
-    fi
 
 run platform target="": build
     #!/usr/bin/env bash

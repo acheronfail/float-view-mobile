@@ -76,11 +76,6 @@ runner architectures, Xcode versions, Rust toolchains and dependency lockfiles,
 and allows reuse of unchanged dependencies across source changes. No signing certificates,
 Apple account secrets, or connected device are required; AltStore signs the IPA.
 
-Run `just ipa-copy` to build the same IPA and copy that exact file to
-`/Documents/FloatView-YYYYMMDD-HHMMSS.ipa` in VLC (`org.videolan.vlc-ios`) on a
-connected iOS device. This requires `pymobiledevice3` on your PATH and VLC installed
-on the device. The local IPA is kept in the invocation directory.
-
 Transfer the IPA to Files on the iPhone and select it in AltStore's My Apps tab
 using the + button. If switching from a `just run ios` installation fails, export
 any recordings you want to keep, then remove that installation before retrying.
