@@ -167,7 +167,7 @@ attached BMS (five-second expiry). Highest temperature compares controller, moto
 the reported cell maximum, BMS circuitry and humidity-sensor temperatures, names the winning sensor,
 and falls back to available sensors when the BMS is missing or stale. The temperature widget shows VESC, Motor, BMS and Cells bars when a BMS is present;
 Cells uses the reported cell maximum, and BMS uses the shared service’s circuitry
-maximum. The Cells bar reaches red at 45°C; other temperature bars reach red at
+maximum. The rolling temperature chart adds the same BMS and Cells readings while the BMS is present. The Cells bar reaches red at 45°C; other temperature bars reach red at
 60°C. Four bars retain their 12 px height and grow the widget vertically.
 Signed battery power is pack
 voltage times battery current; its displayed sign controls draw/regen labels and

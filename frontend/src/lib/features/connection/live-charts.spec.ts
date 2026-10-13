@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { LiveSample } from '$lib/backend/contract';
-import { liveChartGeometry, retainLivePoints, liveChartPointLimit } from './live-charts';
+import type { BmsState, LiveSample } from '$lib/backend/contract';
+import {
+  liveChartGeometry,
+  liveChartGroups,
+  liveChartPointLimit,
+  liveChartReading,
+  retainLivePoints,
+} from './live-charts';
 const point = (time: number, speedKph: number | null) => ({ time, sample: { speedKph } as LiveSample });
 describe('live chart window', () => {
   it('expires old samples and bounds the buffer', () => {
@@ -29,5 +35,64 @@ describe('live chart window', () => {
     expect(current.low).toBeLessThan(-12);
     expect(current.high).toBeGreaterThan(20);
     expect(current.paths).toHaveLength(2);
+  });
+  it('adds the two live-view BMS readings to the temperature chart when a BMS is present', () => {
+    const observedAtMs = Date.parse('2026-10-13T00:00:00.000Z');
+    const bms = {
+      status: 'attached',
+      connection: { kind: 'can', canId: 42 },
+      candidates: [],
+      latestSnapshot: {
+        observedAt: new Date(observedAtMs).toISOString(),
+        totalVoltageV: 75,
+        chargeVoltageV: 84,
+        inputCurrentA: 0,
+        inputIcCurrentA: 0,
+        sessionAmpHoursAh: 0,
+        sessionWattHoursWh: 0,
+        cellVoltagesV: [],
+        balancing: [],
+        temperaturesC: [],
+        icTemperatureC: 37,
+        humiditySensorTemperatureC: 28,
+        humidityPercent: 40,
+        highestCircuitryTemperatureC: 38,
+        highestCellTemperatureC: 29,
+        stateOfCharge: 0.8,
+        stateOfHealth: 0.95,
+        reportedCanId: 42,
+        lifetimeChargeAmpHoursAh: 0,
+        lifetimeChargeWattHoursWh: 0,
+        lifetimeDischargeAmpHoursAh: 0,
+        lifetimeDischargeWattHoursWh: 0,
+        pressurePa: 101_325,
+        dataVersion: 1,
+        status: 'OK',
+      },
+    } satisfies BmsState;
+    const temperature = liveChartGroups(true).find((group) => group.title === 'Temperature');
+    expect(temperature?.fields).toEqual(['controllerTempC', 'motorTempC', 'bmsCircuitryTempC', 'bmsHighestCellTempC']);
+    expect(liveChartGroups(false).find((group) => group.title === 'Temperature')?.fields).toEqual([
+      'controllerTempC',
+      'motorTempC',
+    ]);
+    expect(liveChartReading('bmsCircuitryTempC', null, 'metric', bms, observedAtMs)).toMatchObject({
+      label: 'BMS',
+      value: 38,
+      unit: '°C',
+    });
+    expect(liveChartReading('bmsHighestCellTempC', null, 'imperial', bms, observedAtMs)).toMatchObject({
+      label: 'Cells',
+      value: 84.2,
+      unit: '°F',
+    });
+    const geometry = liveChartGeometry(
+      [{ time: 0, sample: {} as LiveSample, bmsTemperatures: { circuitryC: 38, cellsC: 29 } }],
+      ['bmsCircuitryTempC', 'bmsHighestCellTempC'],
+      'metric',
+      0
+    );
+    expect(geometry.paths).toHaveLength(2);
+    expect(geometry.paths.every((path) => path.startsWith('M1000.00,'))).toBe(true);
   });
 });

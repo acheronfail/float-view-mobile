@@ -3,8 +3,14 @@
   import { onMount, untrack } from 'svelte';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
-  import { liveValue } from './live-values';
-  import { liveChartGeometry, liveChartGroups, retainLivePoints, type LiveChartPoint } from './live-charts';
+  import { bmsMenuVisible, freshBmsSnapshot } from './bms';
+  import {
+    liveChartGeometry,
+    liveChartGroups,
+    liveChartReading,
+    retainLivePoints,
+    type LiveChartPoint,
+  } from './live-charts';
 
   const motion = createMotion();
   let { onclose }: { onclose: (keyboard: boolean) => void } = $props();
@@ -13,9 +19,10 @@
   let points = $state<LiveChartPoint[]>([]);
   let lastSequence: number | null = null;
   let lastDevice: string | null = null;
-  const colors = ['var(--color-accent)', '#f59e0b', '#a78bfa'];
+  const colors = ['var(--color-accent)', '#f59e0b', '#a78bfa', '#2dd4bf'];
   const connection = $derived(backendState.snapshot?.activeConnection);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
+  const chartGroups = $derived(liveChartGroups(bmsMenuVisible(connection?.bms)));
   const stale = $derived(
     connection?.state !== 'ready' || !points.length || now - points[points.length - 1].time > 1_500
   );
@@ -33,7 +40,24 @@
         return;
       lastSequence = sample.sequence;
       now = performance.now();
-      points = retainLivePoints([...points, { time: now, sample }], now);
+      const observedAtMs = Date.now();
+      const bmsSnapshot = freshBmsSnapshot(connection?.bms, observedAtMs);
+      points = retainLivePoints(
+        [
+          ...points,
+          {
+            time: now,
+            sample,
+            bmsTemperatures: bmsSnapshot
+              ? {
+                  circuitryC: bmsSnapshot.highestCircuitryTemperatureC,
+                  cellsC: bmsSnapshot.highestCellTemperatureC,
+                }
+              : undefined,
+          },
+        ],
+        now
+      );
     });
   });
   onMount(() => {
@@ -82,7 +106,7 @@
       <span>History is available in Session</span>
     </div>
     <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-      {#each liveChartGroups as group (group.title)}
+      {#each chartGroups as group (group.title)}
         {@const geometry = liveChartGeometry(points, group.fields, units, now)}
         <section
           aria-label={group.title}
@@ -91,7 +115,12 @@
           <h3 class="mb-2 px-4 text-xs font-semibold tracking-wider text-muted uppercase">{group.title}</h3>
           <div class="mb-3 flex flex-wrap gap-x-5 gap-y-1 px-4">
             {#each group.fields as field, index (field)}
-              {@const reading = liveValue(field, stale ? null : connection?.latestSample, units)}
+              {@const reading = liveChartReading(
+                field,
+                stale ? null : connection?.latestSample,
+                units,
+                stale ? null : connection?.bms
+              )}
               <div class="flex items-baseline gap-2 text-sm">
                 <span class="h-2 w-2 self-center rounded-full" style:background={colors[index]}></span>
                 <span class="text-muted">{reading.label}</span>
