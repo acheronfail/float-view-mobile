@@ -1,5 +1,6 @@
 import type {
   RefloatConfigurationField,
+  RefloatEditorDraft,
   RefloatConfigurationIdentity,
   RefloatConfigurationSchemaPage,
   RefloatConfigurationSummary,
@@ -8,9 +9,14 @@ import type {
 } from '$lib/backend/contract';
 
 export interface RefloatConfigurationBackend {
+  getRefloatEditorDraft(deviceId: string): Promise<RefloatEditorDraft | null>;
+  setRefloatEditorDraft(deviceId: string, baseRevision: number, draft: RefloatEditorDraft): Promise<void>;
   openRefloatConfiguration(): Promise<RefloatConfigurationSummary | null>;
   refloatConfigurationSchema(cursor?: string | null): Promise<RefloatConfigurationSchemaPage | null>;
-  readRefloatConfiguration(source: 'current' | 'default'): Promise<RefloatConfigurationValues | null>;
+  readRefloatConfiguration(
+    source: 'current' | 'default',
+    refresh?: boolean
+  ): Promise<RefloatConfigurationValues | null>;
   writeRefloatConfiguration(
     identity: RefloatConfigurationIdentity,
     baseRevision: number,
@@ -60,11 +66,36 @@ export class RefloatConfigurationController {
   loaded = $state<RefloatConfigurationValues | null>(null);
   draft = $state<Record<string, RefloatConfigurationValue>>({});
   source = $state<'current' | 'default'>('current');
-  search = $state('');
+  position = $state<RefloatEditorDraft['position']>({
+    sectionKey: '',
+    search: '',
+    controlsExpanded: true,
+    scrollTop: 0,
+  });
+  inputs = $state<Record<string, string>>({});
+  incompatible = $state<RefloatEditorDraft | null>(null);
+  restored = $state(false);
+  saveError = $state<string | null>(null);
+  private checkpointReady = false;
+  private fresh = false;
+  private queued: { draft: RefloatEditorDraft; revision: number } | null = null;
+  private saving: Promise<void> | null = null;
+  private lastSaved = '';
+  private positionTimer: ReturnType<typeof setTimeout> | null = null;
+
+  get search(): string {
+    return this.position.search;
+  }
+  set search(search: string) {
+    this.setPosition({ search, scrollTop: 0 });
+  }
   loading = $state(false);
   error = $state<string | null>(null);
 
-  constructor(private readonly backend: RefloatConfigurationBackend) {}
+  constructor(
+    private readonly backend: RefloatConfigurationBackend,
+    private readonly deviceId = ''
+  ) {}
 
   get identity(): RefloatConfigurationIdentity | null {
     return this.pages[0]?.identity ?? null;
@@ -105,7 +136,13 @@ export class RefloatConfigurationController {
   get validationErrors(): Record<string, string> {
     return Object.fromEntries(
       this.fields.flatMap((field) => {
-        const error = validateRefloatField(field, this.draft[field.name]);
+        const input = this.inputs[field.name];
+        const error =
+          input !== undefined && (!input.trim() || !Number.isFinite(Number(input)))
+            ? 'Enter a finite number.'
+            : input !== undefined && field.type !== 'double' && !Number.isSafeInteger(Number(input))
+              ? 'Enter a whole number.'
+              : validateRefloatField(field, this.draft[field.name]);
         return error ? [[field.name, error]] : [];
       })
     );
@@ -116,7 +153,9 @@ export class RefloatConfigurationController {
     return this.fields.flatMap((field) => {
       const before = this.loaded!.values[field.name];
       const after = this.draft[field.name];
-      return before && after && !sameRefloatValue(before, after)
+      const input = this.inputs[field.name];
+      const changedInput = input !== undefined && (!input.trim() || Number(input) !== before?.value);
+      return before && after && (!sameRefloatValue(before, after) || changedInput)
         ? [{ name: field.name, label: field.label, before, after }]
         : [];
     });
@@ -125,6 +164,9 @@ export class RefloatConfigurationController {
   get canWrite(): boolean {
     return Boolean(
       this.summary?.writable &&
+        this.summary.currentLoaded &&
+        this.fresh &&
+        !this.incompatible &&
         this.source === 'current' &&
         this.loaded?.source === 'current' &&
         this.identity &&
@@ -134,6 +176,8 @@ export class RefloatConfigurationController {
   }
 
   async open(): Promise<void> {
+    if (this.loading) return;
+    const local = this.loaded ? this.checkpoint() : null;
     this.loading = true;
     this.error = null;
     try {
@@ -152,8 +196,23 @@ export class RefloatConfigurationController {
       if (cursor) throw new Error('Refloat schema page limit exceeded');
       if (!pages.length) throw new Error('Refloat schema is empty');
       this.pages = pages;
-      if (summary.currentLoaded) await this.load('current');
-      else if (summary.defaultLoaded) await this.load('default');
+      let saved = local;
+      if (this.deviceId && !saved) {
+        try {
+          saved = await this.backend.getRefloatEditorDraft(this.deviceId);
+          this.checkpointReady = true;
+        } catch {
+          this.saveError = 'Unable to restore your saved draft. Retry before editing.';
+          this.checkpointReady = false;
+          return;
+        }
+      } else this.checkpointReady = true;
+      const source = saved?.source ?? (summary.currentLoaded ? 'current' : 'default');
+      await this.load(source, saved, false);
+      if (saved) {
+        this.position = structuredClone(saved.position);
+        this.restored = true;
+      }
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
     } finally {
@@ -161,17 +220,31 @@ export class RefloatConfigurationController {
     }
   }
 
-  async load(source: 'current' | 'default'): Promise<void> {
+  async load(source: 'current' | 'default', saved: RefloatEditorDraft | null = null, refresh = true): Promise<void> {
     this.loading = true;
     this.error = null;
     try {
-      const values = await this.backend.readRefloatConfiguration(source);
+      const values = await this.backend.readRefloatConfiguration(source, refresh);
       if (!values || !this.identity || !sameRefloatIdentity(values.identity, this.identity)) {
         throw new Error('Configuration identity changed while loading values');
       }
       this.source = source;
       this.loaded = values;
       this.draft = structuredClone(values.values);
+      this.inputs = {};
+      this.incompatible = null;
+      this.fresh = true;
+      this.checkpointReady = true;
+      if (saved && !sameRefloatIdentity(saved.identity, this.identity)) {
+        this.incompatible = saved;
+      } else if (saved) {
+        this.draft = structuredClone(saved.values);
+        this.inputs = structuredClone(saved.inputs);
+      }
+      if (!saved) {
+        this.restored = false;
+        this.capture();
+      }
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
     } finally {
@@ -182,26 +255,104 @@ export class RefloatConfigurationController {
   setValue(name: string, value: RefloatConfigurationValue): void {
     if (!this.fields.some((field) => field.name === name)) return;
     this.draft = { ...this.draft, [name]: value };
+    const inputs = { ...this.inputs };
+    delete inputs[name];
+    this.inputs = inputs;
+    this.capture();
   }
 
-  resetDraft(): void {
-    if (this.loaded) this.draft = structuredClone(this.loaded.values);
+  setNumericInput(name: string, input: string): void {
+    const field = this.fields.find((field) => field.name === name);
+    if (!field || input.length > 128) return;
+    this.inputs = { ...this.inputs, [name]: input };
+    const value = Number(input);
+    if (input.trim() && Number.isFinite(value) && (field.type === 'double' || Number.isSafeInteger(value)))
+      this.draft = { ...this.draft, [name]: { type: field.type === 'double' ? 'double' : 'integer', value } };
+    this.capture();
+  }
+
+  setPosition(patch: Partial<RefloatEditorDraft['position']>): void {
+    this.position = { ...this.position, ...patch };
+    if (Object.keys(patch).length === 1 && 'scrollTop' in patch) {
+      if (!this.positionTimer) this.positionTimer = setTimeout(() => this.capture(), 100);
+    } else this.capture();
+  }
+
+  acceptValues(values: RefloatConfigurationValues): void {
+    this.loaded = values;
+    this.source = values.source;
+    this.draft = structuredClone(values.values);
+    this.inputs = {};
+    this.incompatible = null;
+    this.fresh = true;
+    this.capture();
+  }
+
+  private checkpoint(): RefloatEditorDraft | null {
+    if (this.incompatible) return this.incompatible;
+    if (!this.loaded || !this.identity) return null;
+    return {
+      version: 1,
+      identity: this.identity,
+      source: this.source,
+      values: this.draft,
+      inputs: this.inputs,
+      position: this.position,
+    };
+  }
+
+  capture(): void {
+    if (this.positionTimer) {
+      clearTimeout(this.positionTimer);
+      this.positionTimer = null;
+    }
+    if (!this.deviceId || !this.loaded || !this.checkpointReady || !this.fresh || this.incompatible) return;
+    const draft = this.checkpoint();
+    if (!draft) return;
+    const encoded = JSON.stringify(draft);
+    if (encoded === this.lastSaved && !this.saving) return;
+    this.queued = { draft: JSON.parse(encoded) as RefloatEditorDraft, revision: this.loaded.revision };
+    if (!this.saving)
+      this.saving = this.drain().finally(() => {
+        this.saving = null;
+        if (this.queued) this.capture();
+      });
+  }
+
+  private async drain(): Promise<void> {
+    while (this.queued) {
+      const next = this.queued;
+      this.queued = null;
+      try {
+        await this.backend.setRefloatEditorDraft(this.deviceId, next.revision, next.draft);
+        this.lastSaved = JSON.stringify(next.draft);
+        this.saveError = null;
+      } catch {
+        this.saveError = 'Unable to save your draft. Keep this screen open and retry.';
+      }
+    }
+  }
+
+  async flush(): Promise<boolean> {
+    this.capture();
+    while (this.saving) await this.saving;
+    return this.saveError === null;
   }
 
   reconcile(summary: RefloatConfigurationSummary | null): void {
     this.summary = summary;
     const identity = this.identity;
-    if (
-      !summary ||
-      !identity ||
-      summary.packageVersion !== identity.packageVersion ||
-      summary.schemaFingerprint !== identity.schemaFingerprint ||
-      summary.wireSignature !== identity.wireSignature ||
-      !summary.currentLoaded
-    ) {
-      this.loaded = null;
-      this.draft = {};
-    }
+    const valid = Boolean(
+      summary &&
+        identity &&
+        summary.packageVersion === identity.packageVersion &&
+        summary.schemaFingerprint === identity.schemaFingerprint &&
+        summary.wireSignature === identity.wireSignature &&
+        summary.currentLoaded
+    );
+    if (!valid) this.fresh = false;
+    if (summary?.availability === 'ready' && summary.currentLoaded && !this.fresh && this.loaded && !this.loading)
+      void this.open();
   }
 
   async write(): Promise<boolean> {
@@ -212,8 +363,7 @@ export class RefloatConfigurationController {
     try {
       const result = await this.backend.writeRefloatConfiguration(identity, loaded.revision, this.draft);
       if (!result) return false;
-      this.loaded = result;
-      this.draft = structuredClone(result.values);
+      this.acceptValues(result);
       return true;
     } finally {
       this.loading = false;

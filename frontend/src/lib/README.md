@@ -85,9 +85,23 @@ was observed.
 controller. The frontend receives only normalized, paged schema fields and
 typed values through `backend/contract.ts`; raw XML, VESC commands, routes,
 private firmware identity, and serialized configuration bytes never cross the
-loopback boundary. Drafts are complete configurations tied to package version,
-full-schema fingerprint, wire signature, value revision, and connection
-generation. Reconnect or any identity change invalidates them.
+loopback boundary.
+
+Editor drafts persist in the shared product store per physical controller, with
+exact package/schema/wire identity, complete form values, unfinished
+numeric input and section/search/control/scroll position. Saves use a bounded
+single in-flight request and one replacement, never a firmware write. Editor opens
+and WebView restoration reuse the service's valid connection-scoped values and
+revision, preserving the complete form without repeated Bluetooth reads. Missing
+or invalidated values use the existing read path. Read current/defaults always
+fetch the board and replace the form; board changes never introduce conflict prompts.
+Foreground reconnect/flywheel invalidates write eligibility without losing edits.
+Background link loss and any terminal disconnect clear that controller's saved
+editor state and connection-specific presentation checkpoint. A new process has
+no live connection and clears old editor sessions; listener/WebView restarts keep
+the existing owner and its drafts. Incompatible drafts remain inspectable until
+Read current or Read defaults successfully replaces them. Done keeps the draft; there is no separate
+discard action.
 
 Native code remains authoritative for schema audit, safety, serialization,
 write acknowledgement, and mandatory readback. Flywheel entry immediately

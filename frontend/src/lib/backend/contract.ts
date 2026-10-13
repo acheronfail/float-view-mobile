@@ -389,6 +389,22 @@ export interface RefloatConfigurationValues {
   values: Record<string, RefloatConfigurationValue>;
 }
 
+/** Durable editor work; saving this never changes device configuration. */
+export interface RefloatEditorDraft {
+  version: 1;
+  identity: RefloatConfigurationIdentity;
+  source: 'current' | 'default';
+  values: Record<string, RefloatConfigurationValue>;
+  inputs: Record<string, string>;
+  position: {
+    sectionKey: string;
+    search: string;
+    controlsExpanded: boolean;
+    scrollTop: number;
+  };
+}
+export const MAX_REFLOAT_EDITOR_DRAFT_BYTES = 60_000;
+
 export interface RefloatTuneSummary {
   tuneId: string;
   revision: number;
@@ -872,13 +888,22 @@ export interface BackendMethods {
     result: RefloatControls;
   };
   'refloat.fatalError.clear': { params: EmptyParams; result: RefloatControls };
+  'refloat.configuration.draft.get': {
+    params: { deviceId: string };
+    result: RefloatEditorDraft | null;
+  };
+  'refloat.configuration.draft.set': {
+    params: { deviceId: string; baseRevision: number; draft: RefloatEditorDraft };
+    result: Accepted;
+  };
   'refloat.configuration.open': { params: EmptyParams; result: RefloatConfigurationSummary };
   'refloat.configuration.schema': {
     params: { cursor?: string | null };
     result: RefloatConfigurationSchemaPage;
   };
   'refloat.configuration.read': {
-    params: { source: 'current' | 'default' };
+    /** Defaults to a board read. False reuses valid retained values, reading only when absent. */
+    params: { source: 'current' | 'default'; refresh?: boolean };
     result: RefloatConfigurationValues;
   };
   'refloat.configuration.write': {

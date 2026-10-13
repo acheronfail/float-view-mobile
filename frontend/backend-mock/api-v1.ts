@@ -1,3 +1,5 @@
+import { validRefloatEditorDraft } from '../src/lib/backend/refloat-editor-draft.ts';
+import type { RefloatEditorDraft } from '../src/lib/backend/contract.ts';
 import { validUiCheckpoint } from '../src/lib/backend/ui-checkpoint.ts';
 import type { UiCheckpoint } from '../src/lib/backend/contract.ts';
 import { permissionInventory, locationSummary } from './permissions.ts';
@@ -255,6 +257,7 @@ function detailedSeriesValues(overrides: Record<string, number>): Record<string,
 }
 
 export class MockBackend {
+  private refloatDrafts = new Map<string, RefloatEditorDraft>();
   private uiCheckpoint: UiCheckpoint | null = null;
   private rideMarkers = new Map<string, SessionRideMarker[]>();
   markerRows(sessionId: string) {
@@ -620,6 +623,9 @@ export class MockBackend {
         return accepted(id);
       }
       case 'device.disconnect': {
+        const deviceId = this.state.activeConnection?.deviceId;
+        if (deviceId) this.refloatDrafts.delete(deviceId);
+        if (deviceId && this.uiCheckpoint?.live?.deviceId === deviceId) this.uiCheckpoint = null;
         const activeSessionId = this.activeSessionId;
         this.activeSessionId = undefined;
         if (activeSessionId) {
@@ -658,6 +664,35 @@ export class MockBackend {
           return failure(id, 'invalid_request', 'Fatal error clear takes no parameters');
         }
         return this.clearRefloatFatalError(id);
+      case 'refloat.configuration.draft.get': {
+        if (Object.keys(params).join(',') !== 'deviceId' || !string(params.deviceId))
+          return failure(id, 'invalid_request', 'Invalid draft request');
+        if (params.deviceId !== this.state.activeConnection?.deviceId || this.state.activeConnection?.state !== 'ready')
+          return failure(id, 'invalid_state', 'Board is unavailable');
+        return success(id, structuredClone(this.refloatDrafts.get(String(params.deviceId)) ?? null));
+      }
+      case 'refloat.configuration.draft.set': {
+        if (
+          Object.keys(params).length !== 3 ||
+          Object.keys(params).some((key) => !['deviceId', 'baseRevision', 'draft'].includes(key)) ||
+          !string(params.deviceId) ||
+          !Number.isSafeInteger(params.baseRevision) ||
+          !validRefloatEditorDraft(params.draft)
+        )
+          return failure(id, 'invalid_request', 'Invalid editor draft');
+        if (
+          params.deviceId !== this.state.activeConnection?.deviceId ||
+          this.state.activeConnection?.state !== 'ready' ||
+          JSON.stringify(params.draft.identity) !== JSON.stringify(refloatIdentity)
+        )
+          return failure(id, 'invalid_state', 'Configuration changed');
+        if (params.baseRevision !== this.refloatCurrentRevision && params.baseRevision !== 1)
+          return failure(id, 'conflict', 'Configuration changed');
+        if (!this.refloatDrafts.has(String(params.deviceId)) && this.refloatDrafts.size >= 128)
+          return failure(id, 'unavailable', 'Draft capacity reached');
+        this.refloatDrafts.set(String(params.deviceId), structuredClone(params.draft));
+        return success(id, { accepted: true });
+      }
       case 'refloat.configuration.open': {
         if (Object.keys(params).length !== 0)
           return failure(id, 'invalid_request', 'Configuration open takes no parameters');
@@ -682,32 +717,39 @@ export class MockBackend {
       }
       case 'refloat.configuration.read': {
         if (
-          Object.keys(params).join(',') !== 'source' ||
+          Object.keys(params).some((key) => !['source', 'refresh'].includes(key)) ||
+          ('refresh' in params && typeof params.refresh !== 'boolean') ||
           (params.source !== 'current' && params.source !== 'default')
         ) {
           return failure(id, 'invalid_request', 'Configuration source must be current or default');
         }
         const active = this.state.activeConnection;
         const summary = active?.refloatConfiguration;
-        if (!active || !summary || summary.availability !== 'ready')
+        if (
+          !active ||
+          !summary ||
+          summary.availability !== 'ready' ||
+          (params.refresh === false && active.state !== 'ready')
+        )
           return failure(id, 'invalid_state', 'Configuration is unavailable');
         if (params.source === 'current' && active.refloatControls?.flywheelEnabled) {
           return failure(id, 'invalid_state', 'Current configuration is unavailable in flywheel mode');
         }
         const source = params.source;
         const values = source === 'current' ? this.refloatCurrentValues : defaultRefloatValues;
-        this.change({
-          ...this.state,
-          activeConnection: {
-            ...active,
-            refloatConfiguration: {
-              ...summary,
-              currentLoaded: source === 'current' || summary.currentLoaded,
-              defaultLoaded: source === 'default' || summary.defaultLoaded,
-              writable: source === 'current' ? active.firmware?.accessMode === 'readWrite' : summary.writable,
+        if (params.refresh !== false || !(source === 'current' ? summary.currentLoaded : summary.defaultLoaded))
+          this.change({
+            ...this.state,
+            activeConnection: {
+              ...active,
+              refloatConfiguration: {
+                ...summary,
+                currentLoaded: source === 'current' || summary.currentLoaded,
+                defaultLoaded: source === 'default' || summary.defaultLoaded,
+                writable: source === 'current' ? active.firmware?.accessMode === 'readWrite' : summary.writable,
+              },
             },
-          },
-        });
+          });
         return success(id, {
           identity: refloatIdentity,
           revision: source === 'current' ? this.refloatCurrentRevision : 1,
@@ -1098,9 +1140,13 @@ export class MockBackend {
     });
   }
 
-  simulateConnectionState(state: 'ready' | 'reconnecting'): void {
+  simulateConnectionState(state: 'ready' | 'reconnecting', foreground = true): void {
     const active = this.state.activeConnection;
     if (!active) return;
+    if (state === 'reconnecting' && !foreground) {
+      this.refloatDrafts.delete(active.deviceId);
+      if (this.uiCheckpoint?.live?.deviceId === active.deviceId) this.uiCheckpoint = null;
+    }
     const refloatControls =
       state === 'reconnecting'
         ? {

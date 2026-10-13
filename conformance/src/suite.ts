@@ -6,6 +6,7 @@ import type {
   BackendMethod,
   ConnectionIssueCode,
   RefloatConfigurationField,
+  RefloatEditorDraft,
   RefloatConfigurationIdentity,
   RefloatConfigurationSchemaPage,
 } from '../../frontend/src/lib/backend/contract.ts';
@@ -908,11 +909,27 @@ export async function exerciseRefloatConfiguration(
   assert.ok(fields.length > 0);
 
   const current = await client.request('refloat.configuration.read', { source: 'current' });
-  const defaults = await client.request('refloat.configuration.read', { source: 'default' });
+  const defaults = await client.request('refloat.configuration.read', { source: 'default', refresh: false });
   assert.deepEqual(current.identity, identity);
   assert.deepEqual(defaults.identity, identity);
   assert.equal(Object.keys(current.values).length, fields.length);
   assert.equal(Object.keys(defaults.values).length, fields.length);
+  for (let i = 0; i < 3; i++) {
+    assert.deepEqual(
+      await client.request('refloat.configuration.read', { source: 'current', refresh: false }),
+      current,
+      'retained current read changed the loaded revision or values'
+    );
+    assert.deepEqual(
+      await client.request('refloat.configuration.read', { source: 'default', refresh: false }),
+      defaults,
+      'retained defaults read changed the loaded revision or values'
+    );
+  }
+  await expectError(
+    client.request('refloat.configuration.read', { source: 'current', refresh: 'false' } as never),
+    'invalid_request'
+  );
   const currentKp = current.values.kp;
   assert.ok(
     !requireAvailable || currentKp?.type === 'double',
@@ -925,6 +942,42 @@ export async function exerciseRefloatConfiguration(
           kp: { type: 'double' as const, value: currentKp.value + 1 },
         }
       : current.values;
+
+  const deviceId = required(connected.activeConnection, 'active board disappeared').deviceId;
+  const editorDraft: RefloatEditorDraft = {
+    version: 1 as const,
+    identity: current.identity,
+    source: 'current' as const,
+    values: draftValues,
+    inputs: currentKp?.type === 'double' ? { kp: '' } : {},
+    position: { sectionKey: 'Ride', search: 'gain', controlsExpanded: false, scrollTop: 123 },
+  };
+  await client.request('refloat.configuration.draft.set', {
+    deviceId,
+    baseRevision: current.revision,
+    draft: editorDraft,
+  });
+  assert.deepEqual(await client.request('refloat.configuration.draft.get', { deviceId }), editorDraft);
+  for (const draft of [
+    { ...editorDraft, version: 2 },
+    { ...editorDraft, unexpected: true },
+    { ...editorDraft, position: { ...editorDraft.position, search: 'é'.repeat(257) } },
+  ])
+    await expectError(
+      client.request('refloat.configuration.draft.set', {
+        deviceId,
+        baseRevision: current.revision,
+        draft,
+      } as never),
+      'invalid_request'
+    );
+  assert.deepEqual(await client.request('refloat.configuration.draft.get', { deviceId }), editorDraft);
+  await expectError(client.request('refloat.configuration.draft.get', { deviceId: 'another-board' }), 'invalid_state');
+  await client.request('refloat.configuration.draft.set', {
+    deviceId,
+    baseRevision: current.revision,
+    draft: { ...editorDraft, values: current.values, inputs: {} },
+  });
 
   const tune = await client.request('refloat.tune.create', {
     name: 'Conformance configuration',
@@ -1313,6 +1366,8 @@ export const mandatoryMethods: BackendMethod[] = [
   'refloat.control.set',
   'refloat.fatalError.clear',
   'controller.shutdown',
+  'refloat.configuration.draft.get',
+  'refloat.configuration.draft.set',
   'refloat.configuration.open',
   'refloat.configuration.schema',
   'refloat.configuration.read',

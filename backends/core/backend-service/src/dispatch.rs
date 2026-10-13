@@ -199,7 +199,25 @@ impl BackendService {
                     .configuration_schema()
                     .ok_or(Failure::InvalidState)?,
             )),
-            Operation::ReadConfiguration { defaults } => {
+            Operation::ReadConfiguration { defaults, refresh } => {
+                if !refresh {
+                    self.policy
+                        .active
+                        .as_ref()
+                        .filter(|a| a.state == os::LinkState::Ready)
+                        .ok_or(Failure::InvalidState)?;
+                    let config = self.runtime.snapshot().application.configuration;
+                    let retained = if defaults {
+                        config.defaults
+                    } else {
+                        config.current
+                    };
+                    if retained.is_some() {
+                        return Ok(Dispatch::Complete(Box::new(
+                            self.configuration_result(defaults)?,
+                        )));
+                    }
+                }
                 return self.kernel_request(
                     owner,
                     PendingKind::Read(defaults),
@@ -489,7 +507,7 @@ impl BackendService {
         self.changed()?;
         Ok(Dispatch::Complete(Box::new(result)))
     }
-    fn validate_configuration_source(
+    pub(crate) fn validate_configuration_source(
         &self,
         identity: &f::ConfigurationIdentity,
         revision: u64,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MockBackend } from '../../../backend-mock/api-v1';
-import type { AppState, BmsSnapshot } from './contract';
+import type { AppState, BmsSnapshot, RefloatConfigurationValues, RefloatEditorDraft } from './contract';
 
 const bmsSnapshot: BmsSnapshot = {
   observedAt: '2026-01-01T00:00:01Z',
@@ -681,6 +681,92 @@ describe('deterministic mock backend', () => {
     });
     expect(events.at(-1)?.data.activeConnection).toBeNull();
     expect(events.at(-1)?.data.revision).toBe(beforeDisconnect + 2);
+  });
+
+  it('retained configuration reads have no state events and missing sources still load', () => {
+    const events: unknown[] = [];
+    const backend = new MockBackend((event) => events.push(event));
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'guest' } });
+    events.length = 0;
+    const retained = backend.handle({
+      id: 3,
+      method: 'refloat.configuration.read',
+      params: { source: 'current', refresh: false },
+    });
+    expect(retained).toHaveProperty('result');
+    expect(events).toEqual([]);
+    backend.handle({ id: 4, method: 'refloat.configuration.read', params: { source: 'default', refresh: false } });
+    expect(events).toHaveLength(1);
+    events.length = 0;
+    expect(
+      backend.handle({ id: 5, method: 'refloat.configuration.read', params: { source: 'current', refresh: false } })
+    ).toMatchObject({ result: (retained as { result: unknown }).result });
+    backend.handle({ id: 6, method: 'refloat.configuration.read', params: { source: 'default', refresh: false } });
+    expect(events).toEqual([]);
+    backend.handle({ id: 7, method: 'refloat.configuration.read', params: { source: 'current' } });
+    expect(events).toHaveLength(1);
+    expect(
+      backend.handle({ id: 8, method: 'refloat.configuration.read', params: { source: 'current', refresh: 'false' } })
+    ).toMatchObject({ error: { code: 'invalid_request' } });
+  });
+
+  it('keeps editor state for foreground retries and clears it on background loss or disconnect', () => {
+    const backend = new MockBackend();
+    const deviceId = 'mock-board';
+    const connect = () => {
+      backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+      backend.handle({ id: 2, method: 'device.connect', params: { deviceId, trackingMode: 'guest' } });
+    };
+    connect();
+    const current = (
+      backend.handle({ id: 3, method: 'refloat.configuration.read', params: { source: 'current' } }) as {
+        result: RefloatConfigurationValues;
+      }
+    ).result;
+    const draft: RefloatEditorDraft = {
+      version: 1,
+      identity: current.identity,
+      source: 'current',
+      values: current.values,
+      inputs: {},
+      position: { sectionKey: 'Ride', search: 'gain', controlsExpanded: false, scrollTop: 123 },
+    };
+    const save = () => {
+      expect(
+        backend.handle({
+          id: 4,
+          method: 'refloat.configuration.draft.set',
+          params: { deviceId, baseRevision: current.revision, draft },
+        })
+      ).toHaveProperty('result');
+      backend.handle({
+        id: 5,
+        method: 'uiState.set',
+        params: {
+          checkpoint: {
+            version: 1,
+            route: { kind: 'live' },
+            live: { deviceId, mode: 'normal' },
+            surface: { kind: 'refloatConfiguration' },
+          },
+        },
+      });
+    };
+    const read = () => backend.handle({ id: 6, method: 'refloat.configuration.draft.get', params: { deviceId } });
+    save();
+    backend.simulateConnectionState('reconnecting');
+    backend.simulateConnectionState('ready');
+    expect(read()).toMatchObject({ result: draft });
+    backend.simulateConnectionState('reconnecting', false);
+    expect(read()).toMatchObject({ error: { code: 'invalid_state' } });
+    backend.simulateConnectionState('ready');
+    expect(read()).toMatchObject({ result: null });
+    expect(backend.handle({ id: 7, method: 'uiState.get', params: {} })).toMatchObject({ result: null });
+    save();
+    backend.handle({ id: 8, method: 'device.disconnect', params: {} });
+    connect();
+    expect(read()).toMatchObject({ result: null });
   });
 
   it('models bounded configuration pages, verified writes, flywheel exclusion, and exact-version Tunes', () => {

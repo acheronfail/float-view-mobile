@@ -92,8 +92,7 @@
     if (!selected || !controller.loaded) return;
     const result = await backendState.applyRefloatTune(selected.tuneId, selected.revision, controller.loaded.revision);
     if (result) {
-      controller.loaded = result;
-      controller.draft = structuredClone(result.values);
+      controller.acceptValues(result);
       applyConfirmation = false;
     }
   }

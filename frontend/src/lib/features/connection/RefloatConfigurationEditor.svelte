@@ -1,6 +1,6 @@
 <script lang="ts">
   import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import type { RefloatConfigurationField as RefloatConfigurationFieldContract } from '$lib/backend/contract';
   import { backendState } from '$lib/backend/state.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
@@ -17,8 +17,9 @@
 
   let { controller }: { controller: RefloatConfigurationController } = $props();
   let writeConfirmation = $state(false);
-  let controlsExpanded = $state(true);
-  let selectedSectionKey = $state('');
+  const controlsExpanded = $derived(controller.position.controlsExpanded);
+  const selectedSectionKey = $derived(controller.position.sectionKey);
+  let scroller = $state<HTMLDivElement>();
   let helpField = $state<RefloatConfigurationFieldContract | null>(null);
   let helpTrigger = $state<HTMLButtonElement>();
   const selectedSection = $derived(resolveRefloatConfigurationSection(controller.sections, selectedSectionKey));
@@ -27,17 +28,17 @@
   $effect(() => {
     const sections = controller.sections;
     if (!sections.some((section) => section.key === selectedSectionKey)) {
-      selectedSectionKey = sections[0]?.key ?? '';
+      if (sections.length && !controller.loading) controller.setPosition({ sectionKey: sections[0]!.key });
     }
   });
 
   onMount(() => {
-    void controller.open();
+    void (async () => {
+      await controller.open();
+      await tick();
+      if (scroller) scroller.scrollTop = controller.position.scrollTop;
+    })();
   });
-
-  export function hasUnsavedChanges(): boolean {
-    return controller.diff.length > 0;
-  }
 
   async function write() {
     if (await controller.write()) writeConfirmation = false;
@@ -53,7 +54,7 @@
   }
 
   function toggleControls() {
-    controlsExpanded = !controlsExpanded;
+    controller.setPosition({ controlsExpanded: !controlsExpanded });
   }
 </script>
 
@@ -84,7 +85,8 @@
             value={selectedSection?.key ?? ''}
             options={controller.sections.map((section) => ({ value: section.key, label: section.label }))}
             onchange={(value) => {
-              selectedSectionKey = value;
+              controller.setPosition({ sectionKey: value, scrollTop: 0 });
+              if (scroller) scroller.scrollTop = 0;
             }}
           />
         </div>
@@ -94,7 +96,12 @@
             type="search"
             placeholder="Search fields"
             class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
-            bind:value={controller.search}
+            maxlength="512"
+            value={controller.search}
+            oninput={(event) => {
+              controller.search = event.currentTarget.value;
+              if (scroller) scroller.scrollTop = 0;
+            }}
           />
         </label>
       </div>
@@ -129,7 +136,44 @@
     </div>
   </div>
 
-  <div class="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-3">
+  <div
+    bind:this={scroller}
+    class="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-3"
+    onscroll={() => {
+      if (scroller && !controller.loading) controller.setPosition({ scrollTop: Math.max(0, scroller.scrollTop) });
+    }}
+  >
+    {#if controller.saveError}
+      <p role="alert" class="text-warning">{controller.saveError}</p>
+      <button
+        type="button"
+        class="touch-manipulation rounded-md border border-outline px-3 py-2"
+        onpointerdown={(event) =>
+          activateFromPointer(event, async () => {
+            if (controller.loaded) await controller.flush();
+            else await controller.open();
+          })}
+        onclick={(event) =>
+          activateFromKeyboardOrAssistiveClick(event, async () => {
+            if (controller.loaded) await controller.flush();
+            else await controller.open();
+          })}>Retry draft save</button
+      >
+    {/if}
+    {#if controller.restored && !controller.incompatible}
+      <p class="text-sm text-muted">Draft restored · {controller.diff.length} changes</p>
+    {/if}
+    {#if controller.incompatible}
+      <div class="rounded-lg border border-warning/40 p-3 text-sm">
+        <p>
+          This saved draft uses a different firmware or schema and cannot be written. Read current or defaults to
+          replace it.
+        </p>
+        {#each Object.entries(controller.incompatible.values) as [name, value] (name)}
+          <p>{name}: {controller.incompatible.inputs[name] ?? formatRefloatValue(value)}</p>
+        {/each}
+      </div>
+    {/if}
     {#if controller.loading && !controller.pages.length}
       <p class="text-muted">Loading audited Refloat schema…</p>
     {:else if controller.error}
@@ -158,7 +202,9 @@
                   {field}
                   value={controller.draft[field.name]}
                   error={controller.validationErrors[field.name]}
-                  disabled={controller.loading || backendState.busy}
+                  disabled={controller.loading || backendState.busy || !controller.loaded || !!controller.incompatible}
+                  input={controller.inputs[field.name]}
+                  onnumericinput={(input) => controller.setNumericInput(field.name, input)}
                   onchange={(value) => controller.setValue(field.name, value)}
                   onhelp={showHelp}
                 />
@@ -174,16 +220,8 @@
 
   {#if !(controller.loading && !controller.pages.length) && !controller.error}
     <div
-      class="-mx-4 grid shrink-0 grid-cols-2 gap-2 border-t border-outline bg-surface px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] shadow-[0_-4px_8px_-6px_rgb(0_0_0_/_0.35)]"
+      class="-mx-4 grid shrink-0 gap-2 border-t border-outline bg-surface px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] shadow-[0_-4px_8px_-6px_rgb(0_0_0_/_0.35)]"
     >
-      <button
-        type="button"
-        class="min-h-11 touch-manipulation rounded-md border border-outline px-3 py-2 text-sm leading-tight"
-        disabled={!controller.diff.length || controller.loading}
-        onpointerdown={(event) => activateFromPointer(event, () => controller.resetDraft())}
-        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.resetDraft())}
-        >Discard changes</button
-      >
       <button
         type="button"
         class="min-h-11 touch-manipulation rounded-md bg-accent px-3 py-2 text-sm leading-tight text-on-accent disabled:opacity-50"

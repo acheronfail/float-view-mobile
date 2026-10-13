@@ -14,6 +14,7 @@ import type {
   LiveWidgetSlots,
   RefloatControl,
   RefloatConfigurationIdentity,
+  RefloatEditorDraft,
   RefloatConfigurationSchemaPage,
   RefloatConfigurationSummary,
   RefloatConfigurationValue,
@@ -207,6 +208,16 @@ export class BackendState {
     return this.run((client) => client.request('refloat.fatalError.clear', {}).then(() => undefined));
   }
 
+  async getRefloatEditorDraft(deviceId: string): Promise<RefloatEditorDraft | null> {
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    return this.client.request('refloat.configuration.draft.get', { deviceId });
+  }
+
+  async setRefloatEditorDraft(deviceId: string, baseRevision: number, draft: RefloatEditorDraft): Promise<void> {
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    await this.client.request('refloat.configuration.draft.set', { deviceId, baseRevision, draft });
+  }
+
   openRefloatConfiguration(): Promise<RefloatConfigurationSummary | null> {
     return this.query((client) => client.request('refloat.configuration.open', {}));
   }
@@ -215,8 +226,8 @@ export class BackendState {
     return this.query((client) => client.request('refloat.configuration.schema', { cursor }));
   }
 
-  readRefloatConfiguration(source: 'current' | 'default'): Promise<RefloatConfigurationValues | null> {
-    return this.query((client) => client.request('refloat.configuration.read', { source }));
+  readRefloatConfiguration(source: 'current' | 'default', refresh = true): Promise<RefloatConfigurationValues | null> {
+    return this.query((client) => client.request('refloat.configuration.read', { source, refresh }));
   }
 
   writeRefloatConfiguration(

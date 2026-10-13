@@ -48,7 +48,6 @@
   let bmsOpen = $state(false);
   let refloatConfigurationOpen = $state(false);
   let refloatTunesOpen = $state(false);
-  let discardRefloatConfirmationOpen = $state(false);
   let disconnectConfirmationOpen = $state(false);
   let connectionIssueConfirmationOpen = $state(false);
   let firmwareUnsupportedConfirmationOpen = $state(false);
@@ -56,11 +55,11 @@
   let shutdownConfirmationOpen = $state(false);
   let refloatConfirmation = $state<RefloatControlConfirmation | null>(null);
   let editor = $state<BoardEditor>();
-  let refloatEditor = $state<RefloatConfigurationEditor>();
-  const refloatConfiguration = new RefloatConfigurationController(backendState);
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   const headerOwner = '/live';
   const connection = $derived(backendState.snapshot?.activeConnection);
+  const refloatDeviceId = $derived(connection?.deviceId ?? '');
+  const refloatConfiguration = $derived(new RefloatConfigurationController(backendState, refloatDeviceId));
   onMount(() => {
     const checkpoint = restoration.take('live');
     if (checkpoint?.live && checkpoint.live.deviceId === connection?.deviceId) {
@@ -470,17 +469,9 @@
     appHeader.focusMenu();
   }
 
-  async function requestCloseRefloatConfiguration() {
-    if (refloatEditor?.hasUnsavedChanges()) {
-      discardRefloatConfirmationOpen = true;
-      return;
-    }
-    await closeRefloatConfiguration();
-  }
-
   async function closeRefloatConfiguration() {
+    if (!(await refloatConfiguration.flush())) return;
     refloatConfigurationOpen = false;
-    discardRefloatConfirmationOpen = false;
     await tick();
     appHeader.focusMenu();
   }
@@ -571,9 +562,9 @@
     closeLabel="Done"
     fixedContent
     headerShadow
-    onclose={requestCloseRefloatConfiguration}
+    onclose={closeRefloatConfiguration}
   >
-    <RefloatConfigurationEditor bind:this={refloatEditor} controller={refloatConfiguration} />
+    <RefloatConfigurationEditor controller={refloatConfiguration} />
   </FullScreenOverlay>
 {/if}
 
@@ -582,19 +573,6 @@
     <RefloatTunes controller={refloatConfiguration} />
   </FullScreenOverlay>
 {/if}
-
-<ConfirmDialog
-  open={discardRefloatConfirmationOpen}
-  titleId="refloat-discard-title"
-  title="Discard unsaved Refloat changes?"
-  description="Your current draft has not been written or saved as a Tune."
-  confirmLabel="Discard"
-  appearance="destructive"
-  onconfirm={closeRefloatConfiguration}
-  oncancel={() => {
-    discardRefloatConfirmationOpen = false;
-  }}
-/>
 
 <ConfirmDialog
   open={disconnectConfirmationOpen}

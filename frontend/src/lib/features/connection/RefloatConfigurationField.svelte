@@ -9,6 +9,8 @@
     value,
     disabled = false,
     error = null,
+    input,
+    onnumericinput,
     onchange,
     onhelp,
   }: {
@@ -16,6 +18,8 @@
     value: RefloatConfigurationValue | undefined;
     disabled?: boolean;
     error?: string | null;
+    input?: string;
+    onnumericinput?: (input: string) => void;
     onchange: (value: RefloatConfigurationValue) => void;
     onhelp: (field: RefloatConfigurationField, trigger: HTMLButtonElement) => void;
   } = $props();
@@ -90,8 +94,12 @@
         step={field.step ?? (field.type === 'double' ? 'any' : 1)}
         {disabled}
         aria-describedby={error ? errorId : undefined}
-        value={value?.type === 'double' || value?.type === 'integer' ? value.value : ''}
+        value={input ?? (value?.type === 'double' || value?.type === 'integer' ? value.value : '')}
         oninput={(event) => {
+          if (onnumericinput) {
+            onnumericinput(event.currentTarget.value);
+            return;
+          }
           const number = event.currentTarget.valueAsNumber;
           if (!Number.isFinite(number)) return;
           onchange(field.type === 'double' ? { type: 'double', value: number } : { type: 'integer', value: number });

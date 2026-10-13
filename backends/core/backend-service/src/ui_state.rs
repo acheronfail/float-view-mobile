@@ -106,6 +106,17 @@ impl Checkpoint {
     }
 }
 impl BackendService {
+    pub(crate) fn clear_connection_checkpoint(&mut self, device_id: &str) {
+        if self
+            .ui_checkpoint
+            .as_ref()
+            .and_then(|c| c.live.as_ref())
+            .is_some_and(|live| live.device_id == device_id)
+        {
+            self.ui_checkpoint = None;
+        }
+    }
+
     pub fn ui_checkpoint(&self) -> &Option<Checkpoint> {
         &self.ui_checkpoint
     }

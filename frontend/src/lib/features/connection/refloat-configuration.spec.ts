@@ -2,6 +2,7 @@ import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 import type {
   RefloatConfigurationField,
+  RefloatEditorDraft,
   RefloatConfigurationIdentity,
   RefloatConfigurationSchemaPage,
   RefloatConfigurationValue,
@@ -60,6 +61,19 @@ const fields = [
 const values = Object.fromEntries(fields.map((item) => [item.name, item.defaultValue]));
 
 class FakeBackend implements RefloatConfigurationBackend {
+  saved: RefloatEditorDraft | null = null;
+  current = structuredClone(values);
+  reads: Array<{ source: 'current' | 'default'; refresh: boolean }> = [];
+  failSave = false;
+  failRestore = false;
+  async getRefloatEditorDraft() {
+    if (this.failRestore) throw new Error('unavailable');
+    return structuredClone(this.saved);
+  }
+  async setRefloatEditorDraft(_deviceId: string, _revision: number, draft: RefloatEditorDraft) {
+    if (this.failSave) throw new Error('unavailable');
+    this.saved = structuredClone(draft);
+  }
   writes: Array<{
     identity: RefloatConfigurationIdentity;
     revision: number;
@@ -84,8 +98,14 @@ class FakeBackend implements RefloatConfigurationBackend {
   async refloatConfigurationSchema(cursor: string | null = null) {
     return this.pages[cursor ? 1 : 0] ?? null;
   }
-  async readRefloatConfiguration(source: 'current' | 'default') {
-    return { identity, revision: source === 'current' ? 4 : 1, source, values } as RefloatConfigurationValues;
+  async readRefloatConfiguration(source: 'current' | 'default', refresh = true) {
+    this.reads.push({ source, refresh });
+    return {
+      identity,
+      revision: source === 'current' ? 4 : 1,
+      source,
+      values: source === 'current' ? this.current : values,
+    } as RefloatConfigurationValues;
   }
   async writeRefloatConfiguration(
     requestIdentity: RefloatConfigurationIdentity,
@@ -206,13 +226,161 @@ describe('generated Refloat configuration', () => {
     expect(formatRefloatValue({ type: 'double', value: 1.2 }, fields[0])).toBe('1.2 A');
   });
 
-  it('invalidates drafts on flywheel entry, reconnect, or exact identity replacement', async () => {
+  it('preserves drafts but disables writing while current configuration is unavailable', async () => {
     const controller = new RefloatConfigurationController(new FakeBackend());
     await controller.open();
     controller.setValue('gain', { type: 'double', value: 1.2 });
     controller.reconcile({ ...controller.summary!, writable: false, currentLoaded: false });
-    expect(controller.loaded).toBeNull();
-    expect(controller.draft).toEqual({});
+    expect(controller.loaded).not.toBeNull();
+    expect(controller.draft.gain).toEqual({ type: 'double', value: 1.2 });
+    expect(controller.canWrite).toBe(false);
+  });
+
+  it('restores edits, unfinished inputs and editor position in a new controller without writing', async () => {
+    const backend = new FakeBackend();
+    const first = new RefloatConfigurationController(backend, 'board');
+    await first.open();
+    first.setValue('enabled', { type: 'boolean', value: false });
+    first.setNumericInput('gain', '');
+    first.setPosition({
+      sectionKey: refloatConfigurationSectionKey('General', 'Other'),
+      search: 'label',
+      controlsExpanded: false,
+      scrollTop: 123,
+    });
+    await first.flush();
+    const second = new RefloatConfigurationController(backend, 'board');
+    await second.open();
+    expect(second.draft.enabled).toEqual({ type: 'boolean', value: false });
+    expect(second.inputs.gain).toBe('');
+    expect(second.validationErrors.gain).toContain('finite');
+    expect(second.position).toEqual(first.position);
+    expect(second.restored).toBe(true);
+    expect(second.canWrite).toBe(false);
+    expect(backend.writes).toEqual([]);
+  });
+
+  it('reuses retained values across repeated editor recreation while explicit reads refresh', async () => {
+    const backend = new FakeBackend();
+    for (let i = 0; i < 3; i++) {
+      const controller = new RefloatConfigurationController(backend, 'board');
+      await controller.open();
+      await controller.flush();
+      expect(controller.loaded?.revision).toBe(4);
+    }
+    expect(backend.reads).toEqual(Array.from({ length: 3 }, () => ({ source: 'current', refresh: false })));
+    const controller = new RefloatConfigurationController(backend, 'board');
+    await controller.open();
+    await controller.load('current');
+    await controller.load('default');
+    expect(backend.reads.slice(-2)).toEqual([
+      { source: 'current', refresh: true },
+      { source: 'default', refresh: true },
+    ]);
+    await controller.flush();
+    const restoredDefaults = new RefloatConfigurationController(backend, 'board');
+    await restoredDefaults.open();
+    expect(backend.reads.at(-1)).toEqual({ source: 'default', refresh: false });
+  });
+
+  it('read current and defaults replace the durable draft and unfinished input', async () => {
+    const backend = new FakeBackend();
+    const controller = new RefloatConfigurationController(backend, 'board');
+    await controller.open();
+    for (const source of ['current', 'default'] as const) {
+      controller.setNumericInput('gain', '1.2');
+      await controller.flush();
+      await controller.load(source);
+      await controller.flush();
+      expect(backend.saved?.values).toEqual(values);
+      expect(backend.saved?.inputs).toEqual({});
+      expect(backend.saved?.source).toBe(source);
+      expect(controller.inputs).toEqual({});
+    }
+  });
+
+  it('keeps the complete form when the board changes and counts differences against the fresh read', async () => {
+    const backend = new FakeBackend();
+    const first = new RefloatConfigurationController(backend, 'board');
+    await first.open();
+    first.setValue('gain', { type: 'double', value: 1.2 });
+    await first.flush();
+    backend.current.gain = { type: 'double', value: 1.4 };
+    backend.current.label = { type: 'string', value: 'updated elsewhere' };
+    const second = new RefloatConfigurationController(backend, 'board');
+    await second.open();
+    expect(second.draft.label).toEqual(values.label);
+    expect(second.draft.gain).toEqual({ type: 'double', value: 1.2 });
+    expect(second.diff.map((d) => d.name)).toEqual(['gain', 'label']);
+    expect(second.canWrite).toBe(true);
+    await second.load('current');
+    expect(second.draft).toEqual(backend.current);
+    expect(second.diff).toEqual([]);
+  });
+
+  it('retains incompatible drafts for inspection until an explicit read replaces them', async () => {
+    const backend = new FakeBackend();
+    const first = new RefloatConfigurationController(backend, 'board');
+    await first.open();
+    first.setValue('gain', { type: 'double', value: 1.2 });
+    await first.flush();
+    backend.saved!.identity.packageVersion = 'other';
+    const controller = new RefloatConfigurationController(backend, 'board');
+    await controller.open();
+    expect(controller.incompatible?.values.gain).toBeDefined();
+    expect(controller.canWrite).toBe(false);
+    controller.setPosition({ search: 'gain' });
+    await controller.flush();
+    expect(backend.saved!.identity.packageVersion).toBe('other');
+    await controller.load('current');
+    await controller.flush();
+    expect(controller.incompatible).toBeNull();
+    expect(backend.saved!.identity).toEqual(identity);
+  });
+
+  it('coalesces rapid edits and preserves an undo while a newer save is in flight', async () => {
+    const backend = new FakeBackend();
+    const controller = new RefloatConfigurationController(backend, 'board');
+    await controller.open();
+    await controller.flush();
+    let release: (() => void) | undefined;
+    const save = backend.setRefloatEditorDraft.bind(backend);
+    let calls = 0;
+    backend.setRefloatEditorDraft = async (device, revision, draft) => {
+      calls++;
+      if (calls === 1)
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      await save(device, revision, draft);
+    };
+    controller.setValue('gain', { type: 'double', value: 1.2 });
+    controller.setValue('gain', { type: 'double', value: 1.4 });
+    controller.setValue('gain', values.gain!);
+    release!();
+    await controller.flush();
+    expect(backend.saved?.values.gain).toEqual(values.gain);
+    expect(calls).toBe(2);
+  });
+
+  it('surfaces save failures, retries and never overwrites a draft after a failed restore', async () => {
+    const backend = new FakeBackend();
+    const controller = new RefloatConfigurationController(backend, 'board');
+    await controller.open();
+    await controller.flush();
+    backend.failSave = true;
+    controller.setValue('gain', { type: 'double', value: 1.2 });
+    expect(await controller.flush()).toBe(false);
+    expect(controller.saveError).toBeTruthy();
+    backend.failSave = false;
+    expect(await controller.flush()).toBe(true);
+    const saved = structuredClone(backend.saved);
+    backend.failRestore = true;
+    const second = new RefloatConfigurationController(backend, 'board');
+    await second.open();
+    second.setPosition({ search: 'new' });
+    expect(await second.flush()).toBe(false);
+    expect(backend.saved).toEqual(saved);
   });
 
   it('renders accessible controls for all types and distinguishes persistent lighting defaults', () => {

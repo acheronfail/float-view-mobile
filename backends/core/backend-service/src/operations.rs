@@ -48,6 +48,7 @@ pub enum Operation {
     ConfigurationSchema,
     ReadConfiguration {
         defaults: bool,
+        refresh: bool,
     },
     WriteConfiguration {
         package_version: String,

@@ -16,6 +16,7 @@ pub mod permissions;
 mod policy;
 mod process;
 mod projection;
+mod refloat_drafts;
 pub mod ui_state;
 pub use dispatch::Dispatch;
 pub use float_view_product_store::{ExportFormat, SessionLease};
@@ -42,7 +43,10 @@ pub struct BackendService {
 }
 impl BackendService {
     pub fn open(root: &Path) -> Result<Self> {
-        let store = ProductStore::open(root)?;
+        let mut store = ProductStore::open(root)?;
+        // A new process has no live connection to resume. Listener/WebView
+        // recreation borrows this owner and must not clear these checkpoints.
+        store.clear_refloat_editor_drafts()?;
         let mut service = Self {
             diagnostics: diagnostics::Diagnostics::default(),
             runtime: ApplicationRuntime::new(),

@@ -1,0 +1,155 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { test } from 'node:test';
+import { chromium, webkit } from 'playwright';
+import { startMockServer, stopMockServer, getMockBootstrap } from '../../frontend/backend-mock/index.ts';
+import { ConformanceClient } from '../src/client.ts';
+
+const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
+for (const [name, engine] of Object.entries({ chromium, webkit })) {
+  test(`${name}: Refloat edits and position survive a destroyed frontend`, { timeout: 60000 }, async () => {
+    const port = await startMockServer(11002);
+    const endpoint = getMockBootstrap(port);
+    const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
+    const browser = await engine.launch();
+    try {
+      await client.request('bluetooth.requestPermission', {});
+      await client.request('bluetooth.scan', { timeoutMs: 100 });
+      const scan = await client.waitForState((s) => s.discoveredDevices.length > 0);
+      await client.request('device.connect', { deviceId: scan.discoveredDevices[0]!.deviceId, trackingMode: 'saved' });
+      const state = await client.waitForState((s) => s.activeConnection?.state === 'ready');
+      const deviceId = state.activeConnection!.deviceId;
+      const context = await browser.newContext({ viewport: { width: 390, height: 600 }, hasTouch: true });
+      if (name === 'chromium') await context.grantPermissions(['local-network-access'], { origin: endpoint.origin });
+      await context.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      const mutations: string[] = [];
+      const reads: Array<{ source: string; refresh?: boolean }> = [];
+      const errors: string[] = [];
+      await context.routeWebSocket('**/api/ws?*', (socket) => {
+        const server = socket.connectToServer();
+        server.onMessage((raw) => socket.send(raw));
+        socket.onMessage((raw) => {
+          const request = JSON.parse(String(raw));
+          if (request.method === 'refloat.configuration.read') reads.push(request.params);
+          if (request.method === 'refloat.configuration.write' || request.method === 'refloat.tune.apply')
+            mutations.push(request.method);
+          server.send(raw);
+        });
+      });
+      let page = await context.newPage();
+      page.setDefaultTimeout(5000);
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${endpoint.origin}/`);
+      await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
+      await page.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
+      const number = () => page.getByRole('spinbutton', { name: 'Duty Tiltback', exact: true });
+      await number().fill('0.85');
+      await page.getByRole('button', { name: 'Startup defaults', exact: true }).tap();
+      await page
+        .getByRole('group', { name: 'LEDs On (persistent startup default)', exact: true })
+        .getByRole('button', { name: 'Off', exact: true })
+        .tap();
+      await page.getByRole('searchbox').fill('on');
+      await page.getByRole('button', { name: 'Section and search controls', exact: true }).tap();
+      await page.setViewportSize({ width: 390, height: 320 });
+      const scroller = () =>
+        page
+          .locator('div.overflow-y-auto')
+          .filter({ has: page.getByRole('heading', { name: 'Lighting · Startup defaults', exact: true }) });
+      await scroller().evaluate((el) => {
+        el.scrollTop = 60;
+      });
+      const waitDraft = async (predicate: (draft: NonNullable<Awaited<ReturnType<typeof readDraft>>>) => boolean) => {
+        for (let i = 0; i < 100; i++) {
+          const draft = await readDraft();
+          if (draft && predicate(draft)) return draft;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        throw new Error('Draft was not saved');
+      };
+      const readDraft = () => client.request('refloat.configuration.draft.get', { deviceId });
+      const saved = await waitDraft(
+        (d) =>
+          d.values['leds.on']?.value === false &&
+          d.position.search === 'on' &&
+          !d.position.controlsExpanded &&
+          d.position.scrollTop > 0
+      );
+      await page.close();
+      page = await context.newPage();
+      page.setDefaultTimeout(5000);
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.setViewportSize({ width: 390, height: 320 });
+      await page.goto(`${endpoint.origin}/`);
+      await page.getByRole('dialog', { name: 'Configure Refloat', exact: true }).waitFor();
+      await page.getByText('Draft restored · 2 changes', { exact: true }).waitFor();
+      assert.equal(
+        await page
+          .getByRole('button', { name: 'Section and search controls', exact: true })
+          .getAttribute('aria-expanded'),
+        'false'
+      );
+      assert.ok(Math.abs((await scroller().evaluate((el) => el.scrollTop)) - saved.position.scrollTop) < 2);
+      // A secondary pointer must not activate the collapse control; keyboard activates once.
+      await page
+        .getByRole('button', { name: 'Section and search controls', exact: true })
+        .dispatchEvent('pointerdown', { button: 2, isPrimary: true });
+      assert.equal(
+        await page
+          .getByRole('button', { name: 'Section and search controls', exact: true })
+          .getAttribute('aria-expanded'),
+        'false'
+      );
+      await page.setViewportSize({ width: 390, height: 600 });
+      await page.getByRole('button', { name: 'Section and search controls', exact: true }).focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await page.getByRole('searchbox').inputValue(), 'on');
+      assert.equal(
+        await page.getByRole('button', { name: 'Startup defaults', exact: true }).getAttribute('aria-pressed'),
+        'true'
+      );
+      await page.getByRole('searchbox').fill('');
+      await page.getByRole('button', { name: 'Balance', exact: true }).tap();
+      assert.equal(await number().inputValue(), '0.85');
+      await number().fill('');
+      await waitDraft((d) => d.inputs.tiltback_duty === '');
+      await page.close();
+      page = await context.newPage();
+      page.setDefaultTimeout(5000);
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${endpoint.origin}/`);
+      await number().waitFor();
+      assert.equal(await number().inputValue(), '');
+      assert.equal(await page.getByRole('button', { name: 'Write configuration', exact: true }).isDisabled(), true);
+      assert.equal(reads.length, 3);
+      assert.ok(
+        reads.every((read) => read.refresh === false),
+        'restoration requested fresh board reads'
+      );
+      await page.getByRole('button', { name: 'Read current', exact: true }).tap();
+      await waitDraft(
+        (d) => Object.keys(d.inputs).length === 0 && d.values.tiltback_duty?.value === 0.8 && d.source === 'current'
+      );
+      assert.equal(await number().inputValue(), '0.8');
+      await number().fill('0.86');
+      await page.getByRole('button', { name: 'Read defaults', exact: true }).tap();
+      await waitDraft(
+        (d) => Object.keys(d.inputs).length === 0 && d.values.tiltback_duty?.value === 0.8 && d.source === 'default'
+      );
+      assert.equal(await number().inputValue(), '0.8');
+      assert.deepEqual(reads.slice(-2), [
+        { source: 'current', refresh: true },
+        { source: 'default', refresh: true },
+      ]);
+      assert.equal(await page.getByRole('button', { name: 'Discard changes', exact: true }).count(), 0);
+      await page.getByRole('button', { name: 'Done', exact: true }).tap();
+      assert.equal(await page.getByRole('dialog', { name: /Discard/ }).count(), 0);
+      assert.deepEqual(mutations, []);
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      client.close();
+      await stopMockServer();
+    }
+  });
+}

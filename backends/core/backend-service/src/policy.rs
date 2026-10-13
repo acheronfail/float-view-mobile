@@ -35,6 +35,7 @@ pub(crate) struct Connection {
     pub reconnect_started: Option<u64>,
     pub reconnect_attempt: u32,
     pub selected_can_id: Option<u8>,
+    pub refloat_draft_key: Option<String>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Timer {
@@ -534,7 +535,18 @@ impl BackendService {
                 }
             }
             Fact::Timer { id } => self.fire_timer(id)?,
-            Fact::Foreground { foreground } => self.policy.foreground = foreground,
+            Fact::Foreground { foreground } => {
+                self.policy.foreground = foreground;
+                if !foreground
+                    && self
+                        .policy
+                        .active
+                        .as_ref()
+                        .is_some_and(|a| a.state != LinkState::Ready)
+                {
+                    self.clear_connection_editor_state()?;
+                }
+            }
             Fact::Storage { available_bytes } => self.policy.available_bytes = available_bytes,
             Fact::Location {
                 capture_id,
@@ -717,6 +729,7 @@ impl BackendService {
             session: None,
             session_start: None,
             continuity: c::discovery::Continuity::default(),
+            refloat_draft_key: None,
             package_version: None,
             latest: None,
             battery: crate::battery::State::default(),
@@ -773,6 +786,7 @@ impl BackendService {
         })))
     }
     pub fn disconnect(&mut self, reason: &str) -> Result<(), Failure> {
+        self.clear_connection_editor_state()?;
         self.diagnostics.event(
             self.policy.exchange.now,
             self.policy.exchange.epoch,
@@ -814,6 +828,9 @@ impl BackendService {
         self.changed()
     }
     fn reconnect(&mut self) -> Result<(), Failure> {
+        if !self.policy.foreground {
+            self.clear_connection_editor_state()?;
+        }
         self.diagnostics.capture(
             self.policy.exchange.now,
             self.policy.exchange.epoch,
@@ -1222,6 +1239,15 @@ impl BackendService {
             return Err(Failure::InvalidState);
         }
         let a = self.policy.active.as_mut().ok_or(Failure::InvalidState)?;
+        a.refloat_draft_key = Some(
+            facts
+                .selected
+                .identity
+                .controller_uuid
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+        );
         if a.battery
             .controller(facts.selected.identity.controller_uuid)
         {
@@ -2593,6 +2619,96 @@ mod tests {
                 .is_empty()
         );
     }
+    #[test]
+    fn editor_state_tracks_connection_lifetime_and_background_link_loss() {
+        use serde_json::json;
+        for foreground in [true, false] {
+            let mut t = Test::new();
+            t.activate(false);
+            let active = t.service.policy.active.as_ref().unwrap();
+            let key = active.refloat_draft_key.clone().unwrap();
+            let generation = active.generation;
+            let draft = serde_json::from_value::<float_view_product_store::RefloatEditorDraft>(json!({
+                "version":1,"identity":{"packageName":"refloat","packageVersion":"1.3.0","schemaFingerprint":"a".repeat(64),"wireSignature":123},
+                "source":"current","values":{"gain":{"type":"double","value":1.2}},"inputs":{},
+                "position":{"sectionKey":"Ride","search":"gain","controlsExpanded":false,"scrollTop":123}
+            })).unwrap();
+            t.service
+                .store
+                .set_refloat_editor_draft(&key, &draft, 10)
+                .unwrap();
+            let other = "aa".repeat(12);
+            t.service
+                .store
+                .set_refloat_editor_draft(&other, &draft, 10)
+                .unwrap();
+            t.service.set_ui_checkpoint(json!({"version":1,"route":{"kind":"live"},"live":{"deviceId":"test-device","mode":"normal"},"surface":{"kind":"refloatConfiguration"}})).unwrap();
+            t.fact(Fact::Foreground { foreground }, 90).unwrap();
+            // Ordinary backgrounding while still connected retains both checkpoints.
+            assert!(
+                t.service
+                    .store
+                    .refloat_editor_draft(&key)
+                    .unwrap()
+                    .is_some()
+            );
+            assert!(t.service.ui_checkpoint().is_some());
+            t.fact(
+                Fact::Link {
+                    generation,
+                    state: LinkState::Disconnected,
+                },
+                100,
+            )
+            .unwrap();
+            assert_eq!(
+                t.service
+                    .store
+                    .refloat_editor_draft(&key)
+                    .unwrap()
+                    .is_some(),
+                foreground
+            );
+            assert_eq!(t.service.ui_checkpoint().is_some(), foreground);
+            assert!(matches!(
+                t.service
+                    .set_refloat_editor_draft("test-device", 1, draft.clone()),
+                Err(Failure::InvalidState)
+            ));
+            if foreground {
+                // Moving an already disconnected connection into the background also clears it.
+                t.fact(Fact::Foreground { foreground: false }, 101).unwrap();
+                assert!(
+                    t.service
+                        .store
+                        .refloat_editor_draft(&key)
+                        .unwrap()
+                        .is_none()
+                );
+            }
+            t.service
+                .store
+                .set_refloat_editor_draft(&key, &draft, 102)
+                .unwrap();
+            t.service.disconnect("reconnect_timeout").unwrap();
+            assert!(
+                t.service
+                    .store
+                    .refloat_editor_draft(&key)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(t.service.ui_checkpoint().is_none());
+            assert!(
+                t.service
+                    .store
+                    .refloat_editor_draft(&other)
+                    .unwrap()
+                    .is_some()
+            );
+        }
+    }
+
     #[test]
     fn reconnect_preserves_session_identity_and_old_timer_cannot_disconnect_new_connection() {
         let mut t = Test::new();

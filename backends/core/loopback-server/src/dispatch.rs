@@ -207,6 +207,34 @@ impl Backend {
                 p.only(&[])?;
                 return self.snapshot();
             }
+            "refloat.configuration.draft.get" => {
+                p.only(&["deviceId"])?;
+                let service = self.service.lock().map_err(|_| Failure::Internal)?;
+                return serde_json::to_value(service.refloat_editor_draft(&p.text("deviceId")?)?)
+                    .map_err(|_| Failure::Internal);
+            }
+            "refloat.configuration.draft.set" => {
+                p.only(&["deviceId", "baseRevision", "draft"])?;
+                let raw = p.0.get("draft").ok_or(Failure::InvalidRequest)?;
+                if serde_json::to_vec(raw)
+                    .map_err(|_| Failure::InvalidRequest)?
+                    .len()
+                    > 60_000
+                {
+                    return Err(Failure::InvalidRequest);
+                }
+                let draft =
+                    serde_json::from_value(raw.clone()).map_err(|_| Failure::InvalidRequest)?;
+                self.service
+                    .lock()
+                    .map_err(|_| Failure::Internal)?
+                    .set_refloat_editor_draft(
+                        &p.text("deviceId")?,
+                        p.number("baseRevision")?,
+                        draft,
+                    )?;
+                return Ok(json!({"accepted":true}));
+            }
             "refloat.configuration.open" => {
                 p.only(&[])?;
                 return self
@@ -309,13 +337,18 @@ impl Backend {
                 return self.schema_page(client, next.as_deref()).await;
             }
             "refloat.configuration.read" => {
-                p.only(&["source"])?;
+                p.only(&["source", "refresh"])?;
                 let source = p.text("source")?;
                 if source != "current" && source != "default" {
                     return Err(Failure::InvalidRequest);
                 }
                 Operation::ReadConfiguration {
                     defaults: source == "default",
+                    refresh: if p.0.contains_key("refresh") {
+                        p.boolean("refresh")?
+                    } else {
+                        true
+                    },
                 }
             }
             "refloat.configuration.write" => {

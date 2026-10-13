@@ -132,3 +132,10 @@ CREATE INDEX IF NOT EXISTS refloat_configuration_compatibility_updated
     package_name, package_version, schema_fingerprint, wire_signature,
     updated_at_ms DESC, configuration_id DESC
   );
+
+-- One bounded resumable editing session per physical controller. No device writes.
+CREATE TABLE IF NOT EXISTS refloat_editor_draft (
+  controller_key TEXT PRIMARY KEY NOT NULL CHECK (length(controller_key) = 24),
+  json TEXT NOT NULL CHECK (length(json) BETWEEN 2 AND 60000),
+  updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0)
+);
