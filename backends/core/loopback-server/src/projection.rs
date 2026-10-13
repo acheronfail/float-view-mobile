@@ -22,6 +22,12 @@ pub fn maintenance(job: &Maintenance) -> Value {
         "eligibleSessions":job.upper_session_id.as_ref().map(|_| job.completed_sessions),
         "error":job.error.as_ref().map(|_|error(&Failure::Internal))})
 }
+fn firmware_info(firmware: &Firmware, version: &str) -> Value {
+    json!({"vescVersion":format!("{}.{:02}",firmware.major,firmware.minor),
+        "packageName":"refloat","packageVersion":version,"hardwareName":firmware.hardware_name,
+        "accessMode":firmware.access_mode,"supported":true})
+}
+
 pub fn state(facts: &Snapshot, revision: u64, catalog_revision: u64) -> Value {
     let discovered: Vec<_> = facts.discovery.known_devices.iter().map(|device| json!({
         "deviceId":device.device_id,"name":device.name.as_deref().unwrap_or(&device.device_id),"state":"discovered",
@@ -30,21 +36,56 @@ pub fn state(facts: &Snapshot, revision: u64, catalog_revision: u64) -> Value {
     let active = facts.active.as_ref().map(|active| {
         let mut result = value(active);
         let object = result.as_object_mut().expect("record");
-        object.remove("savedDevice"); object.remove("controllerRoute");
-        object.insert("controllerConnection".into(), value(&active.controller_route));
-        object.insert("savedDeviceId".into(), json!(active.saved_device.as_ref().map(|b| &b.saved_device_id)));
-        object.insert("displayName".into(), json!(active.saved_device.as_ref().map(|b|b.display_name.as_str()).or(active.name.as_deref()).unwrap_or(&active.device_id)));
-        object.insert("name".into(), json!(active.name.as_deref().unwrap_or(&active.device_id)));
-        if active.state == "enabling_notifications" { object.insert("state".into(), json!("discovering_services")); }
-        if let Some(sample) = object.get_mut("latestSample").and_then(Value::as_object_mut)
-            && let Some(extensions) = sample.remove("extensionFields") { sample.insert("extensions".into(), extensions); }
-        object.insert("firmware".into(), match (&facts.firmware, &facts.package_version) {
-            (Some(firmware), Some(version)) => json!({"vescVersion":format!("{}.{:02}",firmware.major,firmware.minor),
-                "packageName":"refloat","packageVersion":version,"hardwareName":firmware.hardware_name,
-                "accessMode":if facts.configuration.writable {"readWrite"}else{"readOnly"},"supported":true}),
-            _ => Value::Null,
-        });
-        object.insert("refloatConfiguration".into(), if facts.package_version.is_some() {value(&facts.configuration)} else {Value::Null});
+        object.remove("savedDevice");
+        object.remove("controllerRoute");
+        object.insert(
+            "controllerConnection".into(),
+            value(&active.controller_route),
+        );
+        object.insert(
+            "savedDeviceId".into(),
+            json!(active.saved_device.as_ref().map(|b| &b.saved_device_id)),
+        );
+        object.insert(
+            "displayName".into(),
+            json!(
+                active
+                    .saved_device
+                    .as_ref()
+                    .map(|b| b.display_name.as_str())
+                    .or(active.name.as_deref())
+                    .unwrap_or(&active.device_id)
+            ),
+        );
+        object.insert(
+            "name".into(),
+            json!(active.name.as_deref().unwrap_or(&active.device_id)),
+        );
+        if active.state == "enabling_notifications" {
+            object.insert("state".into(), json!("discovering_services"));
+        }
+        if let Some(sample) = object
+            .get_mut("latestSample")
+            .and_then(Value::as_object_mut)
+            && let Some(extensions) = sample.remove("extensionFields")
+        {
+            sample.insert("extensions".into(), extensions);
+        }
+        object.insert(
+            "firmware".into(),
+            match (&facts.firmware, &facts.package_version) {
+                (Some(firmware), Some(version)) => firmware_info(firmware, version),
+                _ => Value::Null,
+            },
+        );
+        object.insert(
+            "refloatConfiguration".into(),
+            if facts.package_version.is_some() {
+                value(&facts.configuration)
+            } else {
+                Value::Null
+            },
+        );
         result
     });
     json!({"batteryPresets":facts.battery_presets,"batteryPresetCatalogVersion":facts.battery_preset_catalog_version,"batteryCellProfiles":facts.battery_cell_profiles,"revision":revision,"bluetooth":bluetooth(&facts.discovery.bluetooth_state,facts.discovery.active_scan_id.is_some()),
@@ -137,4 +178,23 @@ pub fn tune(facts: &Tune, include_values: bool) -> Result<Value, Failure> {
         object.insert("values".into(), value(&values));
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn firmware_access_uses_the_selected_identity_not_configuration_writability() {
+        for mode in ["readWrite", "readOnly"] {
+            let firmware = Firmware {
+                major: 6,
+                minor: 6,
+                hardware_name: Some("Thor300".into()),
+                access_mode: mode.into(),
+            };
+            let projected = firmware_info(&firmware, "1.3.0");
+            assert_eq!(projected["accessMode"], mode);
+            assert_eq!(projected["vescVersion"], "6.06");
+        }
+    }
 }

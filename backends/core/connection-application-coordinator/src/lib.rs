@@ -688,6 +688,22 @@ impl ConnectionApplicationCoordinator {
         {
             return Ok(vec![Effect::Diagnostic(Diagnostic::UnexpectedResponse)]);
         }
+        // Schema pages share command 92. Correlate the echoed index/offset
+        // before the scheduler retires a request; delayed pages must not fail
+        // an otherwise valid cold download or cancel its current deadline.
+        if expected.command == custom_configuration::GET_SCHEMA_COMMAND
+            && let Some(request) = self.scheduler.snapshot().in_flight
+            && let scheduler::RequestContext::RefloatConfigurationSchema { index, offset, .. } =
+                request.context
+            && let Ok(configuration::Response::SchemaChunk {
+                index: actual_index,
+                offset: actual_offset,
+                ..
+            }) = configuration_response(&payload)
+            && (actual_index != index || actual_offset != offset)
+        {
+            return Ok(vec![Effect::Diagnostic(Diagnostic::ConfigurationStale)]);
+        }
         // Fast and slow command-33 replies share a command ID, but echo different
         // field masks. A late reply must not retire the other request's deadline.
         if expected.command == CUSTOM_APP_DATA_COMMAND

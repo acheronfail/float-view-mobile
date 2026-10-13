@@ -2633,6 +2633,16 @@ mod tests {
         );
     }
     #[test]
+    fn stable_firmware_remains_read_write_when_configuration_is_unavailable() {
+        let mut t = Test::new();
+        t.activate(false);
+        let snapshot = t.service.published_snapshot();
+        assert_eq!(snapshot.configuration.availability, "unavailable");
+        assert!(!snapshot.configuration.writable);
+        assert_eq!(snapshot.firmware.unwrap().access_mode, "readWrite");
+    }
+
+    #[test]
     fn editor_state_tracks_connection_lifetime_and_background_link_loss() {
         use serde_json::json;
         for foreground in [true, false] {

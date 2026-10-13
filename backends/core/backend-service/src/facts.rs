@@ -114,7 +114,7 @@ record!(Tune {
 record!(TunePage { items: Vec<Tune>, next_cursor: Option<String> });
 record!(Device { device_id: String, name: Option<String>, rssi: Option<i32>, last_seen_at: String, saved_device_id: Option<String> });
 record!(Discovery { bluetooth_state: Bluetooth, active_scan_id: Option<String>, known_devices: Vec<Device> });
-record!(Firmware { major: u8, minor: u8, hardware_name: Option<String> });
+record!(Firmware { major: u8, minor: u8, hardware_name: Option<String>, access_mode: String });
 record!(CurrentLimits {
     motor_current_max_a: f64, motor_current_min_a: f64, battery_current_max_a: f64,
     battery_current_min_a: f64, battery_series_cells: Option<u8>,

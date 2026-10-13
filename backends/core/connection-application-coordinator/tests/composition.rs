@@ -369,6 +369,7 @@ fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
     let mut effects = activate_with_cache(&mut coordinator, 50, None);
     let compressed = configuration_schema_1_3_0();
     let mut schema_requests = 0;
+    let mut stale_chunks = 0;
     for step in 0..256 {
         if coordinator.snapshot().configuration.current.is_some() {
             break;
@@ -381,6 +382,22 @@ fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
                 assert_eq!(payload[1], 0);
                 let length = u32::from_be_bytes(payload[2..6].try_into().unwrap()) as usize;
                 let offset = u32::from_be_bytes(payload[6..10].try_into().unwrap()) as usize;
+                if offset > 0 {
+                    let before = coordinator.snapshot();
+                    let mut duplicate = vec![92, 0];
+                    duplicate.extend_from_slice(&(compressed.len() as u32).to_be_bytes());
+                    duplicate.extend_from_slice(&0_u32.to_be_bytes());
+                    duplicate.extend_from_slice(&compressed[..400]);
+                    let ignored = receive(&mut coordinator, duplicate, 60 + step * 10);
+                    assert_eq!(ignored, vec![Effect::Diagnostic(
+                        float_view_connection_application_coordinator::Diagnostic::ConfigurationStale)]);
+                    assert_eq!(
+                        coordinator.snapshot(),
+                        before,
+                        "late schema chunk must retain the active request and deadline"
+                    );
+                    stale_chunks += 1;
+                }
                 let mut response = vec![92, 0];
                 response.extend_from_slice(&(compressed.len() as u32).to_be_bytes());
                 response.extend_from_slice(&(offset as u32).to_be_bytes());
@@ -404,6 +421,7 @@ fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
         effects = receive(&mut coordinator, response, 60 + step * 10);
     }
     let config = coordinator.snapshot().configuration;
+    assert!(stale_chunks > 0);
     assert!(
         schema_requests > 1,
         "cold bootstrap must download the entire schema"

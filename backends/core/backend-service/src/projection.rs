@@ -255,6 +255,11 @@ impl BackendService {
                 major: i.identity.major,
                 minor: i.identity.minor,
                 hardware_name: Some(i.identity.hardware_name.clone()),
+                access_mode: runtime
+                    .discovery
+                    .selected_access
+                    .map(camel)
+                    .unwrap_or_else(|| "readOnly".into()),
             }),
             package_version: p.active.as_ref().and_then(|a| a.package_version.clone()),
             configuration: configuration(&runtime.configuration),

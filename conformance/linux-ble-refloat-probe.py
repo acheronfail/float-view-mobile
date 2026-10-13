@@ -170,12 +170,15 @@ def firmware_summary(payload):
         raise ValueError('Truncated firmware identity')
     return {'version': f'{payload[1]}.{payload[2]:02}',
             'hardware': payload[3:end].decode('utf8', errors='replace'),
-            'custom_configuration_count': payload[start + 15]}
+            'custom_configuration_count': payload[start + 15],
+            'test_version': payload[start + 13],
+            'release': 'stable' if payload[start + 13] == 0 else 'test'}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--device-name')
+    parser.add_argument('--identity-only', action='store_true', help='Stop after firmware and package identity reads')
     parser.add_argument('--can-id', type=int, default=1)
     parser.add_argument('--output', type=Path, default=Path('/tmp/float-view-board-schema.qcompress'))
     args = parser.parse_args()
@@ -209,6 +212,8 @@ def main():
         if len(reply) < 28 or reply[:5] != bytes([36, 101, 0, 2, 0]):
             raise ValueError('Unexpected Refloat INFO reply')
         print(json.dumps({'refloat_version': '.'.join(map(str, reply[25:28])), 'response_ms': ms}), flush=True)
+        if args.identity_only:
+            return
         schema = bytearray()
         total = None
         times = []
