@@ -13,6 +13,10 @@ import android.webkit.ConsoleMessage
 import android.webkit.ValueCallback
 import android.webkit.WebView
 import android.webkit.WebChromeClient
+import android.webkit.WebViewClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceError
+import android.view.View
 import android.widget.FrameLayout
 import fail.acheron.floatview.application.BluetoothEvent
 import fail.acheron.floatview.permissions.PermissionBroker
@@ -24,6 +28,7 @@ class MainActivity : Activity() {
     private var webView: WebView? = null
     private var themeSubscription: AutoCloseable? = null
     private val frontendContainer by lazy { FrameLayout(this) }
+    private val loadingPresentation by lazy { LoadingPresentation(this) }
     private val themeController by lazy { AndroidThemeController(this, frontendContainer) }
     private val sessionFiles by lazy {
         SessionFileImportController(
@@ -46,6 +51,13 @@ class MainActivity : Activity() {
         val app = application as FloatViewApplication
         app.runtime.permissionBroker.attach(this)
         app.runtime.exportPresentationBroker.attach(this)
+        frontendContainer.addView(
+            loadingPresentation,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
         themeSubscription = app.runtime.service.observeTheme { preference ->
             runOnUiThread { themeController.apply(preference) }
         }
@@ -96,7 +108,10 @@ class MainActivity : Activity() {
     private fun createFrontend() {
         if (webView != null || isFinishing || isDestroyed) return
         val origin = (application as FloatViewApplication).backend.origin
+        loadingPresentation.showLoading()
+        loadingPresentation.visibility = View.VISIBLE
         webView = WebView(this).also {
+            it.visibility = View.INVISIBLE
             // The native container owns the canvas while the document is loading.
             it.setBackgroundColor(android.graphics.Color.TRANSPARENT)
             it.settings.javaScriptEnabled = true
@@ -104,6 +119,17 @@ class MainActivity : Activity() {
             it.settings.setSupportZoom(false)
             it.settings.builtInZoomControls = false
             it.settings.displayZoomControls = false
+            it.webViewClient = object : WebViewClient() {
+                override fun onPageCommitVisible(view: WebView, url: String) {
+                    if (view !== webView) return
+                    view.visibility = View.VISIBLE
+                    loadingPresentation.visibility = View.GONE
+                }
+
+                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                    if (view === webView && request.isForMainFrame) loadingPresentation.showFailure()
+                }
+            }
             it.webChromeClient = object : WebChromeClient() {
                 override fun onShowFileChooser(
                     view: WebView?,
@@ -142,6 +168,8 @@ class MainActivity : Activity() {
         current.loadUrl("about:blank")
         current.removeAllViews()
         current.destroy()
+        loadingPresentation.showLoading()
+        loadingPresentation.visibility = View.VISIBLE
     }
 
     internal fun frontendIsAttached(): Boolean = webView != null

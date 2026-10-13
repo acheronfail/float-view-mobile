@@ -4,16 +4,42 @@ import UIKit
 struct ContentView: View {
   @StateObject private var backend = AppBackend()
   @Environment(\.scenePhase) private var scenePhase
+  @State private var loadedGeneration: Int?
+  @State private var failedGeneration: Int?
 
   var body: some View {
     ZStack {
       Color("Canvas").ignoresSafeArea()
       if let frontend = backend.frontend {
-        WebView(url: frontend.origin, onContentProcessTerminated: backend.recoverFrontend)
+        WebView(
+          url: frontend.origin,
+          onContentProcessTerminated: backend.recoverFrontend,
+          onLoadComplete: { loadedGeneration = frontend.generation },
+          onLoadFailure: { failedGeneration = frontend.generation }
+        )
           .id(frontend.generation)
+          .opacity(loadedGeneration == frontend.generation ? 1 : 0)
+          .allowsHitTesting(loadedGeneration == frontend.generation)
+          .accessibilityHidden(loadedGeneration != frontend.generation)
           .ignoresSafeArea()
-      } else if backend.frontendStartupFailed, scenePhase == .active {
+      }
+      if backend.frontendStartupFailed, scenePhase == .active {
         ContentUnavailableView("Unable to start Float View", systemImage: "exclamationmark.triangle")
+      } else if backend.frontend == nil || loadedGeneration != backend.frontend?.generation {
+        VStack(spacing: 20) {
+          Image("LoadingSymbol")
+            .resizable()
+            .frame(width: 72, height: 96)
+            .foregroundStyle(Color(uiColor: .loadingSymbol))
+            .accessibilityHidden(true)
+          Text(
+            failedGeneration != nil && failedGeneration == backend.frontend?.generation
+              ? "Unable to open Float View" : "Loading…"
+          )
+            .font(.system(size: 15))
+            .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
       }
     }
     .preferredColorScheme(backend.themePreference.preferredColorScheme)
@@ -29,5 +55,13 @@ struct ContentView: View {
         break
       }
     }
+  }
+}
+
+private extension UIColor {
+  static let loadingSymbol = UIColor { traits in
+    traits.userInterfaceStyle == .dark
+      ? UIColor(red: 162 / 255, green: 212 / 255, blue: 216 / 255, alpha: 1)
+      : UIColor(red: 14 / 255, green: 116 / 255, blue: 144 / 255, alpha: 1)
   }
 }

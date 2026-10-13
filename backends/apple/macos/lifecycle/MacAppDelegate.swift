@@ -11,6 +11,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   private var generation = 0
   private var window: NSWindow?
   private var webView: WKWebView?
+  private var loadingView: MacLoadingView?
 
   init(html: Data) {
     let runtime = MacBackendRuntime(html: html)
@@ -56,6 +57,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     trace("[FloatViewState] frontend state=stopped reason=window_closed")
     DispatchQueue.main.async { [weak self] in
       self?.webView = nil
+      self?.loadingView = nil
       self?.window = nil
     }
   }
@@ -64,6 +66,22 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     guard window != nil else { return }
     closeFrontendWindow()
     showFrontend()
+  }
+
+  func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
+    guard webView === self.webView else { return }
+    webView.isHidden = false
+    loadingView?.isHidden = true
+  }
+
+  func webView(_ webView: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError _: Error) {
+    guard webView === self.webView else { return }
+    loadingView?.showFailure()
+  }
+
+  func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError _: Error) {
+    guard webView === self.webView else { return }
+    loadingView?.showFailure()
   }
 
   private func showFrontend() {
@@ -94,7 +112,16 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       window.backgroundColor = MacTheme.canvasColor
       window.title = "Float View"
       window.isReleasedWhenClosed = false
-      window.contentView = webView
+      let content = NSView(frame: NSRect(x: 0, y: 0, width: 430, height: 820))
+      webView.frame = content.bounds
+      webView.autoresizingMask = [.width, .height]
+      webView.isHidden = true
+      content.addSubview(webView)
+      let loading = MacLoadingView(frame: content.bounds)
+      loading.autoresizingMask = [.width, .height]
+      content.addSubview(loading)
+      window.contentView = content
+      loadingView = loading
       window.delegate = self
       window.center()
       window.makeKeyAndOrderFront(nil)
@@ -117,6 +144,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     webView?.navigationDelegate = nil
     webView?.stopLoading()
     webView = nil
+    loadingView = nil
     window = nil
     server?.stop()
     server = nil

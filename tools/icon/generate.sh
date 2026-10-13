@@ -21,7 +21,10 @@ require_command() {
 
 require_command rsvg-convert
 require_command magick
+require_command python3
 require_command sips
+
+python3 "$script_dir/generate-loading-symbol.py"
 
 if [[ ! -f "$source_svg" ]]; then
   printf 'tools/icon: source SVG not found: %s\n' "$source_svg" >&2

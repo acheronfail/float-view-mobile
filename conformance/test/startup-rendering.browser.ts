@@ -69,6 +69,21 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 theme: initial,
                 meta: initial === 'dark' ? '#020617' : '#f8fafc',
               });
+              const loading = page.getByRole('status', { name: 'Loading Float View' });
+              assert.equal(await loading.isVisible(), true);
+              assert.equal(await loading.innerText(), 'Loading…');
+              const position = await loading.evaluate((element) => {
+                const symbol = element.querySelector('svg')!.getBoundingClientRect();
+                const message = element.querySelector('p')!.getBoundingClientRect();
+                return {
+                  centerX: (symbol.left + symbol.right) / 2,
+                  centerY: (symbol.top + message.bottom) / 2,
+                  width: innerWidth,
+                  height: innerHeight,
+                };
+              });
+              assert.ok(Math.abs(position.centerX - position.width / 2) < 1);
+              assert.ok(Math.abs(position.centerY - position.height / 2) < 1);
               // Apply the actual application CSS and controller only after checking early paint.
               await page.addStyleTag({ url: `http://127.0.0.1:${address.port}/app.css` });
               const authoritative = initial === 'dark' ? 'light' : 'dark';
@@ -120,11 +135,19 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
 }
 
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
-  test(`${name}: production frontend exposes backend startup failure`, { timeout: 30_000 }, async (t) => {
+  test(`${name}: production loading covers slow startup and clears for failure`, { timeout: 30_000 }, async (t) => {
+    let releaseBootstrap: (() => void) | undefined;
+    let bootstrapStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      bootstrapStarted = resolve;
+    });
     const server = createServer((request, response) => {
       if (request.url === '/api/bootstrap') {
-        response.writeHead(503, { 'Content-Type': 'application/json' });
-        response.end('{}');
+        releaseBootstrap = () => {
+          response.writeHead(503, { 'Content-Type': 'application/json' });
+          response.end('{}');
+        };
+        bootstrapStarted();
       } else {
         response.writeHead(200, { 'Content-Type': 'text/html' });
         response.end(builtHTML);
@@ -137,8 +160,18 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     const browser = await engine.launch();
     try {
       const page = await browser.newPage({ colorScheme: 'dark' });
-      await page.goto(`http://127.0.0.1:${address.port}`);
-      await page.getByText('Bootstrap failed: HTTP 503', { exact: true }).waitFor({ state: 'visible' });
+      await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'commit' });
+      await started;
+      const loading = page.getByRole('status', { name: 'Loading Float View' });
+      assert.equal(await loading.isVisible(), true);
+      releaseBootstrap!();
+      await page.getByRole('alert').waitFor({ state: 'visible' });
+      assert.equal(
+        await page.getByRole('alert').innerText(),
+        'Could not resume this screen. Retry or choose a destination.'
+      );
+      assert.equal(await page.getByRole('button', { name: 'Retry', exact: true }).isVisible(), true);
+      assert.equal(await loading.isVisible(), false);
       assert.equal(await page.getByRole('link', { name: 'settings', exact: true }).isVisible(), true);
       assert.equal((await appearance(page)).background, colors.dark);
     } finally {

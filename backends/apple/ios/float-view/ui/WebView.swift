@@ -13,9 +13,15 @@ struct WebView: UIViewRepresentable {
 
   let url: URL
   let onContentProcessTerminated: () -> Void
+  let onLoadComplete: () -> Void
+  let onLoadFailure: () -> Void
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(onContentProcessTerminated: onContentProcessTerminated)
+    Coordinator(
+      onContentProcessTerminated: onContentProcessTerminated,
+      onLoadComplete: onLoadComplete,
+      onLoadFailure: onLoadFailure
+    )
   }
 
   func makeUIView(context: Context) -> WKWebView {
@@ -56,10 +62,30 @@ struct WebView: UIViewRepresentable {
 
   final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private let onContentProcessTerminated: () -> Void
+    private let onLoadComplete: () -> Void
+    private let onLoadFailure: () -> Void
     private var loadedURL: URL?
 
-    init(onContentProcessTerminated: @escaping () -> Void) {
+    init(
+      onContentProcessTerminated: @escaping () -> Void,
+      onLoadComplete: @escaping () -> Void,
+      onLoadFailure: @escaping () -> Void
+    ) {
       self.onContentProcessTerminated = onContentProcessTerminated
+      self.onLoadComplete = onLoadComplete
+      self.onLoadFailure = onLoadFailure
+    }
+
+    func webView(_: WKWebView, didFinish _: WKNavigation!) {
+      onLoadComplete()
+    }
+
+    func webView(_: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError _: Error) {
+      onLoadFailure()
+    }
+
+    func webView(_: WKWebView, didFail _: WKNavigation!, withError _: Error) {
+      onLoadFailure()
     }
 
     func load(_ url: URL, in webView: WKWebView) {

@@ -27,6 +27,15 @@
   const restoration = new UiRestoration((checkpoint) => backendState.setUiCheckpoint(checkpoint));
   setContext(UI_RESTORATION, restoration);
   let starting = $state(true);
+  $effect(() => {
+    // The early HTML placeholder also covers backend connection and screen restoration.
+    const loading = document.getElementById('app-loading');
+    if (loading) {
+      loading.hidden = !starting;
+      // Keep the shell's navigation available if screen restoration is slow.
+      loading.style.zIndex = '1';
+    }
+  });
   let motionReady = $state(false);
   setContext(MOTION_CONTEXT, { enabled: () => motionReady });
   const motion = createMotion();
@@ -272,16 +281,14 @@
       class="flex flex-1 flex-col"
       class:min-h-0={liveRoute}
     >
-      {#if starting}
-        <p role="status" class="p-5 text-muted">Resuming…</p>
-      {:else if restoreError}
+      {#if !starting && restoreError}
         <section class="p-5">
           <p role="alert">{restoreError}</p>
           <button type="button" class="mt-3 rounded-lg bg-elevated px-4 py-2" onclick={() => void resume()}
             >Retry</button
           >
         </section>
-      {:else}
+      {:else if !starting}
         {#if restoreNotice}<p role="status" class="p-3 text-muted">{restoreNotice}</p>{/if}
         {@render children()}
       {/if}

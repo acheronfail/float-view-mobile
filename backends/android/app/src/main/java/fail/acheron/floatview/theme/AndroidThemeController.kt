@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.widget.FrameLayout
 import androidx.core.view.WindowInsetsControllerCompat
 import fail.acheron.floatview.application.ThemePreference
+import fail.acheron.floatview.ui.LoadingPresentation
 
 class AndroidThemeController(
     private val activity: Activity,
@@ -28,6 +29,9 @@ class AndroidThemeController(
         activity.window.isNavigationBarContrastEnforced = false
         activity.window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(background))
         frontendContainer.setBackgroundColor(background)
+        for (index in 0 until frontendContainer.childCount) {
+            (frontendContainer.getChildAt(index) as? LoadingPresentation)?.applyTheme(dark)
+        }
         WindowInsetsControllerCompat(activity.window, activity.window.decorView).apply {
             isAppearanceLightStatusBars = !dark
             isAppearanceLightNavigationBars = !dark

@@ -233,7 +233,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       page.setDefaultTimeout(5000);
       page.on('pageerror', (e) => errors.push(e.message));
       await page.goto(`${endpoint.origin}/`);
-      await page.getByText('Resuming…', { exact: true }).waitFor();
+      await page.getByRole('status', { name: 'Loading Float View' }).waitFor();
       await page.getByRole('link', { name: 'sessions', exact: true }).tap();
       await page.getByRole('heading', { name: 'Sessions', exact: true }).waitFor();
       assert.ok(releaseRead);
