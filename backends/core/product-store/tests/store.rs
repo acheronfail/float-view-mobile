@@ -398,11 +398,36 @@ fn tune_fixture() -> (
         choices: vec![],
         description: String::new(),
     };
+    let excluded = ConfigurationField {
+        name: "tiltback_duty".into(),
+        long_name: "Duty Tiltback".into(),
+        ..field.clone()
+    };
+    let hardware = ConfigurationField {
+        name: "hardware.current_max".into(),
+        long_name: "Hardware Current".into(),
+        ..field.clone()
+    };
     let schema = ConfigurationSchema {
         fingerprint: "a".repeat(64),
         wire_signature: 42,
-        fields: vec![field],
-        groups: vec![],
+        fields: vec![field, excluded, hardware],
+        groups: vec![
+            ConfigurationGroup {
+                name: "General".into(),
+                subgroups: vec![ConfigurationSubgroup {
+                    name: "Tune".into(),
+                    fields: vec!["gain".into(), "tiltback_duty".into()],
+                }],
+            },
+            ConfigurationGroup {
+                name: "Hardware".into(),
+                subgroups: vec![ConfigurationSubgroup {
+                    name: "Limits".into(),
+                    fields: vec!["hardware.current_max".into()],
+                }],
+            },
+        ],
     };
     let identity = TuneIdentity {
         package_name: "refloat".into(),
@@ -417,11 +442,14 @@ fn tune_fixture() -> (
     )
 }
 #[test]
-fn tunes_require_exact_identity_complete_values_and_revision() {
+fn tunes_require_exact_identity_portable_values_and_revision() {
     use float_view_product_store::*;
     let root = Root::new();
     let mut store = root.open();
     let (identity, values, schema) = tune_fixture();
+    assert!(is_tune_field("gain", &schema));
+    assert!(!is_tune_field("tiltback_duty", &schema));
+    assert!(!is_tune_field("hardware.current_max", &schema));
     let tune = store
         .create_tune("Tune", None, &identity, &values, &schema, 1)
         .unwrap();

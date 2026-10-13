@@ -108,8 +108,13 @@ write acknowledgement, and mandatory readback. Flywheel entry immediately
 invalidates current values and hides current/edit/write/apply actions; confirmed
 normal-mode return requires a fresh current read. Runtime LED/headlight controls
 remain live-only and distinct from similarly named persistent startup defaults
-in the editor. Tunes are application-wide complete configurations filtered by
-exact identity, not upstream QML curated or migrating presets.
+in the editor. Tunes are independent of editor drafts: saving a preset performs a
+fresh current-board read, renaming changes only preset metadata, and applying a
+preset merges its portable Refloat Tune fields into the board's current complete
+configuration and writes it with mandatory readback. Tune fields follow Refloat's
+QML exclusions for hardware, haptics, safety thresholds and package state. Presets
+are application-wide and filtered by exact package/schema identity, not tied to a
+saved board.
 
 The live battery percentage is the shared service's temporal estimate. Optional
 full-pack capacity (Ah) enables signed charge tracking; otherwise it follows

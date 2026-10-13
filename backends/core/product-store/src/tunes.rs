@@ -8,7 +8,31 @@ use float_view_refloat_configuration_codec as codec;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+const TUNE_BLACKLIST: &[&str] = &[
+    "tiltback_return_speed",
+    "tiltback_duty",
+    "tiltback_duty_angle",
+    "tiltback_duty_speed",
+    "is_dutybeep_enabled",
+    "tiltback_hv_angle",
+    "tiltback_hv_speed",
+    "tiltback_lv_angle",
+    "tiltback_lv_speed",
+    "persistent_fatal_error",
+    "disabled",
+    "fault_adc1",
+    "fault_adc2",
+    "hertz",
+    "inputtilt_remote_type",
+    "inputtilt_deadband",
+    "is_footbeep_enabled",
+    "is_beeper_enabled",
+    "tiltback_hv",
+    "tiltback_lv",
+    "tiltback_speed",
+];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -32,6 +56,20 @@ pub enum TuneValue {
     String(String),
 }
 pub type TuneValues = BTreeMap<String, TuneValue>;
+
+#[must_use]
+pub fn is_tune_field(name: &str, schema: &codec::ConfigurationSchema) -> bool {
+    !name.starts_with("haptic.")
+        && !name.starts_with("hardware.")
+        && !TUNE_BLACKLIST.contains(&name)
+        && schema.groups.iter().any(|group| {
+            group.name == "General"
+                && group
+                    .subgroups
+                    .iter()
+                    .any(|subgroup| subgroup.fields.iter().any(|field| field == name))
+        })
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Tune {
@@ -84,28 +122,38 @@ pub fn validate_tune_values(
     schema: &codec::ConfigurationSchema,
 ) -> Result<()> {
     identity.validate()?;
+    let expected: BTreeSet<_> = schema
+        .fields
+        .iter()
+        .filter(|field| is_tune_field(&field.name, schema))
+        .map(|field| field.name.as_str())
+        .collect();
     if identity.schema_fingerprint != schema.fingerprint
         || identity.wire_signature != schema.wire_signature
         || values.is_empty()
         || values.len() > codec::MAX_FIELDS
+        || values.keys().map(String::as_str).collect::<BTreeSet<_>>() != expected
     {
         return Err(Error::InvalidInput);
     }
     json(values, limits::MAX_TUNE_VALUES_BYTES)?;
-    let converted: Vec<_> = values
+    let mut converted: BTreeMap<_, _> = schema
+        .fields
         .iter()
-        .map(|(name, v)| {
-            (
-                name.clone(),
-                match v {
-                    TuneValue::Double(v) => codec::ConfigurationValue::Decimal(*v),
-                    TuneValue::Integer(v) => codec::ConfigurationValue::Integer(*v),
-                    TuneValue::Boolean(v) => codec::ConfigurationValue::Boolean(*v),
-                    TuneValue::String(v) => codec::ConfigurationValue::String(v.clone()),
-                },
-            )
-        })
+        .map(|field| (field.name.clone(), field.default_value.clone()))
         .collect();
+    converted.extend(values.iter().map(|(name, value)| {
+        (
+            name.clone(),
+            match value {
+                TuneValue::Double(value) => codec::ConfigurationValue::Decimal(*value),
+                TuneValue::Integer(value) => codec::ConfigurationValue::Integer(*value),
+                TuneValue::Boolean(value) => codec::ConfigurationValue::Boolean(*value),
+                TuneValue::String(value) => codec::ConfigurationValue::String(value.clone()),
+            },
+        )
+    }));
+    let converted: Vec<_> = converted.into_iter().collect();
     codec::encode_values(&converted, schema).map_err(|_| Error::InvalidInput)?;
     Ok(())
 }

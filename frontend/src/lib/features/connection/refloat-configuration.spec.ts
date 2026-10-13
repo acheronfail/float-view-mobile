@@ -45,6 +45,7 @@ const field = (
   suffix: '',
   choices: [],
   description: `${name} help`,
+  tunable: true,
   ...overrides,
 });
 

@@ -11,6 +11,7 @@ import {
   firmwareAccessDescription,
   readingsAreDimmed,
   refloatControlConfirmation,
+  refloatConfigurationWriteUnavailableReason,
   refloatMenuActions,
   shouldConfirmDisconnect,
   sortedControllerCandidates,
@@ -173,6 +174,51 @@ describe('live board behavior', () => {
     expect(unavailable.some((item) => item.label.startsWith('LEDs'))).toBe(false);
     expect(unavailable.find((item) => item.kind === 'clearFatalError')?.disabled).toBe(true);
     expect(unavailable.every((item) => item.disabled)).toBe(true);
+  });
+
+  it('only permits persistent Refloat writes from an idle, clear, ready board', () => {
+    const ready = connection('ready');
+    ready.refloatControls = { ...refloatControls };
+    ready.refloatConfiguration = {
+      availability: 'ready',
+      writable: true,
+      packageVersion: '1.2.3',
+      schemaFingerprint: 'a'.repeat(64),
+      wireSignature: 123,
+      currentLoaded: true,
+      defaultLoaded: false,
+      pendingOperation: null,
+    };
+    ready.latestSample = {
+      rideState: 'idle',
+      footpadState: 'none',
+      packageState: 'ready',
+      packageMode: 'normal',
+    } as ActiveConnection['latestSample'];
+
+    expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration)).toBeNull();
+
+    ready.latestSample = { ...ready.latestSample, rideState: 'riding' } as ActiveConnection['latestSample'];
+    expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration)).toContain('Disengage');
+
+    ready.latestSample = {
+      ...ready.latestSample,
+      rideState: 'idle',
+      footpadState: 'both',
+    } as ActiveConnection['latestSample'];
+    expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration)).toContain('footpads');
+
+    ready.latestSample = {
+      ...ready.latestSample,
+      footpadState: 'none',
+      packageState: 'running',
+    } as ActiveConnection['latestSample'];
+    expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration)).toContain(
+      'ready in normal mode'
+    );
+
+    ready.refloatConfiguration.pendingOperation = 'applyTune';
+    expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration)).toContain('operation');
   });
 
   it('keeps confirmed lighting state and stable labels during pending and unknown states', () => {

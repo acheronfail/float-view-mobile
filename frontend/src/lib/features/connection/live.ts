@@ -3,6 +3,7 @@ import type {
   ControllerCandidate,
   ControllerConnection,
   FirmwareInfo,
+  RefloatConfigurationSummary,
   RideState,
   RefloatControl,
 } from '$lib/backend/contract';
@@ -49,6 +50,33 @@ export function flywheelDisableUnavailable(connection: ActiveConnection | null |
     !controls.writable ||
     controls.pendingAction !== null
   );
+}
+
+export function refloatConfigurationWriteUnavailableReason(
+  connection: ActiveConnection | null | undefined,
+  summary: RefloatConfigurationSummary | null | undefined
+): string | null {
+  if (!connection || connection.state !== 'ready') return 'Reconnect to the board before applying a Tune.';
+  if (summary?.availability !== 'ready' || !summary.writable) {
+    return 'Persistent Refloat writes are currently unavailable.';
+  }
+  if (
+    summary.pendingOperation !== null ||
+    connection.refloatControls?.pendingAction != null ||
+    connection.controllerActions.pendingAction !== null
+  ) {
+    return 'Wait for the current board operation to finish before applying a Tune.';
+  }
+  if (connection.refloatControls?.flywheelEnabled === true) return 'Exit flywheel mode before applying a Tune.';
+
+  const sample = connection.latestSample;
+  if (!sample) return 'Wait for live board status before applying a Tune.';
+  if (sample.rideState !== 'idle') return 'Disengage the board before applying a Tune.';
+  if (sample.footpadState !== 'none') return 'Step off both footpads before applying a Tune.';
+  if (sample.packageState !== 'ready' || sample.packageMode !== 'normal') {
+    return 'Wait until Refloat is ready in normal mode before applying a Tune.';
+  }
+  return null;
 }
 
 export function refloatControlConfirmation(

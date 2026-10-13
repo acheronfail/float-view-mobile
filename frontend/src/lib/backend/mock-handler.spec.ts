@@ -869,6 +869,9 @@ describe('deterministic mock backend', () => {
     }) as { result: { revision: number; values: Record<string, unknown> } };
     expect(written.result).toMatchObject({ revision: 2, values: { 'meta.is_default': { value: false } } });
 
+    const tuneValues = Object.fromEntries(
+      Object.entries(written.result.values).filter(([name]) => name === 'leds.on' || name === 'leds.headlights_on')
+    );
     const created = backend.handle({
       id: 11,
       method: 'refloat.tune.create',
@@ -877,10 +880,11 @@ describe('deterministic mock backend', () => {
         description: null,
         identity: first.result.identity,
         sourceRevision: written.result.revision,
-        values: written.result.values,
+        values: tuneValues,
       },
-    }) as { result: { tuneId: string; revision: number } };
+    }) as { result: { tuneId: string; revision: number; values: Record<string, unknown> } };
     expect(created.result).toMatchObject({ tuneId: 'tune-1', revision: 1 });
+    expect(created.result.values).toEqual(tuneValues);
     expect(
       backend.handle({
         id: 12,
@@ -897,32 +901,67 @@ describe('deterministic mock backend', () => {
           expectedRevision: 0,
           name: 'Stale',
           description: null,
-          values: written.result.values,
+          values: tuneValues,
         },
       })
     ).toMatchObject({ error: { code: 'conflict' } });
 
+    const boardSpecific = {
+      ...written.result.values,
+      tiltback_duty: { type: 'double', value: 0.82 },
+      'leds.on': { type: 'boolean', value: false },
+    };
+    const changed = backend.handle({
+      id: 14,
+      method: 'refloat.configuration.write',
+      params: {
+        packageVersion: first.result.identity.packageVersion,
+        schemaFingerprint: first.result.identity.schemaFingerprint,
+        wireSignature: first.result.identity.wireSignature,
+        baseRevision: written.result.revision,
+        values: boardSpecific,
+      },
+    }) as { result: { revision: number } };
     expect(
       backend.handle({
-        id: 14,
+        id: 15,
+        method: 'refloat.tune.apply',
+        params: {
+          tuneId: created.result.tuneId,
+          expectedRevision: created.result.revision,
+          baseRevision: changed.result.revision,
+        },
+      })
+    ).toMatchObject({
+      result: {
+        values: {
+          tiltback_duty: { value: 0.82 },
+          'leds.on': { value: true },
+        },
+      },
+    });
+
+    expect(
+      backend.handle({
+        id: 16,
         method: 'refloat.control.set',
         params: { control: 'flywheel', enabled: true },
       })
     ).toHaveProperty('result');
     expect(
       backend.handle({
-        id: 15,
+        id: 17,
         method: 'refloat.configuration.read',
         params: { source: 'current' },
       })
     ).toMatchObject({ error: { code: 'invalid_state' } });
     expect(
-      (backend.handle({ id: 16, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection
+      (backend.handle({ id: 18, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection
         ?.refloatConfiguration
     ).toMatchObject({ currentLoaded: false, writable: false });
     expect(
       backend.handle({
-        id: 17,
+        id: 19,
         method: 'refloat.control.set',
         params: { control: 'flywheel', enabled: false },
       })

@@ -599,7 +599,7 @@
 
 {#if refloatTunesOpen && connection?.refloatConfiguration}
   <FullScreenOverlay title="Tunes" titleId="refloat-tunes-title" closeLabel="Done" onclose={closeRefloatTunes}>
-    <RefloatTunes controller={refloatConfiguration} />
+    <RefloatTunes {connection} />
   </FullScreenOverlay>
 {/if}
 

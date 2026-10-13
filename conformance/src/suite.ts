@@ -993,12 +993,17 @@ export async function exerciseRefloatConfiguration(
     draft: { ...editorDraft, values: current.values, inputs: {} },
   });
 
+  const tuneValues = Object.fromEntries(
+    fields.filter((field) => field.tunable).map((field) => [field.name, draftValues[field.name]!])
+  );
+  assert.ok(Object.keys(tuneValues).length > 0, 'Refloat schema has no portable Tune fields');
+
   const tune = await client.request('refloat.tune.create', {
     name: 'Conformance configuration',
     description: 'Exact-version disposable conformance record',
     identity: current.identity,
     sourceRevision: current.revision,
-    values: draftValues,
+    values: tuneValues,
   });
   const listed = await client.request('refloat.tune.list', { identity: current.identity, limit: 1, cursor: null });
   assert.ok(listed.items.some((item) => item.tuneId === tune.tuneId));

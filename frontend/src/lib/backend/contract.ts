@@ -389,6 +389,8 @@ export interface RefloatConfigurationField {
   suffix: string;
   choices: string[];
   description: string;
+  /** True only for fields included in portable Refloat Tunes. */
+  tunable: boolean;
 }
 
 export interface RefloatConfigurationSchemaPage {
@@ -433,6 +435,7 @@ export interface RefloatTuneSummary {
 }
 
 export interface RefloatTune extends RefloatTuneSummary {
+  /** Portable Refloat Tune subset only; board-specific configuration is excluded. */
   values: Record<string, RefloatConfigurationValue>;
 }
 

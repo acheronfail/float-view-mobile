@@ -30,9 +30,11 @@ pub use boards::{Board, BoardHistory, Profile, RoutingHint, board_identity};
 pub use cache::SchemaIdentity;
 pub use refloat_drafts::{RefloatEditorDraft, RefloatEditorPosition};
 pub use settings::{SessionDisplayOptions, Settings};
-pub use tunes::{Tune, TuneIdentity, TunePage, TuneValue, TuneValues, validate_tune_values};
+pub use tunes::{
+    Tune, TuneIdentity, TunePage, TuneValue, TuneValues, is_tune_field, validate_tune_values,
+};
 
-pub const STORAGE_VERSION: &str = "21";
+pub const STORAGE_VERSION: &str = "22";
 pub const CATALOG_SCHEMA: &str = include_str!("../../../sql/catalog.sql");
 
 /// Errors intentionally exclude SQL, paths, identifiers and other private data.

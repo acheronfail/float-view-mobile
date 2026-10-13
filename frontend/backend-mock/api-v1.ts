@@ -66,6 +66,7 @@ const refloatFields: RefloatConfigurationField[] = [
     suffix: '',
     choices: [],
     description: 'Duty-cycle threshold.',
+    tunable: false,
   },
   {
     name: 'leds.on',
@@ -79,6 +80,7 @@ const refloatFields: RefloatConfigurationField[] = [
     suffix: '',
     choices: [],
     description: 'Persistent startup default.',
+    tunable: true,
   },
   {
     name: 'leds.headlights_on',
@@ -92,6 +94,7 @@ const refloatFields: RefloatConfigurationField[] = [
     suffix: '',
     choices: [],
     description: 'Persistent startup default.',
+    tunable: true,
   },
   {
     name: 'meta.is_default',
@@ -105,6 +108,7 @@ const refloatFields: RefloatConfigurationField[] = [
     suffix: '',
     choices: [],
     description: '',
+    tunable: false,
   },
 ];
 
@@ -787,7 +791,7 @@ export class MockBackend {
           schemaFingerprint: tune.identity.schemaFingerprint,
           wireSignature: tune.identity.wireSignature,
           baseRevision: params.baseRevision,
-          values: tune.values,
+          values: { ...this.refloatCurrentValues, ...tune.values },
         });
       }
       case 'settings.update': {
@@ -1482,7 +1486,7 @@ export class MockBackend {
       !sameRefloatIdentity(identity, refloatIdentity) ||
       integer(params.sourceRevision) !== this.refloatCurrentRevision ||
       !values ||
-      !validRefloatValues(values)
+      !validRefloatTuneValues(values)
     )
       return failure(id, 'invalid_request', 'Tune create parameters are invalid or stale');
     const now = new Date().toISOString();
@@ -1508,7 +1512,7 @@ export class MockBackend {
     const name = boundedText(params.name, MAX_REFLOAT_TUNE_NAME_BYTES, false);
     const description = boundedText(params.description, MAX_REFLOAT_TUNE_DESCRIPTION_BYTES, true);
     const values = asObject(params.values);
-    if (typeof name !== 'string' || description === undefined || !values || !validRefloatValues(values)) {
+    if (typeof name !== 'string' || description === undefined || !values || !validRefloatTuneValues(values)) {
       return failure(id, 'invalid_request', 'Tune update parameters are invalid');
     }
     const updated = {
@@ -1956,11 +1960,11 @@ function sameRefloatIdentity(left: RefloatConfigurationIdentity, right: RefloatC
   );
 }
 
-function validRefloatValues(value: Record<string, unknown>): boolean {
-  const expected = refloatFields.map((field) => field.name).sort();
+function validRefloatValuesFor(fields: RefloatConfigurationField[], value: Record<string, unknown>): boolean {
+  const expected = fields.map((field) => field.name).sort();
   if (Object.keys(value).sort().join('\0') !== expected.join('\0')) return false;
   if (Buffer.byteLength(JSON.stringify(value), 'utf8') > MAX_REFLOAT_CONFIGURATION_JSON_BYTES) return false;
-  return refloatFields.every((field) => {
+  return fields.every((field) => {
     const typed = asObject(value[field.name]);
     if (!typed || Object.keys(typed).sort().join(',') !== 'type,value') return false;
     switch (field.type) {
@@ -1984,6 +1988,17 @@ function validRefloatValues(value: Record<string, unknown>): boolean {
         );
     }
   });
+}
+
+function validRefloatValues(value: Record<string, unknown>): boolean {
+  return validRefloatValuesFor(refloatFields, value);
+}
+
+function validRefloatTuneValues(value: Record<string, unknown>): boolean {
+  return validRefloatValuesFor(
+    refloatFields.filter((field) => field.tunable),
+    value
+  );
 }
 
 function boundedText(value: unknown, maximumBytes: number, nullable: boolean): string | null | undefined {

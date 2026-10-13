@@ -341,6 +341,37 @@ impl BackendService {
                     .ok_or(Failure::InvalidState)?;
                 store::validate_tune_values(&tune.identity, &tune.values, schema)
                     .map_err(store_failure)?;
+                let mut values = self
+                    .runtime
+                    .snapshot()
+                    .application
+                    .configuration
+                    .current
+                    .ok_or(Failure::InvalidState)?;
+                if values.revision != base_revision {
+                    return Err(Failure::Conflict);
+                }
+                values
+                    .values
+                    .extend(tune.values.into_iter().map(|(name, value)| {
+                        (
+                            name,
+                            match value {
+                                store::TuneValue::Double(value) => {
+                                    c::configuration_codec::ConfigurationValue::Decimal(value)
+                                }
+                                store::TuneValue::Integer(value) => {
+                                    c::configuration_codec::ConfigurationValue::Integer(value)
+                                }
+                                store::TuneValue::Boolean(value) => {
+                                    c::configuration_codec::ConfigurationValue::Boolean(value)
+                                }
+                                store::TuneValue::String(value) => {
+                                    c::configuration_codec::ConfigurationValue::String(value)
+                                }
+                            },
+                        )
+                    }));
                 return self.kernel_request(
                     owner,
                     PendingKind::Write,
@@ -351,29 +382,7 @@ impl BackendService {
                         fingerprint: tune.identity.schema_fingerprint,
                         wire_signature: tune.identity.wire_signature,
                         base_revision,
-                        values: tune
-                            .values
-                            .into_iter()
-                            .map(|(k, v)| {
-                                (
-                                    k,
-                                    match v {
-                                        store::TuneValue::Double(v) => {
-                                            c::configuration_codec::ConfigurationValue::Decimal(v)
-                                        }
-                                        store::TuneValue::Integer(v) => {
-                                            c::configuration_codec::ConfigurationValue::Integer(v)
-                                        }
-                                        store::TuneValue::Boolean(v) => {
-                                            c::configuration_codec::ConfigurationValue::Boolean(v)
-                                        }
-                                        store::TuneValue::String(v) => {
-                                            c::configuration_codec::ConfigurationValue::String(v)
-                                        }
-                                    },
-                                )
-                            })
-                            .collect(),
+                        values: values.values,
                         now_ms: now,
                     },
                 );
@@ -862,6 +871,7 @@ fn schema(s: &c::configuration_codec::ConfigurationSchema) -> f::ConfigurationSc
                 suffix: v.suffix.clone(),
                 choices: v.choices.clone(),
                 description: v.description.clone(),
+                tunable: store::is_tune_field(&v.name, s),
             })
             .collect(),
         groups: s
