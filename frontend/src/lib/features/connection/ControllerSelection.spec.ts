@@ -12,6 +12,7 @@ const connection: ActiveConnection = {
   state: 'selecting_controller',
   trackingMode: 'saved',
   savedDeviceId: 'saved-board',
+  transportFirmware: null,
   controllerConnection: null,
   controllerCandidates: [
     {

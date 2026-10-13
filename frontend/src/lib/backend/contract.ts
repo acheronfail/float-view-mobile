@@ -89,6 +89,15 @@ export interface FirmwareInfo {
   supported: boolean;
 }
 
+/** Identity of the Bluetooth peer, independent of a motor reached through CAN.
+ * Public firmware metadata only; no Bluetooth address or controller UUID. */
+export interface TransportFirmwareInfo {
+  vescVersion: string;
+  hardwareName: string | null;
+  firmwareName: string | null;
+  testVersion: number;
+}
+
 export type ControllerConnection = { kind: 'direct' } | { kind: 'can'; canId: number };
 
 export interface ControllerCandidate {
@@ -464,6 +473,7 @@ export interface BatteryCellProfile {
 export interface ActiveConnection extends Device {
   deviceKind: 'board' | 'bms' | null;
   firmware: FirmwareInfo | null;
+  transportFirmware: TransportFirmwareInfo | null;
   trackingMode: 'saved' | 'guest';
   savedDeviceId: string | null;
   displayName: string;

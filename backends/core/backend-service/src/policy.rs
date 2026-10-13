@@ -2633,6 +2633,62 @@ mod tests {
         );
     }
     #[test]
+    fn can_snapshot_keeps_gateway_identity_separate_from_motor_firmware() {
+        let mut t = Test::new();
+        t.discover();
+        t.service.connect("test-device", false).unwrap();
+        let generation = t.service.policy.active.as_ref().unwrap().generation;
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Ready,
+            },
+            4,
+        )
+        .unwrap();
+        let mut gateway = vec![0, 6, 6];
+        gateway.extend_from_slice(b"VESC Express T\0");
+        gateway.extend_from_slice(&[2; 12]);
+        gateway.extend_from_slice(&[1, 0, 5, 1, 1, 0, 1, 0]);
+        gateway.extend_from_slice(b"VESC Express\0");
+        let mut motor = vec![0, 6, 6];
+        motor.extend_from_slice(b"Thor300\0");
+        motor.extend_from_slice(&[7; 12]);
+        motor.extend_from_slice(&[1, 0, 0, 0, 1, 0, 1, 0]);
+        motor.extend_from_slice(b"Float\0");
+        for payload in [
+            gateway,
+            vec![62, 1],
+            motor,
+            vec![50, 0, 2, 0, 0, 1],
+            vec![36, 101, 0, 10],
+        ] {
+            let generation = t.service.runtime.snapshot().application.generation;
+            t.service
+                .runtime_command(Command::Application(c::Command::Receive {
+                    generation,
+                    payload,
+                    now_ms: t.service.policy.exchange.now,
+                    observed_at_epoch_ms: t.service.policy.exchange.epoch,
+                }))
+                .unwrap();
+        }
+        let snapshot = t.service.published_snapshot();
+        assert_eq!(
+            snapshot.firmware.unwrap().hardware_name.as_deref(),
+            Some("Thor300")
+        );
+        let transport = snapshot.active.unwrap().transport_firmware.unwrap();
+        assert_eq!(transport.hardware_name.as_deref(), Some("VESC Express T"));
+        assert_eq!(transport.firmware_name.as_deref(), Some("VESC Express"));
+        assert_eq!(transport.vesc_version, "6.06");
+        assert_eq!(transport.test_version, 0);
+        let public = serde_json::to_value(&transport).unwrap();
+        assert!(public.get("controllerUuid").is_none());
+        assert!(public.get("address").is_none());
+    }
+
+    #[test]
     fn stable_firmware_remains_read_write_when_configuration_is_unavailable() {
         let mut t = Test::new();
         t.activate(false);

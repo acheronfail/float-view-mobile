@@ -179,6 +179,14 @@ impl BackendService {
                     battery_series_cells: v.battery_series_cells,
                 }),
                 controller_route: runtime.discovery.route.map(route),
+                transport_firmware: runtime.discovery.transport.as_ref().map(|identity| {
+                    f::TransportFirmware {
+                        vesc_version: format!("{}.{:02}", identity.major, identity.minor),
+                        hardware_name: Some(identity.hardware_name.clone()),
+                        firmware_name: identity.firmware_name.clone(),
+                        test_version: identity.test_version,
+                    }
+                }),
                 controller_candidates: runtime
                     .discovery
                     .candidates

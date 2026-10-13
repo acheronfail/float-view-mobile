@@ -1191,6 +1191,15 @@ export function assertState(state: AppState) {
     );
     assert.ok(typeof latestLocation.observedAt === 'string' && Number.isFinite(Date.parse(latestLocation.observedAt)));
   }
+  assert.ok(active.transportFirmware === null || typeof active.transportFirmware === 'object');
+  if (active.transportFirmware) {
+    const transport = active.transportFirmware;
+    assert.deepEqual(Object.keys(transport).sort(), ['firmwareName', 'hardwareName', 'testVersion', 'vescVersion']);
+    assert.ok(transport.vescVersion.length > 0 && transport.vescVersion.length <= 32);
+    assert.ok(transport.hardwareName === null || transport.hardwareName.length <= 128);
+    assert.ok(transport.firmwareName === null || transport.firmwareName.length <= 128);
+    assert.ok(Number.isInteger(transport.testVersion) && transport.testVersion >= 0 && transport.testVersion <= 255);
+  }
   assert.ok(active.controllerCandidates.length <= 16);
   assert.deepEqual(
     active.controllerCandidates.map((candidate) => candidate.canId),

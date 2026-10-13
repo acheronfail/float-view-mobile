@@ -206,7 +206,7 @@
       ] as [string, string][]}
     />
     <TelemetrySection
-      title="Firmware"
+      title={connection.controllerConnection?.kind === 'can' ? 'Motor controller firmware' : 'Firmware'}
       items={[
         ['Connection', routeDescription],
         ['Hardware', connection.firmware?.hardwareName ?? '—'],
@@ -218,6 +218,22 @@
         ['Access', firmwareAccessDescription(connection.firmware)],
       ] as [string, string][]}
     />
+    {#if connection.controllerConnection?.kind === 'can' && connection.transportFirmware}
+      <TelemetrySection
+        title="Bluetooth gateway"
+        items={[
+          ['Hardware', connection.transportFirmware.hardwareName ?? '—'],
+          ['Firmware name', connection.transportFirmware.firmwareName ?? '—'],
+          ['VESC', connection.transportFirmware.vescVersion],
+          [
+            'Release',
+            connection.transportFirmware.testVersion === 0
+              ? 'Stable'
+              : `Test version ${connection.transportFirmware.testVersion}`,
+          ],
+        ] as [string, string][]}
+      />
+    {/if}
   </div>
 {:else}
   <p class="text-muted">Recovering active connection…</p>

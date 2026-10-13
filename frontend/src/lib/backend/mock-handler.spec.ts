@@ -463,6 +463,7 @@ describe('deterministic mock backend', () => {
       deviceKind: 'bms',
       batteryEstimate: { level: null, mode: 'unavailable', unavailableReason: 'not_applicable' },
       firmware: null,
+      transportFirmware: { hardwareName: 'VBMS', vescVersion: '6.00', testVersion: 0 },
       controllerConnection: null,
       controllerCandidates: [],
       refloatControls: null,

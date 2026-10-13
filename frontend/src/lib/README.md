@@ -242,3 +242,9 @@ contain only route kinds and fixed reasons, never target IDs or payloads.
 Editors reopen from current values. Drafts, confirmations, operation flags,
 chart/map inspection, scroll/focus position and live-chart samples are not
 restored; presentation restoration never replays a mutation.
+
+The detailed view distinguishes motor controller firmware from the Bluetooth
+transport on CAN connections. Its Bluetooth gateway section shows the retained
+transport identity's hardware, firmware name, VESC version and stable/test release.
+Direct Bluetooth connections show the firmware once. These are live snapshot
+metadata, with no extra discovery requests or private identifiers.

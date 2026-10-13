@@ -120,6 +120,7 @@ record!(CurrentLimits {
     battery_current_min_a: f64, battery_series_cells: Option<u8>,
 });
 record!(LiveLocation { latitude: f64, longitude: f64, accuracy_m: Option<f64>, observed_at: String });
+record!(TransportFirmware { vesc_version: String, hardware_name: Option<String>, firmware_name: Option<String>, test_version: u8 });
 record!(ControllerCandidate { can_id: u8, hardware_name: Option<String>, firmware_name: Option<String>, vesc_version: String, vesc_supported: bool });
 record!(ConnectionIssue {
     code: String,
@@ -172,6 +173,7 @@ record!(Connection {
     saved_device: Option<SavedBoard>, active_session: Option<Session>, latest_sample: Option<LiveSample>,
     battery_estimate: crate::battery_estimator::Estimate, live_widget_slots: [String; 5],
     latest_location: Option<LiveLocation>, current_limits: Option<CurrentLimits>, controller_route: Option<Route>,
+    transport_firmware: Option<TransportFirmware>,
     controller_candidates: Vec<ControllerCandidate>, connection_issue: Option<ConnectionIssue>, bms: Bms,
     refloat_controls: Option<Controls>, controller_actions: ControllerActions,
 });

@@ -40,6 +40,7 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   trackingMode: 'guest',
   firmware: null,
   savedDeviceId: null,
+  transportFirmware: null,
   controllerConnection: null,
   controllerCandidates: [],
   connectionIssue: null,
