@@ -51,6 +51,7 @@ export class BackendState {
   status = $state<BackendConnectionStatus>('starting');
   snapshot = $state<AppState | null>(null);
   error = $state<string | null>(null);
+  scanError = $state<string | null>(null);
   permissionError = $state<string | null>(null);
   permissionBusy = $state(false);
   selectedSession = $state<SessionSummary | null>(null);
@@ -163,6 +164,15 @@ export class BackendState {
   }
 
   async scan(): Promise<void> {
+    const bluetooth = this.snapshot?.bluetooth;
+    if (
+      bluetooth &&
+      (['powered_off', 'unsupported', 'resetting'].includes(bluetooth.radio) ||
+        ['denied', 'restricted'].includes(bluetooth.scanPermission))
+    ) {
+      this.scanError = null;
+      return;
+    }
     await this.run(async (client) => {
       try {
         await client.request('bluetooth.scan', { timeoutMs: 5_000 });
@@ -174,7 +184,7 @@ export class BackendState {
         }
         await client.request('bluetooth.scan', { timeoutMs: 5_000 });
       }
-    });
+    }, 'scan');
   }
 
   async connectDevice(deviceId: string, trackingMode: TrackingMode = 'saved'): Promise<boolean> {
@@ -623,16 +633,21 @@ export class BackendState {
     this.snapshot = state;
   }
 
-  private async run(action: (client: ApiClient) => Promise<void>): Promise<boolean> {
+  private async run(
+    action: (client: ApiClient) => Promise<void>,
+    errorTarget: 'general' | 'scan' = 'general'
+  ): Promise<boolean> {
     if (!this.client?.isOpen) await this.connect();
     if (!this.client?.isOpen) return false;
     this.busy = true;
-    this.error = null;
+    if (errorTarget === 'scan') this.scanError = null;
+    else this.error = null;
     try {
       await action(this.client);
       return true;
     } catch (error) {
-      this.error = message(error);
+      if (errorTarget === 'scan') this.scanError = message(error);
+      else this.error = message(error);
       return false;
     } finally {
       this.busy = false;

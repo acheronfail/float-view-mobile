@@ -148,3 +148,86 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     }
   });
 }
+
+for (const [name, engine] of Object.entries({ chromium, webkit })) {
+  test(`${name}: Bluetooth off pauses discovery and preserves sessions`, { timeout: 60_000 }, async () => {
+    const port = await startMockServer(11002);
+    const endpoint = getMockBootstrap(port);
+    const browser = await engine.launch();
+    try {
+      const page = await browser.newPage({ hasTouch: true });
+      if (name === 'chromium')
+        await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
+      let poweredOff = true;
+      let scans = 0;
+      let resume = () => {};
+      await page.routeWebSocket('**/api/ws?*', (socket) => {
+        const server = socket.connectToServer();
+        let lastState: import('../../frontend/src/lib/backend/contract.ts').AppState;
+        resume = () => {
+          poweredOff = false;
+          socket.send(
+            JSON.stringify({
+              event: 'state.changed',
+              data: {
+                ...lastState,
+                revision: lastState.revision + 1,
+                bluetooth: { ...lastState.bluetooth, radio: 'powered_on', scanning: false },
+              },
+            })
+          );
+        };
+        socket.onMessage((raw) => {
+          const message = JSON.parse(String(raw));
+          if (message.method === 'bluetooth.scan') scans++;
+          server.send(raw);
+        });
+        server.onMessage((raw) => {
+          const message = JSON.parse(String(raw));
+          const state = message.result?.bluetooth ? message.result : message.data?.bluetooth ? message.data : null;
+          if (state) {
+            state.bluetooth.radio = poweredOff ? 'powered_off' : 'powered_on';
+            state.permissions = permissionInventory('ios').map((row) =>
+              row.permission === 'bluetooth'
+                ? {
+                    ...row,
+                    status: 'granted',
+                    servicesEnabled: !poweredOff,
+                    guidance: poweredOff ? 'servicesDisabled' : 'none',
+                    action: null,
+                  }
+                : row
+            );
+            lastState = state;
+          }
+          socket.send(JSON.stringify(message));
+        });
+      });
+      await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      await page.goto(`${endpoint.origin}/#/`);
+      await page.getByRole('heading', { name: 'Bluetooth is off' }).waitFor();
+      assert.match(await page.locator('main').innerText(), /Turn on Bluetooth/);
+      assert.doesNotMatch(
+        await page.locator('main').innerText(),
+        /Scanning…|Looking for VESC|Backend service is unavailable/
+      );
+      await page.waitForTimeout(1200);
+      assert.equal(scans, 0);
+      await page.getByRole('link', { name: 'sessions', exact: true }).click();
+      assert.equal(await page.getByRole('alert').count(), 0);
+      await page.getByRole('link', { name: 'settings', exact: true }).click();
+      const bluetooth = page.locator('[data-permission="bluetooth"]');
+      await bluetooth.getByText('Bluetooth is off.', { exact: true }).waitFor();
+      assert.match(await bluetooth.innerText(), /already has Bluetooth permission/);
+      await page.getByRole('link', { name: 'connect', exact: true }).click();
+      await page.getByRole('heading', { name: 'Bluetooth is off' }).waitFor();
+      resume();
+      await page.getByRole('heading', { name: 'Bluetooth is off' }).waitFor({ state: 'hidden' });
+      await page.waitForTimeout(1500);
+      assert.ok(scans > 0, 'discovery resumes after Bluetooth is enabled');
+    } finally {
+      await browser.close();
+      await stopMockServer();
+    }
+  });
+}

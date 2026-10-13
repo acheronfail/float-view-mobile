@@ -10,6 +10,10 @@
   import NewBoardDialog from '$lib/ui/NewBoardDialog.svelte';
   import SectionTitle from '../../ui/SectionTitle.svelte';
   import Spinner from '../../ui/Spinner.svelte';
+  import { discoveryNotice } from './discovery-status';
+  import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
+
+  const notice = $derived(discoveryNotice(backendState.snapshot?.bluetooth));
 
   const SCAN_INTERVAL_MS = 10_000;
   const RETRY_INTERVAL_MS = 1_000;
@@ -26,7 +30,7 @@
 
     async function scanWhileActive() {
       while (active) {
-        if (backendState.status === 'connected' && !backendState.scanning && !backendState.busy) {
+        if (backendState.status === 'connected' && !notice && !backendState.scanning && !backendState.busy) {
           await backendState.scan();
           if (!active) return;
           await wait(SCAN_INTERVAL_MS);
@@ -96,16 +100,30 @@
 
 <AppHeaderSubtitle owner="/">
   <span aria-live="polite" class="inline-flex items-center gap-2">
-    <span class="flex flex-row items-center gap-2">
-      <Spinner />
-      Scanning…
-    </span>
+    {#if backendState.status !== 'connected'}
+      {backendState.status === 'failed' ? 'Connection unavailable' : 'Connecting…'}
+    {:else if notice}
+      {notice.title}
+    {:else if backendState.scanning}
+      <Spinner /> Scanning…
+    {:else}
+      Ready to scan
+    {/if}
   </span>
 </AppHeaderSubtitle>
 
 <section aria-label="VESC devices" class="flex flex-col gap-4 py-2">
   {#if backendState.status === 'connected'}
-    {#if backendState.discoveredDevices.length}
+    {#if notice}
+      <div role="status" class="rounded-lg border border-outline bg-elevated p-4">
+        <div class="flex items-center gap-3">
+          <Icon name="bluetooth-off" class="text-3xl text-warning" />
+          <h2 class="text-lg font-medium">{notice.title}</h2>
+        </div>
+        <p class="mt-3 text-muted">{notice.detail}</p>
+        <p class="mt-3 text-sm text-muted">You can still browse your saved boards and sessions.</p>
+      </div>
+    {:else if backendState.discoveredDevices.length}
       <div class="flex flex-col gap-2">
         <SectionTitle title="Discovered boards" />
         <ul class="flex flex-col gap-2">
@@ -140,13 +158,24 @@
         </ul>
       </div>
     {:else}
-      <p class="text-center text-muted">Looking for VESC devices…</p>
+      <p class="text-center text-muted">
+        {backendState.scanning ? 'Looking for VESC devices…' : 'Keep your board nearby and powered on.'}
+      </p>
     {/if}
   {:else if backendState.status === 'failed'}
     <p role="alert" class="text-warning">{backendState.error}</p>
-    <button type="button" class="rounded-lg bg-elevated px-4 py-2" onclick={() => backendState.connect()}>Retry</button>
+    <button
+      type="button"
+      class="touch-manipulation rounded-lg bg-elevated px-4 py-2"
+      onpointerdown={(event) => activateFromPointer(event, () => backendState.connect())}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => backendState.connect())}>Retry</button
+    >
   {:else}
     <p class="text-muted">Connecting to backend…</p>
+  {/if}
+
+  {#if backendState.scanError && backendState.status === 'connected' && !notice}
+    <p role="alert" class="text-warning">Could not scan for boards. {backendState.scanError}</p>
   {/if}
 
   {#if backendState.error && backendState.status !== 'failed'}

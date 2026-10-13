@@ -55,6 +55,12 @@
     notificationsRequired: 'Allow Notifications first. Live Updates also need notification access.',
     fineLocationForScan: 'This Android version also needs precise location to scan for Bluetooth boards.',
   };
+  function guidanceText(row: PermissionRow) {
+    if (row.guidance === 'servicesDisabled' && row.permission === 'bluetooth') {
+      return 'Turn on Bluetooth in your device’s Settings to find and connect to your board. Float View already has Bluetooth permission.';
+    }
+    return guidance[row.guidance];
+  }
   function recover(row: PermissionRow) {
     return backendState.recoverPermission(row);
   }
@@ -94,8 +100,10 @@
         {#if row.scan}<p class="text-sm">
             Scan: {grants[row.scan]}. Connect: {row.connect ? grants[row.connect] : 'Unknown'}.
           </p>{/if}
-        {#if row.servicesEnabled === false}<p class="text-sm">System service is off.</p>{/if}
-        {#if guidance[row.guidance]}<p class="mt-1 text-sm text-muted">{guidance[row.guidance]}</p>{/if}
+        {#if row.servicesEnabled === false}<p class="text-sm text-warning">
+            {row.permission === 'bluetooth' ? 'Bluetooth is off.' : 'Location Services are off.'}
+          </p>{/if}
+        {#if guidanceText(row)}<p class="mt-1 text-sm text-muted">{guidanceText(row)}</p>{/if}
         {#if row.optionLabel}<p class="text-sm">Choose “{row.optionLabel}”.</p>{/if}
         {#if row.action}
           <button

@@ -8,6 +8,10 @@ const { state } = vi.hoisted(() => ({
     status: 'connected',
     busy: false,
     error: null,
+    scanError: null,
+    snapshot: {
+      bluetooth: { radio: 'powered_on', scanPermission: 'granted', connectPermission: 'granted', scanning: false },
+    },
     discoveredDevices: [
       { deviceId: 'board-1', name: 'Bluetooth UART', savedDeviceId: 'saved-1', rssi: -55 },
       { deviceId: 'board-2', name: 'Another board', savedDeviceId: null, rssi: -70 },
@@ -41,4 +45,17 @@ describe('discovered board names', () => {
     expect(renderDiscovery()).toContain('Bluetooth UART');
     state.savedDevices = [{ savedDeviceId: 'saved-1', displayName: 'XRV' }];
   });
+});
+
+it('explains disabled Bluetooth without showing stale boards', () => {
+  state.snapshot.bluetooth.radio = 'powered_off';
+  const body = renderDiscovery();
+  expect(body).toContain('Bluetooth is off');
+  expect(body).toContain('Turn on Bluetooth');
+  expect(body).toContain('Scanning will resume automatically');
+  expect(body).toContain('saved boards and sessions');
+  expect(body).not.toContain('Another board');
+  expect(body).not.toContain('Looking for VESC');
+  state.snapshot.bluetooth.radio = 'powered_on';
+  expect(renderDiscovery()).toContain('Another board');
 });

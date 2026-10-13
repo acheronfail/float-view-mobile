@@ -268,6 +268,39 @@ describe('BackendState', () => {
     expect(permissionOutcome(bluetooth(permission))).toBe(outcome);
   });
 
+  it('pauses scanning while Bluetooth is off and isolates scan failures from saved data', async () => {
+    const client = new FakeClient();
+    client.state.bluetooth.radio = 'powered_off';
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    const original = client.request.bind(client);
+    let scans = 0;
+    client.request = async <M extends BackendMethod>(
+      method: M,
+      params: BackendParams<M>
+    ): Promise<BackendResult<M>> => {
+      if (method === 'bluetooth.scan') {
+        scans++;
+        throw new ApiRequestError({ code: 'unavailable', message: 'Backend service is unavailable' });
+      }
+      return original(method, params);
+    };
+    store.error = 'An unrelated operation failed';
+    await store.scan();
+    expect(scans).toBe(0);
+    store.snapshot = { ...client.state, bluetooth: bluetooth('granted') };
+    await store.scan();
+    expect(scans).toBe(1);
+    expect(store.scanError).toBe('Backend service is unavailable');
+    expect(store.error).toBe('An unrelated operation failed');
+    expect(store.savedDevices).toHaveLength(1);
+    expect(store.status).toBe('connected');
+    store.close();
+  });
+
   it.each(['not_found', 'unavailable'] as const)(
     'distinguishes %s from a transient detail load failure',
     async (code) => {
