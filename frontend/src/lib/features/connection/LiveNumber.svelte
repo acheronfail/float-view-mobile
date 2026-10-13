@@ -1,6 +1,12 @@
 <script lang="ts">
   import { prefersReducedMotion, Tween } from 'svelte/motion';
-  import type { ControllerCurrentLimits, LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
+  import type {
+    BmsState,
+    ControllerCurrentLimits,
+    LiveSample,
+    LiveWidgetField,
+    UnitPreference,
+  } from '$lib/backend/contract';
   import { liveValue, liveValueColor, liveValueText, liveValueStatus } from './live-values';
 
   let {
@@ -9,18 +15,24 @@
     units,
     estimatedLevel,
     currentLimits,
+    bms,
+    nowMs,
   }: {
     field: LiveWidgetField;
     sample: LiveSample | null | undefined;
     units: UnitPreference;
     estimatedLevel?: number | null;
     currentLimits?: ControllerCurrentLimits | null;
+    bms?: BmsState | null;
+    nowMs?: number;
   } = $props();
-  const reading = $derived(liveValue(field, sample, units, estimatedLevel, currentLimits));
+  const reading = $derived(
+    liveValue(field, sample, units, estimatedLevel, currentLimits, bms, Math.max(nowMs ?? 0, Date.now()))
+  );
   const animated = new Tween(0);
   let previousIdentity: string | undefined;
   $effect(() => {
-    const identity = `${field}:${units}`;
+    const identity = `${field}:${units}:${reading.label}`;
     void animated.set(reading.value ?? 0, {
       duration: prefersReducedMotion.current || previousIdentity !== identity ? 0 : 250,
     });

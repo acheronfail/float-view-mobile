@@ -464,6 +464,8 @@ export interface ActiveConnection extends Device {
   activeSession: SessionSummary | null;
   latestSample: LiveSample | null;
   batteryEstimate: BatteryEstimate;
+  /** Saved board layout, or the separate guest layout. */
+  liveWidgetSlots: LiveWidgetSlots;
   latestLocation: LiveLocation | null;
   currentLimits: ControllerCurrentLimits | null;
 }
@@ -504,6 +506,8 @@ export interface BoardProfileValues extends Record<string, unknown> {
   motor?: string;
   preferredCanId?: number | null;
   preferredBmsCanId?: number | null;
+  /** Absent means the default layout. Always exactly five entries when set. */
+  liveWidgetSlots?: LiveWidgetSlots;
 }
 
 export interface BoardProfile {
@@ -716,6 +720,18 @@ export const liveWidgetFields = [
   'erpm',
   'controllerTempC',
   'motorTempC',
+  'highestTempC',
+  'bmsStateOfCharge',
+  'bmsStateOfHealth',
+  'bmsTotalVoltageV',
+  'bmsInputCurrentA',
+  'bmsChargeVoltageV',
+  'bmsMinCellVoltageV',
+  'bmsMaxCellVoltageV',
+  'bmsCellVoltageSpreadV',
+  'bmsHighestCellTempC',
+  'bmsIcTempC',
+  'bmsHumidityPercent',
   'directionalMotorCurrentA',
   'filteredMotorCurrentA',
   'requestedBalanceCurrentA',
@@ -761,6 +777,7 @@ export interface Settings {
   minimumSessionDistance: number;
   themePreference: ThemePreference;
   unitPreference: UnitPreference;
+  /** Layout used only for guest connections; saved boards use BoardProfileValues. */
   liveWidgetSlots: LiveWidgetSlots;
   historyGapThresholdSeconds: number | null;
   locationRecordingEnabled: boolean;

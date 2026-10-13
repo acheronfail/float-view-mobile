@@ -128,8 +128,10 @@ estimates. Pending/failed saves remain visible, scoped to the opened board.
 The five configurable live boxes (four above the gauge and one inside it) use the closed `liveWidgetFields` catalogue
 in the wire contract. A 600 ms primary-pointer hold opens a full-page, scrollable picker with live previews;
 missing fields remain selectable and show an unavailable value. Choices are an
-ordered five-entry `Settings.liveWidgetSlots` tuple, shared across boards and
-persisted by the Rust product store for both native hosts. Repeated fields are
+ordered five-entry `BoardProfileValues.liveWidgetSlots` tuple, persisted separately
+for each saved board by the Rust product store for both native hosts. The complete
+active snapshot projects the effective layout; unconfigured boards use defaults.
+`Settings.liveWidgetSlots` is the separate guest layout. Repeated fields are
 allowed. Defaults are Empty (Hold to set), Wattage, Session timer, Odometer,
 and centre Trip distance. Empty, Headlights and LEDs are selectable alongside
 readings. Short taps on lighting request runtime changes through the existing
@@ -138,11 +140,14 @@ lost capture, hidden pages and disposal cancel the gesture. Keyboard activation
 configures numeric/empty boxes; lighting uses Enter/Space to toggle and
 Shift+Enter or the context-menu key to configure, with an alternate configure
 button exposed to assistive technology. Unknown/unavailable lighting stays
-configurable without showing a false off switch. Existing saved slots remain. Only accepted settings replace a slot; save failures leave the picker
+configurable without showing a false off switch. Only accepted snapshots replace a slot; save failures leave the picker
 open. Keyboard dismissal restores focus to the originating button; pointer
 dismissal clears its focus so it does not retain an outline. Numeric presentation
 lives in `features/connection/live-values.ts`, respects display units and source
-nullability, and does not interpret firmware. Signed battery power is pack
+nullability, and does not interpret firmware. BMS boxes show unavailable values without a fresh
+attached BMS (five-second expiry). Highest temperature compares controller, motor,
+battery probes, BMS IC and humidity-sensor temperatures, names the winning sensor,
+and falls back to available sensors when the BMS is missing or stale. Signed battery power is pack
 voltage times battery current; its displayed sign controls draw/regen labels and
 theme-aware colours. Interpolation respects reduced motion.
 

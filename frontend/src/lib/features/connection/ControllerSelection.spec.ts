@@ -37,6 +37,7 @@ const connection: ActiveConnection = {
   firmware: null,
   latestSample: null,
   batteryEstimate: emptyEstimate(),
+  liveWidgetSlots: ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM'],
   latestLocation: null,
   activeSession: null,
   currentLimits: null,

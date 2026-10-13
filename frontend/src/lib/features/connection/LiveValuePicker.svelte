@@ -5,6 +5,7 @@
   import ToggleIndicator from '$lib/ui/ToggleIndicator.svelte';
   import {
     liveWidgetFields,
+    type BmsState,
     type ControllerCurrentLimits,
     type LiveWidgetField,
     type LiveSample,
@@ -20,6 +21,8 @@
     units,
     estimatedLevel,
     currentLimits,
+    bms,
+    nowMs,
     busy,
     error,
     onselect,
@@ -31,6 +34,8 @@
     units: UnitPreference;
     estimatedLevel?: number | null;
     currentLimits?: ControllerCurrentLimits | null;
+    bms?: BmsState | null;
+    nowMs?: number;
     busy: boolean;
     error: string | null;
     onselect: (field: LiveWidgetField, keyboard: boolean) => void;
@@ -75,7 +80,15 @@
     <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-4">
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {#each liveWidgetFields as field (field)}
-          {@const reading = liveValue(field, sample, units, estimatedLevel, currentLimits)}
+          {@const reading = liveValue(
+            field,
+            sample,
+            units,
+            estimatedLevel,
+            currentLimits,
+            bms,
+            Math.max(nowMs ?? 0, Date.now())
+          )}
           {@const lighting = isLighting(field) ? lightingBox(backendState.snapshot?.activeConnection, field) : null}
           <button
             type="button"
@@ -97,6 +110,7 @@
               {#if lighting.checked != null}<ToggleIndicator checked={lighting.checked} />{/if}
               <span class="text-sm text-muted">{lighting.status}</span>
             {:else}
+              {#if field === 'highestTempC'}<span class="text-xs text-muted">{reading.label}</span>{/if}
               <span
                 class={`font-mono text-xl font-semibold break-all tabular-nums ${liveValueColor(field, reading.value, sample, units, currentLimits)}`}
               >

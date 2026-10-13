@@ -85,6 +85,14 @@ impl BackendService {
             .map(|b| self.store.profile(&b.saved_device_id))
             .transpose()
             .map_err(crate::store_failure)?;
+        active.live_widget_slots = if active.saved {
+            profile
+                .as_ref()
+                .map(|p| p.live_widget_slots())
+                .unwrap_or_else(|| float_view_product_store::Settings::default().live_widget_slots)
+        } else {
+            self.policy.settings.live_widget_slots.clone()
+        };
         let config = profile
             .as_ref()
             .map(|p| {

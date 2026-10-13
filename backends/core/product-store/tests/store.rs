@@ -835,3 +835,51 @@ fn session_display_options_are_validated_and_persisted() {
     drop(store);
     assert_eq!(root.open().settings().unwrap(), updated);
 }
+
+#[test]
+fn board_live_widget_layouts_are_independent_validated_and_persisted() {
+    let root = Root::new();
+    let mut store = root.open();
+    let first = store.ensure_board("first", Some("First"), None, 0).unwrap();
+    let second = store
+        .ensure_board("second", Some("Second"), None, 0)
+        .unwrap();
+    let id = &first.saved_device_id;
+    for invalid in [
+        "null",
+        "[]",
+        r#"["empty","empty","empty","unknown","empty"]"#,
+        r#"["empty","empty","empty","empty",4]"#,
+    ] {
+        assert!(matches!(
+            store.update_profile(id, 0, &format!(r#"{{"liveWidgetSlots":{invalid}}}"#), 1),
+            Err(Error::InvalidInput)
+        ));
+    }
+    let updated = store.update_profile(id, 0, r#"{"liveWidgetSlots":["highestTempC","bmsStateOfCharge","bmsHighestCellTempC","bmsCellVoltageSpreadV","highestTempC"]}"#, 1).unwrap();
+    assert_eq!(
+        updated.live_widget_slots(),
+        [
+            "highestTempC",
+            "bmsStateOfCharge",
+            "bmsHighestCellTempC",
+            "bmsCellVoltageSpreadV",
+            "highestTempC"
+        ]
+    );
+    assert_eq!(
+        store
+            .profile(&second.saved_device_id)
+            .unwrap()
+            .live_widget_slots(),
+        store.settings().unwrap().live_widget_slots
+    );
+    assert!(matches!(
+        store.update_profile(id, 0, "{}", 2),
+        Err(Error::Conflict { .. })
+    ));
+    drop(store);
+    let store = root.open();
+    assert_eq!(store.profile(id).unwrap(), updated);
+    assert_eq!(store.profile(&second.saved_device_id).unwrap().revision, 0);
+}

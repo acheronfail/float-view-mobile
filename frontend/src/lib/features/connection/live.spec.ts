@@ -50,6 +50,7 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   activeSession: null,
   latestSample: null,
   batteryEstimate: emptyEstimate(),
+  liveWidgetSlots: ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM'],
   latestLocation: null,
   currentLimits: null,
 });

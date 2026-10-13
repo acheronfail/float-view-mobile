@@ -1,6 +1,13 @@
 import { driveLoad } from './gauge';
+import { freshBmsSnapshot } from './bms';
 import { footpadPresentation } from './footpads';
-import type { ControllerCurrentLimits, LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
+import type {
+  BmsState,
+  ControllerCurrentLimits,
+  LiveSample,
+  LiveWidgetField,
+  UnitPreference,
+} from '$lib/backend/contract';
 
 export const liveValueCatalog = {
   empty: { name: 'Empty', label: 'Hold to set', unit: '', digits: 0 },
@@ -22,6 +29,18 @@ export const liveValueCatalog = {
   erpm: { name: 'Electrical RPM', label: 'ERPM', unit: 'ERPM', digits: 0 },
   controllerTempC: { name: 'Controller temperature', label: 'ESC temp', unit: '°C', digits: 1 },
   motorTempC: { name: 'Motor temperature', label: 'Motor temp', unit: '°C', digits: 1 },
+  highestTempC: { name: 'Highest temperature', label: 'Highest temp', unit: '°C', digits: 1 },
+  bmsStateOfCharge: { name: 'BMS battery level', label: 'BMS batt.', unit: '%', digits: 0 },
+  bmsStateOfHealth: { name: 'BMS battery health', label: 'BMS health', unit: '%', digits: 0 },
+  bmsTotalVoltageV: { name: 'BMS pack voltage', label: 'BMS volts', unit: 'V', digits: 1 },
+  bmsInputCurrentA: { name: 'BMS battery current', label: 'BMS current', unit: 'A', digits: 1 },
+  bmsChargeVoltageV: { name: 'BMS charge voltage', label: 'BMS charge', unit: 'V', digits: 1 },
+  bmsMinCellVoltageV: { name: 'Lowest cell voltage', label: 'Min cell', unit: 'V', digits: 3 },
+  bmsMaxCellVoltageV: { name: 'Highest cell voltage', label: 'Max cell', unit: 'V', digits: 3 },
+  bmsCellVoltageSpreadV: { name: 'Cell voltage spread', label: 'Cell spread', unit: 'V', digits: 3 },
+  bmsHighestCellTempC: { name: 'Battery temperature', label: 'Battery temp', unit: '°C', digits: 1 },
+  bmsIcTempC: { name: 'BMS temperature', label: 'BMS temp', unit: '°C', digits: 1 },
+  bmsHumidityPercent: { name: 'Battery humidity', label: 'Humidity', unit: '%', digits: 1 },
   directionalMotorCurrentA: { name: 'Directional motor current', label: 'Dir. motor', unit: 'A', digits: 1 },
   filteredMotorCurrentA: { name: 'Filtered motor current', label: 'Filt. motor', unit: 'A', digits: 1 },
   requestedBalanceCurrentA: { name: 'Requested balance current', label: 'Requested', unit: 'A', digits: 1 },
@@ -58,25 +77,48 @@ export function liveValue(
   sample: LiveSample | null | undefined,
   units: UnitPreference,
   estimatedLevel?: number | null,
-  currentLimits?: ControllerCurrentLimits | null
+  currentLimits?: ControllerCurrentLimits | null,
+  bms?: BmsState | null,
+  nowMs: number = Date.now()
 ) {
   const load = field === 'driveLoad' ? driveLoad(sample, currentLimits) : null;
+  const snapshot = freshBmsSnapshot(bms, nowMs);
+  const cells = snapshot?.cellVoltagesV.filter(Number.isFinite) ?? [];
+  const hottest = field === 'highestTempC' ? highestTemperature(sample, bms, nowMs) : null;
+  const bmsValues = {
+    bmsStateOfCharge: snapshot?.stateOfCharge == null ? null : snapshot.stateOfCharge * 100,
+    bmsStateOfHealth: snapshot?.stateOfHealth == null ? null : snapshot.stateOfHealth * 100,
+    bmsTotalVoltageV: snapshot?.totalVoltageV,
+    bmsInputCurrentA: snapshot?.inputCurrentA,
+    bmsChargeVoltageV: snapshot?.chargeVoltageV,
+    bmsMinCellVoltageV: cells.length ? Math.min(...cells) : null,
+    bmsMaxCellVoltageV: cells.length ? Math.max(...cells) : null,
+    bmsCellVoltageSpreadV: cells.length ? Math.max(...cells) - Math.min(...cells) : null,
+    bmsHighestCellTempC: snapshot ? highestBatteryTemperature(snapshot) : null,
+    bmsIcTempC: snapshot?.icTemperatureC,
+    bmsHumidityPercent: snapshot?.humidityPercent,
+  };
   const definition = {
     ...liveValueCatalog[field],
+    ...(hottest ? { label: hottest.label } : {}),
     ...(load ? { label: { duty: 'Duty', motor: 'Motor', battery: 'Battery' }[load.source] } : {}),
   };
   let value =
-    field === 'driveLoad'
-      ? load?.percentage
-      : field === 'powerW'
-        ? sample?.packVoltageV == null || sample.batteryCurrentA == null
-          ? null
-          : sample.packVoltageV * sample.batteryCurrentA
-        : field === 'estimatedBatteryLevel'
-          ? estimatedLevel
-          : field === 'empty' || field === 'headlights' || field === 'leds'
-            ? null
-            : sample?.[field];
+    field === 'highestTempC'
+      ? hottest?.value
+      : field in bmsValues
+        ? bmsValues[field as keyof typeof bmsValues]
+        : field === 'driveLoad'
+          ? load?.percentage
+          : field === 'powerW'
+            ? sample?.packVoltageV == null || sample.batteryCurrentA == null
+              ? null
+              : sample.packVoltageV * sample.batteryCurrentA
+            : field === 'estimatedBatteryLevel'
+              ? estimatedLevel
+              : field === 'empty' || field === 'headlights' || field === 'leds'
+                ? null
+                : (sample?.[field as keyof LiveSample] as number | null | undefined);
   let unit: string = definition.unit;
   if (value == null || !Number.isFinite(value)) return { ...definition, value: null, unit: displayUnit(unit, units) };
   if (field === 'batteryLevel' || field === 'estimatedBatteryLevel' || field === 'dutyCycle') value *= 100;
@@ -123,9 +165,9 @@ export function liveValueColor(
     return footpadPresentation(sample, field === 'footpadAdc1V' ? 'left' : 'right').text;
   if (field === 'dutyCycle') return 'text-duty';
   if (field === 'speedKph' || field === 'erpm') return 'text-accent';
-  if (field === 'batteryLevel' || field === 'estimatedBatteryLevel')
+  if (field === 'batteryLevel' || field === 'estimatedBatteryLevel' || field === 'bmsStateOfCharge')
     return Math.round(value) <= 20 ? 'text-danger' : Math.round(value) < 50 ? 'text-warning' : 'text-success';
-  if (field === 'controllerTempC' || field === 'motorTempC') {
+  if (liveValueCatalog[field].unit === '°C') {
     const celsius = units === 'imperial' ? (value - 32) / 1.8 : value;
     return celsius >= 60 ? 'text-danger' : celsius > 30 ? 'text-warning' : 'text-success';
   }
@@ -151,4 +193,27 @@ export function liveValueStatus(field: LiveWidgetField, sample: LiveSample | nul
   if ((field === 'footpadAdc1V' || field === 'footpadAdc2V') && sample?.[field] != null)
     return footpadPresentation(sample, field === 'footpadAdc1V' ? 'left' : 'right').label;
   return '';
+}
+
+function highestBatteryTemperature(snapshot: NonNullable<BmsState['latestSnapshot']>) {
+  const values = [snapshot.highestCellTemperatureC, ...snapshot.temperaturesC].filter(Number.isFinite);
+  return values.length ? Math.max(...values) : null;
+}
+
+function highestTemperature(sample: LiveSample | null | undefined, bms: BmsState | null | undefined, nowMs: number) {
+  const snapshot = freshBmsSnapshot(bms, nowMs);
+  const candidates = [
+    { label: 'ESC temp', value: sample?.controllerTempC },
+    { label: 'Motor temp', value: sample?.motorTempC },
+    { label: 'Battery temp', value: snapshot ? highestBatteryTemperature(snapshot) : null },
+    { label: 'BMS temp', value: snapshot?.icTemperatureC },
+    { label: 'Humidity temp', value: snapshot?.humiditySensorTemperatureC },
+  ].filter(
+    (reading): reading is { label: string; value: number } => reading.value != null && Number.isFinite(reading.value)
+  );
+  // Stable sensor order resolves ties, and also handles readings below freezing.
+  return candidates.reduce<{ label: string; value: number } | null>(
+    (highest, reading) => (!highest || reading.value > highest.value ? reading : highest),
+    null
+  );
 }

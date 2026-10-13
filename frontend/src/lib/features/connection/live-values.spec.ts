@@ -98,3 +98,97 @@ describe('load widget', () => {
     expect(liveValue('driveLoad', { ...sample, dutyCycle: 0.4 }, 'imperial').value).toBe(40);
   });
 });
+
+describe('BMS boxes and highest temperature', () => {
+  const now = Date.parse('2026-10-13T00:00:00Z');
+  const bms = {
+    status: 'attached',
+    connection: { kind: 'can', canId: 3 },
+    candidates: [],
+    latestSnapshot: {
+      observedAt: new Date(now).toISOString(),
+      totalVoltageV: 75,
+      inputCurrentA: -2,
+      chargeVoltageV: 80,
+      stateOfCharge: 0.75,
+      stateOfHealth: 0.98,
+      cellVoltagesV: [4.1, 4.05, 4.08],
+      temperaturesC: [31, 47],
+      highestCellTemperatureC: 44,
+      icTemperatureC: 40,
+      humiditySensorTemperatureC: 35,
+      humidityPercent: 22,
+      inputIcCurrentA: 0,
+      sessionAmpHoursAh: 0,
+      sessionWattHoursWh: 0,
+      balancing: [],
+      reportedCanId: 3,
+      lifetimeChargeAmpHoursAh: 0,
+      lifetimeChargeWattHoursWh: 0,
+      lifetimeDischargeAmpHoursAh: 0,
+      lifetimeDischargeWattHoursWh: 0,
+      pressurePa: 0,
+      dataVersion: 1,
+      status: null,
+    },
+  } as import('$lib/backend/contract').BmsState;
+  const reading = (field: import('$lib/backend/contract').LiveWidgetField, state = bms, time = now) =>
+    liveValue(field, { ...sample, controllerTempC: 38, motorTempC: 45 }, 'metric', null, null, state, time);
+
+  it('uses BMS fractions, signed current, cell extrema and all battery probes', () => {
+    expect(reading('bmsStateOfCharge').value).toBe(75);
+    expect(reading('bmsStateOfHealth').value).toBe(98);
+    expect(reading('bmsTotalVoltageV').value).toBe(75);
+    expect(reading('bmsInputCurrentA').value).toBe(-2);
+    expect(reading('bmsChargeVoltageV').value).toBe(80);
+    expect(reading('bmsMinCellVoltageV').value).toBe(4.05);
+    expect(reading('bmsMaxCellVoltageV').value).toBe(4.1);
+    expect(reading('bmsCellVoltageSpreadV').value).toBeCloseTo(0.05);
+    expect(reading('bmsHighestCellTempC').value).toBe(47);
+    expect(reading('bmsIcTempC').value).toBe(40);
+    expect(reading('bmsHumidityPercent').value).toBe(22);
+    expect(reading('highestTempC')).toMatchObject({ value: 47, label: 'Battery temp' });
+  });
+
+  it.each(['not_found', 'discovering', 'unavailable', 'ambiguous'] as const)('falls back when BMS is %s', (status) => {
+    const unavailable = { ...bms, status };
+    for (const field of liveWidgetFields.filter((field) => field.startsWith('bms')))
+      expect(reading(field, unavailable).value).toBeNull();
+    expect(reading('highestTempC', unavailable)).toMatchObject({ value: 45, label: 'Motor temp' });
+  });
+
+  it('expires stale, future and invalid BMS timestamps, and handles empty cells', () => {
+    for (const observedAt of [new Date(now - 5000).toISOString(), new Date(now + 1).toISOString(), 'invalid']) {
+      const stale = { ...bms, latestSnapshot: { ...bms.latestSnapshot!, observedAt } };
+      expect(reading('bmsStateOfCharge', stale).value).toBeNull();
+      expect(reading('highestTempC', stale)).toMatchObject({ value: 45, label: 'Motor temp' });
+    }
+    expect(reading('bmsStateOfCharge', bms, now + 4999).value).toBe(75);
+    expect(
+      reading('bmsMinCellVoltageV', { ...bms, latestSnapshot: { ...bms.latestSnapshot!, cellVoltagesV: [] } }).value
+    ).toBeNull();
+    expect(liveValue('highestTempC', null, 'metric', null, null, null, now).value).toBeNull();
+  });
+
+  it('identifies every winning sensor, switches immediately and converts the winner to Fahrenheit', () => {
+    for (const [key, label] of [
+      ['icTemperatureC', 'BMS temp'],
+      ['humiditySensorTemperatureC', 'Humidity temp'],
+    ] as const) {
+      const state = { ...bms, latestSnapshot: { ...bms.latestSnapshot!, [key]: 70 } };
+      expect(reading('highestTempC', state)).toMatchObject({ value: 70, label });
+    }
+    expect(
+      liveValue('highestTempC', { ...sample, controllerTempC: 80 }, 'imperial', null, null, bms, now)
+    ).toMatchObject({ value: 176, label: 'ESC temp', unit: '°F' });
+    expect(liveValue('highestTempC', { ...sample, controllerTempC: -10, motorTempC: -5 }, 'metric')).toMatchObject({
+      value: -5,
+      label: 'Motor temp',
+    });
+    expect(liveValue('highestTempC', { ...sample, controllerTempC: NaN, motorTempC: 0 }, 'metric')).toMatchObject({
+      value: 0,
+      label: 'Motor temp',
+    });
+    expect(liveValueColor('highestTempC', 176, sample, 'imperial')).toBe('text-danger');
+  });
+});

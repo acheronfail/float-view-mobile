@@ -1,12 +1,7 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, onMount } from 'svelte';
   import { backendState } from '$lib/backend/state.svelte';
-  import {
-    defaultLiveWidgetSlots,
-    type LiveSample,
-    type LiveWidgetField,
-    type LiveWidgetSlots,
-  } from '$lib/backend/contract';
+  import { defaultLiveWidgetSlots, type LiveSample, type LiveWidgetField } from '$lib/backend/contract';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import LiveNumber from './LiveNumber.svelte';
   import LiveValuePicker from './LiveValuePicker.svelte';
@@ -16,13 +11,29 @@
   import ToggleIndicator from '$lib/ui/ToggleIndicator.svelte';
 
   let { sample, slot }: { sample: LiveSample | null | undefined; slot: number } = $props();
-  const slots = $derived(backendState.settings?.liveWidgetSlots ?? defaultLiveWidgetSlots);
+  const connection = $derived(backendState.snapshot?.activeConnection);
+  const slots = $derived(connection?.liveWidgetSlots ?? defaultLiveWidgetSlots);
   const field = $derived(slots[slot]);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
-  const connection = $derived(backendState.snapshot?.activeConnection);
   const lighting = $derived(isLighting(field) ? lightingBox(connection, field) : null);
   const currentLimits = $derived(backendState.snapshot?.activeConnection?.currentLimits);
   const estimatedLevel = $derived(backendState.snapshot?.activeConnection?.batteryEstimate.level);
+  let nowMs = $state(Date.now());
+  onMount(() => {
+    const timer = setInterval(() => (nowMs = Date.now()), 1_000);
+    return () => clearInterval(timer);
+  });
+  const bms = $derived(connection?.state === 'ready' ? connection.bms : null);
+  const connectionKey = $derived(
+    `${connection?.deviceId ?? ''}:${connection?.savedDeviceId ?? ''}:${connection?.trackingMode ?? ''}`
+  );
+  let pickerConnectionKey = $state<string | null>(null);
+  $effect(() => {
+    if (selectedSlot != null && pickerConnectionKey !== connectionKey) {
+      selectedSlot = null;
+      error = null;
+    }
+  });
   let selectedSlot = $state<number | null>(null);
   let busy = $state(false);
   let error = $state<string | null>(null);
@@ -41,6 +52,7 @@
   }
 
   function open(button: HTMLButtonElement) {
+    pickerConnectionKey = connectionKey;
     trigger = button;
     error = null;
     selectedSlot = slot;
@@ -58,12 +70,12 @@
       await close(keyboard);
       return;
     }
-    const updated: LiveWidgetSlots = [...slots];
-    updated[selectedSlot] = field;
     busy = true;
     error = null;
-    const saved = await backendState.updateSessionSettings({ liveWidgetSlots: updated });
+    const savingKey = pickerConnectionKey;
+    const saved = await backendState.updateLiveWidgetSlot(selectedSlot, field);
     busy = false;
+    if (savingKey !== connectionKey || savingKey !== pickerConnectionKey) return;
     if (saved) await close(keyboard);
     else error = backendState.error ?? 'Could not save this reading. Try again.';
   }
@@ -73,7 +85,7 @@
   <button
     bind:this={button}
     use:holdToConfigure={{
-      key: `${slot}:${field}:${connection?.deviceId ?? ''}`,
+      key: `${slot}:${field}:${connectionKey}`,
       onhold: () => open(button),
       ontap: () => void toggleLighting(),
     }}
@@ -117,7 +129,7 @@
           {:else}<span class="text-xs text-muted">{lighting.status}</span>{/if}
         </div>
       {:else}
-        <LiveNumber {field} {sample} {units} {estimatedLevel} {currentLimits} />
+        <LiveNumber {field} {sample} {units} {estimatedLevel} {currentLimits} {bms} {nowMs} />
       {/if}
     </div>
   </button>
@@ -142,6 +154,8 @@
     {units}
     {estimatedLevel}
     {currentLimits}
+    {bms}
+    {nowMs}
     {busy}
     {error}
     onselect={select}

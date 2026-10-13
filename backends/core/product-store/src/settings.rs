@@ -183,6 +183,18 @@ const LIVE_WIDGET_FIELDS: &[&str] = &[
     "erpm",
     "controllerTempC",
     "motorTempC",
+    "highestTempC",
+    "bmsStateOfCharge",
+    "bmsStateOfHealth",
+    "bmsTotalVoltageV",
+    "bmsInputCurrentA",
+    "bmsChargeVoltageV",
+    "bmsMinCellVoltageV",
+    "bmsMaxCellVoltageV",
+    "bmsCellVoltageSpreadV",
+    "bmsHighestCellTempC",
+    "bmsIcTempC",
+    "bmsHumidityPercent",
     "directionalMotorCurrentA",
     "filteredMotorCurrentA",
     "requestedBalanceCurrentA",
@@ -208,7 +220,7 @@ const LIVE_WIDGET_FIELDS: &[&str] = &[
     "chargingCurrentA",
     "chargingVoltageV",
 ];
-fn valid_live_widget_slots(value: &Value) -> bool {
+pub(crate) fn valid_live_widget_slots(value: &Value) -> bool {
     value.as_array().is_some_and(|slots| {
         slots.len() == 5
             && slots

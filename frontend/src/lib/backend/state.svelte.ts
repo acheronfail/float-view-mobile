@@ -9,6 +9,8 @@ import type {
   SessionPrunePreview,
   SessionSummary,
   Settings,
+  LiveWidgetField,
+  LiveWidgetSlots,
   RefloatControl,
   RefloatConfigurationIdentity,
   RefloatConfigurationSchemaPage,
@@ -356,6 +358,41 @@ export class BackendState {
           ? await client.request('location.openSettings', {}, 35_000)
           : await client.request('location.requestPermission', {}, 35_000);
       if (this.snapshot) this.acceptState({ ...this.snapshot, location });
+    });
+  }
+
+  async updateLiveWidgetSlot(slot: number, field: LiveWidgetField): Promise<boolean> {
+    const connection = this.snapshot?.activeConnection;
+    if (!connection || !Number.isInteger(slot) || slot < 0 || slot >= 5) return false;
+    if (connection.trackingMode === 'guest') {
+      const slots: LiveWidgetSlots = [...connection.liveWidgetSlots];
+      slots[slot] = field;
+      return this.updateSessionSettings({ liveWidgetSlots: slots });
+    }
+    const savedDeviceId = connection.savedDeviceId;
+    if (!savedDeviceId) return false;
+    return this.run(async (client) => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const profile = await client.request('boardProfile.get', { savedDeviceId });
+        if (
+          this.snapshot?.activeConnection?.savedDeviceId !== savedDeviceId ||
+          this.snapshot.activeConnection.deviceId !== connection.deviceId ||
+          this.snapshot.activeConnection.trackingMode !== 'saved'
+        )
+          throw new Error('The connected board changed. Open the picker again.');
+        const slots: LiveWidgetSlots = [...(profile.values.liveWidgetSlots ?? connection.liveWidgetSlots)];
+        slots[slot] = field;
+        try {
+          await client.request('boardProfile.update', {
+            savedDeviceId,
+            expectedRevision: profile.revision,
+            patch: { liveWidgetSlots: slots },
+          });
+          return;
+        } catch (error) {
+          if (attempt > 0 || !(error instanceof ApiRequestError) || error.code !== 'conflict') throw error;
+        }
+      }
     });
   }
 

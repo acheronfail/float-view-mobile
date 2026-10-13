@@ -328,6 +328,36 @@ async function exerciseProductMethods(
     'not_found'
   );
 
+  const layoutProfile = await client.request('boardProfile.update', {
+    savedDeviceId: profile.savedDeviceId,
+    expectedRevision: clearedPreference.revision,
+    patch: {
+      liveWidgetSlots: [
+        'highestTempC',
+        'bmsStateOfCharge',
+        'bmsHighestCellTempC',
+        'bmsCellVoltageSpreadV',
+        'distanceM',
+      ],
+    },
+  });
+  for (const invalid of [
+    null,
+    [],
+    ['empty', 'empty', 'empty', 'unknown', 'empty'],
+    ['empty', 'empty', 'empty', 'empty', 4],
+  ]) {
+    await expectError(
+      client.request('boardProfile.update', {
+        savedDeviceId: profile.savedDeviceId,
+        expectedRevision: layoutProfile.revision,
+        patch: { liveWidgetSlots: invalid } as Record<string, unknown>,
+      }),
+      'invalid_request'
+    );
+  }
+  assert.deepEqual(await client.request('boardProfile.get', { savedDeviceId: profile.savedDeviceId }), layoutProfile);
+
   const current = await client.request('state.get', {});
   const firstPage = await client.request('session.list', { savedDeviceId: profileDevice.savedDeviceId, limit: 1 });
   const session = required(firstPage.items[0], 'connections did not create a session');
@@ -503,6 +533,18 @@ async function exerciseProductMethods(
   await client.request('session.delete', { sessionId: session.sessionId });
   const deleted = await client.request('session.list', { savedDeviceId: profileDevice.savedDeviceId, limit: 100 });
   assert.ok(!deleted.items.some((item) => item.sessionId === session.sessionId));
+  await client.request('device.connect', { deviceId: device.deviceId, trackingMode: 'saved' });
+  const withLayout = await client.waitForState((s) => s.activeConnection?.state === 'ready');
+  assert.deepEqual(withLayout.activeConnection!.liveWidgetSlots, layoutProfile.values.liveWidgetSlots);
+  await client.request('device.disconnect', {});
+  await client.request('device.connect', { deviceId: device.deviceId, trackingMode: 'guest' });
+  const guestLayout = await client.waitForState((s) => s.activeConnection?.state === 'ready');
+  assert.deepEqual(guestLayout.activeConnection!.liveWidgetSlots, guestLayout.settings.liveWidgetSlots);
+  await client.request('device.disconnect', {});
+  assert.deepEqual(
+    (await client.request('boardProfile.get', { savedDeviceId: profile.savedDeviceId })).values.liveWidgetSlots,
+    layoutProfile.values.liveWidgetSlots
+  );
 }
 
 async function expectSessionDataFailure(
@@ -1051,6 +1093,10 @@ export function assertState(state: AppState) {
   assert.ok(['metric', 'imperial'].includes(state.settings.unitPreference));
   assert.equal(state.settings.liveWidgetSlots.length, 5);
   assert.ok(state.settings.liveWidgetSlots.every((field) => liveWidgetFields.includes(field)));
+  if (state.activeConnection) {
+    assert.equal(state.activeConnection.liveWidgetSlots.length, 5);
+    assert.ok(state.activeConnection.liveWidgetSlots.every((field) => liveWidgetFields.includes(field)));
+  }
 
   if (!active) return;
   assert.ok(active.deviceKind === null || active.deviceKind === 'board' || active.deviceKind === 'bms');

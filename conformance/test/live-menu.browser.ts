@@ -22,9 +22,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         trackingMode: 'saved',
       });
       await client.waitForState((s) => s.activeConnection?.state === 'ready');
-      const settings = (await client.request('state.get', {})).settings;
-      await client.request('settings.update', {
-        expectedRevision: settings.revision,
+      const active = (await client.request('state.get', {})).activeConnection!;
+      const profile = await client.request('boardProfile.get', { savedDeviceId: active.savedDeviceId! });
+      await client.request('boardProfile.update', {
+        savedDeviceId: profile.savedDeviceId,
+        expectedRevision: profile.revision,
         patch: {
           liveWidgetSlots: ['leds', 'headlights', 'empty', 'odometerM', 'distanceM'],
         },

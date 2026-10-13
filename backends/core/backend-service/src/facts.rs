@@ -170,7 +170,7 @@ record!(BatteryCellProfile {
 record!(Connection {
     device_id: String, name: Option<String>, state: String, device_kind: Option<String>, tracking_mode: String,
     saved_device: Option<SavedBoard>, active_session: Option<Session>, latest_sample: Option<LiveSample>,
-    battery_estimate: crate::battery_estimator::Estimate,
+    battery_estimate: crate::battery_estimator::Estimate, live_widget_slots: [String; 5],
     latest_location: Option<LiveLocation>, current_limits: Option<CurrentLimits>, controller_route: Option<Route>,
     controller_candidates: Vec<ControllerCandidate>, connection_issue: Option<ConnectionIssue>, bms: Bms,
     refloat_controls: Option<Controls>, controller_actions: ControllerActions,

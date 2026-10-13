@@ -25,10 +25,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           trackingMode: 'saved',
         });
         await client.waitForState((s) => s.activeConnection?.state === 'ready');
-        const initialSettings = (await client.request('state.get', {})).settings;
-        assert.deepEqual(initialSettings.liveWidgetSlots, ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM']);
-        await client.request('settings.update', {
-          expectedRevision: initialSettings.revision,
+        const active = (await client.request('state.get', {})).activeConnection!;
+        assert.deepEqual(active.liveWidgetSlots, ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM']);
+        const profile = await client.request('boardProfile.get', { savedDeviceId: active.savedDeviceId! });
+        await client.request('boardProfile.update', {
+          savedDeviceId: profile.savedDeviceId,
+          expectedRevision: profile.revision,
           patch: {
             liveWidgetSlots: ['fieldWeakeningCurrentA', 'motorCurrentA', 'batteryCurrentA', 'powerW', 'distanceM'],
           },
@@ -52,7 +54,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           const server = socket.connectToServer();
           socket.onMessage((raw) => {
             const message = JSON.parse(String(raw));
-            if (message.method === 'settings.update' && message.params?.patch?.liveWidgetSlots) {
+            if (message.method === 'boardProfile.update' && message.params?.patch?.liveWidgetSlots) {
               saves++;
               if (rejectSelection) {
                 socket.send(
@@ -127,6 +129,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             pressurePa: 0,
           },
         };
+        const widgetBms = structuredClone(chargingBms);
         const chargingLabel = page.locator('#power-title').getByText('Charging', { exact: true });
         await chargingLabel.waitFor();
         assert.equal(await page.getByText('Charging', { exact: true }).count(), 2);
@@ -407,7 +410,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         rejectSelection = true;
         await picker.getByRole('button', { name: 'Pack voltage', exact: true }).tap();
         await picker.getByRole('alert').filter({ hasText: 'Test save failure' }).waitFor();
-        assert.equal((await client.request('state.get', {})).settings.liveWidgetSlots[0], 'fieldWeakeningCurrentA');
+        assert.equal(
+          (await client.request('state.get', {})).activeConnection!.liveWidgetSlots[0],
+          'fieldWeakeningCurrentA'
+        );
         rejectSelection = false;
         await picker.getByRole('button', { name: 'Pack voltage', exact: true }).tap();
         await picker.waitFor({ state: 'hidden' });
@@ -444,11 +450,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             .evaluate((el) => el === document.activeElement && el.matches(':focus-visible')),
           true
         );
-        assert.equal((await client.request('state.get', {})).settings.liveWidgetSlots[1], 'chargingVoltageV');
+        assert.equal((await client.request('state.get', {})).activeConnection!.liveWidgetSlots[1], 'chargingVoltageV');
         padState = 'left';
-        const settings = (await client.request('state.get', {})).settings;
-        await client.request('settings.update', {
-          expectedRevision: settings.revision,
+        const currentProfile = await client.request('boardProfile.get', { savedDeviceId: profile.savedDeviceId });
+        await client.request('boardProfile.update', {
+          savedDeviceId: profile.savedDeviceId,
+          expectedRevision: currentProfile.revision,
           patch: {
             liveWidgetSlots: ['footpadAdc1V', 'footpadAdc2V', 'motorTempC', 'batteryLevel', 'distanceM'],
           },
@@ -492,6 +499,76 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           await rightPad.evaluate((el) => el === document.activeElement || el.matches(':focus-visible')),
           false
         );
+        const bmsProfile = await client.request('boardProfile.get', { savedDeviceId: profile.savedDeviceId });
+        await client.request('boardProfile.update', {
+          savedDeviceId: profile.savedDeviceId,
+          expectedRevision: bmsProfile.revision,
+          patch: {
+            liveWidgetSlots: [
+              'bmsStateOfCharge',
+              'highestTempC',
+              'bmsCellVoltageSpreadV',
+              'bmsHighestCellTempC',
+              'distanceM',
+            ],
+          },
+        });
+        chargingBms = widgetBms;
+        chargingBms.status = 'attached';
+        refreshBmsTime = true;
+        Object.assign(chargingBms!.latestSnapshot!, {
+          stateOfCharge: 0.6,
+          temperaturesC: [80],
+          highestCellTemperatureC: 80,
+          cellVoltagesV: [4, 4.1],
+        });
+        const bmsLevel = page.getByRole('button', { name: 'Choose value for box 1: BMS battery level', exact: true });
+        const hottest = page.getByRole('button', { name: 'Choose value for box 2: Highest temperature', exact: true });
+        await page.waitForFunction(() =>
+          document
+            .querySelector('[aria-label="Choose value for box 1: BMS battery level"]')
+            ?.textContent?.includes('60')
+        );
+        await hottest.getByText('Battery temp', { exact: true }).waitFor();
+        await page.waitForFunction(() =>
+          document
+            .querySelector('[aria-label="Choose value for box 2: Highest temperature"]')
+            ?.textContent?.includes('80.0')
+        );
+        await hottest.focus();
+        await page.keyboard.press('Enter');
+        await picker
+          .getByRole('button', { name: 'Highest temperature', exact: true })
+          .getByText('Battery temp', { exact: true })
+          .waitFor();
+        await page.keyboard.press('Escape');
+        refreshBmsTime = false;
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector('[aria-label="Choose value for box 1: BMS battery level"]')
+              ?.textContent?.includes('—'),
+          undefined,
+          { timeout: 8000 }
+        );
+        await hottest.getByText('Motor temp', { exact: true }).waitFor();
+        chargingBms!.status = 'not_found';
+        await hottest.focus();
+        await page.keyboard.press('Enter');
+        await picker
+          .getByRole('button', { name: 'BMS battery level', exact: true })
+          .getByText('Unavailable', { exact: true })
+          .waitFor();
+        await page.keyboard.press('Escape');
+        await page.reload();
+        await bmsLevel.waitFor();
+        assert.deepEqual((await client.request('state.get', {})).activeConnection!.liveWidgetSlots, [
+          'bmsStateOfCharge',
+          'highestTempC',
+          'bmsCellVoltageSpreadV',
+          'bmsHighestCellTempC',
+          'distanceM',
+        ]);
         assert.deepEqual(errors, []);
       } finally {
         await browser.close();

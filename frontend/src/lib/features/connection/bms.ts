@@ -16,3 +16,12 @@ export function bmsFreshness(observedAt: string, nowMs: number): string {
   if (ageSeconds < 60) return `${ageSeconds}s ago`;
   return `${Math.floor(ageSeconds / 60)}m ago`;
 }
+
+// BMS polling is once per second. Allow missed polls, but expire retained values.
+export const BMS_MAX_AGE_MS = 5_000;
+
+export function freshBmsSnapshot(state: BmsState | null | undefined, nowMs: number) {
+  if (state?.status !== 'attached' || !state.connection || !state.latestSnapshot) return null;
+  const age = nowMs - Date.parse(state.latestSnapshot.observedAt);
+  return age >= 0 && age < BMS_MAX_AGE_MS ? state.latestSnapshot : null;
+}

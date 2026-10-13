@@ -9,7 +9,7 @@ import type {
   BluetoothPermissionState,
   BluetoothState,
 } from '$lib/backend/contract';
-import type { ApiClient } from './client';
+import { ApiRequestError, type ApiClient } from './client';
 import { BackendState, permissionOutcome } from './state.svelte';
 
 const bluetooth = (scanPermission: BluetoothPermissionState): BluetoothState => ({
@@ -326,6 +326,7 @@ describe('BackendState', () => {
         activeSession: null,
         latestSample: null,
         batteryEstimate: emptyEstimate(),
+        liveWidgetSlots: ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM'],
         latestLocation: null,
         currentLimits: null,
       },
@@ -527,6 +528,111 @@ describe('session review request ownership', () => {
     finishFirst(metadata);
     await first;
     expect(store.selectedSession?.sessionId).toBe('session-2');
+    store.close();
+  });
+});
+
+describe('live box save ownership', () => {
+  function active(): NonNullable<AppState['activeConnection']> {
+    return {
+      deviceId: 'board',
+      name: 'Board',
+      displayName: 'Board',
+      state: 'ready',
+      deviceKind: 'board',
+      trackingMode: 'saved',
+      savedDeviceId: 'first',
+      firmware: null,
+      controllerConnection: null,
+      controllerCandidates: [],
+      connectionIssue: null,
+      bms: { status: 'not_found', connection: null, candidates: [], latestSnapshot: null },
+      refloatControls: null,
+      refloatConfiguration: null,
+      controllerActions: { shutdownAvailable: false, pendingAction: null },
+      activeSession: null,
+      latestSample: null,
+      batteryEstimate: emptyEstimate(),
+      latestLocation: null,
+      currentLimits: null,
+      liveWidgetSlots: ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM'],
+    };
+  }
+  it('rebases a conflicted slot change onto the latest board layout without touching the open editor', async () => {
+    const client = new FakeClient();
+    client.state.activeConnection = active();
+    const original = client.request.bind(client);
+    let reads = 0;
+    const writes: BackendParams<'boardProfile.update'>[] = [];
+    vi.spyOn(client, 'request').mockImplementation(async (method, params) => {
+      if (method === 'boardProfile.get') {
+        reads++;
+        return {
+          savedDeviceId: 'first',
+          revision: reads,
+          values: {
+            liveWidgetSlots: [
+              'empty',
+              reads === 1 ? 'powerW' : 'bmsStateOfCharge',
+              'elapsedMs',
+              'odometerM',
+              'distanceM',
+            ],
+          },
+          missingFields: [],
+        } as never;
+      }
+      if (method === 'boardProfile.update') {
+        writes.push(params as BackendParams<'boardProfile.update'>);
+        if (writes.length === 1) throw new ApiRequestError({ code: 'conflict', message: 'Changed' });
+        return {} as never;
+      }
+      return original(method, params);
+    });
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    store.selectedBoardProfile = { savedDeviceId: 'other', revision: 4, values: {}, missingFields: [] };
+    expect(await store.updateLiveWidgetSlot(0, 'highestTempC')).toBe(true);
+    expect(writes[1]).toMatchObject({
+      savedDeviceId: 'first',
+      expectedRevision: 2,
+      patch: {
+        liveWidgetSlots: ['highestTempC', 'bmsStateOfCharge', 'elapsedMs', 'odometerM', 'distanceM'],
+      },
+    });
+    expect(store.selectedBoardProfile.savedDeviceId).toBe('other');
+    expect(store.snapshot?.activeConnection?.liveWidgetSlots[0]).toBe('empty');
+    store.close();
+  });
+  it('rejects a late profile read after the connected board changes', async () => {
+    const client = new FakeClient();
+    client.state.activeConnection = active();
+    const original = client.request.bind(client);
+    let finish!: (value: BackendResult<'boardProfile.get'>) => void;
+    const writes: string[] = [];
+    vi.spyOn(client, 'request').mockImplementation(async (method, params) => {
+      if (method === 'boardProfile.get')
+        return new Promise((resolve) => {
+          finish = resolve;
+        }) as never;
+      if (method === 'boardProfile.update') writes.push((params as BackendParams<'boardProfile.update'>).savedDeviceId);
+      return original(method, params);
+    });
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    const saving = store.updateLiveWidgetSlot(0, 'highestTempC');
+    client.state = { ...client.state, revision: 2, activeConnection: { ...active(), savedDeviceId: 'second' } };
+    client.emitState();
+    finish({ savedDeviceId: 'first', revision: 0, values: {}, missingFields: [] });
+    expect(await saving).toBe(false);
+    expect(writes).toEqual([]);
+    expect(store.error).toContain('connected board changed');
     store.close();
   });
 });

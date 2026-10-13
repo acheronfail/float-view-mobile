@@ -15,6 +15,7 @@ import {
   MAX_SESSION_LIST_PAGE,
   type AppState,
   type ActiveConnection,
+  type LiveWidgetSlots,
   type BoardHistorySummary,
   type BackendError,
   type BackendMethod,
@@ -487,6 +488,7 @@ export class MockBackend {
               activeSession,
               latestSample: null,
               batteryEstimate: emptyEstimate(),
+              liveWidgetSlots: [...defaultLiveWidgetSlots],
               latestLocation: null,
               currentLimits: {
                 motorCurrentMaxA: 100,
@@ -816,6 +818,13 @@ export class MockBackend {
         ) {
           return failure(id, 'invalid_request', 'Preferred BMS CAN ID must be 0 through 253');
         }
+        if (
+          'liveWidgetSlots' in patch &&
+          (!Array.isArray(patch.liveWidgetSlots) ||
+            patch.liveWidgetSlots.length !== 5 ||
+            patch.liveWidgetSlots.some((field) => !liveWidgetFields.includes(field)))
+        )
+          return failure(id, 'invalid_request', 'Invalid live box layout');
         if (patch.batteryCellProfileId != null && !batteryCellProfiles.some((p) => p.id === patch.batteryCellProfileId))
           return failure(id, 'invalid_request', 'Unknown battery cell profile');
         if (
@@ -1196,6 +1205,7 @@ export class MockBackend {
           activeSession: null,
           latestSample: null,
           batteryEstimate: emptyEstimate(),
+          liveWidgetSlots: [...defaultLiveWidgetSlots],
           latestLocation: null,
           currentLimits: null,
         },
@@ -1768,7 +1778,19 @@ export class MockBackend {
       this.profiles.get(next.activeConnection?.savedDeviceId ?? '')
     );
     if (next.activeConnection)
-      next = { ...next, activeConnection: { ...next.activeConnection, batteryEstimate: estimate } };
+      next = {
+        ...next,
+        activeConnection: {
+          ...next.activeConnection,
+          batteryEstimate: estimate,
+          liveWidgetSlots:
+            next.activeConnection.trackingMode === 'saved'
+              ? ((this.profiles.get(next.activeConnection.savedDeviceId ?? '')?.values.liveWidgetSlots as
+                  | LiveWidgetSlots
+                  | undefined) ?? [...defaultLiveWidgetSlots])
+              : next.settings.liveWidgetSlots,
+        },
+      };
     this.state = {
       ...next,
       savedDevices: catalogChanged ? this.refreshSummaries(this.sessionCatalog, next.savedDevices) : next.savedDevices,

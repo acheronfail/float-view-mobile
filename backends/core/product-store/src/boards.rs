@@ -36,6 +36,12 @@ pub struct Profile {
     pub values: Map<String, Value>,
 }
 impl Profile {
+    pub fn live_widget_slots(&self) -> [String; 5] {
+        self.values
+            .get("liveWidgetSlots")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_else(|| crate::Settings::default().live_widget_slots)
+    }
     pub fn missing_fields(&self) -> Vec<&'static str> {
         ["seriesCount", "parallelCount", "motor"]
             .into_iter()
@@ -346,6 +352,11 @@ pub(crate) fn check_revision(actual: u64, expected: u64) -> Result<()> {
     }
 }
 pub(crate) fn validate_profile(values: &Map<String, Value>) -> Result<()> {
+    if let Some(value) = values.get("liveWidgetSlots")
+        && !crate::settings::valid_live_widget_slots(value)
+    {
+        return Err(Error::InvalidInput);
+    }
     for (key, min, max) in [
         ("seriesCount", 1., 36.),
         ("parallelCount", 1., 20.),
