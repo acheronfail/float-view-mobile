@@ -117,7 +117,7 @@
         >
       </div>
       {#if !(controller.loading && !controller.pages.length) && !controller.error}
-        <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline p-3 text-sm">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
           <span>
             Source: <strong
               >{controller.source === 'current' ? 'Current device values' : 'Persistent firmware defaults'}</strong
