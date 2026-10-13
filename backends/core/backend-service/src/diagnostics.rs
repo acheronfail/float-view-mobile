@@ -187,6 +187,22 @@ impl Diagnostics {
         self.event(now, epoch, "metadata", metadata, true);
         self.flush();
     }
+    pub fn configuration_failure(
+        &mut self,
+        now: u64,
+        epoch: i64,
+        error: &float_view_application_runtime::coordinator::configuration::ServiceError,
+    ) {
+        // Closed error enums contain no schema text, addresses or telemetry.
+        self.event(
+            now,
+            epoch,
+            "configuration_failure",
+            json!({"code":format!("{error:?}")}),
+            true,
+        );
+        self.capture(now, epoch, "configuration_failure", true);
+    }
     pub fn metric(&mut self, key: &'static str, value: u64) {
         if self.sink.is_some() && (self.metrics.contains_key(key) || self.metrics.len() < 24) {
             self.metrics.entry(key).or_default().add(value);
@@ -397,6 +413,11 @@ mod tests {
         capture.sample(1900, 2800, 2, 1800, true);
         capture.event(2000, 2900, "ride_marker", json!({"sequence":1}), true);
         capture.capture(2000, 2900, "ride_marker", true);
+        capture.configuration_failure(2100, 3000,
+            &float_view_application_runtime::coordinator::configuration::ServiceError::UnauditedSchema);
+        capture.configuration_failure(2200, 3100,
+            &float_view_application_runtime::coordinator::configuration::ServiceError::Codec(
+                float_view_application_runtime::coordinator::configuration_codec::ConfigurationError::StructuralLimit));
         capture.metric("append_us", 123);
         capture.tick(10100, 11000);
         capture.finish(10200, 11100);
@@ -423,6 +444,9 @@ mod tests {
         let bytes = std::fs::read(export.path()).unwrap();
         let text = String::from_utf8_lossy(&bytes);
         for expected in [
+            "configuration_failure",
+            "UnauditedSchema",
+            "StructuralLimit",
             "telemetry_gap",
             "ride_marker",
             "append_us",

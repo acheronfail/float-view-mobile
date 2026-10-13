@@ -358,6 +358,62 @@ fn malformed_write_response_fails_the_exact_lease_and_allows_retry() {
 }
 
 #[test]
+fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
+    let mut coordinator = ConnectionApplicationCoordinator::default();
+    let mut facts = begin_facts(10);
+    facts.preferred_controller_can_id = Some(1);
+    coordinator.apply(Command::Begin(facts)).unwrap();
+    receive(&mut coordinator, gateway_payload(1), 20);
+    receive_can_motor(&mut coordinator, motor_configuration_payload(42), 1, 30);
+    receive(&mut coordinator, selectable_info_payload(), 40);
+    let mut effects = activate_with_cache(&mut coordinator, 50, None);
+    let compressed = configuration_schema_1_3_0();
+    let mut schema_requests = 0;
+    for step in 0..256 {
+        if coordinator.snapshot().configuration.current.is_some() {
+            break;
+        }
+        let request = write(&effects).payload.clone();
+        assert_eq!(&request[..2], &[34, 1]);
+        let payload = &request[2..];
+        let response = match payload[0] {
+            92 => {
+                assert_eq!(payload[1], 0);
+                let length = u32::from_be_bytes(payload[2..6].try_into().unwrap()) as usize;
+                let offset = u32::from_be_bytes(payload[6..10].try_into().unwrap()) as usize;
+                let mut response = vec![92, 0];
+                response.extend_from_slice(&(compressed.len() as u32).to_be_bytes());
+                response.extend_from_slice(&(offset as u32).to_be_bytes());
+                response.extend_from_slice(
+                    &compressed[offset..(offset + length).min(compressed.len())],
+                );
+                schema_requests += 1;
+                response
+            }
+            93 => configuration_current_response_1_3_0(),
+            14 => current_limits_payload(0x2EFD_0142, Some(15)),
+            36 if payload.get(2) == Some(&33) => {
+                if payload.get(3) == Some(&1) {
+                    selectable_fast_payload()
+                } else {
+                    selectable_fixture("1.3.0-command-33-slow-gnss-float32")
+                }
+            }
+            _ => panic!("Unexpected bootstrap request: {payload:?}"),
+        };
+        effects = receive(&mut coordinator, response, 60 + step * 10);
+    }
+    let config = coordinator.snapshot().configuration;
+    assert!(
+        schema_requests > 1,
+        "cold bootstrap must download the entire schema"
+    );
+    assert_eq!(config.availability, Availability::Ready);
+    assert_eq!(config.identity.unwrap().package_version, "1.3.0");
+    assert!(config.current.is_some());
+}
+
+#[test]
 fn can_configuration_is_forwarded_once_and_corrupt_cache_is_removed() {
     let mut can = ConnectionApplicationCoordinator::default();
     let mut facts = begin_facts(10);

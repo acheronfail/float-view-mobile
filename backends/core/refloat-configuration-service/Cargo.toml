@@ -7,3 +7,7 @@ publish = false
 
 [dependencies]
 float-view-refloat-configuration-codec = { path = "../refloat-configuration-codec" }
+
+[[example]]
+name = "inspect-board-schema"
+path = "../../../conformance/rust/inspect-board-schema.rs"

@@ -1182,6 +1182,14 @@ impl BackendService {
                         c::MutationEvent::Failed { .. } => self.complete_mutation(false),
                         c::MutationEvent::Released(_) => {}
                     },
+                    c::Effect::Failure(c::Failure::Configuration(error)) => {
+                        self.diagnostics.configuration_failure(
+                            self.policy.exchange.now,
+                            self.policy.exchange.epoch,
+                            &error,
+                        );
+                        self.fail_kernel_requests();
+                    }
                     c::Effect::Failure(_) => self.fail_kernel_requests(),
                     c::Effect::Diagnostic(value) => {
                         self.diagnostics.event(
@@ -1345,6 +1353,11 @@ impl BackendService {
             .transpose()
             .map_err(crate::store_failure)?
             .flatten();
+        self.diagnostics.event(
+            self.policy.exchange.now, self.policy.exchange.epoch, "configuration_bootstrap",
+            serde_json::json!({"custom_configuration_count":facts.selected.identity.custom_configuration_count,
+                "cached_schema":cached.is_some()}), true,
+        );
         Ok(Command::Application(c::Command::Activate {
             generation: facts.generation,
             now_ms: self.policy.exchange.now,
