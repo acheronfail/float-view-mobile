@@ -17,11 +17,28 @@ struct FloatViewLiveActivity: Widget {
           RideSummary(state: context.state, stale: context.isStale)
         }
       } compactLeading: {
-        FootpadIndicator(state: context.state, stale: context.isStale)
-          .frame(width: 24, height: 14)
+        if context.state.status == "Stopped" {
+          HStack(spacing: 3) {
+            Image(systemName: "battery.100").font(.caption2)
+            Text(context.isStale ? "—" : context.state.batteryText).monospacedDigit()
+          }
+          .foregroundStyle(.white)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel("Battery charge \(context.isStale ? "unavailable" : context.state.batteryText)")
+        } else {
+          FootpadIndicator(state: context.state, stale: context.isStale)
+            .frame(width: 24, height: 14)
+        }
       } compactTrailing: {
-        Text(context.isStale ? "—" : (context.state.status ?? context.state.loadText))
-          .monospacedDigit().foregroundStyle(context.state.status == nil ? context.state.loadColor : .white)
+        if context.state.status == "Stopped" {
+          Text(context.isStale ? "—" : context.state.distanceText)
+            .monospacedDigit().foregroundStyle(.white)
+            .lineLimit(1).minimumScaleFactor(0.7)
+            .accessibilityLabel("Ride distance \(context.isStale ? "unavailable" : context.state.distanceText)")
+        } else {
+          Text(context.isStale ? "—" : (context.state.status ?? context.state.loadText))
+            .monospacedDigit().foregroundStyle(context.state.status == nil ? context.state.loadColor : .white)
+        }
       } minimal: {
         Text(context.isStale ? "—" : (context.state.status ?? context.state.loadText))
           .font(.caption2.bold()).monospacedDigit()
