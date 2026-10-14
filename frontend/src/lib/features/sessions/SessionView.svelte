@@ -332,6 +332,7 @@
         <SessionLocationMap
           metadata={backendState.sessionMetadata}
           following={following && wasActive}
+          live={following && isActive}
           {selectedElapsedMs}
           {markers}
           {selectedMarker}

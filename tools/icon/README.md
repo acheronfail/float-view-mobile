@@ -15,7 +15,7 @@ Android density/adaptive-icon WebP assets used by the native targets.
 
 The centered loading screen uses only the rider silhouette, without the icon
 background. Regenerate its early HTML, iOS/macOS PNG and Android vector assets
-independently on any platform with Python 3 and ImageMagick:
+and the frontend map’s SVG symbol independently on any platform with Python 3 and ImageMagick:
 
 ```sh
 python3 tools/icon/generate-loading-symbol.py

@@ -125,11 +125,51 @@ body {
   border: 0;
 }
 
-.location-marker > .i-lucide-map-pin {
+.location-marker > .rider-symbol {
   display: block;
-  width: 2rem;
-  height: 2rem;
-  color: var(--app-accent);
+  width: 30px;
+  height: 40px;
+  color: var(--app-foreground);
+  filter: drop-shadow(0 1px 2px #0006);
+  transform-origin: 50% 95%;
+}
+
+.rider-symbol svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  stroke: var(--app-surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+}
+
+.location-marker-live > .rider-symbol {
+  color: #dc2626;
+  animation: rider-live-pulse 2.8s ease-in-out infinite;
+}
+
+:root[data-theme='dark'] .location-marker-live > .rider-symbol {
+  color: #f87171;
+}
+
+@keyframes rider-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .location-marker-live > .rider-symbol {
+    animation: none;
+  }
 }
 
 .bottom-tabs-safe-area {

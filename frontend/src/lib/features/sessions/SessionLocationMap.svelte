@@ -12,7 +12,7 @@
   import type { SessionReviewController } from '$lib/backend/session-controller';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
-  import { iconClasses } from '$lib/ui/icon';
+  import riderSymbol from '$lib/ui/rider-symbol.svg?raw';
   import {
     locationAtElapsed,
     locationAtOrBefore,
@@ -24,12 +24,13 @@
   import Spinner from '../../ui/Spinner.svelte';
   import ToggleIndicator from '$lib/ui/ToggleIndicator.svelte';
 
-  const locationMarkerHtml = `<span class="${iconClasses['map-pin']}" aria-hidden="true"></span>`;
+  const locationMarkerHtml = `<span class="rider-symbol">${riderSymbol}</span>`;
 
   let {
     oninspect = () => {},
     liveVersion = 0,
     following = false,
+    live = false,
     markers = [],
     selectedMarker = null,
     onmarkerselect = () => {},
@@ -48,6 +49,7 @@
     oninspect?: () => void;
     liveVersion?: number;
     following?: boolean;
+    live?: boolean;
     markers?: SessionRideMarker[];
     selectedMarker?: SessionRideMarker | null;
     onmarkerselect?: (marker: SessionRideMarker) => void;
@@ -264,6 +266,7 @@
     void displayOptions;
     void selectedElapsedMs;
     void following;
+    void live;
     void viewportKey;
     void hidden;
     void mapLayoutReady;
@@ -292,8 +295,6 @@
     if (!map) return;
     baseLayers.forEach((layer) => layer.remove());
     travelledLayers.forEach((layer) => layer.remove());
-    locationMarker?.remove();
-
     baseLayers = visibleSegments.map((segment) =>
       Leaflet.polyline(routeCoordinates(segment), {
         color: '#67e8f9',
@@ -312,20 +313,28 @@
     );
     if (marker) {
       const label = following ? 'Last known rider position' : 'Selected location';
-      locationMarker = Leaflet.marker([marker.latitude, displayLongitude(marker.longitude)], {
-        icon: Leaflet.divIcon({
-          className: 'location-marker',
-          html: locationMarkerHtml,
-          iconSize: [32, 32],
-          iconAnchor: [16, 32],
-        }),
-        title: label,
-        interactive: false,
-        keyboard: false,
-      }).addTo(map);
+      if (!locationMarker) {
+        locationMarker = Leaflet.marker([marker.latitude, displayLongitude(marker.longitude)], {
+          icon: Leaflet.divIcon({
+            className: 'location-marker',
+            html: locationMarkerHtml,
+            iconSize: [30, 40],
+            iconAnchor: [15, 38],
+          }),
+          interactive: false,
+          keyboard: false,
+        }).addTo(map);
+      } else {
+        locationMarker.setLatLng([marker.latitude, displayLongitude(marker.longitude)]);
+      }
       const element = locationMarker.getElement();
+      element?.classList.toggle('location-marker-live', live && following);
+      element?.setAttribute('title', label);
       element?.setAttribute('role', 'img');
       element?.setAttribute('aria-label', label);
+    } else {
+      locationMarker?.remove();
+      locationMarker = null;
     }
     if (!filterByMap) fitVisibleRoute(shouldRecenter);
     drawRideMarkers();

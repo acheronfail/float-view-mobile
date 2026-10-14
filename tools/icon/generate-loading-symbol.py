@@ -16,6 +16,13 @@ svg = (
     + ''.join(f'<path d="{path}"/>' for path in paths)
     + '</svg>'
 )
+# The map uses the same silhouette with theme-aware CSS colours.
+(root / 'frontend/src/lib/ui/rider-symbol.svg').write_text(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="14 0 75 101" '
+    'fill="currentColor" aria-hidden="true">\n'
+    + ''.join(f'  <path d="{path}"/>\n' for path in paths)
+    + '</svg>\n'
+)
 html_path = root / 'frontend/src/app.html'
 html = html_path.read_text()
 def update_html_symbol(match):

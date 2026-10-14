@@ -143,6 +143,25 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const riderPosition = page.locator('.location-marker[title="Last known rider position"]');
         await riderPosition.waitFor();
         assert.equal(await riderPosition.getAttribute('aria-label'), 'Last known rider position');
+        assert.equal(await riderPosition.locator('svg path').count(), 4);
+        async function markerStyle() {
+          return page.locator('.location-marker .rider-symbol').evaluate((node) => {
+            const style = getComputedStyle(node);
+            return { color: style.color, animation: style.animationName, duration: style.animationDuration };
+          });
+        }
+        assert.equal((await markerStyle()).animation, 'none', 'reduced motion keeps the live rider static');
+        await page.emulateMedia({ reducedMotion: 'no-preference' });
+        for (const [theme, color] of [
+          ['light', 'rgb(220, 38, 38)'],
+          ['dark', 'rgb(248, 113, 113)'],
+        ]) {
+          await page.evaluate((theme) => {
+            document.documentElement.dataset.theme = theme;
+          }, theme);
+          assert.deepEqual(await markerStyle(), { color, animation: 'rider-live-pulse', duration: '2.8s' });
+        }
+        await riderPosition.evaluate((node) => node.setAttribute('data-preserved-rider', 'yes'));
         const initialPosition = await riderPosition.evaluate((node) => (node as HTMLElement).style.transform);
         lastLongitude = 151.209;
         const firstEnd = ends[0]!;
@@ -155,6 +174,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           const marker = document.querySelector<HTMLElement>('.location-marker[title="Last known rider position"]');
           return marker && marker.style.transform !== initial;
         }, initialPosition);
+        assert.equal(
+          await riderPosition.getAttribute('data-preserved-rider'),
+          'yes',
+          'updates preserve the pulsing element'
+        );
         const legend = page.getByRole('button', { name: /^Hide .+ line$/ }).first();
         // Capture an element identity to prove refresh does not recreate the chart.
         await page
@@ -169,6 +193,17 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.getByRole('button', { name: 'Jump to live', exact: true }).waitFor();
         assert.equal(await riderPosition.count(), 0);
         await page.locator('.location-marker[title="Selected location"]').waitFor();
+        for (const [theme, color] of [
+          ['light', 'rgb(15, 23, 42)'],
+          ['dark', 'rgb(241, 245, 249)'],
+        ]) {
+          await page.evaluate((theme) => {
+            document.documentElement.dataset.theme = theme;
+          }, theme);
+          assert.equal((await markerStyle()).color, color);
+          assert.equal((await markerStyle()).animation, 'none');
+        }
+        assert.equal(await page.locator('.location-marker-live').count(), 0);
         const pausedRequests = metadataRequests;
         await page.waitForTimeout(3400);
         assert.equal(metadataRequests, pausedRequests);
@@ -207,9 +242,23 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         else await jump.click();
         await page.getByText('Recording · Following live', { exact: true }).waitFor();
         await riderPosition.waitFor();
+        assert.equal((await markerStyle()).animation, 'rider-live-pulse');
         await page.waitForTimeout(500);
         assert(metadataRequests > pausedRequests);
         assert.equal(await chart.getAttribute('data-preserved'), 'yes');
+        // Right-button dragging pans regardless of the chart's current interaction mode.
+        await chart.scrollIntoViewIfNeeded();
+        const panBox = (await chart.boundingBox())!;
+        await page.mouse.move(panBox.x + panBox.width * 0.5, panBox.y + panBox.height * 0.5);
+        await page.mouse.down({ button: 'right' });
+        await page.mouse.move(panBox.x + panBox.width * 0.6, panBox.y + panBox.height * 0.5);
+        await page.mouse.up({ button: 'right' });
+        await jump.waitFor();
+        assert.equal(await page.locator('.location-marker-live').count(), 0, 'chart panning stops the live pulse');
+        assert.equal((await markerStyle()).animation, 'none');
+        await jump.click();
+        await page.getByText('Recording · Following live', { exact: true }).waitFor();
+        assert.equal((await markerStyle()).animation, 'rider-live-pulse');
         reconnecting = true;
         await page.getByText('Reconnecting · Following live', { exact: true }).waitFor();
         reconnecting = false;
@@ -248,6 +297,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.match(page.url(), new RegExp(sessionId));
         assert.equal((await client.request('session.get', { sessionId })).summary.state, 'completed');
         assert.equal(await page.getByRole('heading', { name: 'Current ride', exact: true }).count(), 0);
+        assert.equal(await page.locator('.location-marker-live').count(), 0, 'completed rides stop pulsing');
+        assert.equal((await markerStyle()).animation, 'none');
         const completedRequests = metadataRequests;
         await page.waitForTimeout(3400);
         assert.equal(metadataRequests, completedRequests);
