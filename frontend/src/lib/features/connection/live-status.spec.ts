@@ -14,7 +14,7 @@ const sample = {
 describe('live status presentation', () => {
   it('clears the stop explanation on engagement despite retained stop and beep reasons', () => {
     expect(liveStatus('ready', sample)).toEqual({
-      display: 'Stopped · Footpad partially released',
+      display: 'Stopped · One footpad',
       safetyStateActive: false,
     });
     const riding = { ...sample, packageState: 'running' as const, setpointAdjustment: 'none' as const };
@@ -57,7 +57,7 @@ describe('live status presentation', () => {
     expect(beepReasonLabel('sensors')).toBe('Footpad contact lost');
     expect(beepReasonLabel(null)).toBe('Unavailable');
     expect(beepReasonLabel('none')).toBe('None');
-    expect(stopReasonLabel('switchHalf')).toBe('Footpad partially released');
-    expect(stopReasonLabel('switchFull')).toBe('Footpad released');
+    expect(stopReasonLabel('switchHalf')).toBe('One footpad');
+    expect(stopReasonLabel('switchFull')).toBe('Both footpads');
   });
 });
