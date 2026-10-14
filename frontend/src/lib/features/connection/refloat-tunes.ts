@@ -33,7 +33,9 @@ export async function captureCurrentRefloatTune(
       return value ? [[fieldName, value] as const] : [];
     })
   );
-  if (Object.keys(values).length !== tuneFieldNames.length || !tuneFieldNames.length) return null;
+  if (Object.keys(values).length !== tuneFieldNames.length || !tuneFieldNames.length) {
+    throw new Error('The complete Tune fields are unavailable. Close this dialog and retry loading Tunes.');
+  }
   const tune = await backend.createRefloatTune(name, description, current.identity, current.revision, values);
   return tune ? { current, tune } : null;
 }

@@ -18,6 +18,32 @@ const current: RefloatConfigurationValues = {
 };
 
 describe('Tune capture', () => {
+  it.each([{ fields: [] }, { fields: ['gain', 'missing'] }])(
+    'rejects incomplete Tune fields: $fields',
+    async ({ fields }) => {
+      const createRefloatTune = vi.fn();
+      await expect(
+        captureCurrentRefloatTune(
+          { readRefloatConfiguration: async () => current, createRefloatTune },
+          'Base',
+          null,
+          fields
+        )
+      ).rejects.toThrow('The complete Tune fields are unavailable');
+      expect(createRefloatTune).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not create a preset when the board read fails', async () => {
+    const createRefloatTune = vi.fn();
+    expect(
+      await captureCurrentRefloatTune({ readRefloatConfiguration: async () => null, createRefloatTune }, 'Base', null, [
+        'gain',
+      ])
+    ).toBeNull();
+    expect(createRefloatTune).not.toHaveBeenCalled();
+  });
+
   it('always snapshots a fresh current-board read rather than editor state', async () => {
     const readRefloatConfiguration = vi.fn(async () => current);
     const createRefloatTune: RefloatTuneCaptureBackend['createRefloatTune'] = vi.fn(async () => ({

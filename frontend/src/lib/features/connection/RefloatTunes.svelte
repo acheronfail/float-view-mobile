@@ -23,6 +23,8 @@
   let loading = $state(false);
   let applyConfirmation = $state(false);
   let saveConfirmation = $state(false);
+  let saving = $state(false);
+  let saveError = $state<string | null>(null);
   let renameConfirmation = $state(false);
   let deleteConfirmation = $state(false);
   let name = $state('');
@@ -97,25 +99,37 @@
   }
 
   function openSave() {
+    saveError = null;
     name = '';
     description = '';
     saveConfirmation = true;
   }
 
   async function saveCurrent() {
-    if (!name.trim()) return;
-    const captured = await captureCurrentRefloatTune(
-      backendState,
-      name.trim(),
-      description.trim() || null,
-      fields.map((field) => field.name)
-    );
-    if (!captured) return;
-    current = captured.current;
-    selected = captured.tune;
-    saveConfirmation = false;
-    status = `${captured.tune.name} was saved from the current board Tune.`;
-    await refreshTunes(captured.current);
+    if (!name.trim() || saving) return;
+    saving = true;
+    saveError = null;
+    try {
+      const captured = await captureCurrentRefloatTune(
+        backendState,
+        name.trim(),
+        description.trim() || null,
+        fields.map((field) => field.name)
+      );
+      if (!captured) {
+        saveError = backendState.error ?? 'The preset could not be saved. Please try again.';
+        return;
+      }
+      current = captured.current;
+      selected = captured.tune;
+      saveConfirmation = false;
+      status = `${captured.tune.name} was saved from the current board Tune.`;
+      await refreshTunes(captured.current);
+    } catch (error) {
+      saveError = error instanceof Error ? error.message : 'The preset could not be saved. Please try again.';
+    } finally {
+      saving = false;
+    }
   }
 
   function openRename() {
@@ -294,7 +308,7 @@
   title="Save current board Tune?"
   description="The board will be read again, then its complete current Tune will be saved as a preset."
   confirmLabel="Save preset"
-  busy={backendState.busy}
+  busy={saving || backendState.busy}
   confirmDisabled={!name.trim()}
   onconfirm={saveCurrent}
   oncancel={() => {
@@ -302,6 +316,7 @@
   }}
 >
   <div class="grid gap-3">
+    {#if saveError}<p role="alert" class="text-sm text-warning">{saveError}</p>{/if}
     <label class="text-sm">
       <span class="mb-1 block text-muted">Name</span>
       <input class="w-full rounded-md border border-outline bg-elevated px-3 py-2" maxlength="128" bind:value={name} />

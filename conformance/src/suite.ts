@@ -916,6 +916,9 @@ export async function exerciseRefloatConfiguration(
     const page: RefloatConfigurationSchemaPage = await client.request('refloat.configuration.schema', { cursor });
     identity ??= page.identity;
     assert.deepEqual(page.identity, identity);
+    for (const field of page.fields) {
+      assert.equal(typeof field.tunable, 'boolean', 'schema field is missing its Tune eligibility');
+    }
     fields.push(...page.fields);
     cursor = page.nextCursor;
     assert.ok(fields.length <= 512, 'configuration schema exceeded field bound');
