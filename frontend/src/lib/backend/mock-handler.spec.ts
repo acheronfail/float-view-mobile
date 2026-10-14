@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MockBackend } from '../../../backend-mock/api-v1';
 import type { AppState, BmsSnapshot, RefloatConfigurationValues, RefloatEditorDraft } from './contract';
 
@@ -196,6 +196,35 @@ describe('deterministic mock backend', () => {
     expect(
       backend.handle({ id: 7, method: 'session.list', params: { savedDeviceId: 'saved-board', limit: 100 } })
     ).toMatchObject({ error: { code: 'not_found' } });
+  });
+
+  it('publishes prune and reclamation phases and allows cancellation during cleanup', () => {
+    vi.useFakeTimers();
+    try {
+      const states: AppState[] = [];
+      const backend = new MockBackend((event) => states.push(event.data));
+      const response = backend.handle({
+        id: 1,
+        method: 'session.prune.start',
+        params: {
+          scope: 'one',
+          sessionId: 'session-1',
+          targetResolutionSeconds: 5,
+        },
+      });
+      expect(response).toHaveProperty('result');
+      vi.advanceTimersByTime(10);
+      expect(states.at(-1)?.sessionOperation?.status).toBe('running');
+      vi.advanceTimersByTime(10);
+      expect(states.at(-1)?.sessionOperation?.status).toBe('reclaiming');
+      const operationId = states.at(-1)!.sessionOperation!.operationId;
+      backend.handle({ id: 2, method: 'session.prune.cancel', params: { operationId } });
+      vi.runAllTimers();
+      expect(states.at(-1)?.sessionOperation?.status).toBe('cancelled');
+      expect(states.every((state, i) => i === 0 || state.revision > states[i - 1]!.revision)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('covers every mandatory method', () => {

@@ -109,7 +109,13 @@ fn run(weak: Weak<Mutex<BackendService>>, stop: Arc<AtomicBool>) {
         });
         drop(owner);
         if let Some((work, epoch)) = next {
-            let completion = work.run(epoch);
+            let completion = work.run_with_reclaiming(epoch, || {
+                if let Some(owner) = weak.upgrade()
+                    && let Ok(mut service) = owner.lock()
+                {
+                    let _ = service.changed();
+                }
+            });
             if let Some(owner) = weak.upgrade()
                 && let Ok(mut s) = owner.lock()
             {

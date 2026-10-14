@@ -298,13 +298,7 @@ impl BackendService {
             settings: settings(&p.settings),
             permissions: self.permission_rows(),
             location: self.location_facts(),
-            maintenance: self
-                .store
-                .maintenance()
-                .ok()
-                .flatten()
-                .as_ref()
-                .map(maintenance),
+            maintenance: self.maintenance().ok().flatten().as_ref().map(maintenance),
         }
     }
     pub(crate) fn bluetooth_facts(&self) -> f::Bluetooth {

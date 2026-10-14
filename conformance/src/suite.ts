@@ -508,7 +508,7 @@ async function exerciseProductMethods(
     targetResolutionSeconds: 5,
   });
   assert.equal(prune.kind, 'prune');
-  assert.ok(['queued', 'running', 'completed'].includes(prune.status));
+  assert.ok(['queued', 'running', 'reclaiming', 'completed'].includes(prune.status));
   if (prune.status !== 'completed') {
     const observed = await client.request('state.get', {});
     if (

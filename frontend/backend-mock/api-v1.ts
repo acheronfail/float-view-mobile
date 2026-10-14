@@ -1822,24 +1822,29 @@ export class MockBackend {
     this.operation = operation;
     this.change({ ...this.state, sessionOperation: operation });
     if (kind === 'prune') {
-      this.operationTimer = setTimeout(() => {
-        this.operationTimer = undefined;
-        if (this.operation?.operationId !== operation.operationId || this.operation.status !== 'queued') return;
-        const completed: SessionOperationState = {
-          ...operation,
-          status: 'completed',
-          completedSessions: operation.eligibleSessions ?? 0,
-        };
-        this.operation = completed;
-        this.change({
-          ...this.state,
-          sessionCatalogRevision: this.state.sessionCatalogRevision + 1,
-          sessionOperation: completed,
-        });
-      }, 0);
-      this.operationTimer.unref?.();
+      this.advancePrune(operation, 'running');
     }
     return operation;
+  }
+
+  private advancePrune(operation: SessionOperationState, status: 'running' | 'reclaiming' | 'completed') {
+    this.operationTimer = setTimeout(() => {
+      this.operationTimer = undefined;
+      if (this.operation?.operationId !== operation.operationId || this.operation.status === 'cancelled') return;
+      const next: SessionOperationState = {
+        ...operation,
+        status,
+        completedSessions: status === 'completed' ? (operation.eligibleSessions ?? 0) : 0,
+      };
+      this.operation = next;
+      this.change({
+        ...this.state,
+        sessionCatalogRevision: this.state.sessionCatalogRevision + (status === 'completed' ? 1 : 0),
+        sessionOperation: next,
+      });
+      if (status !== 'completed') this.advancePrune(operation, status === 'running' ? 'reclaiming' : 'completed');
+    }, 10);
+    this.operationTimer.unref?.();
   }
 
   private cancelOperation(): SessionOperationState {

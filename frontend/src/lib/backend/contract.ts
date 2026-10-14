@@ -716,7 +716,14 @@ export interface SessionListPage {
 }
 
 export type SessionOperationKind = 'delete' | 'prunePreview' | 'prune';
-export type SessionOperationStatus = 'queued' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';
+export type SessionOperationStatus =
+  | 'queued'
+  | 'running'
+  | 'reclaiming'
+  | 'cancelling'
+  | 'completed'
+  | 'cancelled'
+  | 'failed';
 
 export interface SessionOperationState {
   operationId: string;

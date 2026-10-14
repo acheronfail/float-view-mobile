@@ -21,8 +21,8 @@ describe('session prune presentation', () => {
 
   it('formats reclaimable storage estimates', () => {
     expect(formatPruneBytes(null)).toBe('Storage estimate unavailable');
-    expect(formatPruneBytes(512)).toBe('512 B reclaimable');
-    expect(formatPruneBytes(2_048)).toBe('2.0 KB reclaimable');
-    expect(formatPruneBytes(2 * 1_024 * 1_024)).toBe('2.0 MB reclaimable');
+    expect(formatPruneBytes(512)).toBe('Estimated space recoverable: 512 B');
+    expect(formatPruneBytes(2_048)).toBe('Estimated space recoverable: 2.0 KB');
+    expect(formatPruneBytes(2 * 1_024 * 1_024)).toBe('Estimated space recoverable: 2.0 MB');
   });
 });

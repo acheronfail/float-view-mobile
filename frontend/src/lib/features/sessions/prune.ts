@@ -17,5 +17,5 @@ export function validPruneResolution(value: number, existingResolutionSeconds: n
 
 export function formatPruneBytes(value: number | null): string {
   if (value === null) return 'Storage estimate unavailable';
-  return `${formatStorageBytes(value)} reclaimable`;
+  return `Estimated space recoverable: ${formatStorageBytes(value)}`;
 }

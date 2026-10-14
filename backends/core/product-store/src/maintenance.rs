@@ -36,9 +36,13 @@ impl Maintenance {
 #[derive(Clone, Default)]
 pub struct MaintenanceCancellation {
     cancelled: Arc<AtomicBool>,
+    reclaiming: Arc<AtomicBool>,
     interrupt: Arc<Mutex<Option<PruneInterrupter>>>,
 }
 impl MaintenanceCancellation {
+    pub fn reclaiming(&self) -> bool {
+        self.reclaiming.load(Ordering::Acquire)
+    }
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
         if let Ok(interrupt) = self.interrupt.lock()
@@ -79,13 +83,20 @@ impl MaintenanceWork {
         self.cancellation.clone()
     }
     pub fn run(self, at_ms: i64) -> MaintenanceCompletion {
-        let result = self.execute(at_ms);
+        self.run_with_reclaiming(at_ms, || {})
+    }
+    pub fn run_with_reclaiming(
+        self,
+        at_ms: i64,
+        on_reclaiming: impl FnOnce(),
+    ) -> MaintenanceCompletion {
+        let result = self.execute(at_ms, on_reclaiming);
         if let Ok(mut interrupt) = self.cancellation.interrupt.lock() {
             *interrupt = None;
         }
         MaintenanceCompletion { work: self, result }
     }
-    fn execute(&self, at_ms: i64) -> Result<WorkResult> {
+    fn execute(&self, at_ms: i64, on_reclaiming: impl FnOnce()) -> Result<WorkResult> {
         timestamp(at_ms)?;
         self.cancellation.check()?;
         let mut reader = SessionReader::open(self.lease.path())?;
@@ -94,6 +105,9 @@ impl MaintenanceWork {
         drop(reader);
         // A crash after session commit but before job progress must not prune twice.
         if metadata.retained_resolution_seconds == self.resolution {
+            if !self.preview {
+                self.reclaim(on_reclaiming)?;
+            }
             return Ok(WorkResult {
                 retained: marker.stored_sample_count,
                 reclaimable: 0,
@@ -115,8 +129,9 @@ impl MaintenanceWork {
         }
         pruner.close().map_err(map_prune)?;
         // Space reclamation follows logical commit and cannot roll it back.
-        if !self.preview && self.cancellation.check().is_ok() {
-            let _ = self.compact();
+        // Report cleanup failures while retaining and reconciling the commit.
+        if !self.preview {
+            self.reclaim(on_reclaiming)?;
         }
         Ok(WorkResult {
             retained: preview.retained_sample_count,
@@ -124,7 +139,20 @@ impl MaintenanceWork {
             skipped: preview.skipped,
         })
     }
+    fn reclaim(&self, on_reclaiming: impl FnOnce()) -> Result<()> {
+        self.cancellation.check()?;
+        self.cancellation.reclaiming.store(true, Ordering::Release);
+        on_reclaiming();
+        self.compact()
+    }
     fn compact(&self) -> Result<()> {
+        let result = self.compact_database();
+        // Interruptions can arise from any SQLite step, including checkpointing.
+        // Keep cancellation distinct from an operational cleanup failure.
+        self.cancellation.check()?;
+        result
+    }
+    fn compact_database(&self) -> Result<()> {
         let db = Connection::open_with_flags(self.lease.path(), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         db.busy_timeout(std::time::Duration::from_millis(
             crate::limits::SQLITE_BUSY_MS,
@@ -132,7 +160,26 @@ impl MaintenanceWork {
         let cancelled = self.cancellation.cancelled.clone();
         db.progress_handler(1000, Some(move || cancelled.load(Ordering::Acquire)));
         self.cancellation.check()?;
-        db.execute_batch("PRAGMA incremental_vacuum(256)")?;
+        let mut free: u64 = db.query_row("PRAGMA freelist_count", [], |r| r.get(0))?;
+        while free > 0 {
+            self.cancellation.check()?;
+            if let Err(error) = db.execute_batch("PRAGMA incremental_vacuum(256)") {
+                self.cancellation.check()?;
+                return Err(error.into());
+            }
+            self.cancellation.check()?;
+            // Bound the WAL as well as each vacuum batch, and return the reduced
+            // database size to disk before announcing completion.
+            let busy: u64 = db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
+            if busy != 0 {
+                return Err(Error::Busy);
+            }
+            let remaining = db.query_row("PRAGMA freelist_count", [], |r| r.get(0))?;
+            if remaining >= free {
+                return Err(Error::Database);
+            }
+            free = remaining;
+        }
         Ok(())
     }
 }

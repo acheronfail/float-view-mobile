@@ -132,8 +132,15 @@ pub struct MaintenanceJobCompletion {
 }
 impl MaintenanceJobWork {
     pub fn run(self, at_ms: i64) -> MaintenanceJobCompletion {
+        self.run_with_reclaiming(at_ms, || {})
+    }
+    pub fn run_with_reclaiming(
+        self,
+        at_ms: i64,
+        on_reclaiming: impl FnOnce(),
+    ) -> MaintenanceJobCompletion {
         MaintenanceJobCompletion {
-            work: self.work.run(at_ms),
+            work: self.work.run_with_reclaiming(at_ms, on_reclaiming),
             _permit: self.permit,
         }
     }
@@ -509,6 +516,34 @@ mod tests {
             FileResult::Exported { .. }
         ));
         transfer
+    }
+    #[test]
+    fn reclaiming_is_published_and_cancellation_takes_precedence() {
+        let (_dir, mut service, id) = setup();
+        service.begin_maintenance(Some(&id), 10, false, 1).unwrap();
+        let work = service.next_maintenance_work(2).unwrap().unwrap();
+        let changes = service.subscribe();
+        let completion = work.run_with_reclaiming(3, || {
+            service.changed().unwrap();
+            assert!(changes.has_changed().unwrap());
+            assert_eq!(service.maintenance().unwrap().unwrap().state, "reclaiming");
+            assert_eq!(
+                service.published_snapshot().maintenance.unwrap().state,
+                "reclaiming"
+            );
+            let job = service.maintenance().unwrap().unwrap();
+            service.cancel_maintenance(&job.operation_id, 4).unwrap();
+            assert_eq!(
+                service.published_snapshot().maintenance.unwrap().state,
+                "cancel_requested"
+            );
+        });
+        let job = service.complete_maintenance_work(completion, 5).unwrap();
+        assert_eq!(job.state, "cancelled");
+        assert_eq!(
+            service.published_snapshot().maintenance.unwrap().state,
+            "cancelled"
+        );
     }
     #[test]
     fn presentation_outlives_disconnect_and_ack_or_expiry_reclaims_it() {

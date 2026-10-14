@@ -175,9 +175,11 @@ impl SessionPruner {
             recorded_sample_count: marker.recorded_sample_count,
             stored_sample_count: marker.stored_sample_count,
             retained_sample_count,
-            estimated_reclaimable_bytes: removed
-                .checked_mul(256)
-                .ok_or(PruneError::InvalidInput)?,
+            estimated_reclaimable_bytes: estimate_reclaimable_bytes(
+                &transaction,
+                removed,
+                marker.stored_sample_count,
+            )?,
             target_resolution_seconds,
             history_revision: marker.history_revision,
             skipped: removed == 0,
@@ -228,6 +230,28 @@ impl SessionPruner {
             skipped: false,
         })
     }
+}
+
+// Estimate only sample-owned pages: diagnostics, locations and events survive
+// independently. dbstat reads page structure without copying or pruning a DB.
+// Retained rows vary in size and partially occupied pages cannot be reclaimed
+// by incremental vacuum, so this remains an estimate rather than a guarantee.
+fn estimate_reclaimable_bytes(
+    connection: &Connection,
+    removed: u64,
+    stored: u64,
+) -> Result<u64, PruneError> {
+    if removed == 0 {
+        return Ok(0);
+    }
+    let sample_bytes: u64 = connection.query_row(
+        "SELECT COALESCE(SUM(pgsize), 0) FROM dbstat WHERE name IN ('sample', 'sample_elapsed')",
+        [], |row| row.get(0),
+    ).map_err(map_sqlite)?;
+    sample_bytes
+        .checked_mul(removed)
+        .and_then(|bytes| bytes.checked_div(stored))
+        .ok_or(PruneError::InvalidInput)
 }
 
 fn validate_resolution(current: u64, target: u64) -> Result<(), PruneError> {

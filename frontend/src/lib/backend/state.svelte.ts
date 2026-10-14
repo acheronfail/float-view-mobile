@@ -49,6 +49,7 @@ export function permissionOutcome(state: BluetoothState): PermissionOutcome {
 }
 
 export class BackendState {
+  private pruneRefresh: { operationId: string; sessionId: string } | null = null;
   status = $state<BackendConnectionStatus>('starting');
   snapshot = $state<AppState | null>(null);
   error = $state<string | null>(null);
@@ -600,17 +601,28 @@ export class BackendState {
     return completed ? preview : null;
   }
 
+  async cancelSessionPrune(operationId: string): Promise<void> {
+    await this.run(async (client) => {
+      await client.request('session.prune.cancel', { operationId });
+    });
+  }
+
   async startSessionPrune(scope: 'one' | 'all', targetResolutionSeconds: number, sessionId?: string): Promise<boolean> {
     return this.run(async (client) => {
-      await client.request('session.prune.start', {
+      const operation = await client.request('session.prune.start', {
         scope,
         ...(sessionId ? { sessionId } : {}),
         targetResolutionSeconds,
       });
       if (scope === 'one' && sessionId && this.selectedSession?.sessionId === sessionId) {
-        const metadata = await client.request('session.get', { sessionId });
-        this.sessionMetadata = metadata;
-        this.selectedSession = metadata.summary;
+        if (operation.status === 'completed') {
+          const metadata = await client.request('session.get', { sessionId });
+          this.sessionMetadata = metadata;
+          this.selectedSession = metadata.summary;
+        } else {
+          this.pruneRefresh = { operationId: operation.operationId, sessionId };
+          this.refreshAfterPrune();
+        }
       }
     });
   }
@@ -621,6 +633,7 @@ export class BackendState {
   }
 
   closeSession() {
+    this.pruneRefresh = null;
     this.sessionGeneration++;
     this.selectedSession = null;
     this.sessionMetadata = null;
@@ -628,6 +641,7 @@ export class BackendState {
   }
 
   close() {
+    this.pruneRefresh = null;
     this.unsubscribeClosed?.();
     this.unsubscribeState?.();
     this.unsubscribeState = null;
@@ -642,6 +656,20 @@ export class BackendState {
   private acceptState(state: AppState) {
     if (this.snapshot && state.revision < this.snapshot.revision) return;
     this.snapshot = state;
+    this.refreshAfterPrune();
+  }
+
+  private refreshAfterPrune() {
+    const pending = this.pruneRefresh;
+    const operation = this.snapshot?.sessionOperation;
+    if (
+      !pending ||
+      operation?.operationId !== pending.operationId ||
+      !['completed', 'cancelled', 'failed'].includes(operation.status)
+    )
+      return;
+    this.pruneRefresh = null;
+    if (this.selectedSession?.sessionId === pending.sessionId) void this.openSession(pending.sessionId);
   }
 
   private async run(

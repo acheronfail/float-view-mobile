@@ -185,3 +185,151 @@ fn recorded_sample_totals_follow_scope_visibility_and_deleted_targets() {
     .unwrap();
     assert_eq!(store.maintenance_recorded_samples().unwrap(), 0);
 }
+
+fn large_session(store: &mut ProductStore) -> (String, std::path::PathBuf) {
+    let board = store.boards().unwrap().remove(0);
+    let session = store
+        .create_session(&board.saved_device_id, 1, u64::MAX)
+        .unwrap();
+    let path = store.session_path(&session.session_id).unwrap();
+    let mut writer = SessionWriter::open(&path).unwrap();
+    for batch in 0..4 {
+        let rows: Vec<_> = (1..=1000)
+            .map(|i| {
+                let sequence = batch * 1000 + i;
+                let mut s = sample(sequence, (sequence - 1) * 100);
+                s.ride_state = RideState::Riding;
+                s.extensions = (0..35)
+                    .map(|i| float_view_refloat_telemetry_service::ExtensionValue {
+                        name: format!("field_{i:02}_{}", "x".repeat(50)),
+                        value: 1.23456789,
+                    })
+                    .collect();
+                s
+            })
+            .collect();
+        writer.append_samples(&rows).unwrap();
+    }
+    writer.close().unwrap();
+    store
+        .close_session(&session.session_id, 400_000, "disconnect")
+        .unwrap();
+    (session.session_id, path)
+}
+
+#[test]
+fn prune_reclaims_more_than_one_batch_and_preserves_unrelated_records() {
+    let (_dir, mut store, _) = setup();
+    let (id, path) = large_session(&mut store);
+    let db = Connection::open(&path).unwrap();
+    db.execute(
+        "INSERT INTO session_diagnostic(record_json) VALUES ('{}')",
+        [],
+    )
+    .unwrap();
+    drop(db);
+    let before = std::fs::metadata(&path).unwrap().len();
+    store.begin_maintenance(Some(&id), 300, false, 1).unwrap();
+    let work = store.next_maintenance_work(2).unwrap().unwrap();
+    let status = work.cancellation();
+    let mut announced = false;
+    let completion = work.run_with_reclaiming(3, || {
+        announced = true;
+        assert!(status.reclaiming());
+        let db = Connection::open(&path).unwrap();
+        let free: u64 = db
+            .query_row("PRAGMA freelist_count", [], |r| r.get(0))
+            .unwrap();
+        assert!(free > 256, "fixture must require multiple cleanup batches");
+    });
+    assert!(announced);
+    let job = store.complete_maintenance_work(completion, 4).unwrap();
+    assert_eq!(job.completed_sessions, 1);
+    let db = Connection::open(&path).unwrap();
+    let free: u64 = db
+        .query_row("PRAGMA freelist_count", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(free, 0);
+    assert!(before - std::fs::metadata(&path).unwrap().len() > 1024 * 1024);
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM session_diagnostic", [], |r| r
+            .get::<_, u64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        db.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
+    assert_eq!(
+        store.session(&id).unwrap().stored_sample_count,
+        job.retained_samples
+    );
+}
+
+#[test]
+fn cancelled_cleanup_keeps_prune_and_restart_finishes_without_pruning_twice() {
+    let (dir, mut store, _) = setup();
+    let (id, path) = large_session(&mut store);
+    store.begin_maintenance(Some(&id), 300, false, 1).unwrap();
+    let work = store.next_maintenance_work(2).unwrap().unwrap();
+    let status = work.cancellation();
+    let completion = work.run_with_reclaiming(3, || status.cancel());
+    let marker = SessionReader::open(&path).unwrap().marker().unwrap();
+    assert_eq!(marker.history_revision, 1);
+    assert!(marker.stored_sample_count < marker.recorded_sample_count);
+    let job = store.complete_maintenance_work(completion, 4).unwrap();
+    assert_eq!(job.state, "cancelled");
+    let db = Connection::open(&path).unwrap();
+    assert!(
+        db.query_row("PRAGMA freelist_count", [], |r| r.get::<_, u64>(0))
+            .unwrap()
+            > 256
+    );
+    drop(db);
+    // A replay of the same resolution is the crash-recovery path. Cleanup must
+    // still run even though the logical prune has already committed.
+    store.begin_maintenance(Some(&id), 300, false, 5).unwrap();
+    let work = store.next_maintenance_work(6).unwrap().unwrap();
+    drop(work);
+    drop(store);
+    let mut store = ProductStore::open(dir.path()).unwrap();
+    let work = store.next_maintenance_work(7).unwrap().unwrap();
+    let job = store.complete_maintenance_work(work.run(8), 9).unwrap();
+    assert_eq!(job.skipped_sessions, 1);
+    assert_eq!(
+        SessionReader::open(&path).unwrap().marker().unwrap(),
+        marker
+    );
+    let db = Connection::open(&path).unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA freelist_count", [], |r| r.get::<_, u64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn cleanup_failure_is_reported_and_committed_prune_is_reconciled() {
+    let (_dir, mut store, _) = setup();
+    let (id, path) = large_session(&mut store);
+    // A database unable to reclaim its free pages must fail promptly rather
+    // than loop indefinitely or silently claim successful cleanup.
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch("PRAGMA auto_vacuum=NONE; VACUUM;")
+        .unwrap();
+    drop(db);
+    store.begin_maintenance(Some(&id), 300, false, 1).unwrap();
+    let work = store.next_maintenance_work(2).unwrap().unwrap();
+    let job = store.complete_maintenance_work(work.run(3), 4).unwrap();
+    assert_eq!(job.state, "failed");
+    assert_eq!(job.error.as_deref(), Some("Database"));
+    let marker = SessionReader::open(&path).unwrap().marker().unwrap();
+    assert_eq!(marker.history_revision, 1);
+    assert_eq!(
+        store.session(&id).unwrap().stored_sample_count,
+        marker.stored_sample_count
+    );
+    assert!(store.lease_session(&id).is_ok());
+}

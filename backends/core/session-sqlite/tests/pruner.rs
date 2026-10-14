@@ -491,3 +491,42 @@ fn durable_projection(path: &std::path::Path) -> (u64, u64, u64, u64, Option<i64
         )
         .unwrap()
 }
+
+#[test]
+fn preview_estimate_tracks_sample_storage_excludes_diagnostics_and_is_read_only() {
+    let dir = TestDirectory::new();
+    let path = dense_database(&dir, "storage.sqlite");
+    let mut pruner = SessionPruner::open(&path).unwrap();
+    let small = pruner.preview(10).unwrap().preview();
+    pruner.close().unwrap();
+    let db = Connection::open(&path).unwrap();
+    // Simulate a much wider numeric extension payload without changing sample
+    // selection. Diagnostic storage must never inflate the estimate.
+    let payload = serde_json::to_string(&std::collections::BTreeMap::from_iter(
+        (0..35).map(|i| (format!("field_{i:02}_{}", "x".repeat(50)), 1.23456789)),
+    ))
+    .unwrap();
+    db.execute("UPDATE sample SET extension_json = ?", [&payload])
+        .unwrap();
+    drop(db);
+    let mut pruner = SessionPruner::open(&path).unwrap();
+    let wide = pruner.preview(10).unwrap().preview();
+    assert_eq!(small.retained_sample_count, wide.retained_sample_count);
+    assert!(wide.estimated_reclaimable_bytes > small.estimated_reclaimable_bytes * 2);
+    pruner.close().unwrap();
+    let db = Connection::open(&path).unwrap();
+    for _ in 0..500 {
+        db.execute(
+            "INSERT INTO session_diagnostic(record_json) VALUES (?)",
+            [serde_json::json!({"data": "x".repeat(900)}).to_string()],
+        )
+        .unwrap();
+    }
+    drop(db);
+    let before = std::fs::read(&path).unwrap();
+    let mut pruner = SessionPruner::open(&path).unwrap();
+    let with_diagnostics = pruner.preview(10).unwrap().preview();
+    assert_eq!(wide, with_diagnostics);
+    pruner.close().unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}

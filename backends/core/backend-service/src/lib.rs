@@ -83,7 +83,17 @@ impl BackendService {
         self.store.maintenance_recorded_samples()
     }
     pub fn maintenance(&self) -> Result<Option<Maintenance>> {
-        self.store.maintenance()
+        let mut job = self.store.maintenance()?;
+        if let Some(job) = &mut job
+            && job.state == "running"
+            && self
+                .maintenance_worker
+                .as_ref()
+                .is_some_and(MaintenanceCancellation::reclaiming)
+        {
+            job.state = "reclaiming".into();
+        }
+        Ok(job)
     }
     pub fn cancel_maintenance(&mut self, id: &str, at_ms: i64) -> Result<Maintenance> {
         let job = self.store.cancel_maintenance(id, at_ms)?;

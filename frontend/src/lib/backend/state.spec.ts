@@ -78,6 +78,7 @@ class FakeClient {
   locationRequests: string[] = [];
   pruneRequests: Array<{ method: string; scope: string; sessionId?: string; targetResolutionSeconds: number }> = [];
   prunedResolution: number | null = null;
+  pruneStatus: 'queued' | 'completed' = 'completed';
   private handler?: (state: AppState) => void;
 
   async request<M extends BackendMethod>(method: M, params: BackendParams<M>): Promise<BackendResult<M>> {
@@ -226,7 +227,7 @@ class FakeClient {
         result = {
           operationId: 'prune-1',
           kind: 'prune',
-          status: 'completed',
+          status: this.pruneStatus,
           sessionId: request.sessionId ?? null,
           scope: request.scope,
           targetResolutionSeconds: request.targetResolutionSeconds,
@@ -431,6 +432,44 @@ describe('BackendState', () => {
       { method: 'session.prune.start', scope: 'one', sessionId: 'session-1', targetResolutionSeconds: 5 },
     ]);
     expect(store.sessionMetadata?.prune.targetResolutionSeconds).toBe(5);
+  });
+
+  it('waits for terminal prune state before refreshing selected metadata', async () => {
+    const client = new FakeClient();
+    client.pruneStatus = 'queued';
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    await store.openSession('session-1');
+    await store.startSessionPrune('one', 5, 'session-1');
+    expect(store.sessionMetadata?.prune.targetResolutionSeconds).toBe(null);
+    client.state = {
+      ...client.state,
+      revision: client.state.revision + 1,
+      sessionOperation: {
+        operationId: 'prune-1',
+        kind: 'prune',
+        status: 'reclaiming',
+        sessionId: 'session-1',
+        scope: 'one',
+        targetResolutionSeconds: 5,
+        completedSessions: 0,
+        eligibleSessions: 1,
+        error: null,
+      },
+    };
+    client.emitState();
+    expect(store.sessionMetadata?.prune.targetResolutionSeconds).toBe(null);
+    client.state = {
+      ...client.state,
+      revision: client.state.revision + 1,
+      sessionOperation: { ...client.state.sessionOperation!, status: 'completed' },
+    };
+    client.emitState();
+    await vi.waitFor(() => expect(store.sessionMetadata?.prune.targetResolutionSeconds).toBe(5));
+    store.close();
   });
 
   it('enables location with an immediate permission request and routes denied state to settings', async () => {

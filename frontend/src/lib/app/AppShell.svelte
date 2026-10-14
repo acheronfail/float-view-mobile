@@ -14,6 +14,7 @@
   import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
   import { page } from '$app/state';
   import { backendState } from '$lib/backend/state.svelte';
+  import SessionPruneProgress from '$lib/features/sessions/SessionPruneProgress.svelte';
   import BottomTabBar from './BottomTabBar.svelte';
   import { bottomTabForRoute } from './navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderConfig, type AppHeaderContext, type AppHeaderPatch } from './header';
@@ -290,6 +291,10 @@
         </section>
       {:else if !starting}
         {#if restoreNotice}<p role="status" class="p-3 text-muted">{restoreNotice}</p>{/if}
+        <SessionPruneProgress
+          operation={backendState.snapshot?.sessionOperation}
+          oncancel={(operationId) => backendState.cancelSessionPrune(operationId)}
+        />
         {@render children()}
       {/if}
     </div>
