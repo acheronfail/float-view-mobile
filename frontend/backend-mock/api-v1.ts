@@ -187,7 +187,7 @@ const secondSession: SessionSummary = {
 
 const sessionFields = Object.keys(detailedSeriesValues({})).map((name) => ({
   name,
-  source: 'stable' as const,
+  source: name === 'motorLoad' || name === 'batteryLoad' ? ('extension' as const) : ('stable' as const),
 }));
 
 function sessionMetadata(summary: SessionSummary): SessionMetadata {
@@ -219,7 +219,7 @@ function sessionMetadata(summary: SessionSummary): SessionMetadata {
   };
 }
 
-function detailedSeriesValues(overrides: Record<string, number>): Record<string, number | null> {
+export function detailedSeriesValues(overrides: Record<string, number>): Record<string, number | null> {
   return {
     speedKph: 18,
     erpm: 2_900,
@@ -227,6 +227,8 @@ function detailedSeriesValues(overrides: Record<string, number>): Record<string,
     balancePitchDeg: 1.1,
     rollDeg: 0.6,
     packVoltageV: 58.4,
+    motorLoad: 0.174,
+    batteryLoad: 0.168,
     dutyCycle: 0.42,
     motorCurrentA: 18.6,
     directionalMotorCurrentA: 17.9,

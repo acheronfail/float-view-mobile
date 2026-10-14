@@ -14,11 +14,11 @@ export interface DriveLoad {
   percentage: number;
 }
 
-export function driveLoad(
+export function driveLoadComponents(
   sample: GaugeSample | null | undefined,
   limits: ControllerCurrentLimits | null | undefined
-): DriveLoad | null {
-  if (!sample) return null;
+): Record<DriveLoadSource, number | null> {
+  if (!sample) return { duty: null, motor: null, battery: null };
 
   const duty = sample.dutyCycle == null ? null : Math.min(Math.abs(sample.dutyCycle), 1) * 100;
   const motorCurrent = sample.filteredMotorCurrentA ?? sample.directionalMotorCurrentA ?? sample.motorCurrentA;
@@ -40,6 +40,14 @@ export function driveLoad(
     sample.batteryCurrentA == null || batteryLimit == null || batteryLimit === 0
       ? null
       : percentage(sample.batteryCurrentA, batteryLimit);
+  return { duty, motor, battery };
+}
+
+export function driveLoad(
+  sample: GaugeSample | null | undefined,
+  limits: ControllerCurrentLimits | null | undefined
+): DriveLoad | null {
+  const { duty, motor, battery } = driveLoadComponents(sample, limits);
   const candidates: DriveLoad[] = [
     duty == null ? null : { source: 'duty', percentage: duty },
     motor == null ? null : { source: 'motor', percentage: motor },

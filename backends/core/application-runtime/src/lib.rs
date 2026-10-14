@@ -325,6 +325,7 @@ impl ApplicationRuntime {
                         let started = std::time::Instant::now();
                         let persisted = persisted_sample(
                             sample.as_ref(),
+                            self.application.snapshot().current_limits.as_ref(),
                             self.latest_bms.as_ref().map(|bms| {
                                 (
                                     bms.observed_at_epoch_ms,
@@ -371,9 +372,54 @@ impl ApplicationRuntime {
 
 fn persisted_sample(
     sample: &telemetry::NormalizedSample,
+    limits: Option<&coordinator::controller_data::CurrentLimits>,
     bms_temperatures: Option<(i64, f64, f64)>,
 ) -> telemetry::NormalizedSample {
     let mut persisted = sample.clone();
+    // Product-owned fractions use the bounded numeric extension storage. Capture
+    // them now: a later connection's limits cannot describe this recorded ride.
+    persisted
+        .extensions
+        .retain(|v| v.name != "motorLoad" && v.name != "batteryLoad");
+    let ratio = |value: Option<f64>, signed: Option<f64>, max: f64, min: f64| {
+        let limit = if signed? < 0. { min } else { max };
+        let value = value?;
+        (value.is_finite() && limit.is_finite() && limit != 0.)
+            .then(|| (value / limit).abs().min(1.))
+    };
+    if let Some(limits) = limits {
+        for (name, value) in [
+            (
+                "motorLoad",
+                ratio(
+                    sample
+                        .filtered_motor_current_a
+                        .or(sample.directional_motor_current_a)
+                        .or(sample.motor_current_a),
+                    sample.motor_current_a,
+                    limits.motor_current_max_a,
+                    limits.motor_current_min_a,
+                ),
+            ),
+            (
+                "batteryLoad",
+                ratio(
+                    sample.battery_current_a,
+                    sample.battery_current_a,
+                    limits.battery_current_max_a,
+                    limits.battery_current_min_a,
+                ),
+            ),
+        ] {
+            if let Some(value) = value {
+                persisted.extensions.push(telemetry::ExtensionValue {
+                    name: name.into(),
+                    value,
+                });
+            }
+        }
+    }
+
     if let Some((observed_at_epoch_ms, circuitry_c, highest_cell_c)) = bms_temperatures
         && sample
             .observed_at_epoch_ms
@@ -979,10 +1025,93 @@ mod tests {
     }
 
     #[test]
+    fn session_loads_capture_filtered_current_signed_limits_and_missing_inputs() {
+        let limits = coordinator::controller_data::CurrentLimits {
+            motor_current_max_a: 100.,
+            motor_current_min_a: -50.,
+            battery_current_max_a: 50.,
+            battery_current_min_a: -20.,
+            battery_series_cells: None,
+        };
+        let mut value = sample(1);
+        value.motor_current_a = Some(-10.);
+        value.filtered_motor_current_a = Some(30.);
+        value.directional_motor_current_a = Some(25.);
+        value.battery_current_a = Some(-15.);
+        let captured = persisted_sample(&value, Some(&limits), None);
+        let load = |sample: &telemetry::NormalizedSample, name: &str| {
+            sample
+                .extensions
+                .iter()
+                .find(|v| v.name == name)
+                .map(|v| v.value)
+        };
+        assert_eq!(load(&captured, "motorLoad"), Some(0.6));
+        assert_eq!(load(&captured, "batteryLoad"), Some(0.75));
+        value.filtered_motor_current_a = None;
+        assert_eq!(
+            load(&persisted_sample(&value, Some(&limits), None), "motorLoad"),
+            Some(0.5)
+        );
+        value.directional_motor_current_a = None;
+        assert_eq!(
+            load(&persisted_sample(&value, Some(&limits), None), "motorLoad"),
+            Some(0.2)
+        );
+        value.battery_current_a = Some(-40.);
+        assert_eq!(
+            load(
+                &persisted_sample(&value, Some(&limits), None),
+                "batteryLoad"
+            ),
+            Some(1.)
+        );
+        assert_eq!(
+            load(&persisted_sample(&value, None, None), "motorLoad"),
+            None
+        );
+        value.motor_current_a = None;
+        assert_eq!(
+            load(&persisted_sample(&value, Some(&limits), None), "motorLoad"),
+            None
+        );
+        value.motor_current_a = Some(10.);
+        value.extensions = (0..telemetry::MAX_EXTENSIONS)
+            .map(|i| telemetry::ExtensionValue {
+                name: format!("future{i}"),
+                value: 1.,
+            })
+            .collect();
+        let captured = persisted_sample(&value, Some(&limits), None);
+        assert_eq!(captured.extensions.len(), session::MAX_EXTENSIONS);
+        let directory = tempfile_directory("recorded-loads");
+        let path = directory.join("session.sqlite");
+        let mut writer = SessionWriter::create(&path, session_metadata()).unwrap();
+        let marker = writer.append_samples(&[captured]).unwrap();
+        writer.close().unwrap();
+        let mut reader = session::SessionReader::open(&path).unwrap();
+        let fields = vec!["motorLoad".to_owned(), "batteryLoad".to_owned()];
+        let series = reader
+            .reduce_series(
+                &fields,
+                0,
+                value.elapsed_ms + 1,
+                10,
+                history::GapPolicy::Automatic,
+                session::PublishedBoundary::from(&marker),
+            )
+            .unwrap();
+        assert_eq!(series.columns[0].values, vec![0.1]);
+        assert_eq!(series.columns[1].values, vec![1.]);
+        reader.close().unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn session_samples_capture_only_fresh_bms_temperatures() {
         let value = sample(1);
         let observed = value.observed_at_epoch_ms;
-        let fresh = persisted_sample(&value, Some((observed - 4_999, 38.5, 29.25)));
+        let fresh = persisted_sample(&value, None, Some((observed - 4_999, 38.5, 29.25)));
         assert_eq!(fresh.bms_circuitry_temp_c, Some(38.5));
         assert_eq!(fresh.bms_highest_cell_temp_c, Some(29.25));
 
@@ -991,7 +1120,7 @@ mod tests {
             Some((observed + 1, 40.0, 30.0)),
             None,
         ] {
-            let omitted = persisted_sample(&value, bms);
+            let omitted = persisted_sample(&value, None, bms);
             assert_eq!(omitted.bms_circuitry_temp_c, None);
             assert_eq!(omitted.bms_highest_cell_temp_c, None);
         }

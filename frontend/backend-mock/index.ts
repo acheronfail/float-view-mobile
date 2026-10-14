@@ -9,7 +9,7 @@ import {
   MAX_SESSION_DATA_REQUEST_BYTES,
   MAX_SESSION_IMPORT_BYTES,
 } from '../src/lib/backend/contract.ts';
-import { MockBackend } from './api-v1.ts';
+import { detailedSeriesValues, MockBackend } from './api-v1.ts';
 import { validateSessionDataRequest, type SessionDataRequest } from '../src/lib/backend/session-data.ts';
 import {
   decodeCursor,
@@ -247,8 +247,8 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
     throw new Error('Published session history revision is stale');
   }
   const source: ReferenceSample[] = [
-    { elapsedMs: 0, sequence: 0, values: { packVoltageV: 60, speedKph: 0 } },
-    { elapsedMs: 60_000, sequence: 1, values: { packVoltageV: 55, speedKph: 20 } },
+    { elapsedMs: 0, sequence: 0, values: detailedSeriesValues({ packVoltageV: 60, speedKph: 0 }) },
+    { elapsedMs: 60_000, sequence: 1, values: detailedSeriesValues({ packVoltageV: 55, speedKph: 20 }) },
   ].filter((row) => row.elapsedMs >= request.range.startElapsedMs && row.elapsedMs <= request.range.endElapsedMs);
   if (request.kind === 'markers') {
     const key = JSON.stringify([request.sessionId, request.snapshot, request.range]);
@@ -281,7 +281,10 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
       snapshot: request.snapshot,
       range: request.range,
       gapPolicy: request.gapPolicy,
-      fields: request.fields.map((name) => ({ name, source: 'stable' })),
+      fields: request.fields.map((name) => ({
+        name,
+        source: name === 'motorLoad' || name === 'batteryLoad' ? 'extension' : 'stable',
+      })),
       columns: reduceSeries(source, request.fields, request.range, request.buckets, request.gapPolicy),
     };
   }
@@ -314,7 +317,10 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
       snapshot: request.snapshot,
       range: request.range,
       mode: request.mode,
-      fields: request.fields.map((name) => ({ name, source: 'stable' })),
+      fields: request.fields.map((name) => ({
+        name,
+        source: name === 'motorLoad' || name === 'batteryLoad' ? 'extension' : 'stable',
+      })),
       elapsedMs: rows.map((row) => row.elapsedMs),
       sequence: rows.map((row) => row.sequence),
       values: Object.fromEntries(

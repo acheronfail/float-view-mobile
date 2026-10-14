@@ -39,7 +39,8 @@ pub use reader::{
 pub const SESSION_SCHEMA: &str = include_str!("../../../sql/session.sql");
 pub const MAX_SAMPLE_BATCH: usize = 1_024;
 pub const MAX_LOCATION_BATCH: usize = 1_024;
-pub const MAX_EXTENSIONS: usize = 32;
+// Firmware extensions plus the two product-owned recorded load fractions.
+pub const MAX_EXTENSIONS: usize = 34;
 pub const MAX_EXTENSION_NAME_BYTES: usize = 64;
 pub const MAX_EXTENSION_JSON_BYTES: usize = 16_384;
 pub const MAX_PERSISTENCE_CADENCE_MS: u64 = 86_400_000;

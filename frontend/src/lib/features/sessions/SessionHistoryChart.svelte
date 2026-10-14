@@ -113,7 +113,10 @@
     const groups: SessionMetadata['fields'][] = [];
     let stable: SessionMetadata['fields'] = [];
     fields.forEach((field) => {
-      if (field.source === 'stable' && stable.length < FIRST_VISIBLE_GROUP_FIELDS) {
+      if (
+        (field.source === 'stable' || field.name === 'motorLoad' || field.name === 'batteryLoad') &&
+        stable.length < FIRST_VISIBLE_GROUP_FIELDS
+      ) {
         stable = [...stable, field];
         return;
       }
@@ -324,10 +327,18 @@
       result = null;
       return;
     }
+    const columns = Object.assign({}, ...loaded.map((entry) => entry.columns));
+    if (columns.dutyCycle)
+      columns.dutyCycle = {
+        ...columns.dutyCycle,
+        values: columns.dutyCycle.values.map((value: number | null) =>
+          value === null ? null : Math.min(Math.abs(value), 1)
+        ),
+      };
     result = {
       ...first,
       fields: loaded.flatMap((entry) => entry.fields),
-      columns: Object.assign({}, ...loaded.map((entry) => entry.columns)),
+      columns,
     };
   }
 

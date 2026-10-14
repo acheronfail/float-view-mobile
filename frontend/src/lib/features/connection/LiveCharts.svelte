@@ -5,6 +5,7 @@
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import { bmsMenuVisible, freshBmsSnapshot } from './bms';
   import {
+    liveChartColor,
     liveChartGeometry,
     liveChartGroups,
     liveChartReading,
@@ -19,7 +20,6 @@
   let points = $state<LiveChartPoint[]>([]);
   let lastSequence: number | null = null;
   let lastDevice: string | null = null;
-  const colors = ['var(--color-accent)', '#f59e0b', '#a78bfa', '#2dd4bf'];
   const connection = $derived(backendState.snapshot?.activeConnection);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
   const chartGroups = $derived(liveChartGroups(bmsMenuVisible(connection?.bms)));
@@ -48,6 +48,7 @@
           {
             time: now,
             sample,
+            currentLimits: connection?.currentLimits,
             bmsTemperatures: bmsSnapshot
               ? {
                   circuitryC: bmsSnapshot.highestCircuitryTemperatureC,
@@ -119,10 +120,15 @@
                 field,
                 stale ? null : connection?.latestSample,
                 units,
-                stale ? null : connection?.bms
+                stale ? null : connection?.bms,
+                Date.now(),
+                connection?.currentLimits
               )}
               <div class="flex items-baseline gap-2 text-sm">
-                <span class="h-2 w-2 self-center rounded-full" style:background={colors[index]}></span>
+                <span
+                  class="h-2 w-2 self-center rounded-full"
+                  style:background={liveChartColor(group.fields[index], index)}
+                ></span>
                 <span class="text-muted">{reading.label}</span>
                 <span class="font-mono font-semibold tabular-nums">{reading.value?.toFixed(reading.digits) ?? '—'}</span
                 >
@@ -165,7 +171,7 @@
               {#each geometry.paths as path, index (group.fields[index])}<path
                   d={path}
                   fill="none"
-                  stroke={colors[index]}
+                  stroke={liveChartColor(group.fields[index], index)}
                   stroke-width="2"
                   stroke-linejoin="round"
                   vector-effect="non-scaling-stroke"

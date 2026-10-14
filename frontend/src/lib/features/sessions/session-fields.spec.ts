@@ -124,3 +124,16 @@ describe('session chart field metadata', () => {
     expect(formatSessionFieldValue('motorCurrentA', 12.3456)).toBe('12.35');
   });
 });
+
+it('groups recorded load fractions with duty and the gauge colours', () => {
+  const group = sessionChartGroups([{ name: 'batteryLoad' }, { name: 'dutyCycle' }, { name: 'motorLoad' }])[0]!;
+  expect(group.title).toBe('Load');
+  expect(group.axis).toEqual({ kind: 'fixed', min: 0, max: 1 });
+  expect(group.fields.map((field) => field.name)).toEqual(['dutyCycle', 'motorLoad', 'batteryLoad']);
+  expect(group.fields.map((field) => field.color)).toEqual([
+    'var(--app-duty)',
+    'var(--app-danger)',
+    'var(--app-success)',
+  ]);
+  expect(formatSessionFieldValue('motorLoad', 0.6)).toBe('60%');
+});

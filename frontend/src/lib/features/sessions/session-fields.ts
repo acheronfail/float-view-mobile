@@ -1,6 +1,8 @@
-export type StableSessionFieldName =
+export type KnownSessionFieldName =
   | 'packVoltageV'
   | 'dutyCycle'
+  | 'motorLoad'
+  | 'batteryLoad'
   | 'controllerTempC'
   | 'motorTempC'
   | 'bmsCircuitryTempC'
@@ -75,6 +77,7 @@ export interface SessionChartField {
 }
 
 export const sessionChartGroupMetadata = {
+  load: { title: 'Load' },
   temperature: { title: 'Temperature' },
   current: { title: 'Current' },
   torqueControl: { title: 'Torque control' },
@@ -143,8 +146,31 @@ export const sessionFieldMetadata = {
     displayName: 'Duty cycle',
     unit: '%',
     chart: {
+      group: 'load',
       axis: { kind: 'fixed', min: 0, max: 1 },
       color: 'var(--app-duty)',
+      format: 'percent',
+      precision: 0,
+    },
+  },
+  motorLoad: {
+    displayName: 'Motor load',
+    unit: '%',
+    chart: {
+      group: 'load',
+      axis: { kind: 'fixed', min: 0, max: 1 },
+      color: 'var(--app-danger)',
+      format: 'percent',
+      precision: 0,
+    },
+  },
+  batteryLoad: {
+    displayName: 'Battery load',
+    unit: '%',
+    chart: {
+      group: 'load',
+      axis: { kind: 'fixed', min: 0, max: 1 },
+      color: 'var(--app-success)',
       format: 'percent',
       precision: 0,
     },
@@ -435,7 +461,7 @@ export const sessionFieldMetadata = {
       precision: 2,
     },
   },
-} satisfies Record<StableSessionFieldName, SessionFieldDefinition>;
+} satisfies Record<KnownSessionFieldName, SessionFieldDefinition>;
 
 const sessionFieldMetadataOrder = new Map(Object.keys(sessionFieldMetadata).map((name, index) => [name, index]));
 
@@ -445,7 +471,7 @@ const DEFAULT_PRECISION = 2;
 const MAX_PRECISION = 6;
 
 function definitionFor(name: string): SessionFieldDefinition | null {
-  return name in sessionFieldMetadata ? sessionFieldMetadata[name as StableSessionFieldName] : null;
+  return name in sessionFieldMetadata ? sessionFieldMetadata[name as KnownSessionFieldName] : null;
 }
 
 export function sessionFieldIsChartable(name: string): boolean {

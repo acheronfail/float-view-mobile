@@ -228,7 +228,12 @@ page for saved and guest connections. Six full-width charts follow a rolling
 is bounded to 1,500 samples and resets for device or sequence changes; missing
 values and source gaps break the lines. Stale readings show unavailable values
 while existing points scroll out. Display units match the live widgets. Session
-remains the history review path.
+remains the history review path. The Load chart overlays absolute duty, motor load
+and battery load on a fixed 0–100% axis with the gauge colours. Motor load uses
+filtered, directional, then raw current, and raw current selects the draw/regen
+limit. Session recordings capture motorLoad and batteryLoad fractions through
+bounded numeric extension storage using the limits at observation time. Missing
+inputs remain unavailable; load fractions are saturated at 100%.
 
 ## UI restoration
 

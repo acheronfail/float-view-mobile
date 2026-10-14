@@ -72,6 +72,16 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await charts.waitFor();
       assert.equal(await charts.getByRole('img').count(), 6);
       assert.equal(await charts.getByRole('button').count(), 1);
+      const load = charts.getByRole('region', { name: 'Load', exact: true });
+      assert.equal(await load.locator('path').count(), 3);
+      assert.deepEqual(
+        await load.locator('path').evaluateAll((paths) => paths.map((path) => path.getAttribute('stroke'))),
+        ['var(--app-duty)', 'var(--app-danger)', 'var(--app-success)']
+      );
+      await page.waitForFunction(() =>
+        Array.from(document.querySelectorAll('section[aria-label="Load"] path')).every((path) => path.getAttribute('d'))
+      );
+      assert.equal(await load.getByText('%', { exact: true }).count(), 3);
       const path = charts.locator('path').first();
       await page.waitForTimeout(1500);
       const before = await path.getAttribute('d');

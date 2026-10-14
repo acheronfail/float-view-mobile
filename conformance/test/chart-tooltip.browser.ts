@@ -29,16 +29,26 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const response = await route.fetch();
         const value = await response.json();
         if (value.kind === 'series') {
-          for (const column of Object.values(value.columns) as {
-            elapsedMs: number[];
-            sequence: number[];
-            values: number[];
-            generations: number[];
-          }[]) {
+          for (const [field, column] of Object.entries(value.columns) as [
+            string,
+            {
+              elapsedMs: number[];
+              sequence: number[];
+              values: number[];
+              generations: number[];
+            },
+          ][]) {
             Object.assign(column, {
               elapsedMs: [0, 60000],
               sequence: [1, 2],
-              values: [123.45, 234.56],
+              values:
+                field === 'dutyCycle'
+                  ? [-0.4, -0.4]
+                  : field === 'motorLoad'
+                    ? [0.6, 0.6]
+                    : field === 'batteryLoad'
+                      ? [0.75, 0.75]
+                      : [123.45, 234.56],
               generations: [0, 0],
             });
           }
@@ -108,6 +118,20 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           }
         }
       }
+      const load = page.getByRole('img', { name: 'Load over elapsed time', exact: true });
+      await load.scrollIntoViewIfNeeded();
+      await page.waitForFunction(
+        () =>
+          document.querySelector('svg[aria-label="Load over elapsed time"]')?.querySelectorAll('path[stroke]')
+            .length === 3
+      );
+      const loadBox = (await load.boundingBox())!;
+      await page.mouse.move(loadBox.x + loadBox.width * 0.3, loadBox.y + 50);
+      const loadTooltip = load.locator('..').getByRole('status');
+      await loadTooltip.waitFor();
+      assert.match(await loadTooltip.innerText(), /40%/);
+      assert.match(await loadTooltip.innerText(), /60%/);
+      assert.match(await loadTooltip.innerText(), /75%/);
     } finally {
       await browser.close();
       await stopMockServer();
