@@ -11,6 +11,7 @@
   import { reportFrontendPerformance } from '$lib/backend/performance-log';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import { axisTicks, buildPathSegments, finiteDomain, zeroReference, type NumericDomain } from './history-geometry';
+  import { chartExtrema, chartShowsMinimum } from './chart-extrema';
   import { buildChartTooltipEntries } from './chart-tooltip';
   import {
     formatSessionFieldValue,
@@ -114,7 +115,10 @@
     let stable: SessionMetadata['fields'] = [];
     fields.forEach((field) => {
       if (
-        (field.source === 'stable' || field.name === 'motorLoad' || field.name === 'batteryLoad') &&
+        (field.source === 'stable' ||
+          field.name === 'motorLoad' ||
+          field.name === 'batteryLoad' ||
+          field.name === 'estimatedBatteryLevel') &&
         stable.length < FIRST_VISIBLE_GROUP_FIELDS
       ) {
         stable = [...stable, field];
@@ -858,6 +862,7 @@
             {@const zero = chartModel?.zero ?? null}
             {@const tooltipEntries = inspectionVisible && domain ? chartTooltipEntries(chartGroup, domain) : []}
             {@const tooltipAnchor = tooltipEntries[0]?.point ?? null}
+            {@const extrema = chartExtrema(chartGroup, result?.columns, hiddenFields, visibleViewport, chartIntervals)}
             <div class="nonselectable-surface">
               <SectionTitle title={chartGroup.title} detail={chartGroup.unit ?? 'value'} />
 
@@ -1077,6 +1082,27 @@
                 </p>
               {:else if hasColumns}<p class="mt-1 text-xs text-muted">No readings in this range.</p>
               {:else}<p class="mt-1 text-xs text-muted">Loading readings…</p>{/if}
+
+              <div class="mt-1 flex justify-end gap-4 text-xs text-muted" aria-label={`${chartGroup.title} range`}>
+                {#if chartShowsMinimum(chartGroup)}
+                  <span
+                    >Min <strong class="font-mono font-medium text-foreground"
+                      >{extrema
+                        ? formatTooltipValue(chartGroup.fields[0]!.name, extrema.min)
+                        : '—'}{#if extrema && chartGroup.unit && chartGroup.fields[0]!.format !== 'percent'}
+                        {` ${chartGroup.unit}`}{/if}</strong
+                    ></span
+                  >
+                {/if}
+                <span
+                  >Max <strong class="font-mono font-medium text-foreground"
+                    >{extrema
+                      ? formatTooltipValue(chartGroup.fields[0]!.name, extrema.max)
+                      : '—'}{#if extrema && chartGroup.unit && chartGroup.fields[0]!.format !== 'percent'}
+                      {` ${chartGroup.unit}`}{/if}</strong
+                  ></span
+                >
+              </div>
 
               {#if chartGroup.fields.length > 1}
                 <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1" role="group" aria-label={`${chartGroup.title} series`}>

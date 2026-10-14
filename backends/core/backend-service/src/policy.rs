@@ -1152,7 +1152,34 @@ impl BackendService {
                             sample.elapsed_ms,
                             sample.ride_state == telemetry::RideState::Riding,
                         );
-                        self.accept_battery_sample(*sample)?;
+                        let previous = self
+                            .policy
+                            .active
+                            .as_ref()
+                            .map(|a| (a.battery.clone(), a.latest.clone()));
+                        self.accept_battery_sample((*sample).clone())?;
+                        let level = self
+                            .policy
+                            .active
+                            .as_ref()
+                            .and_then(|a| a.battery.estimate.level);
+                        let recorded = self
+                            .runtime
+                            .record_sample(&sample, level)
+                            .map_err(|_| Failure::Internal)?;
+                        if recorded
+                            .iter()
+                            .any(|e| matches!(e, RuntimeEffect::Failure(_)))
+                            && let (Some(active), Some((battery, latest))) =
+                                (self.policy.active.as_mut(), previous)
+                        {
+                            active.battery = battery;
+                            active.latest = latest;
+                        }
+                        // Publish this commit (or stop on failure) before the next observation.
+                        for effect in recorded.into_iter().rev() {
+                            effects.push_front(effect);
+                        }
                     }
                     c::Effect::PublishBmsObservation(sample) => {
                         if let Some(a) = self.policy.active.as_mut() {

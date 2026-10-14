@@ -578,6 +578,8 @@ export type SessionFieldSource = 'stable' | 'extension';
 /** Numeric extension fields motorLoad and batteryLoad are recorded 0..1 load fractions,
  * using the controller limits at capture, filtered/directional/raw motor preference,
  * raw-current sign for draw/regen limits, and saturation at 1. Missing inputs stay absent. */
+/** estimatedBatteryLevel records the service's temporal estimate at capture as a 0..1
+ * fraction, absent when unavailable. Stable batteryLevel retains the controller reading. */
 export interface SessionFieldDescriptor {
   name: string;
   source: SessionFieldSource;

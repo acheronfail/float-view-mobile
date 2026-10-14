@@ -37,6 +37,7 @@ export type KnownSessionFieldName =
   | 'wattHoursDrawnWh'
   | 'wattHoursChargedWh'
   | 'batteryLevel'
+  | 'estimatedBatteryLevel'
   | 'chargingCurrentA'
   | 'chargingVoltageV';
 
@@ -106,7 +107,12 @@ export interface SessionChartGroup {
  */
 export const sessionFieldMetadata = {
   batteryLevel: {
-    displayName: 'Battery level',
+    displayName: 'Controller-reported battery level',
+    unit: '%',
+    chartable: false,
+  },
+  estimatedBatteryLevel: {
+    displayName: 'Estimated battery level',
     unit: '%',
     chart: {
       axis: { kind: 'fixed', min: 0, max: 1 },

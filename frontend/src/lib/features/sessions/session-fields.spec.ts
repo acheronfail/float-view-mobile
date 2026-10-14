@@ -67,15 +67,15 @@ describe('session chart field metadata', () => {
     const fields = [
       { name: 'speedKph' },
       { name: 'packVoltageV' },
-      { name: 'batteryLevel' },
+      { name: 'estimatedBatteryLevel' },
       { name: 'controllerTempC' },
       { name: 'motorTempC' },
     ];
     const groups = sessionChartGroups(fields);
 
-    expect(groups.map((group) => group.id)).toEqual(['batteryLevel', 'voltage', 'speedKph', 'temperature']);
+    expect(groups.map((group) => group.id)).toEqual(['estimatedBatteryLevel', 'voltage', 'speedKph', 'temperature']);
     expect(sortSessionFields(fields).map((field) => field.name)).toEqual([
-      'batteryLevel',
+      'estimatedBatteryLevel',
       'packVoltageV',
       'speedKph',
       'controllerTempC',
@@ -136,4 +136,12 @@ it('groups recorded load fractions with duty and the gauge colours', () => {
     'var(--app-success)',
   ]);
   expect(formatSessionFieldValue('motorLoad', 0.6)).toBe('60%');
+});
+
+it('charts the recorded estimate and keeps controller percentage out of charts', () => {
+  expect(sessionFieldIsChartable('batteryLevel')).toBe(false);
+  expect(sessionChartGroups([{ name: 'batteryLevel' }, { name: 'estimatedBatteryLevel' }]).map((g) => g.id)).toEqual([
+    'estimatedBatteryLevel',
+  ]);
+  expect(formatSessionFieldValue('estimatedBatteryLevel', 0.61)).toBe('61%');
 });

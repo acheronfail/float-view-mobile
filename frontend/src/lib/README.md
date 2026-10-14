@@ -127,7 +127,11 @@ The warning opens the battery-only mode of the board editor; it shares cell
 profile, series/parallel counts and display-empty voltage controls with the full
 editor. Other unavailable reasons do not use the fallback. Both live views round
 the same selected fraction; controller battery level remains a separately labelled raw detail and unchanged in recordings
-and exports. WebView recreation never resets or advances shared charge tracking.
+and exports. Session charts use the separately recorded `estimatedBatteryLevel`
+fraction, captured from that same service estimate; unavailable estimates stay absent.
+Chart min/max indicators summarize visible lines in the displayed range and map filter.
+Load, speed and cumulative charts show only their useful maximum.
+WebView recreation never resets or advances shared charge tracking.
 The estimator integrates on the original curve axis before applying the zero-load
 display reserve. Initial estimates and uncertain intervals are provisional until
 stable low-load observations converge; details identify the method and provisional

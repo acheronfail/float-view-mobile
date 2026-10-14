@@ -313,48 +313,59 @@ impl ApplicationRuntime {
         Ok(Vec::new())
     }
 
+    /// Commit after the service has consumed this observation and supplied its estimate.
+    pub fn record_sample(
+        &mut self,
+        sample: &telemetry::NormalizedSample,
+        estimated_battery_level: Option<f64>,
+    ) -> Result<Vec<Effect>, RuntimeError> {
+        let mut output = Vec::new();
+        if let Some(writer) = self.session.as_mut() {
+            let started = std::time::Instant::now();
+            let mut persisted = persisted_sample(
+                sample,
+                self.application.snapshot().current_limits.as_ref(),
+                self.latest_bms.as_ref().map(|bms| {
+                    (
+                        bms.observed_at_epoch_ms,
+                        bms.highest_circuitry_temperature_c(),
+                        bms.highest_cell_temperature_c,
+                    )
+                }),
+            );
+            persisted
+                .extensions
+                .retain(|v| v.name != "estimatedBatteryLevel");
+            if let Some(value) = estimated_battery_level {
+                persisted.extensions.push(telemetry::ExtensionValue {
+                    name: "estimatedBatteryLevel".into(),
+                    value,
+                });
+            }
+            let result = writer.append_samples(std::slice::from_ref(&persisted));
+            if self.persistence_us.len() < 128 {
+                self.persistence_us
+                    .push(started.elapsed().as_micros().min(u64::MAX as u128) as u64);
+            }
+            match result {
+                Ok(marker) => {
+                    self.session_marker = Some(marker.clone());
+                    push_bounded(&mut output, Effect::PublishSessionMarker(marker))?;
+                }
+                Err(error) => {
+                    return Ok(vec![Effect::Failure(RuntimeFailure::Persistence(error))]);
+                }
+            }
+        }
+        Ok(output)
+    }
+
     fn translate(&mut self, effects: Vec<CoordinatorEffect>) -> Result<Vec<Effect>, RuntimeError> {
         let mut output = Vec::with_capacity(effects.len());
         for effect in effects {
             match effect {
                 CoordinatorEffect::Write(request) => {
                     push_bounded(&mut output, Effect::WriteBytes(encode(&request.payload)?))?;
-                }
-                CoordinatorEffect::PublishTelemetry(sample) => {
-                    if let Some(writer) = self.session.as_mut() {
-                        let started = std::time::Instant::now();
-                        let persisted = persisted_sample(
-                            sample.as_ref(),
-                            self.application.snapshot().current_limits.as_ref(),
-                            self.latest_bms.as_ref().map(|bms| {
-                                (
-                                    bms.observed_at_epoch_ms,
-                                    bms.highest_circuitry_temperature_c(),
-                                    bms.highest_cell_temperature_c,
-                                )
-                            }),
-                        );
-                        let result = writer.append_samples(std::slice::from_ref(&persisted));
-                        if self.persistence_us.len() < 128 {
-                            self.persistence_us
-                                .push(started.elapsed().as_micros().min(u64::MAX as u128) as u64);
-                        }
-                        match result {
-                            Ok(marker) => {
-                                self.session_marker = Some(marker.clone());
-                                push_bounded(&mut output, Effect::PublishSessionMarker(marker))?;
-                            }
-                            Err(error) => {
-                                return Ok(vec![Effect::Failure(RuntimeFailure::Persistence(
-                                    error,
-                                ))]);
-                            }
-                        }
-                    }
-                    push_bounded(
-                        &mut output,
-                        Effect::Application(CoordinatorEffect::PublishTelemetry(sample)),
-                    )?;
                 }
                 CoordinatorEffect::PublishBmsObservation(observation) => {
                     self.latest_bms = Some((*observation).clone());
@@ -641,6 +652,7 @@ mod tests {
                 .expect("published telemetry");
             assert_eq!(sample.sequence, index as u64 + 1);
             assert_eq!(sample.elapsed_ms, base + 30);
+            runtime.record_sample(sample, None).unwrap();
             let boundary = runtime.snapshot().session_marker.unwrap();
             assert_eq!(boundary.stored_sample_count, index as u64 + 1);
             assert_eq!(boundary.recorded_sample_count, boundary.stored_sample_count);
@@ -806,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn session_commit_precedes_telemetry_publication_and_reopens() {
+    fn session_records_both_battery_sources_and_reopens() {
         let directory = tempfile_directory("commit-order");
         let path = directory.join("session.sqlite");
         let mut runtime = ApplicationRuntime::new();
@@ -818,12 +830,10 @@ mod tests {
             })
             .expect("attach");
         let effects = runtime
-            .translate(vec![CoordinatorEffect::PublishTelemetry(Box::new(sample(
-                1,
-            )))])
+            .record_sample(&sample(1), Some(0.5))
             .expect("translate");
         assert!(
-            matches!(effects.as_slice(), [Effect::PublishSessionMarker(marker), Effect::Application(CoordinatorEffect::PublishTelemetry(_))] if marker.committed_sample_sequence == 1)
+            matches!(effects.as_slice(), [Effect::PublishSessionMarker(marker)] if marker.committed_sample_sequence == 1)
         );
         runtime.apply(Command::DetachSession).expect("detach");
         let mut reader = ApplicationRuntime::open_reader(&path).expect("reader");
@@ -831,11 +841,25 @@ mod tests {
             reader.marker().expect("marker").committed_sample_sequence,
             1
         );
+        let marker = reader.marker().unwrap();
+        let fields = vec!["batteryLevel".into(), "estimatedBatteryLevel".into()];
+        let series = reader
+            .reduce_series(
+                &fields,
+                0,
+                100,
+                10,
+                history::GapPolicy::Automatic,
+                session::PublishedBoundary::from(&marker),
+            )
+            .unwrap();
+        assert_eq!(series.columns[0].values, vec![1.0]);
+        assert_eq!(series.columns[1].values, vec![0.5]);
         reader.close().expect("close reader");
     }
 
     #[test]
-    fn rejected_persistence_never_reaches_service_estimator() {
+    fn rejected_persistence_never_commits_a_marker() {
         let directory = tempfile_directory("battery-publication-gate");
         let mut runtime = ApplicationRuntime::new();
         runtime
@@ -847,9 +871,7 @@ mod tests {
             .unwrap();
         let mut invalid = sample(1);
         invalid.pack_voltage_v = Some(f64::NAN);
-        let effects = runtime
-            .translate(vec![CoordinatorEffect::PublishTelemetry(Box::new(invalid))])
-            .unwrap();
+        let effects = runtime.record_sample(&invalid, Some(0.5)).unwrap();
         assert!(effects.iter().any(|e| matches!(e, Effect::Failure(_))));
         assert!(!effects.iter().any(|e| matches!(
             e,
@@ -876,11 +898,7 @@ mod tests {
                 metadata: session_metadata(),
             })
             .unwrap();
-        runtime
-            .translate(vec![CoordinatorEffect::PublishTelemetry(Box::new(sample(
-                1,
-            )))])
-            .unwrap();
+        runtime.record_sample(&sample(1), Some(0.5)).unwrap();
         let before = runtime.snapshot().session_marker.unwrap();
         for revision in [1, 2] {
             runtime
@@ -1083,7 +1101,7 @@ mod tests {
             })
             .collect();
         let captured = persisted_sample(&value, Some(&limits), None);
-        assert_eq!(captured.extensions.len(), session::MAX_EXTENSIONS);
+        assert_eq!(captured.extensions.len(), telemetry::MAX_EXTENSIONS + 2);
         let directory = tempfile_directory("recorded-loads");
         let path = directory.join("session.sqlite");
         let mut writer = SessionWriter::create(&path, session_metadata()).unwrap();

@@ -283,7 +283,8 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
       gapPolicy: request.gapPolicy,
       fields: request.fields.map((name) => ({
         name,
-        source: name === 'motorLoad' || name === 'batteryLoad' ? 'extension' : 'stable',
+        source:
+          name === 'motorLoad' || name === 'batteryLoad' || name === 'estimatedBatteryLevel' ? 'extension' : 'stable',
       })),
       columns: reduceSeries(source, request.fields, request.range, request.buckets, request.gapPolicy),
     };
@@ -319,7 +320,8 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
       mode: request.mode,
       fields: request.fields.map((name) => ({
         name,
-        source: name === 'motorLoad' || name === 'batteryLoad' ? 'extension' : 'stable',
+        source:
+          name === 'motorLoad' || name === 'batteryLoad' || name === 'estimatedBatteryLevel' ? 'extension' : 'stable',
       })),
       elapsedMs: rows.map((row) => row.elapsedMs),
       sequence: rows.map((row) => row.sequence),

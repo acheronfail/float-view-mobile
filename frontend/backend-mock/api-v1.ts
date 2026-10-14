@@ -187,7 +187,10 @@ const secondSession: SessionSummary = {
 
 const sessionFields = Object.keys(detailedSeriesValues({})).map((name) => ({
   name,
-  source: name === 'motorLoad' || name === 'batteryLoad' ? ('extension' as const) : ('stable' as const),
+  source:
+    name === 'motorLoad' || name === 'batteryLoad' || name === 'estimatedBatteryLevel'
+      ? ('extension' as const)
+      : ('stable' as const),
 }));
 
 function sessionMetadata(summary: SessionSummary): SessionMetadata {
@@ -257,6 +260,7 @@ export function detailedSeriesValues(overrides: Record<string, number>): Record<
     wattHoursDrawnWh: 812,
     wattHoursChargedWh: 119,
     batteryLevel: 0.68,
+    estimatedBatteryLevel: 0.61,
     chargingCurrentA: 0,
     chargingVoltageV: 0,
     ...overrides,
@@ -1103,6 +1107,7 @@ export class MockBackend {
       wattHoursDrawnWh: 812,
       wattHoursChargedWh: 119,
       batteryLevel: 0.68,
+      estimatedBatteryLevel: 0.61,
       chargingCurrentA: 0,
       chargingVoltageV: 0,
       extensions: {},
