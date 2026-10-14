@@ -173,8 +173,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               .last()
               .click();
             const chart = page.getByRole('img', { name: 'Speed over elapsed time' });
-            await chart.evaluate((node) => node.scrollIntoView({ block: 'end' }));
-            const b = await chart.boundingBox();
+            await chart.scrollIntoViewIfNeeded();
+            let b = await chart.boundingBox();
             assert.ok(b);
             const zoomResponse = page.waitForResponse((response) => {
               if (!response.url().endsWith('/api/session-data')) return false;
@@ -183,7 +183,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 request.kind === 'series' && request.range.startElapsedMs > 0 && request.range.endElapsedMs < 60000
               );
             });
-            await page.mouse.move(b.x + b.width * 0.2, b.y + b.height / 2);
+            await chart.hover({ position: { x: b.width * 0.2, y: b.height / 2 } });
+            b = await chart.boundingBox();
+            assert.ok(b);
             await page.mouse.down();
             await page.mouse.move(b.x + b.width * 0.8, b.y + b.height / 2, { steps: 5 });
             await page.mouse.up();
@@ -243,10 +245,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             });
           const before = await page.locator('[data-map-separator]').first().getAttribute('x1');
           const svg = page.getByRole('img', { name: 'Speed over elapsed time' });
-          await svg.evaluate((node) => node.scrollIntoView({ block: 'end' }));
+          await svg.scrollIntoViewIfNeeded();
           const box = await svg.boundingBox();
           assert.ok(box);
-          await page.mouse.move(box.x + box.width * 0.25, box.y + box.height / 2);
+          await svg.hover({ position: { x: box.width * 0.25, y: box.height / 2 } });
           await page
             .locator('svg line[stroke-dasharray="3 2"]')
             .first()

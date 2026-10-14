@@ -1,4 +1,5 @@
 <script lang="ts">
+  import '$lib/ui/telemetry-chart.css';
   import { timeline } from './map-filter';
   import { MapSeriesLoader } from './map-series';
   import { chartMarkerGroups } from './marker-groups';
@@ -10,7 +11,8 @@
   import { backendState } from '$lib/backend/state.svelte';
   import { reportFrontendPerformance } from '$lib/backend/performance-log';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
-  import { axisTicks, buildPathSegments, finiteDomain, zeroReference, type NumericDomain } from './history-geometry';
+  import { axisTicks, finiteDomain, zeroReference, type NumericDomain } from './history-geometry';
+  import { historyTrend } from './history-trend';
   import { chartExtrema, chartShowsMinimum } from './chart-extrema';
   import { buildChartTooltipEntries } from './chart-tooltip';
   import {
@@ -266,26 +268,34 @@
         yTickLabels: number[];
         zero: number | null;
         paths: Map<string, string[]>;
+        bands: Map<string, string[]>;
+        smoothed: boolean;
       }
     >();
 
     chartGroups.forEach((chartGroup) => {
       const domain = chartDomain(chartGroup);
       const paths = new SvelteMap<string, string[]>();
+      const bands = new SvelteMap<string, string[]>();
+      let smoothed = false;
       if (domain) {
         chartGroup.fields.forEach((field) => {
           const column = result?.columns[field.name];
           if (column) {
-            paths.set(
-              field.name,
-              buildPathSegments(column, {
+            const trend = historyTrend(
+              column,
+              {
                 width: CHART_WIDTH,
                 height: CHART_HEIGHT,
                 viewport: visibleViewport,
                 intervals: chartIntervals,
                 domain,
-              })
+              },
+              width
             );
+            paths.set(field.name, trend.paths);
+            bands.set(field.name, trend.bands);
+            smoothed ||= trend.smoothed;
           }
         });
       }
@@ -300,6 +310,8 @@
         yTickLabels: [...yTicks].reverse(),
         zero: zeroReference(domain),
         paths,
+        bands,
+        smoothed,
       });
     });
     return models;
@@ -867,9 +879,9 @@
               <SectionTitle title={chartGroup.title} detail={chartGroup.unit ?? 'value'} />
 
               {#if domain}
-                <div class="mt-2 flex items-stretch gap-1">
+                <div class="telemetry-chart-frame mt-2 flex items-stretch gap-2">
                   <div
-                    class="flex h-36 shrink-0 flex-col justify-between text-right text-[8px] leading-none text-muted"
+                    class="flex h-full shrink-0 flex-col justify-between text-right text-[10px] leading-none text-muted"
                     aria-hidden="true"
                   >
                     {#each yTickLabels as tick (tick)}
@@ -883,7 +895,7 @@
                         type="button"
                         aria-label={`Select marker at ${(marker.elapsedMs / 1000).toFixed(1)} seconds`}
                         title={`Marker · ${(marker.elapsedMs / 1000).toFixed(1)}s`}
-                        class="absolute top-0 z-20 h-36 w-3 -translate-x-1/2 touch-manipulation border-x border-transparent focus-visible:outline-2 focus-visible:outline-warning"
+                        class="absolute top-0 z-20 h-full w-3 -translate-x-1/2 touch-manipulation border-x border-transparent focus-visible:outline-2 focus-visible:outline-warning"
                         style:left={`${group.percent}%`}
                         onpointerdown={(event) => activateFromPointer(event, () => onmarkerselect(marker))}
                         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onmarkerselect(marker))}
@@ -896,7 +908,7 @@
                       </button>
                     {/each}
                     <svg
-                      class="block h-36 w-full touch-pan-y rounded bg-canvas"
+                      class="block h-full w-full touch-pan-y rounded bg-canvas"
                       viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
                       preserveAspectRatio="none"
                       role="img"
@@ -926,6 +938,7 @@
                           stroke="var(--app-muted)"
                           stroke-opacity="0.35"
                           stroke-dasharray="2 2"
+                          vector-effect="non-scaling-stroke"
                         />
                       {/each}
                       {#if zero !== null}
@@ -935,19 +948,33 @@
                           y1={CHART_HEIGHT - zero * (CHART_HEIGHT - 4) - 2}
                           y2={CHART_HEIGHT - zero * (CHART_HEIGHT - 4) - 2}
                           stroke="var(--app-muted)"
+                          stroke-opacity="0.35"
                           stroke-dasharray="2 2"
+                          vector-effect="non-scaling-stroke"
                         />
                       {/if}
+                      {#each chartGroup.fields as field (field.name)}
+                        {#if isFieldVisible(field.name)}
+                          {#each chartModel?.bands.get(field.name) ?? [] as band (band)}
+                            <path
+                              data-history-band
+                              d={band}
+                              fill={field.color}
+                              fill-opacity={inspectionVisible ? 0.14 : 0.06}
+                            />
+                          {/each}
+                        {/if}
+                      {/each}
                       {#each chartGroup.fields as field (field.name)}
                         {@const column = result?.columns[field.name]}
                         {@const paths = chartModel?.paths.get(field.name) ?? []}
                         {#if column && isFieldVisible(field.name)}
                           {#each paths as segment (segment)}
                             <path
+                              class="telemetry-chart-trace"
                               d={segment}
                               fill="none"
                               stroke={field.color}
-                              stroke-width="1.5"
                               stroke-linecap="round"
                               vector-effect="non-scaling-stroke"
                             />
@@ -1078,7 +1105,8 @@
                 </div>
                 <p class="mt-1 min-h-4 text-xs text-muted">
                   {#if !hasColumns}Loading readings…
-                  {:else if !hasFiniteValues}No readings in this range.{/if}
+                  {:else if !hasFiniteValues}No readings in this range.
+                  {:else if chartModel?.smoothed}Smoothed trend · shaded min–max. Inspect for readings.{/if}
                 </p>
               {:else if hasColumns}<p class="mt-1 text-xs text-muted">No readings in this range.</p>
               {:else}<p class="mt-1 text-xs text-muted">Loading readings…</p>{/if}

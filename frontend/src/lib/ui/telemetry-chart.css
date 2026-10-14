@@ -1,0 +1,9 @@
+/* Give overlapping telemetry room on phones, with a bounded height on wider screens. */
+.telemetry-chart-frame {
+  height: clamp(12rem, 60vw, 18rem);
+}
+
+.telemetry-chart-trace {
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}

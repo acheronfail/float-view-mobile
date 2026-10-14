@@ -20,6 +20,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
       await page.route('https://tile.openstreetmap.org/**', (route) => route.abort());
+      let dense = false;
       await page.route('**/api/session-data', async (route) => {
         const response = await route.fetch();
         const value = await response.json();
@@ -41,6 +42,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               values: readings[field] ?? [finite[0] ?? null, finite.at(-1) ?? null],
             });
           }
+          if (dense && value.columns.motorLoad) {
+            Object.assign(value.columns.motorLoad, {
+              elapsedMs: [0, 1000, 2000, 60000],
+              sequence: [0, 1, 2, 3],
+              generations: [0, 0, 0, 0],
+              values: [0, 0.75, 0, 0],
+            });
+          }
         }
         await route.fulfill({ response, json: value });
       });
@@ -56,6 +65,20 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.match(await temperature.innerText(), /Min 20\.0 °C\s+Max 50\.0 °C/);
       const load = page.locator('[aria-label="Load range"]');
       assert.equal(await load.innerText(), 'Max 75%');
+      const assertChartLayout = async () => {
+        for (const chart of await page.getByRole('img', { name: /over elapsed time$/ }).all()) {
+          const bounds = (await chart.boundingBox())!;
+          assert.ok(bounds.height >= 200 && bounds.height <= 300, 'charts have readable, bounded vertical space');
+          assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= page.viewportSize()!.width, 'chart fits the screen');
+          const frame = chart.locator('..').locator('..');
+          const labels = frame.locator('[aria-hidden="true"]').first();
+          assert.ok(
+            await labels.evaluate((node) => parseFloat(getComputedStyle(node).fontSize) >= 10),
+            'axis labels remain legible on phones'
+          );
+        }
+      };
+      await assertChartLayout();
       const screenshots = process.env.FLOAT_VIEW_SCREENSHOTS;
       if (screenshots && name === 'chromium') {
         await mkdir(screenshots, { recursive: true });
@@ -89,10 +112,43 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('button', { name: /^(Hide|Show) Motor load line$/ }).tap();
       await page.getByRole('button', { name: /^(Hide|Show) Battery load line$/ }).tap();
       await page.setViewportSize({ width: 1024, height: 900 });
+      await assertChartLayout();
       await temperature.scrollIntoViewIfNeeded();
       await page.locator('[aria-label="IMU range"]').getByText('1.4 deg', { exact: true }).waitFor();
       if (screenshots && name === 'chromium')
         await page.screenshot({ path: `${screenshots}/session-ranges-desktop.png` });
+      dense = true;
+      await page.setViewportSize({ width: 390, height: 844 });
+      const loadChart = page.getByRole('img', { name: 'Load over elapsed time', exact: true });
+      await loadChart.locator('[data-history-band]').waitFor({ state: 'attached' });
+      assert.equal(await load.innerText(), 'Max 75%', 'smoothing keeps the recorded spike in the range label');
+      await page
+        .getByRole('button', { name: /Chart mode: info/ })
+        .last()
+        .click();
+      await loadChart.scrollIntoViewIfNeeded();
+      const bounds = (await loadChart.boundingBox())!;
+      const zoomResponse = page.waitForResponse((response) => {
+        if (!response.url().endsWith('/api/session-data')) return false;
+        const request = response.request().postDataJSON();
+        return request.kind === 'series' && request.range.startElapsedMs > 0 && request.range.endElapsedMs < 60000;
+      });
+      for (const [type, ratio] of [
+        ['pointerdown', 0.1],
+        ['pointermove', 0.5],
+        ['pointerup', 0.5],
+      ] as const) {
+        await loadChart.dispatchEvent(type, {
+          pointerType: 'touch',
+          pointerId: 1,
+          isPrimary: true,
+          button: 0,
+          clientX: bounds.x + bounds.width * ratio,
+          clientY: bounds.y + bounds.height / 2,
+        });
+      }
+      await zoomResponse;
+      await loadChart.locator('[data-history-band]').waitFor({ state: 'detached' });
     } finally {
       await browser.close();
       await stopMockServer();

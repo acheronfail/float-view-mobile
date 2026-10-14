@@ -95,6 +95,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           const bounds = (await chart.boundingBox())!;
           assert.equal(bounds.x, 0);
           assert.equal(bounds.width, width);
+          assert.ok(bounds.height >= 200 && bounds.height <= 300, 'charts have readable, bounded vertical space');
         }
       };
       await assertFullWidth(390);

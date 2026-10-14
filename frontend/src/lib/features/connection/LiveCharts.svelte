@@ -1,4 +1,5 @@
 <script lang="ts">
+  import '$lib/ui/telemetry-chart.css';
   import { createMotion } from '$lib/ui/motion';
   import { onMount, untrack } from 'svelte';
   import { backendState } from '$lib/backend/state.svelte';
@@ -136,7 +137,7 @@
               </div>
             {/each}
           </div>
-          <div class="relative">
+          <div class="telemetry-chart-frame relative">
             <div
               class="pointer-events-none absolute inset-y-0 left-3 z-10 flex flex-col items-start justify-between font-mono text-[10px] text-muted"
             >
@@ -145,7 +146,7 @@
               ><span class="bg-surface/80 px-1">{geometry.low.toFixed(0)}</span>
             </div>
             <svg
-              class="block h-24 w-full overflow-hidden"
+              class="block h-full w-full overflow-hidden"
               viewBox="0 0 1000 100"
               preserveAspectRatio="none"
               role="img"
@@ -169,10 +170,10 @@
                   vector-effect="non-scaling-stroke"
                 />{/each}
               {#each geometry.paths as path, index (group.fields[index])}<path
+                  class="telemetry-chart-trace"
                   d={path}
                   fill="none"
                   stroke={liveChartColor(group.fields[index], index)}
-                  stroke-width="2"
                   stroke-linejoin="round"
                   vector-effect="non-scaling-stroke"
                 />{/each}
