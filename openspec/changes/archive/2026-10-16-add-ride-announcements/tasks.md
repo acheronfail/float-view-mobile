@@ -22,14 +22,14 @@
 
 ## 3. Apple native speech
 
-- [ ] 3.1 Add the service-owned Apple synthesizer with offline voice selection, localized combined speed/load phrases, per-utterance volume and closed readiness; verify adapter tests cover initialization, cancellation, duplicate callbacks, route/interruption/reset events and watchdog resource cleanup on iOS/macOS boundaries.
-- [ ] 3.2 Add iOS background-audio capability and explicit playback/voicePrompt session ownership, choosing duck/spoken-interruption options when lowering is on and mix-only options when off; verify both preference values, next-utterance changes, test parity, and music restoration on success, stop, error and interruption. Document the chosen session ownership and call limitation in the Apple README.
+- [x] 3.1 Add the service-owned Apple synthesizer with offline voice selection, localized combined speed/load phrases, per-utterance volume and closed readiness; verify adapter tests cover initialization, cancellation, duplicate callbacks, route/interruption/reset events and watchdog resource cleanup on iOS/macOS boundaries.
+- [x] 3.2 Add iOS background-audio capability and explicit playback/voicePrompt session ownership, choosing duck/spoken-interruption options when lowering is on and mix-only options when off; verify both preference values, next-utterance changes, test parity, and music restoration on success, stop, error and interruption. Document the chosen session ownership and call limitation in the Apple README.
 - [x] 3.3 Connect speech effects/facts across service and listener recreation; verify linked Apple consumer tests and affected iOS/macOS build checks, with no iOS-only audio-session calls in macOS builds.
 
 ## 4. Android native speech
 
-- [ ] 4.1 Add service-owned asynchronous TextToSpeech initialization, installed offline voice selection, per-utterance volume, speech/guidance attributes and operation-specific callbacks; verify focused JVM tests for no engine/voice, initialization failure, cancellation, readiness recovery and late callbacks.
-- [ ] 4.2 Request transient may-duck focus per utterance without delayed acquisition, release focus on every terminal path and enforce watchdog cancellation; verify fake focus/TTS tests cover focus denial/loss, error, stop, timeout and suppression of obsolete callbacks.
+- [x] 4.1 Add service-owned asynchronous TextToSpeech initialization, installed offline voice selection, per-utterance volume, speech/guidance attributes and operation-specific callbacks; verify focused JVM tests for no engine/voice, initialization failure, cancellation, readiness recovery and late callbacks.
+- [x] 4.2 Request transient may-duck focus per utterance without delayed acquisition, release focus on every terminal path and enforce watchdog cancellation; verify fake focus/TTS tests cover focus denial/loss, error, stop, timeout and suppression of obsolete callbacks.
 - [x] 4.3 Integrate existing foreground-service lifetime, review current service-type/permission requirements for actual TTS playback and add only required declarations; verify affected Android service tests/build checks and document lifetime, audio ownership and best-effort calls in the Android README.
 
 ## 5. Shared Settings UI
@@ -42,7 +42,7 @@
 
 - [x] 6.1 Run affected Rust crate/consumer tests, formatting and warnings-denied Clippy, relevant frontend checks, linked Apple/Android tests and affected canonical direct/host conformance cases; verify contract parity, bounded resources, frontend recreation and audio failure without BLE or recording regression. Record actual commands and results.
 - [x] 6.2 Retain the completed Android/iPhone physical evidence and record the user’s 2026-10-16 decision to exclude remaining physical checks from this change. Further manual testing is user-owned; excluded checks are not claimed as passed.
-- [ ] 6.3 Review implementation against all delta scenarios, confirm no duplicate load formulas or frontend winner selection, no speech backlog, alternate runtime, browser speech, new polling or compatibility machinery remains, and record remaining limitations before declaring implementation complete.
+- [x] 6.3 Review implementation against all delta scenarios, confirm no duplicate load formulas or frontend winner selection, no speech backlog, alternate runtime, browser speech, new polling or compatibility machinery remains, and record remaining limitations before declaring implementation complete.
 
 ## Workflow follow-up
 
@@ -128,7 +128,7 @@ scenario audit are complete.
 
 Core Android hardware observations now pass on a Samsung Galaxy S9+ / Android 10
 with the ESP32 fixture and production BLE adapter. See the
-[retained physical evidence](../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md)
+[retained physical evidence](../../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md)
 for actual values, manual listening confirmations, cleanup and remaining scope.
 The run exposed Samsung's ISO 639-2 `eng` voice identifiers; the selector now
 accepts both `en` and `eng`, with regression tests. All 31 JVM tests pass in each
@@ -170,7 +170,7 @@ signature verification then passed. Physical combined/winning-load speech,
 repeats, volume 100%/50%/0%, test lowering on/off with music restoration, a
 locked-screen minute with BLE/recording growth, imperial wording, offline speech
 and clean disabling are confirmed. See the
-[iOS evidence](../../../conformance/physical-checkpoints/2026-10-16-ios-announcements.md)
+[iOS evidence](../../../../conformance/physical-checkpoints/2026-10-16-ios-announcements.md)
 for exact scope and the USB controller's stale-connection cleanup limitation.
 Settings restoration was independently read back, fixture RESET/READY verified,
 and app/tunnel stopped. Tasks 3.1/3.2/6.2 retain their remaining original criteria;
@@ -183,3 +183,63 @@ and will perform their own manual testing. Earlier pending-device checklists and
 “do not archive until physical checkpoints” notes are historical and superseded
 by this decision. Preserve existing observations; do not mark unrun cases passed.
 Native software fault coverage and final scenario review remain required.
+
+## Final software verification and audit (2026-10-16)
+
+The remaining native acceptance tasks are complete. Apple uses an injected
+closed `SpeechDriver` boundary in the production adapter; Android uses one
+main-looper `SpeechExecutor` with injected engine, focus and scheduler ports.
+These replace the prior untestable direct paths; they do not add another speech
+policy, runtime or queue. The Apple adapter now rejects use after close, and
+Android ignores duplicate initialization callbacks, shuts down failed engines
+and releases focus even if stopping the engine throws.
+
+- Android: nine new deterministic executor tests cover unavailable engine,
+  failed/timed-out initialization, missing voice and recovery, denied/lost focus,
+  completion/error/stop/cancellation/route loss, watchdog cleanup, stale callbacks,
+  busy/expired/closed admission, chooser return during initialization and deferred
+  chooser refresh during playback. All 41 JVM tests pass in each of Debug,
+  Release and Conformance (123 executions); all three APK builds, lint variants
+  and the instrumentation APK build pass. Canonical Android host conformance
+  passes at revision 491 on the API 36 emulator.
+- Apple: seven new adapter fault tests cover missing engine/voice and recovery,
+  activation error, every terminal path, duplicate/obsolete completions, route
+  removal/interruption/reset, deadline cleanup, busy/expired/closed admission,
+  per-utterance lowering/gain and engine replacement. The 13 Swift Testing speech
+  and linked-server tests plus 11 XCTest Live Activity tests pass. The arm64 iOS
+  simulator app builds, and changed Swift files pass formatting.
+- Broader macOS conformance was attempted but timed out at the unchanged
+  `location.requestPermission` operation. The software host uses real
+  CoreLocation, whose native authorization completion can wait 30 seconds while
+  this client times out sooner. This run does not establish full macOS
+  conformance; location permissions were not changed for announcement closeout.
+  Focused Apple speech/shared-server tests and macOS compilation pass.
+- OpenSpec change strict validation and diff checks pass. The new canonical
+  ride-announcements spec passes strict validation; affected existing specs
+  validate with their pre-existing long-requirement warnings.
+
+Scenario review: settings/defaults/bounds/revisions/persistence and historical
+load semantics remain covered by existing store/runtime/client/mock/conformance
+checks. `application-runtime::load` is the only live utilisation/winner formula;
+recorded session readers retain raw duty and captured motor/battery fields.
+Policy tests cover combined fresh values, strict threshold eligibility,
+monotonic cooldown, one slot/no backlog, cancellation, delayed outcomes,
+backpressure and requester isolation. New native tests close initialization,
+focus/session, lifecycle and cleanup gaps. Existing browser checks cover units,
+save/test feedback, pointer/keyboard behavior and conditional native controls.
+Native phrase/voice-selection tests cover concise units and preferred installed
+English voices. Voice-settings dispatch retains foreground checks, closed
+parameters, one bounded waiter and stale-completion isolation. The root README
+feature bullet matches the implemented feature.
+
+No frontend/native utilisation formula, browser speech, additional telemetry
+polling, alternate runtime, compatibility reader or speech queue remains. Speech
+still depends on native audio policy and installed English voices; playback in
+calls is best effort, and finished does not promise audibility. Previously unrun
+physical scenarios remain unverified and are excluded by the user's explicit
+scope decision, not claimed passed. The completed phone evidence is historical
+for its recorded builds; the final adapter refactor has software verification.
+
+All 26 in-scope tasks are complete. Delta specs are synced to the canonical
+ride-announcements, backend-contract and app-navigation specs, and the change is
+archived. The remaining optional manual checklist is not an acceptance gate.

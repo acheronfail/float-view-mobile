@@ -28,118 +28,188 @@ struct SpeechRequest: Decodable, Sendable {
   }
 }
 
-/// All synthesizer/session state is confined to the main queue; no product policy.
-final class SpeechAdapter: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
-  private var synthesizer: AVSpeechSynthesizer?
-  private let lease = SpeechLease()
+/// Closed synthesis/session boundary; owned and invoked only on the main queue.
+protocol SpeechDriver: AnyObject {
+  var completion: ((AVSpeechUtterance, String) -> Void)? { get set }
+  func refresh() -> Bool
+  func start(_ utterance: AVSpeechUtterance, lowerOtherAudio: Bool) throws
+  func stop()
+  func releaseAudio()
+}
+
+private final class NativeSpeechDriver: NSObject, SpeechDriver, AVSpeechSynthesizerDelegate, @unchecked Sendable {
+  var completion: ((AVSpeechUtterance, String) -> Void)?
+  private let synthesizer = AVSpeechSynthesizer()
   private var voice: AVSpeechSynthesisVoice?
+  override init() {
+    super.init()
+    synthesizer.delegate = self
+  }
+
+  func refresh() -> Bool {
+    voice = AVSpeechSynthesisVoice(language: "en-AU") ?? AVSpeechSynthesisVoice(language: "en-US")
+    return voice != nil
+  }
+
+  func start(_ utterance: AVSpeechUtterance, lowerOtherAudio: Bool) throws {
+    utterance.voice = voice
+    #if os(iOS)
+      synthesizer.usesApplicationAudioSession = true
+      let options: AVAudioSession.CategoryOptions = lowerOtherAudio
+        ? [.duckOthers, .interruptSpokenAudioAndMixWithOthers] : [.mixWithOthers]
+      try AVAudioSession.sharedInstance().setCategory(.playback, mode: .voicePrompt, options: options)
+      try AVAudioSession.sharedInstance().setActive(true)
+    #endif
+    synthesizer.speak(utterance)
+  }
+
+  func stop() {
+    synthesizer.stopSpeaking(at: .immediate)
+  }
+
+  func releaseAudio() {
+    #if os(iOS)
+      try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    #endif
+  }
+
+  func speechSynthesizer(_: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+    completion?(utterance, "finished")
+  }
+
+  func speechSynthesizer(_: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+    completion?(utterance, "interrupted")
+  }
+}
+
+/// All synthesizer/session state is confined to the main queue; no product policy.
+final class SpeechAdapter: @unchecked Sendable {
+  enum AudioEvent { case interruption, routeRemoved, mediaReset, routeChanged }
+  private var driver: (any SpeechDriver)?
+  private var ready = false
+  private let createDriver: () throws -> any SpeechDriver
+  private let now: () -> Double
+  private let schedule: (Double, DispatchWorkItem) -> Void
+  private let lease = SpeechLease()
   private var watchdog: DispatchWorkItem?
   private var observers: [NSObjectProtocol] = []
+  private var closed = false
   var report: (@Sendable (String, UInt64, String?) -> Void)?
+
+  init() {
+    createDriver = { NativeSpeechDriver() }
+    now = { ProcessInfo.processInfo.systemUptime }
+    schedule = { delay, item in DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item) }
+  }
+
+  init(createDriver: @escaping () throws -> any SpeechDriver,
+       now: @escaping () -> Double,
+       schedule: @escaping (Double, DispatchWorkItem) -> Void)
+  {
+    self.createDriver = createDriver
+    self.now = now
+    self.schedule = schedule
+  }
 
   func refresh() {
     DispatchQueue.main.async { self.refreshOnMain() }
   }
 
-  private func refreshOnMain() {
-    if synthesizer == nil {
-      let synth = AVSpeechSynthesizer()
-      synth.delegate = self
-      synthesizer = synth
+  func refreshOnMain() {
+    guard !closed else { return }
+    if driver == nil {
+      do {
+        let current = try createDriver()
+        current.completion = { [weak self] utterance, outcome in self?.complete(utterance, outcome: outcome) }
+        driver = current
+      } catch { ready = false; report?("unavailable", 0, "engine_unavailable"); return }
       #if os(iOS)
         if observers.isEmpty {
-          for name in [
-            AVAudioSession.interruptionNotification,
-            AVAudioSession.routeChangeNotification,
-            AVAudioSession.mediaServicesWereResetNotification,
-          ] {
-            observers
-              .append(NotificationCenter.default
-                .addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
-                  // Category changes during our own activation do not interrupt us.
-                  if name != AVAudioSession.routeChangeNotification {
-                    self?.finish("interrupted")
-                    if name == AVAudioSession.mediaServicesWereResetNotification {
-                      self?.synthesizer = nil
-                      self?.refreshOnMain()
-                    }
-                  } else if let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
-                            raw == AVAudioSession.RouteChangeReason.oldDeviceUnavailable
-                            .rawValue
-                  {
-                    self?.finish("interrupted")
-                  }
-                })
+          for name in [AVAudioSession.interruptionNotification, AVAudioSession.routeChangeNotification,
+                       AVAudioSession.mediaServicesWereResetNotification]
+          {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) {
+              [weak self] notification in
+              if name == AVAudioSession.mediaServicesWereResetNotification {
+                self?.handleOnMain(.mediaReset)
+              } else if name == AVAudioSession.interruptionNotification {
+                self?.handleOnMain(.interruption)
+              } else if let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                        raw == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue
+              {
+                self?.handleOnMain(.routeRemoved)
+              }
+            })
           }
         }
       #endif
     }
-    // Use an installed English system voice; phrases are English until app localisation exists.
-    voice = AVSpeechSynthesisVoice(language: "en-AU") ?? AVSpeechSynthesisVoice(language: "en-US")
-    report?(voice == nil ? "unavailable" : "ready", 0, voice == nil ? "no_offline_voice" : nil)
+    ready = driver?.refresh() == true
+    report?(ready ? "ready" : "unavailable", 0, ready ? nil : "no_offline_voice")
   }
 
-  func speak(_ request: SpeechRequest) {
-    DispatchQueue.main.async {
-      guard request.valid, UInt64(ProcessInfo.processInfo.systemUptime * 1000) < request.expires_at_ms,
-            self.lease.active == nil
-      else { self.report?(
-        "outcome",
-        request.id,
-        "unavailable"
-      ); return }
-      self.refreshOnMain()
-      guard let voice = self.voice, let synth = self.synthesizer else { self.report?(
-        "outcome",
-        request.id,
-        "unavailable"
-      ); return }
-      let utterance = AVSpeechUtterance(string: request.phrase)
-      utterance.voice = voice
-      utterance.volume = Float(request.volume) / 100
-      guard self.lease.begin(id: request.id, utterance: utterance, cleanup: { [weak self] in
-        self?.synthesizer?.stopSpeaking(at: .immediate)
-        #if os(iOS)
-          try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        #endif
-      }) else { return }
-      #if os(iOS)
-        do {
-          synth.usesApplicationAudioSession = true
-          let options: AVAudioSession.CategoryOptions = request.lower_other_audio
-            ? [.duckOthers, .interruptSpokenAudioAndMixWithOthers] : [.mixWithOthers]
-          try AVAudioSession.sharedInstance().setCategory(.playback, mode: .voicePrompt, options: options)
-          try AVAudioSession.sharedInstance().setActive(true)
-        } catch { self.finish("unavailable"); return }
-      #endif
-      let timeout = DispatchWorkItem { [weak self] in
-        guard self?.lease.active?.0 == request.id else { return }
-        self?.finish("unavailable")
-      }
-      self.watchdog = timeout
-      DispatchQueue.main.asyncAfter(
-        deadline: .now() + max(0, Double(request.expires_at_ms) / 1000 - ProcessInfo.processInfo.systemUptime),
-        execute: timeout
-      )
-      synth.speak(utterance)
+  func handleOnMain(_ event: AudioEvent) {
+    guard !closed else { return }
+    switch event {
+    case .interruption, .routeRemoved: finish("interrupted")
+    case .mediaReset:
+      finish("interrupted")
+      driver = nil
+      refreshOnMain()
+    case .routeChanged: break // Our own category changes must not interrupt speech.
     }
   }
 
+  func speak(_ request: SpeechRequest) {
+    DispatchQueue.main.async { self.speakOnMain(request) }
+  }
+
+  func speakOnMain(_ request: SpeechRequest) {
+    guard !closed, request.valid, now() * 1000 < Double(request.expires_at_ms), lease.active == nil
+    else { report?("outcome", request.id, "unavailable"); return }
+    refreshOnMain()
+    guard let current = driver, ready else {
+      report?("outcome", request.id, "unavailable"); return
+    }
+    let utterance = AVSpeechUtterance(string: request.phrase)
+    utterance.volume = Float(request.volume) / 100
+    guard lease.begin(id: request.id, utterance: utterance, cleanup: {
+      current.stop()
+      current.releaseAudio()
+    }) else { return }
+    do { try current.start(utterance, lowerOtherAudio: request.lower_other_audio) }
+    catch { finish("unavailable"); return }
+    // A synchronous terminal callback from start must not leave a watchdog behind.
+    guard lease.active?.0 == request.id else { return }
+    let timeout = DispatchWorkItem { [weak self] in
+      guard self?.lease.active?.0 == request.id else { return }
+      self?.finish("unavailable")
+    }
+    watchdog = timeout
+    schedule(max(0, Double(request.expires_at_ms) / 1000 - now()), timeout)
+  }
+
   func cancel(_ id: UInt64) {
-    DispatchQueue.main.async {
-      if self.lease.active?.0 == id {
-        self.finish("interrupted")
-      }
+    DispatchQueue.main.async { self.cancelOnMain(id) }
+  }
+
+  func cancelOnMain(_ id: UInt64) {
+    if lease.active?.0 == id {
+      finish("interrupted")
     }
   }
 
   func close() {
-    DispatchQueue.main.async {
-      self.finish("interrupted")
-      self.observers.forEach(NotificationCenter.default.removeObserver)
-      self.observers.removeAll()
-      self.synthesizer = nil
-    }
+    DispatchQueue.main.async { self.closeOnMain() }
+  }
+
+  func closeOnMain() {
+    guard !closed else { return }
+    closed = true
+    finish("interrupted")
+    observers.forEach(NotificationCenter.default.removeObserver)
+    observers.removeAll()
+    driver = nil
   }
 
   private func finish(_ outcome: String) {
@@ -147,14 +217,6 @@ final class SpeechAdapter: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sen
     lease.finish(id: id)
     watchdog?.cancel(); watchdog = nil
     report?("outcome", id, outcome)
-  }
-
-  func speechSynthesizer(_: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-    complete(utterance, outcome: "finished")
-  }
-
-  func speechSynthesizer(_: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-    complete(utterance, outcome: "interrupted")
   }
 
   private func complete(_ utterance: AVSpeechUtterance, outcome: String) {

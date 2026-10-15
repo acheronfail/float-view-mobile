@@ -1,5 +1,10 @@
 # Android announcement checkpoint — 2026-10-16
 
+Closeout note: the user removed remaining physical checks from this change on
+2026-10-16 and owns further manual testing. Unrun cases below remain unverified;
+they are not archive gates. Native software failure-path coverage was completed
+subsequently; see the [archived closeout tasks](../../openspec/changes/archive/2026-10-16-add-ride-announcements/tasks.md).
+
 Device: Samsung Galaxy S9+ (SM-G965F), Android 10 / API 29. Production Android BLE
 adapter and connected ESP32 byte bridge, direct VESC route with Refloat 1.3.0.
 Audio: Samsung TTS (`com.samsung.SMT`), installed English voices reported as

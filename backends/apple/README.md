@@ -226,5 +226,9 @@ ducking/spoken-content interruption or mix-only behavior; all terminal paths
 stop speech and release the session. macOS uses native synthesis without iOS
 audio-session APIs. Neither host changes system volume or keeps silence playing.
 Calls, route changes and unavailable audio can skip an announcement; successful
-call playback is not guaranteed. Music restoration, headset routing and locked
-iOS playback require a real-device checkpoint.
+call playback is not guaranteed. The main-queue adapter owns one injected
+`SpeechDriver` boundary for deterministic engine/session failure tests; the native
+driver retains AVSpeechSynthesizer and iOS audio-session calls. Tests establish
+resource cleanup, not audible behavior on every player or route. Completed phone
+observations and optional user-owned manual checks are retained in conformance
+physical-checkpoint evidence.

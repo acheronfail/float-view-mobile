@@ -1,5 +1,10 @@
 # iOS announcement physical checkpoint — 2026-10-16
 
+Closeout note: the user removed remaining physical checks from this change on
+2026-10-16 and owns further manual testing. Unrun cases below remain unverified;
+they are not archive gates. Native software failure-path coverage was completed
+subsequently; see the [archived closeout tasks](../../openspec/changes/archive/2026-10-16-add-ride-announcements/tasks.md).
+
 Device: iPhone 12, iOS 18.7.8, paired over USB with Developer Mode enabled.
 Build: `fae1e0f`, Debug, signed with the user's configured development team.
 Fixture: ESP32 on `/dev/cu.usbmodem1101`, direct Refloat 1.3.0 scenario,

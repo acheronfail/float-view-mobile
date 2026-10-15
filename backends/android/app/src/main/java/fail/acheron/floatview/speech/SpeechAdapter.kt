@@ -10,112 +10,52 @@ import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import org.json.JSONObject
 import java.util.Locale
 
 /** Main-looper confined OS speech executor; no telemetry or announcement policy. */
-class SpeechAdapter(private val context: Context, private val report: (String, Long, String?) -> Unit) {
+class SpeechAdapter(private val context: Context, report: (String, Long, String?) -> Unit) {
     private val handler = Handler(Looper.getMainLooper())
     private val audio = context.getSystemService(AudioManager::class.java)
     private val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
-    private var engine: TextToSpeech? = null
-    private var ready = false
-    private var initializing = false
-    private var resetOnRefresh = false
-    private var refreshPending = false
-    private var epoch = 0L
-    private val lease = SpeechLease()
     private var closed = false
+    private val executor = SpeechExecutor(
+        createEngine = { AndroidSpeechEngine() },
+        acquireFocus = { onLoss ->
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(attributes).setAcceptsDelayedFocusGain(false)
+                .setOnAudioFocusChangeListener({ change -> if (change < 0) onLoss() }, handler).build()
+            if (audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+                ({ audio.abandonAudioFocusRequest(request); Unit }) else null
+        },
+        now = SystemClock::elapsedRealtime,
+        later = { delay, action -> handler.postDelayed({ action() }, delay); Unit },
+        report = report,
+    )
     private val route = object : AudioDeviceCallback() {
-        override fun onAudioDevicesRemoved(devices: Array<out AudioDeviceInfo>) { finish("interrupted") }
+        override fun onAudioDevicesRemoved(devices: Array<out AudioDeviceInfo>) { executor.interrupt() }
     }
     init { audio.registerAudioDeviceCallback(route, handler) }
-    fun refresh() { handler.post { refreshOnMain() } }
-    private fun refreshOnMain() {
-        if (closed) return
-        if (initializing) { if (resetOnRefresh) refreshPending = true; return }
-        if (resetOnRefresh) {
-            if (lease.active != null) { refreshPending = true; return }
-            resetOnRefresh = false
-            ready = false
-            engine?.shutdown(); engine = null
-        }
-        if (engine != null && ready) { selectVoice(); return }
-        initializing = true
-        val token = ++epoch
-        report("initializing", 0, null)
-        engine?.shutdown()
-        engine = TextToSpeech(context) { status -> handler.post {
-            if (token != epoch || closed) return@post
-            initializing = false
-            if (refreshPending && resetOnRefresh) { refreshPending = false; refreshOnMain(); return@post }
-            ready = status == TextToSpeech.SUCCESS
-            if (ready) selectVoice() else report("unavailable", 0, "engine_unavailable")
-        } }
-        handler.postDelayed({
-            if (token == epoch && initializing) {
-                initializing = false; ready = false; epoch++
-                engine?.shutdown(); engine = null
-                report("unavailable", 0, "engine_unavailable")
-            }
-        }, 10_000)
-    }
-    private fun selectVoice() {
-        val tts = engine ?: return
-        val voice = chooseOfflineEnglishVoice(tts.voices.orEmpty(), tts.voice, Locale.getDefault())
-        ready = voice != null
-        if (voice == null) { report("unavailable", 0, "no_offline_voice"); return }
-        if (tts.setVoice(voice) != TextToSpeech.SUCCESS || tts.setAudioAttributes(attributes) != TextToSpeech.SUCCESS) {
-            ready = false; report("unavailable", 0, "engine_unavailable"); return
-        }
-        report("ready", 0, null)
-    }
+    fun refresh() { handler.post { executor.refresh() } }
     fun speak(value: JSONObject) {
         // Decode before crossing threads; never retain a mutable bridge object.
         val request = SpeechRequest.decode(value) ?: return
-        val id = request.id
-        val expires = request.expires
-        val volume = request.volume
-        handler.post {
-            if (android.os.SystemClock.elapsedRealtime() >= expires || closed || lease.active != null || !ready) { report("outcome", id, "unavailable"); return@post }
-            val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-                .setAudioAttributes(attributes).setAcceptsDelayedFocusGain(false)
-                .setOnAudioFocusChangeListener({ change -> if (change < 0 && lease.active == id) finish("interrupted") }, handler).build()
-            if (audio.requestAudioFocus(focusRequest) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                report("outcome", id, "unavailable"); return@post
-            }
-            lease.begin(id) { engine?.stop(); audio.abandonAudioFocusRequest(focusRequest) }
-            engine?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) = Unit
-                override fun onDone(utteranceId: String?) = complete(utteranceId, "finished")
-                @Deprecated("Android callback") override fun onError(utteranceId: String?) = complete(utteranceId, "unavailable")
-                override fun onError(utteranceId: String?, errorCode: Int) = complete(utteranceId, "unavailable")
-                override fun onStop(utteranceId: String?, interrupted: Boolean) = complete(utteranceId, "interrupted")
-            })
-            val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume / 100f) }
-            if (engine?.speak(request.phrase, TextToSpeech.QUEUE_FLUSH, params, id.toString()) != TextToSpeech.SUCCESS) finish("unavailable")
-            handler.postDelayed({ if (lease.active == id) finish("unavailable") }, (expires - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0))
-        }
+        handler.post { executor.speak(request) }
     }
-    private fun complete(id: String?, outcome: String) { handler.post { if (id == lease.active?.toString()) finish(outcome) } }
-    fun cancel(id: Long) { handler.post { if (lease.active == id) finish("interrupted") } }
-    private fun finish(outcome: String) {
-        val id = lease.active ?: return
-        if (lease.finish(id)) report("outcome", id, outcome)
-        if (refreshPending) { refreshPending = false; refreshOnMain() }
-    }
+    fun cancel(id: Long) { handler.post { executor.cancel(id) } }
     fun openVoiceSettings(expiresAt: Long, done: (Boolean) -> Unit) { handler.post {
         val process = android.app.ActivityManager.RunningAppProcessInfo()
         android.app.ActivityManager.getMyMemoryState(process)
-        if (closed || android.os.SystemClock.elapsedRealtime() >= expiresAt ||
+        if (closed || SystemClock.elapsedRealtime() >= expiresAt ||
             process.importance > android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND ||
             !canOpenVoiceSettings(context)) { done(false); return@post }
         val launched = runCatching {
             context.startActivity(voiceSettingsIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            resetOnRefresh = true
+            executor.voiceSettingsOpened()
         }.isSuccess
         done(launched)
     } }
@@ -125,8 +65,42 @@ class SpeechAdapter(private val context: Context, private val report: (String, L
             voiceSettingsIntent().resolveActivity(context.packageManager) != null
     }
     fun close() { handler.post {
-        closed = true; epoch++; finish("interrupted")
-        audio.unregisterAudioDeviceCallback(route)
-        engine?.shutdown(); engine = null
+        if (!closed) {
+            closed = true
+            executor.close()
+            audio.unregisterAudioDeviceCallback(route)
+        }
     } }
+
+    private inner class AndroidSpeechEngine : SpeechEngine {
+        private var tts: TextToSpeech? = null
+        override fun initialize(done: (Boolean) -> Unit) {
+            tts = TextToSpeech(context) { status -> handler.post { done(status == TextToSpeech.SUCCESS) } }
+        }
+        override fun selectVoice(): String? {
+            val current = tts ?: return "engine_unavailable"
+            val voice = chooseOfflineEnglishVoice(current.voices.orEmpty(), current.voice, Locale.getDefault())
+                ?: return "no_offline_voice"
+            return if (current.setVoice(voice) == TextToSpeech.SUCCESS && current.setAudioAttributes(attributes) == TextToSpeech.SUCCESS)
+                null else "engine_unavailable"
+        }
+        override fun speak(request: SpeechRequest, done: (Long, String) -> Unit): Boolean {
+            val current = tts ?: return false
+            current.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) = Unit
+                override fun onDone(utteranceId: String?) = complete(utteranceId, "finished")
+                @Deprecated("Android callback") override fun onError(utteranceId: String?) = complete(utteranceId, "unavailable")
+                override fun onError(utteranceId: String?, errorCode: Int) = complete(utteranceId, "unavailable")
+                override fun onStop(utteranceId: String?, interrupted: Boolean) = complete(utteranceId, "interrupted")
+                private fun complete(id: String?, outcome: String) {
+                    val operation = id?.toLongOrNull() ?: return
+                    handler.post { done(operation, outcome) }
+                }
+            })
+            val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, request.volume / 100f) }
+            return current.speak(request.phrase, TextToSpeech.QUEUE_FLUSH, params, request.id.toString()) == TextToSpeech.SUCCESS
+        }
+        override fun stop() { tts?.stop() }
+        override fun shutdown() { tts?.shutdown(); tts = null }
+    }
 }

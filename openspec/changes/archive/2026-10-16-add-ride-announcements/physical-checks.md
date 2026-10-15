@@ -6,9 +6,9 @@ procedure below is optional reference material, not an archive gate. Unchecked
 items mean unverified, not failed or required by this change.
 
 Status: core Android speaker/music/BLE checks passed on a Samsung Galaxy S9+
-(Android 10) on 2026-10-16; see the [physical evidence](../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md).
+(Android 10) on 2026-10-16; see the [physical evidence](../../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md).
 Core iOS speaker/music/BLE checks also passed on an iPhone 12 (iOS 18.7.8);
-see the [iOS physical evidence](../../../conformance/physical-checkpoints/2026-10-16-ios-announcements.md).
+see the [iOS physical evidence](../../../../conformance/physical-checkpoints/2026-10-16-ios-announcements.md).
 macOS and the remaining cases below are pending. Emulator, simulator and JVM
 results do not establish physical audio effects.
 

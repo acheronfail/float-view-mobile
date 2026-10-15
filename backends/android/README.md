@@ -168,3 +168,8 @@ after returning from the chooser, deferring refresh until active speech ends.
 This uses standard Android TTS APIs with the selected engine, including Google
 and Samsung engines; it does not require Samsung hardware. Speed is spoken as
 the value and units, without a redundant “speed” prefix.
+
+The adapter delegates its main-looper lifecycle to one `SpeechExecutor`, using
+closed engine/focus/clock ports for deterministic failure tests. Engine and focus
+cleanup remain native effects; Rust still owns telemetry eligibility, cooldown
+and admission. No second speech policy or playback queue is introduced.

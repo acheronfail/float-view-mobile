@@ -163,7 +163,7 @@ Saved-board configuration SHALL be reachable from the selected board's history-r
 
 ### Requirement: Global settings destination
 
-Settings SHALL contain only application-wide appearance, session-retention, session-linking, logging cadence, post-ride, and reconnect options. Board-specific values MUST NOT be edited from Settings, and application-wide settings MUST NOT remain embedded in session browsing.
+Settings SHALL contain only application-wide appearance, session-retention, session-linking, logging cadence, post-ride, reconnect, and ride-announcement options. Board-specific values MUST NOT be edited from Settings, and application-wide settings MUST NOT remain embedded in session browsing.
 
 #### Scenario: Open global settings
 
@@ -226,3 +226,44 @@ The active viewer SHALL follow the growing persisted ride by default, using boun
 
 - **WHEN** the viewer is hidden, closed or replaced by another session
 - **THEN** polling stops and outstanding responses cannot replace another session's data
+
+### Requirement: Announcement settings controls
+
+Settings SHALL provide independent speed/load switches and thresholds with explicit units, a shared repeat interval, announcement volume, audio readiness, and a test action. The same frontend SHALL support pointer and keyboard activation without duplicate actions. Validation and save/test failures SHALL preserve edits and remain visible. A test SHALL identify its selected speed, load or combined content even when both rules are off. Unavailable audio SHALL not silently disable the saved rule.
+
+#### Scenario: Configure announcements
+- **WHEN** users enable load and set 65 percent with a five-second repeat interval
+- **THEN** Settings saves a revision-checked patch and presents authoritative accepted values
+
+#### Scenario: Test feedback
+- **WHEN** users activate a test by primary pointer or keyboard
+- **THEN** exactly one test is sent, repeat activation is prevented while pending, and the terminal outcome is displayed without claiming that a finished utterance was necessarily heard
+
+#### Scenario: Audio unavailable
+- **WHEN** audio readiness is unavailable or a test cannot play
+- **THEN** Settings explains the bounded reason or outcome and retains the user's announcement configuration and other working controls
+
+### Requirement: Conditional audio lowering control
+
+Settings SHALL show “Lower other audio while speaking” only when authoritative announcement audio state says lowering is adjustable. Helper text SHALL explain that music and other audio become quieter temporarily and that some apps may pause. Android and macOS SHALL hide this control while retaining announcement volume and other common settings. The frontend SHALL derive visibility from the mandatory state field, not detect the platform.
+
+#### Scenario: iOS audio controls
+- **WHEN** Settings receives adjustable lowering state
+- **THEN** it shows the saved lowering switch and its explanation alongside announcement volume
+
+#### Scenario: Android or macOS audio controls
+- **WHEN** Settings receives automatic lowering state
+- **THEN** it hides the lowering switch without hiding speech volume, thresholds, enable switches or testing
+
+### Requirement: System voice settings action
+
+Announcement settings SHALL show a guarded Voice settings button only when
+announcementAudio.voiceSettingsAvailable is true. It SHALL open the native
+chooser via the authenticated backend, preserve unsaved edits, prevent duplicate
+activation while pending and display launch failures. Help text SHALL explain
+that users choose an English offline voice in device text-to-speech settings.
+Returning SHALL refresh the selected engine/voice without restarting the app.
+
+#### Scenario: Guarded voice settings activation
+- **WHEN** a primary pointer or keyboard activates Voice settings
+- **THEN** exactly one native launch is requested and failures remain visible without discarding announcement edits
