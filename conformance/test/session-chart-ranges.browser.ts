@@ -56,6 +56,60 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.goto(`${endpoint.origin}/#/sessions/session-1`);
       await page.getByRole('img', { name: 'Estimated battery level over elapsed time', exact: true }).waitFor();
       await page.getByRole('button', { name: 'Show/hide the map', exact: true }).click();
+      const mode = page.getByRole('button', { name: /^Chart mode:/ });
+      const screenshots = process.env.FLOAT_VIEW_SCREENSHOTS;
+      if (screenshots && name === 'chromium') await mkdir(screenshots, { recursive: true });
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+        const colours = new Set<string>();
+        for (const current of ['info', 'zoom', 'pan']) {
+          assert.equal(await mode.getAttribute('data-mode'), current);
+          const appearance = await mode.evaluate((node) => {
+            const style = getComputedStyle(node);
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d')!;
+            const luminance = (colour: string) => {
+              context.fillStyle = colour;
+              context.fillRect(0, 0, 1, 1);
+              const rgb = Array.from(context.getImageData(0, 0, 1, 1).data)
+                .slice(0, 3)
+                .map((v) => {
+                  const s = v / 255;
+                  return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+                });
+              return rgb[0]! * 0.2126 + rgb[1]! * 0.7152 + rgb[2]! * 0.0722;
+            };
+            const foreground = luminance(style.color);
+            const background = luminance(style.backgroundColor);
+            return {
+              colour: style.backgroundColor,
+              contrast: (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05),
+              icon: getComputedStyle(node.querySelector('span')!).maskImage,
+            };
+          });
+          assert.ok(appearance.contrast >= 4.5, `${theme} ${current} label has readable contrast`);
+          assert.notEqual(appearance.icon, 'none', `${current} has a visible mode icon`);
+          colours.add(appearance.colour);
+          if (screenshots && name === 'chromium') {
+            await page.screenshot({
+              path: `${screenshots}/chart-mode-${theme}-${current}.png`,
+              clip: { x: 270, y: 724, width: 120, height: 120 },
+            });
+            if (current === 'info') await page.screenshot({ path: `${screenshots}/chart-modes-${theme}.png` });
+          }
+          await mode.dispatchEvent('pointerdown', { button: 2, isPrimary: true, pointerId: 42 });
+          await mode.dispatchEvent('pointerup', { button: 2, isPrimary: true, pointerId: 42 });
+          assert.equal(await mode.getAttribute('data-mode'), current, 'secondary activation preserves mode');
+          if (current === 'zoom') {
+            await mode.focus();
+            await page.keyboard.press('Enter');
+          } else {
+            await mode.tap();
+          }
+        }
+        assert.equal(colours.size, 3, `${theme} modes have distinct colours`);
+        assert.equal(await mode.getAttribute('data-mode'), 'info', 'each activation changes mode exactly once');
+      }
       const battery = page.locator('[aria-label="Estimated battery level range"]');
       await battery.getByText('61%', { exact: true }).waitFor();
       assert.match(await battery.innerText(), /Min 55%\s+Max 61%/);
@@ -79,7 +133,6 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         }
       };
       await assertChartLayout();
-      const screenshots = process.env.FLOAT_VIEW_SCREENSHOTS;
       if (screenshots && name === 'chromium') {
         await mkdir(screenshots, { recursive: true });
         await page
@@ -150,6 +203,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await zoomResponse;
       await loadChart.locator('[data-history-band]').waitFor({ state: 'detached' });
     } finally {
+      for (const context of browser.contexts()) {
+        for (const page of context.pages()) await page.unrouteAll({ behavior: 'ignoreErrors' });
+      }
       await browser.close();
       await stopMockServer();
     }

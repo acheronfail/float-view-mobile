@@ -1,4 +1,7 @@
 export const iconClasses = {
+  info: 'i-lucide-info',
+  'zoom-in': 'i-lucide-zoom-in',
+  hand: 'i-lucide-hand',
   'arrow-left': 'i-lucide-arrow-left',
   bell: 'i-lucide-bell',
   check: 'i-lucide-check',

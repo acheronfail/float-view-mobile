@@ -28,6 +28,7 @@
   import { clampViewport, panViewport, pinchViewport, type Viewport } from './viewport';
   import SectionTitle from '../../ui/SectionTitle.svelte';
   import Spinner from '../../ui/Spinner.svelte';
+  import Icon from '../../ui/Icon.svelte';
 
   let {
     following = false,
@@ -105,6 +106,7 @@
   const Y_TICK_COUNT = 5;
   const MIN_SELECTION_PIXELS = 8;
   const INTERACTION_MODES = ['info', 'zoom', 'pan'] as const;
+  const MODE_ICONS = { info: 'info', zoom: 'zoom-in', pan: 'hand' } as const;
   const MAX_FIELDS_PER_SERIES_REQUEST = MAX_SESSION_DATA_FIELDS;
   // Keep the complete primary temperature group in the initial request.
   const FIRST_VISIBLE_GROUP_FIELDS = 11;
@@ -1197,14 +1199,33 @@
 
     <button
       type="button"
-      class="flex size-14 touch-manipulation flex-col items-center justify-center rounded-full border border-outline bg-accent text-[10px] font-bold tracking-[0.12em] text-on-accent uppercase shadow-xl"
+      class="chart-mode flex size-14 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-full border border-current text-[10px] font-bold tracking-[0.12em] uppercase shadow-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+      data-mode={interactionMode}
       aria-label={`Chart mode: ${interactionMode}. Switch to ${nextInteractionMode()} mode`}
       title={filterByMap ? 'Map controls the chart range' : `Switch to ${nextInteractionMode()} mode`}
       disabled={filterByMap}
       onpointerdown={(event) => activateFromPointer(event, cycleInteractionMode)}
       onclick={(event) => activateFromKeyboardOrAssistiveClick(event, cycleInteractionMode)}
     >
+      <Icon name={MODE_ICONS[interactionMode]} class="size-5" />
       <span aria-hidden="true">{interactionMode}</span>
     </button>
   </div>
 {/if}
+
+<style>
+  .chart-mode[data-mode='info'] {
+    color: var(--app-on-accent-soft);
+    background: var(--app-accent-soft);
+  }
+
+  .chart-mode[data-mode='zoom'] {
+    color: var(--app-success);
+    background: color-mix(in srgb, var(--app-success) 8%, var(--app-surface));
+  }
+
+  .chart-mode[data-mode='pan'] {
+    color: var(--app-warning);
+    background: color-mix(in srgb, var(--app-warning) 5%, var(--app-surface));
+  }
+</style>
