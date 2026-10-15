@@ -98,11 +98,13 @@ account is required: AltStore signs the IPA when installing it. The archive omit
 macOS metadata files that can confuse AltStore's app detection.
 
 GitHub Actions builds master pushes and manual master runs as a
-rolling [Nightly prerelease](https://github.com/acheronfail/float-view-mobile/releases/tag/nightly).
+rolling [Nightly prerelease](https://github.com/acheronfail/float-view-mobile/releases?q=prerelease%3Atrue).
 A nightly such as `v0.1.50-nightly.12.gabcdef012345` uses the next patch after the
 greatest stable ancestor, the commit count since that tag and the source hash.
 Unchanged successful commits are skipped. Only the current Nightly asset set is
-retained; Nightly never replaces the stable Latest release.
+retained. Its release tag is the full SemVer nightly version, allowing GitHub to
+sort it above older stable releases. Source tags are immutable, while the same
+Nightly release is updated in place. Nightly never replaces the stable Latest release.
 
 Push an explicit `vX.Y.Z` tag on master history, or run
 `just release patch|minor|major` from clean, current master, to publish a permanent

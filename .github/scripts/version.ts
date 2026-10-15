@@ -84,7 +84,7 @@ export function resolveVersion(commit: string, tag: string | null, cwd = process
     version,
     appVersion: parseVersion(version).appVersion,
     channel: 'nightly',
-    tag: 'nightly',
+    tag: version,
     configuration: 'Debug',
   };
 }

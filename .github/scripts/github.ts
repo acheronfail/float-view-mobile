@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 export interface Release {
   id: number;
   tag_name: string;
+  name: string;
+  prerelease: boolean;
   draft: boolean;
   body: string | null;
   assets: { id: number; name: string }[];
@@ -29,11 +31,19 @@ export function getRelease(tag: string): Release | null {
   const published = api<Release>(`releases/tags/${encodeURIComponent(tag)}`, 'GET', undefined, true);
   if (published) return published;
   // The tag endpoint exposes published releases; list releases to recover an interrupted draft.
+  return findRelease((release) => release.tag_name === tag);
+}
+
+export function getNightlyRelease(): Release | null {
+  return findRelease((release) => release.name === 'Nightly' && release.prerelease);
+}
+
+function findRelease(matches: (release: Release) => boolean): Release | null {
   for (let page = 1; page <= 10; page++) {
     const releases = api<Release[]>(`releases?per_page=100&page=${page}`);
     if (!releases) throw new Error('GitHub did not return a release list');
-    const draft = releases.find((release) => release.tag_name === tag);
-    if (draft) return draft;
+    const release = releases.find(matches);
+    if (release) return release;
     if (releases.length < 100) return null;
   }
   throw new Error('Release search exceeded 1000 entries; refusing to create a possible duplicate');

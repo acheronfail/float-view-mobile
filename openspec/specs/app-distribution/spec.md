@@ -51,3 +51,12 @@ Distribution SHALL publish only after all three packages succeed, serialize publ
 
 - **WHEN** uploading or publishing a new Nightly fails
 - **THEN** existing successful assets are retained until replacement uploads succeed and a later run can retry
+
+### Requirement: Nightly releases use sortable version tags
+
+The rolling Nightly prerelease SHALL reference its full SemVer display-version tag so it can sort above older stable releases. Updates SHALL retain one Nightly release identity and replace its asset set. Nightly tags SHALL identify immutable source commits, and pushing them SHALL NOT trigger a stable-release build.
+
+#### Scenario: Development nightly follows a stable release
+
+- **WHEN** a nightly based on `v0.1.49` is published
+- **THEN** its release tag is `v0.1.50-nightly.<count>.g<hash>`, it remains a prerelease and `v0.1.49` retains the stable Latest designation

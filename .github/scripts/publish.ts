@@ -1,6 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { api, generatedNotes, getRelease, sourceMarker, versionMarker, type Release } from './github.ts';
+import {
+  api,
+  generatedNotes,
+  getNightlyRelease,
+  getRelease,
+  sourceMarker,
+  versionMarker,
+  type Release,
+} from './github.ts';
 import { assetNames, git, latestStable, parseVersion, resolveVersion } from './version.ts';
 
 const commit = process.env.GITHUB_SHA!;
@@ -8,7 +16,7 @@ const version = process.env.FLOAT_VIEW_VERSION!;
 parseVersion(version);
 const stableTag = process.env.GITHUB_REF?.startsWith('refs/tags/') ? process.env.GITHUB_REF.slice(10) : null;
 const channel = stableTag ? 'stable' : 'nightly';
-const tag = stableTag ?? 'nightly';
+const tag = stableTag ?? version;
 if (stableTag) {
   if (resolveVersion(commit, stableTag).version !== version)
     throw new Error('Stable publication version differs from its tag');
@@ -19,7 +27,7 @@ if (stableTag) {
 const stable = channel === 'stable';
 const files = assetNames(version);
 for (const file of files) if (!existsSync(file)) throw new Error(`Missing release asset ${file}`);
-let release = getRelease(tag);
+let release = stable ? getRelease(tag) : getNightlyRelease();
 if (stable && release && !release.draft) {
   console.log(`${tag} is already published; preserving its assets.`);
 } else {
@@ -35,20 +43,22 @@ if (stable && release && !release.draft) {
   }
   if (!release) throw new Error('GitHub did not return a release');
   // Upload the replacement set first. Previous nightly assets survive any failed upload.
-  execFileSync('gh', ['release', 'upload', tag, ...files, '--clobber'], { stdio: 'inherit' });
+  execFileSync('gh', ['release', 'upload', release.tag_name, ...files, '--clobber'], { stdio: 'inherit' });
   if (!stable) {
-    // A draft release may not have created its Git ref yet.
-    const ref = api<{ object: { sha: string } }>('git/ref/tags/nightly', 'GET', undefined, true);
-    if (ref) api('git/refs/tags/nightly', 'PATCH', { sha: commit, force: true });
-    else api('git/refs', 'POST', { ref: 'refs/tags/nightly', sha: commit });
+    // A SemVer tag lets GitHub order Nightly alongside stable releases correctly.
+    // Versioned nightly tags identify immutable source snapshots; only the release/assets roll forward.
+    const ref = api<{ object: { sha: string } }>(`git/ref/tags/${tag}`, 'GET', undefined, true);
+    if (ref && ref.object.sha !== commit) throw new Error('Nightly version tag already points to another commit');
+    if (!ref) api('git/refs', 'POST', { ref: `refs/tags/${tag}`, sha: commit });
   } else if (git(['rev-parse', `${tag}^{commit}`]) !== commit) {
     throw new Error('Stable tag moved during publication');
   }
-  // Generate after moving Nightly: GitHub ignores target_commitish when the tag already exists.
+  // Generate against the exact version tag, after ensuring it identifies this build.
   const previousTag = latestStable(commit, process.cwd(), stable ? tag : undefined);
   const notes = generatedNotes(tag, commit, previousTag);
   const body = `${notes}\n\n${sourceMarker(commit)}\n${versionMarker(version)}`;
   api(`releases/${release.id}`, 'PATCH', {
+    tag_name: tag,
     name: stable ? version : 'Nightly',
     body,
     draft: false,

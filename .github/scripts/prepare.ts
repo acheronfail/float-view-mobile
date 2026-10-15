@@ -1,5 +1,5 @@
 import { appendFileSync } from 'node:fs';
-import { getRelease, sourceMarker } from './github.ts';
+import { getNightlyRelease, getRelease, sourceMarker } from './github.ts';
 import { assetNames, buildNumber, git, isAncestor, resolveVersion } from './version.ts';
 
 const commit = git(['rev-parse', 'HEAD']);
@@ -8,7 +8,7 @@ const ref = process.env.GITHUB_REF ?? '';
 const isTag = ref.startsWith('refs/tags/');
 if (!isTag && ref !== 'refs/heads/master') throw new Error('Nightly builds require master');
 const metadata = resolveVersion(commit, isTag ? ref.slice('refs/tags/'.length) : null);
-const existing = getRelease(metadata.tag);
+const existing = metadata.channel === 'stable' ? getRelease(metadata.tag) : getNightlyRelease();
 const publishedSource = existing?.body?.match(/<!-- float-view-source:([0-9a-f]{40}) -->/)?.[1];
 const newerNightly = publishedSource && publishedSource !== commit && isAncestor(commit, publishedSource);
 // A stable tag added after publication may change the next nightly base for the same commit.

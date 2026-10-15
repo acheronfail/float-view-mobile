@@ -3,7 +3,7 @@ name: Build apps
 on:
   push:
     branches: [master]
-    tags: ["v*"]
+    tags: ["v*", "!v*-nightly.*"]
   workflow_dispatch:
 
 permissions:
