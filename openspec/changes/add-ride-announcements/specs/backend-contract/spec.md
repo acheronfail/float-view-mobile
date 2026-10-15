@@ -96,7 +96,7 @@ Each live sample SHALL expose nullable duty, motor and battery load fractions pl
 
 ### Requirement: Captured historical load values
 
-Saved samples SHALL capture dutyLoad, motorLoad and batteryLoad using the shared load owner and the limits applicable at capture. Session load charts SHALL use these fractions; raw dutyCycle SHALL retain its telemetry meaning. Historical readers, pruning and current-format export/import SHALL preserve captured values and missingness without using present-day limits. Any historical winner selection SHALL use the shared backend selector over captured fractions.
+Saved samples SHALL capture existing motorLoad and batteryLoad fractions using the shared load owner and limits applicable at capture. Session review SHALL retain its existing recorded dutyCycle and captured current-load fields. Historical readers, pruning and export/import SHALL preserve recorded values and missingness without using present-day limits. Load unification SHALL not introduce dutyLoad or replace raw duty with absolute saturated utilisation in session review.
 
 #### Scenario: Session review after configuration change
 - **WHEN** controller limits change after a ride and that ride is reviewed or exported
@@ -104,7 +104,7 @@ Saved samples SHALL capture dutyLoad, motorLoad and batteryLoad using the shared
 
 #### Scenario: Raw duty differs from displayed load
 - **WHEN** recorded raw duty is negative or exceeds the normalised load range
-- **THEN** the load chart uses captured absolute saturated dutyLoad while raw dutyCycle remains unchanged for telemetry inspection/export
+- **THEN** session review and export retain the recorded dutyCycle value; live utilisation consumers use its absolute saturated magnitude as a different displayed quantity
 
 #### Scenario: Failed persistence or guest connection
 - **WHEN** a saved sample append fails or the connection is a guest
