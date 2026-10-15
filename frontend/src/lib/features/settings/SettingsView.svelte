@@ -215,7 +215,7 @@
   {#if backendState.error}<p role="alert" class="text-warning">{backendState.error}</p>{/if}
 
   <PageFooter label="Application version">
-    <p>Float View · {buildInfo.buildNumber ? `Build ${buildInfo.buildNumber}` : 'Development build'}</p>
+    <p>Float View · {buildInfo.version ?? 'Development build'}</p>
     {#if buildInfo.revision}
       <p class="mt-1 font-mono">{buildInfo.revision}</p>
     {/if}

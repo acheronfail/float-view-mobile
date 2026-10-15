@@ -82,6 +82,11 @@ val auditAndroidRustRuntimeTasks by tasks.registering {
     }
 }
 
+val releaseVersion = providers.environmentVariable("FLOAT_VIEW_VERSION").orNull
+require(releaseVersion == null || Regex("v0\\.1\\.(0|[1-9][0-9]*)").matches(releaseVersion)) {
+    "FLOAT_VIEW_VERSION must be a v0.1.x release tag"
+}
+
 android {
     namespace = "fail.acheron.floatview"
     compileSdk = 36
@@ -91,8 +96,8 @@ android {
         applicationId = "fail.acheron.floatview"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = releaseVersion?.substringAfterLast('.')?.toInt() ?: 1
+        versionName = releaseVersion?.removePrefix("v") ?: "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {

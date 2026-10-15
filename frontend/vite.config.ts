@@ -17,9 +17,9 @@ try {
 } catch {
   // Source archives can be built without Git metadata.
 }
-const buildNumber = process.env.FLOAT_VIEW_BUILD_NUMBER ?? null;
-if (buildNumber !== null && !/^[1-9][0-9]*$/.test(buildNumber)) {
-  throw new Error('FLOAT_VIEW_BUILD_NUMBER must be a positive integer');
+const version = process.env.FLOAT_VIEW_VERSION ?? null;
+if (version !== null && !/^v0\.1\.(0|[1-9][0-9]*)$/.test(version)) {
+  throw new Error('FLOAT_VIEW_VERSION must be a v0.1.x release tag');
 }
 
 export const DEVELOPMENT_PORT = 11002;
@@ -92,7 +92,7 @@ const backendOrigin = selectedBackendOrigin();
 
 export default defineConfig({
   define: {
-    __FLOAT_VIEW_BUILD_INFO__: JSON.stringify({ buildNumber, revision }),
+    __FLOAT_VIEW_BUILD_INFO__: JSON.stringify({ version, revision }),
   },
   plugins: [
     mockBackend(backendOrigin),

@@ -100,17 +100,22 @@ macOS metadata files that can confuse AltStore's app detection.
 GitHub Actions runs the same `just ipa` command on every push to `master` and
 publishes the IPA alongside an Android APK and universal macOS app to a [GitHub release](https://github.com/acheronfail/float-view-mobile/releases)
 after all three platform builds succeed.
-The workflow run number is the release title and app/extension build number.
-Tags use ten-digit zero padding (`build-0000000001`) so lexical and numeric order
-agree; the asset is named `FloatView-build-0000000001.ipa`. Rerunning a workflow
-keeps its number and replaces that release's IPA. Failed runs can leave gaps.
-Locally, `FLOAT_VIEW_BUILD_NUMBER=1 just ipa` produces the same numbered package;
-without that variable, local builds retain the timestamp filename.
+Release tags and titles use `v0.1.x`, with the workflow run number as the patch
+version: run 47 publishes `v0.1.47` and `FloatView-v0.1.47.ipa` (with equivalent
+APK and macOS ZIP names). Every push advances the patch automatically; rerunning
+a workflow keeps its version and replaces its assets. Failed or manual runs can
+leave gaps. Native apps use `0.1.x` as their version and the patch as their
+numeric build identifier. The shared frontend displays the `v0.1.x` release tag
+in Settings alongside the commit revision.
+Locally, `FLOAT_VIEW_VERSION=v0.1.47 just ipa` produces the same versioned package;
+without that variable, local builds retain the timestamp filename and display
+“Development build”. Historical build tags/releases were renamed to `v0.1.x`
+without rebuilding their binaries, so their embedded metadata remains original.
 
 To build another branch manually, open **Actions → Build apps → Run workflow**
 and select the branch. Manual builds do not publish releases. Download the
-`FloatView-ipa-<run number>` artifact from the run's summary and extract the
-numbered IPA inside. Artifacts are retained for 14 days; release assets remain
+`FloatView-ipa-v0.1.<run number>` artifact from the run's summary and extract the
+versioned IPA inside. Artifacts are retained for 14 days; release assets remain
 available independently of that expiry.
 The [workflow](../../.github/workflows/ipa.yml) uses a macOS runner, Node.js 24,
 and the repository's pinned Rust toolchain with the iOS device target. It fetches

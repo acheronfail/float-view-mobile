@@ -121,11 +121,11 @@ ipa: build
     output_dir={{ quote(invocation_directory()) }}
     output="$output_dir/FloatView-$(date '+%Y%m%d-%H%M%S').ipa"
     build_settings=(CODE_SIGNING_ALLOWED=NO)
-    if [[ -n "${FLOAT_VIEW_BUILD_NUMBER:-}" ]]; then
-      [[ "$FLOAT_VIEW_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid build number' >&2; exit 2; }
-      printf -v version 'build-%010d' "$FLOAT_VIEW_BUILD_NUMBER"
+    if [[ -n "${FLOAT_VIEW_VERSION:-}" ]]; then
+      [[ "$FLOAT_VIEW_VERSION" =~ ^v0\.1\.(0|[1-9][0-9]*)$ ]] || { echo 'Invalid release version' >&2; exit 2; }
+      version="$FLOAT_VIEW_VERSION"
       output="$output_dir/FloatView-$version.ipa"
-      build_settings+=("CURRENT_PROJECT_VERSION=$FLOAT_VIEW_BUILD_NUMBER")
+      build_settings+=("MARKETING_VERSION=${version#v}" "CURRENT_PROJECT_VERSION=${version##*.}")
     fi
     xcodebuild -project backends/apple/ios/float-view.xcodeproj \
       -scheme float-view -configuration Debug -sdk iphoneos \

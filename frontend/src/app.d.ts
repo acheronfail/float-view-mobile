@@ -2,7 +2,7 @@
 // for information about these interfaces
 declare global {
   const __FLOAT_VIEW_BUILD_INFO__: {
-    readonly buildNumber: string | null;
+    readonly version: string | null;
     readonly revision: string | null;
   };
 

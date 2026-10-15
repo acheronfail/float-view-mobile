@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 env:
-  # Embed the release number when each platform builds the shared frontend.
-  FLOAT_VIEW_BUILD_NUMBER: ${{ github.run_number }}
+  # Keep the workflow counter as the patch version and native build identifier.
+  FLOAT_VIEW_VERSION: v0.1.${{ github.run_number }}
 
 concurrency:
   group: ipa-${{ github.ref }}
@@ -29,7 +29,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -69,7 +69,7 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: FloatView-ipa-${{ github.run_number }}
+          name: FloatView-ipa-${{ env.FLOAT_VIEW_VERSION }}
           path: FloatView-*.ipa
           if-no-files-found: error
           compression-level: 0
@@ -80,7 +80,7 @@ jobs:
     timeout-minutes: 45
     env:
       # Transfer reusable Cargo artifacts, not large per-checkout incremental state.
-      CARGO_INCREMENTAL: '0'
+      CARGO_INCREMENTAL: "0"
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -90,7 +90,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -143,7 +143,7 @@ jobs:
         working-directory: backends/android
         run: ./gradlew --no-daemon --build-cache assembleDebug
 
-      - name: Sign and verify numbered APK
+      - name: Sign and verify versioned APK
         env:
           ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
           ANDROID_SIGNING_PASSWORD: ${{ secrets.ANDROID_SIGNING_PASSWORD }}
@@ -154,7 +154,7 @@ jobs:
           keystore="$RUNNER_TEMP/float-view-signing.p12"
           trap 'rm -f "$keystore"' EXIT
           printf '%s' "$ANDROID_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$keystore"
-          printf -v version 'build-%010d' "$GITHUB_RUN_NUMBER"
+          version="$FLOAT_VIEW_VERSION"
           apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           "$apksigner" sign --ks "$keystore" --ks-key-alias float-view-ci \
             --ks-pass env:ANDROID_SIGNING_PASSWORD --key-pass env:ANDROID_SIGNING_PASSWORD \
@@ -165,7 +165,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: FloatView-apk-${{ github.run_number }}
+          name: FloatView-apk-${{ env.FLOAT_VIEW_VERSION }}
           path: FloatView-*.apk
           if-no-files-found: error
           compression-level: 0
@@ -183,7 +183,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -226,7 +226,7 @@ jobs:
       - name: Upload macOS app
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: FloatView-macos-${{ github.run_number }}
+          name: FloatView-macos-${{ env.FLOAT_VIEW_VERSION }}
           path: FloatView-*-macos-universal.zip
           if-no-files-found: error
           compression-level: 0
@@ -246,21 +246,21 @@ jobs:
     steps:
       - name: Download app artifacts
         run: |
-          gh run download "$GITHUB_RUN_ID" --name "FloatView-ipa-$GITHUB_RUN_NUMBER" --dir .
-          gh run download "$GITHUB_RUN_ID" --name "FloatView-apk-$GITHUB_RUN_NUMBER" --dir .
-          gh run download "$GITHUB_RUN_ID" --name "FloatView-macos-$GITHUB_RUN_NUMBER" --dir .
+          gh run download "$GITHUB_RUN_ID" --name "FloatView-ipa-$FLOAT_VIEW_VERSION" --dir .
+          gh run download "$GITHUB_RUN_ID" --name "FloatView-apk-$FLOAT_VIEW_VERSION" --dir .
+          gh run download "$GITHUB_RUN_ID" --name "FloatView-macos-$FLOAT_VIEW_VERSION" --dir .
 
-      - name: Publish numbered release
+      - name: Publish versioned release
         run: |
-          printf -v version 'build-%010d' "$GITHUB_RUN_NUMBER"
+          version="$FLOAT_VIEW_VERSION"
           ipa="FloatView-$version.ipa"
           apk="FloatView-$version.apk"
           macos="FloatView-$version-macos-universal.zip"
-          # A rerun keeps the same number and updates its existing assets.
+          # A rerun keeps the same version and updates its existing assets.
           if gh release view "$version" >/dev/null 2>&1; then
             gh release upload "$version" "$ipa" "$apk" "$macos" --clobber
           else
             gh release create "$version" "$ipa" "$apk" "$macos" \
-              --target "$GITHUB_SHA" --title "$GITHUB_RUN_NUMBER" \
-              --notes "Unsigned Debug IPA for AltStore, signed Debug APK for Android sideloading, and a self-signed universal macOS app (macOS 14+, not notarized). Build $GITHUB_RUN_NUMBER from commit $GITHUB_SHA."
+              --target "$GITHUB_SHA" --title "$version" \
+              --notes "Unsigned Debug IPA for AltStore, signed Debug APK for Android sideloading, and a self-signed universal macOS app (macOS 14+, not notarized). Version $version from commit $GITHUB_SHA."
           fi
