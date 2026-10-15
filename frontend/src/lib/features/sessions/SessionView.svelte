@@ -80,6 +80,7 @@
   let pruneOpen = $state(false);
   let deleting = $state(false);
   let savingDisplayOptions = $state(false);
+  let smoothCharts = $state(true);
   async function toggleDisplayOption(key: keyof SessionDisplayOptions) {
     const settings = backendState.settings;
     if (!settings || savingDisplayOptions) return;
@@ -177,6 +178,13 @@
         ? {
             menuLabel: 'Session actions',
             menu: [
+              {
+                label: 'Smooth charts',
+                checked: smoothCharts,
+                onactivate: () => {
+                  smoothCharts = !smoothCharts;
+                },
+              },
               {
                 label: 'Both footpads off at speed',
                 checked: backendState.settings?.sessionDisplayOptions.bothFootpadsOff ?? false,
@@ -360,6 +368,7 @@
 
       <div class="mt-3">
         <SessionHistory
+          {smoothCharts}
           metadata={backendState.sessionMetadata}
           {markers}
           {selectedPoint}

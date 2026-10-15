@@ -140,8 +140,10 @@ and exports. Session charts use the separately recorded `estimatedBatteryLevel`
 fraction, captured from that same service estimate; unavailable estimates stay absent.
 Chart min/max indicators summarize visible lines in the displayed range and map filter.
 Load, speed and cumulative charts show only their useful maximum.
-Session overviews show time-weighted trends over roughly eight screen pixels,
-with faint bands retaining the reduced series' per-window extrema. Range labels
+Session overviews default to Smooth charts, a session-view menu toggle. Enabled
+charts show curved, time-weighted trends over roughly eight screen pixels,
+with faint bands retaining the reduced series' per-window extrema. Disabling
+smoothing restores all retained series readings without bands. Range labels
 and inspection use the unsmoothed readings. Zoom reduces the averaging window;
 windows of one second or less show retained detail. Nulls, continuity generations
 and excluded map intervals break both trends and bands.

@@ -22,12 +22,52 @@ describe('history trend', () => {
     const result = historyTrend(spike, options, 8);
     expect(result.smoothed).toBe(true);
     // The two-second triangle averages to 1 over the ten-second range.
-    expect(result.paths).toEqual(['M 0.00 88.40 L 50.00 88.40 L 100.00 88.40']);
+    expect(result.paths).toEqual([
+      'M 0.00 88.40 C 16.67 88.40 33.33 88.40 50.00 88.40 C 66.67 88.40 83.33 88.40 100.00 88.40',
+    ]);
     expect(result.bands[0]).toContain('50.00 2.00');
     expect(result.bands[0]).toContain('50.00 98.00');
     expect(spike.values).toEqual([0, 10, 0, 0]);
     const group = sessionChartGroups([{ name: 'motorTempC' }])[0];
     expect(chartExtrema(group, { motorTempC: spike }, new Set(), options.viewport)).toEqual({ min: 0, max: 10 });
+  });
+
+  it('restores every retained reading without bands when smoothing is disabled', () => {
+    expect(historyTrend(spike, options, 8, false)).toEqual({
+      paths: buildPathSegments(spike, options),
+      bands: [],
+      smoothed: false,
+    });
+  });
+
+  it('curves changing trends with continuous tangents and no invented extrema', () => {
+    const result = historyTrend(
+      {
+        elapsedMs: [0, 2000, 4000, 6000, 8000, 10000],
+        sequence: [0, 1, 2, 3, 4, 5],
+        values: [0, 2, 8, 4, 2, 3],
+        generations: [0, 0, 0, 0, 0, 0],
+      },
+      options,
+      40
+    );
+    expect(result.bands).toHaveLength(1);
+    const path = result.paths[0];
+    expect(path).not.toContain(' L ');
+    const coordinates = path.match(/-?\d+\.\d+/g)!.map(Number);
+    let left = coordinates.slice(0, 2);
+    let previousTangent: number | null = null;
+    for (let index = 2; index < coordinates.length; index += 6) {
+      const [cx1, cy1, cx2, cy2, rx, ry] = coordinates.slice(index, index + 6);
+      for (const controlY of [cy1, cy2]) {
+        expect(controlY).toBeGreaterThanOrEqual(Math.min(left[1], ry));
+        expect(controlY).toBeLessThanOrEqual(Math.max(left[1], ry));
+      }
+      const startTangent = (cy1 - left[1]) / (cx1 - left[0]);
+      if (previousTangent !== null) expect(startTangent).toBeCloseTo(previousTangent, 2);
+      previousTangent = (ry - cy2) / (rx - cx2);
+      left = [rx, ry];
+    }
   });
 
   it('restores retained detail when zooming reduces the smoothing window below one second', () => {

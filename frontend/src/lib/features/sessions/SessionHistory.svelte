@@ -4,6 +4,7 @@
   import SessionHistoryChart from './SessionHistoryChart.svelte';
 
   let {
+    smoothCharts = true,
     following = false,
     oninspect = () => {},
     liveVersion = 0,
@@ -19,6 +20,7 @@
     ondataerror,
     initialViewport = null,
   }: {
+    smoothCharts?: boolean;
     following?: boolean;
     oninspect?: () => void;
     liveVersion?: number;
@@ -38,6 +40,7 @@
 
 <section aria-labelledby="history-heading">
   <SessionHistoryChart
+    {smoothCharts}
     {following}
     {oninspect}
     {liveVersion}

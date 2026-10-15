@@ -174,6 +174,40 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.setViewportSize({ width: 390, height: 844 });
       const loadChart = page.getByRole('img', { name: 'Load over elapsed time', exact: true });
       await loadChart.locator('[data-history-band]').waitFor({ state: 'attached' });
+      assert.ok(
+        await loadChart
+          .locator('.telemetry-chart-trace')
+          .evaluateAll((nodes) => nodes.some((node) => node.getAttribute('d')?.includes(' C ')))
+      );
+      assert.equal(await page.getByText(/Smoothed trend/).count(), 0);
+      await page.getByRole('button', { name: 'Session actions', exact: true }).tap();
+      const smoothing = page.getByRole('switch', { name: 'Smooth charts', exact: true });
+      assert.equal(await smoothing.getAttribute('aria-checked'), 'true');
+      for (const activation of [
+        { button: 2, isPrimary: true },
+        { button: 0, isPrimary: false },
+      ]) {
+        await smoothing.dispatchEvent('pointerdown', { ...activation, pointerId: 42 });
+        await smoothing.dispatchEvent('pointerup', { ...activation, pointerId: 42 });
+        assert.equal(await smoothing.getAttribute('aria-checked'), 'true');
+      }
+      await smoothing.tap();
+      assert.equal(await smoothing.getAttribute('aria-checked'), 'false', 'touch toggles exactly once');
+      await loadChart.locator('[data-history-band]').waitFor({ state: 'detached' });
+      const rawPaths = await loadChart
+        .locator('.telemetry-chart-trace')
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('d')!));
+      assert.ok(rawPaths.every((path) => !path.includes(' C ')));
+      assert.ok(
+        rawPaths.some((path) => path.split(' L ').length === 4),
+        'all retained spike readings are shown'
+      );
+      assert.equal(await load.innerText(), 'Max 75%');
+      await smoothing.focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await smoothing.getAttribute('aria-checked'), 'true', 'keyboard toggles exactly once');
+      await loadChart.locator('[data-history-band]').waitFor({ state: 'attached' });
+      await page.keyboard.press('Escape');
       assert.equal(await load.innerText(), 'Max 75%', 'smoothing keeps the recorded spike in the range label');
       await page
         .getByRole('button', { name: /Chart mode: info/ })

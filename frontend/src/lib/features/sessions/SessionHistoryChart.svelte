@@ -31,6 +31,7 @@
   import Icon from '../../ui/Icon.svelte';
 
   let {
+    smoothCharts = true,
     following = false,
     oninspect = () => {},
     liveVersion = 0,
@@ -46,6 +47,7 @@
     ondataerror = () => {},
     initialViewport = null,
   }: {
+    smoothCharts?: boolean;
     following?: boolean;
     oninspect?: () => void;
     liveVersion?: number;
@@ -272,7 +274,6 @@
         zero: number | null;
         paths: Map<string, string[]>;
         bands: Map<string, string[]>;
-        smoothed: boolean;
       }
     >();
 
@@ -280,7 +281,6 @@
       const domain = chartDomain(chartGroup);
       const paths = new SvelteMap<string, string[]>();
       const bands = new SvelteMap<string, string[]>();
-      let smoothed = false;
       if (domain) {
         chartGroup.fields.forEach((field) => {
           const column = result?.columns[field.name];
@@ -294,11 +294,11 @@
                 intervals: chartIntervals,
                 domain,
               },
-              width
+              width,
+              smoothCharts
             );
             paths.set(field.name, trend.paths);
             bands.set(field.name, trend.bands);
-            smoothed ||= trend.smoothed;
           }
         });
       }
@@ -314,7 +314,6 @@
         zero: zeroReference(domain),
         paths,
         bands,
-        smoothed,
       });
     });
     return models;
@@ -1108,7 +1107,7 @@
                 <p class="mt-1 min-h-4 text-xs text-muted">
                   {#if !hasColumns}Loading readings…
                   {:else if !hasFiniteValues}No readings in this range.
-                  {:else if chartModel?.smoothed}Smoothed trend · shaded min–max. Inspect for readings.{/if}
+                  {/if}
                 </p>
               {:else if hasColumns}<p class="mt-1 text-xs text-muted">No readings in this range.</p>
               {:else}<p class="mt-1 text-xs text-muted">Loading readings…</p>{/if}
