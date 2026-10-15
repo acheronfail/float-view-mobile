@@ -16,7 +16,7 @@ context: |
   schema/format markers, never on ordinary corruption or operational failure.
   Supported VESC/Refloat firmware wire families are not legacy application data.
   Prefer deletion, standard libraries, and small maintained dependencies.
-  Follow the impact-based verification policy in AGENTS.md and README.md. Run
+  Follow the impact-based verification policy in AGENTS.md and CONTRIBUTING.md. Run
   focused checks for changed behavior and affected consumers; frontend-only edits
   need frontend checks, and documentation-only edits need documentation validation.
   `just verify` is optional comprehensive coverage, not a per-change completion gate.

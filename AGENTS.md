@@ -96,7 +96,7 @@ and VESC interpretation belong only to `conformance/`.
 Run checks for changed code and affected consumers, following dependencies and
 observable behavior rather than just the edited paths. Start with focused tests
 and relevant type, lint, build, or integration checks; broaden only when the
-impact or a failure warrants it. See [README.md](README.md#verification) for
+impact or a failure warrants it. See [CONTRIBUTING.md](CONTRIBUTING.md#verification) for
 commands and examples. Documentation-only changes need documentation validation,
 not application builds or runtime suites.
 
