@@ -1800,6 +1800,8 @@ mod tests {
                 sample.distance_m = Some(sequence as f64);
                 sample.battery_level = Some(0.67);
                 sample.pack_voltage_v = Some(75.56);
+                sample.controller_temp_c = Some(42.);
+                sample.motor_temp_c = Some(54.);
                 t.service.accept_battery_sample(sample).unwrap();
                 t.service.changed().unwrap();
             }
@@ -1827,6 +1829,8 @@ mod tests {
             assert_eq!(state.distance_meters, Some(100.));
             assert_eq!(state.battery_percent, if saved { Some(67.) } else { None });
             assert_eq!(state.battery_voltage, Some(75.56));
+            assert_eq!(state.highest_temperature_c, Some(54.));
+            assert_eq!(state.temperature_source.as_deref(), Some("Motor"));
             assert_eq!(
                 serde_json::to_value(state).unwrap()["battery_voltage"],
                 75.56

@@ -55,6 +55,7 @@ final class RideActivityController: @unchecked Sendable {
             source: state.source, percentage: state.percentage,
             distanceMeters: state.distanceMeters, batteryPercent: state.batteryPercent,
             batteryVoltage: state.batteryVoltage,
+            highestTemperatureC: state.highestTemperatureC, temperatureSource: state.temperatureSource,
             status: state.status, footpadLeft: state.footpadLeft, footpadRight: state.footpadRight,
             imperial: state.imperial,
             observedAt: state.observedAt.map { Date(timeIntervalSince1970: Double($0) / 1000) }
@@ -67,6 +68,8 @@ final class RideActivityController: @unchecked Sendable {
             source: content.status == nil ? content.source : nil,
             load: content.status == nil ? content.loadText : "—", distance: content.distanceText,
             battery: content.batteryText, voltage: content.voltageText,
+            temperature: content.temperatureText, temperatureSource: content.temperatureSource,
+            temperatureRGB: content.temperatureRGB,
             status: content.status, footpadLeft: content.footpadLeft, footpadRight: content.footpadRight,
             imperial: content.imperial
           )

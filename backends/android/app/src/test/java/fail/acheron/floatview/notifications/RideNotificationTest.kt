@@ -14,8 +14,13 @@ class RideNotificationTest {
     @After fun restoreLocale() { Locale.setDefault(originalLocale) }
     private fun state() = LiveActivityState.decode(JSONObject("""
         {"footpad_left":"active","footpad_right":"warning","status":null,"generation":7,"observed_at":100000,"source":"motor","percentage":82,
-         "distance_meters":1609.344,"battery_voltage":75.56,"battery_percent":67,"imperial":true}
+         "distance_meters":1609.344,"battery_voltage":75.56,"battery_percent":67,"highest_temperature_c":54,"temperature_source":"Motor","imperial":true}
     """))
+
+    @Test fun nativeProjectionDecodesHighestTemperature() {
+        assertEquals(54.0, state().highestTemperatureC!!, 0.0)
+        assertEquals("Motor", state().temperatureSource)
+    }
 
     @Test fun nativeProjectionFormatsRideWithoutRecalculatingGauge() {
         val model = RideNotification.from(state(), true, 100001)

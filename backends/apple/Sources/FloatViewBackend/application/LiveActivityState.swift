@@ -9,6 +9,8 @@ public struct LiveActivityState: Codable, Hashable, Sendable {
   public let distanceMeters: Double?
   public let batteryPercent: Double?
   public let batteryVoltage: Double?
+  public let highestTemperatureC: Double?
+  public let temperatureSource: String?
   public let status: String?
   public let footpadLeft: String
   public let footpadRight: String

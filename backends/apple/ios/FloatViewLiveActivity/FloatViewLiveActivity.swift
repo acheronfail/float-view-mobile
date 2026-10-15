@@ -44,7 +44,9 @@ struct FloatViewLiveActivity: Widget {
           .font(.caption2.bold()).monospacedDigit()
           .lineLimit(1).minimumScaleFactor(0.6)
           .foregroundStyle(context.state.status == nil ? context.state.loadColor : .white)
-          .accessibilityLabel("\(context.state.status == nil ? context.state.loadLabel : "Board") \(context.isStale ? "unavailable" : (context.state.status ?? context.state.loadText))")
+          .accessibilityLabel(
+            "\(context.state.status == nil ? context.state.loadLabel : "Board") \(context.isStale ? "unavailable" : (context.state.status ?? context.state.loadText))"
+          )
       }
     }
   }
@@ -60,10 +62,22 @@ private struct RideSummary: View {
         Label("Float View", systemImage: "bolt.circle.fill").font(.caption.bold())
         FootpadIndicator(state: state, stale: stale).frame(width: 28, height: 16)
         Spacer()
-        Text(stale ? "Waiting for telemetry" : "Connected").font(.caption).foregroundStyle(.secondary)
+        if stale {
+          Text("Waiting for telemetry").font(.caption).foregroundStyle(.secondary)
+        } else {
+          Text("Temp · \(state.temperatureText)")
+            .font(.caption).monospacedDigit().foregroundStyle(state.temperatureColor)
+            .accessibilityLabel(
+              "Temperature, \(state.temperatureSource ?? "sensor"), \(state.temperatureText == "—" ? "unavailable" : state.temperatureText)"
+            )
+        }
       }
       HStack(alignment: .firstTextBaseline, spacing: 16) {
-        metric(state.status == nil ? state.loadLabel : "Board", value: stale ? "—" : (state.status ?? state.loadText), color: state.status == nil ? state.loadColor : .white)
+        metric(
+          state.status == nil ? state.loadLabel : "Board",
+          value: stale ? "—" : (state.status ?? state.loadText),
+          color: state.status == nil ? state.loadColor : .white
+        )
         Spacer(minLength: 0)
         metric("Distance", value: stale ? "—" : state.distanceText)
         Spacer(minLength: 0)
@@ -89,6 +103,11 @@ private struct RideSummary: View {
 }
 
 private extension RideActivityAttributes.ContentState {
+  var temperatureColor: Color {
+    guard let rgb = temperatureRGB else { return .secondary }
+    return Color(red: Double(rgb[0]) / 255, green: Double(rgb[1]) / 255, blue: Double(rgb[2]) / 255)
+  }
+
   /// Primary gauge's dark palette (app.css), suited to the Island's black surface.
   var loadColor: Color {
     switch source {
@@ -112,7 +131,8 @@ private struct FootpadIndicator: View {
     .clipShape(Capsule())
     .overlay(Capsule().stroke(.gray.opacity(0.6), lineWidth: 1))
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel(stale ? "Footpads unavailable" : "Footpads: left \(label(state.footpadLeft)), right \(label(state.footpadRight))")
+    .accessibilityLabel(stale ? "Footpads unavailable" :
+      "Footpads: left \(label(state.footpadLeft)), right \(label(state.footpadRight))")
   }
 
   private func label(_ value: String) -> String {
@@ -131,3 +151,43 @@ private struct FootpadIndicator: View {
     }
   }
 }
+
+#if DEBUG
+  private extension RideActivityAttributes {
+    static let preview = RideActivityAttributes(generation: 1)
+
+    static func previewState(status: String? = nil, imperial: Bool = false) -> ContentState {
+      ContentState(
+        source: "duty", percentage: 42, distanceMeters: 12340,
+        batteryPercent: 67, batteryVoltage: 75.6,
+        highestTemperatureC: 54, temperatureSource: "Motor",
+        status: status, footpadLeft: "active", footpadRight: "active",
+        imperial: imperial, observedAt: .now
+      )
+    }
+  }
+
+  #Preview("Lock Screen", as: .content, using: RideActivityAttributes.preview) {
+    FloatViewLiveActivity()
+  } contentStates: {
+    RideActivityAttributes.previewState()
+    RideActivityAttributes.previewState(status: "Stopped")
+    RideActivityAttributes.previewState(imperial: true)
+    RideActivityAttributes.ContentState(
+      footpadLeft: "neutral", footpadRight: "neutral", imperial: false
+    )
+  }
+
+  #Preview("Expanded Island", as: .dynamicIsland(.expanded), using: RideActivityAttributes.preview) {
+    FloatViewLiveActivity()
+  } contentStates: {
+    RideActivityAttributes.previewState()
+  }
+
+  #Preview("Stale readings") {
+    RideSummary(state: RideActivityAttributes.previewState(), stale: true)
+      .padding(16)
+      .background(Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255))
+      .environment(\.colorScheme, .dark)
+  }
+#endif

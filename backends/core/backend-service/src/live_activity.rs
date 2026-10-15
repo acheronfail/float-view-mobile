@@ -13,6 +13,8 @@ pub struct LiveActivity {
     pub distance_meters: Option<f64>,
     pub battery_percent: Option<f64>,
     pub battery_voltage: Option<f64>,
+    pub highest_temperature_c: Option<f64>,
+    pub temperature_source: Option<String>,
     pub imperial: bool,
     pub status: Option<String>,
     pub footpad_left: FootpadIndicator,
@@ -89,6 +91,27 @@ fn ratio(
     let limit = if signed_current? < 0. { min } else { max };
     (limit != 0.).then(|| value.map(|v| v / limit)).flatten()
 }
+// Match the frontend highest-temperature widget, including stable tie order.
+fn highest_temperature(values: [Option<f64>; 5]) -> (Option<&'static str>, Option<f64>) {
+    let mut winner = (None, None);
+    for (source, value) in ["ESC", "Motor", "Battery", "BMS", "Humidity"]
+        .into_iter()
+        .zip(values)
+    {
+        if let Some(value) = value.filter(|v| v.is_finite())
+            && winner.1.is_none_or(|previous| value > previous)
+        {
+            winner = (Some(source), Some(value));
+        }
+    }
+    winner
+}
+
+fn fresh_temperature_observation(observed: i64, now: i64) -> bool {
+    now.checked_sub(observed)
+        .is_some_and(|age| (0..5_000).contains(&age))
+}
+
 impl BackendService {
     pub(crate) fn live_activity(&self) -> Option<LiveActivity> {
         let active = self.policy.active.as_ref()?;
@@ -101,6 +124,21 @@ impl BackendService {
             return None;
         }
         let sample = active.latest.as_ref();
+        let bms = active.bms.as_ref().filter(|bms| {
+            runtime.bms.status == float_view_application_runtime::coordinator::bms::Status::Attached
+                && runtime.bms.route == Some(bms.route)
+                && fresh_temperature_observation(
+                    bms.observed_at_epoch_ms,
+                    self.policy.exchange.epoch,
+                )
+        });
+        let (temperature_source, highest_temperature_c) = highest_temperature([
+            sample.and_then(|s| s.controller_temp_c),
+            sample.and_then(|s| s.motor_temp_c),
+            bms.map(|b| b.highest_cell_temperature_c),
+            bms.map(|b| b.highest_circuitry_temperature_c()),
+            bms.map(|b| b.humidity_sensor_temperature_c),
+        ]);
         let limits = runtime.current_limits.as_ref();
         let (source, percentage) = sample
             .map(|s| {
@@ -149,6 +187,8 @@ impl BackendService {
             battery_voltage: sample
                 .and_then(|s| s.pack_voltage_v)
                 .filter(|v| v.is_finite()),
+            highest_temperature_c,
+            temperature_source: temperature_source.map(str::to_owned),
             imperial: self.policy.settings.unit_preference == "imperial",
         })
     }
@@ -195,6 +235,30 @@ mod tests {
         );
         assert_eq!(status(Some(PackageState::Running)), None);
         assert_eq!(status(None), None);
+    }
+
+    #[test]
+    fn highest_temperature_handles_missing_nonfinite_negative_and_tied_sensors() {
+        assert_eq!(highest_temperature([None; 5]), (None, None));
+        assert_eq!(
+            highest_temperature([Some(f64::NAN), Some(-5.), None, Some(-10.), None]),
+            (Some("Motor"), Some(-5.))
+        );
+        assert_eq!(
+            highest_temperature([Some(40.), Some(40.), Some(30.), None, None]),
+            (Some("ESC"), Some(40.))
+        );
+        for (index, source) in ["ESC", "Motor", "Battery", "BMS", "Humidity"]
+            .into_iter()
+            .enumerate()
+        {
+            let mut values = [Some(20.); 5];
+            values[index] = Some(70.);
+            assert_eq!(highest_temperature(values), (Some(source), Some(70.)));
+        }
+        assert!(fresh_temperature_observation(100, 5099));
+        assert!(!fresh_temperature_observation(100, 5100));
+        assert!(!fresh_temperature_observation(100, 99));
     }
 
     #[test]

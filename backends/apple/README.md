@@ -151,8 +151,17 @@ A ready board connection starts a Live Activity while the app is foregrounded
 and Live Activities are enabled in iOS Settings. Standalone BMS connections do
 not start one. The compact/minimal Dynamic Island shows the primary gauge's
 winning drive-load percentage; the expanded Island and Lock Screen also show
-distance in the selected units, battery charge and pack voltage to one decimal place. The dark gauge palette is
-shared visually: duty yellow, motor pink, battery current green. Charge uses the
+distance in the selected units, battery charge and pack voltage to one decimal
+place. The header shows the highest available temperature (whole degrees in the
+selected units), labelled “Temp”. Its colour matches the temperature bars: green
+at 30°C or below, through orange to red at 60°C (45°C for battery cells).
+Missing readings stay neutral; VoiceOver also names the sensor. Selection matches the in-app highest
+temperature widget, excluding detached or five-second-old BMS observations.
+In Xcode, open `ios/FloatViewLiveActivity/FloatViewLiveActivity.swift` and enable
+the Canvas for Lock Screen previews of riding, stopped, imperial and unavailable
+readings, plus expanded Island and stale-reading previews.
+
+The dark gauge palette is shared visually: duty yellow, motor pink, battery current green. Charge uses the
 same estimate/controller-reported selection as the frontend power widget.
 
 The shared service emits a coalesced native presentation effect. The iOS host

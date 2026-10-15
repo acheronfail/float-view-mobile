@@ -8,6 +8,8 @@ struct RideActivityAttributes: ActivityAttributes {
     var distanceMeters: Double?
     var batteryPercent: Double?
     var batteryVoltage: Double?
+    var highestTemperatureC: Double?
+    var temperatureSource: String?
     var status: String?
     var footpadLeft: String
     var footpadRight: String
@@ -29,6 +31,34 @@ struct RideActivityAttributes: ActivityAttributes {
 
     var batteryText: String {
       batteryPercent.map { String(format: "%.0f%%", $0) } ?? "—"
+    }
+
+    /// Matches gauge-colors.ts: green at 30°C, orange halfway to red.
+    /// Cell temperatures reach red at 45°C; other sensors at 60°C.
+    var temperatureRGB: [Int]? {
+      guard let value = highestTemperatureC, value.isFinite else { return nil }
+      let green = [22, 163, 74]
+      let orange = [234, 88, 12]
+      let red = [220, 38, 38]
+      let redAt = temperatureSource == "Battery" ? 45.0 : 60.0
+      if value <= 30 {
+        return green
+      }
+      if value >= redAt {
+        return red
+      }
+      let orangeAt = (30 + redAt) / 2
+      let start = value >= orangeAt ? orange : green
+      let end = value >= orangeAt ? red : orange
+      let amount = value >= orangeAt
+        ? (value - orangeAt) / (redAt - orangeAt)
+        : (value - 30) / (orangeAt - 30)
+      return zip(start, end).map { Int((Double($0) + Double($1 - $0) * amount).rounded()) }
+    }
+
+    var temperatureText: String {
+      guard let value = highestTemperatureC, value.isFinite else { return "—" }
+      return String(format: "%.0f°%@", imperial ? value * 9 / 5 + 32 : value, imperial ? "F" : "C")
     }
 
     var voltageText: String {

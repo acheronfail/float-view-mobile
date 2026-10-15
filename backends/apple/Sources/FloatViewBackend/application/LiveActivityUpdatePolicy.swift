@@ -11,6 +11,9 @@ struct LiveActivityUpdatePolicy {
     let distance: String
     let battery: String
     let voltage: String
+    let temperature: String
+    let temperatureSource: String?
+    let temperatureRGB: [Int]?
     let status: String?
     let footpadLeft: String
     let footpadRight: String

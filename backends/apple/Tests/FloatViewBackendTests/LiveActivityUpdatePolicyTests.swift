@@ -7,9 +7,11 @@ final class LiveActivityUpdatePolicyTests: XCTestCase {
 
   private func presentation(
     load: String = "42%", source: String? = "duty", voltage: String = "75.6 V",
+    temperature: String = "54°C", temperatureSource: String? = "Motor", temperatureRGB: [Int]? = [226, 58, 28],
     status: String? = nil, left: String = "active", right: String = "active"
   ) -> LiveActivityUpdatePolicy.Presentation {
     .init(source: source, load: load, distance: "1.23 km", battery: "67%", voltage: voltage,
+          temperature: temperature, temperatureSource: temperatureSource, temperatureRGB: temperatureRGB,
           status: status, footpadLeft: left, footpadRight: right, imperial: false)
   }
 
@@ -43,6 +45,18 @@ final class LiveActivityUpdatePolicyTests: XCTestCase {
     XCTAssertEqual(policy.reason(for: changed, observedAt: next, now: next, uptime: 105), .display)
     policy.submitted(changed, observedAt: next, now: next, uptime: 105)
     XCTAssertNil(policy.reason(for: presentation(), observedAt: next, now: next, uptime: 106))
+  }
+
+  func testTemperatureAndSensorChangesUseDisplayCadence() {
+    let policy = startedPolicy()
+    for changed in [
+      presentation(temperature: "55°C"),
+      presentation(temperatureSource: "ESC"), presentation(temperatureRGB: [227, 59, 27]),
+      presentation(temperature: "—", temperatureSource: nil),
+    ] {
+      XCTAssertNil(policy.reason(for: changed, observedAt: start, now: start, uptime: 104))
+      XCTAssertEqual(policy.reason(for: changed, observedAt: start, now: start, uptime: 105), .display)
+    }
   }
 
   func testTransientNumericChangeThatReturnsToDisplayedValueIsNotSent() {
