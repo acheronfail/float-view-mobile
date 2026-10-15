@@ -71,13 +71,13 @@ class SpeechAdapter(private val context: Context, private val report: (String, L
         val volume = request.volume
         handler.post {
             if (android.os.SystemClock.elapsedRealtime() >= expires || closed || lease.active != null || !ready) { report("outcome", id, "unavailable"); return@post }
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                 .setAudioAttributes(attributes).setAcceptsDelayedFocusGain(false)
                 .setOnAudioFocusChangeListener({ change -> if (change < 0 && lease.active == id) finish("interrupted") }, handler).build()
-            if (audio.requestAudioFocus(request) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            if (audio.requestAudioFocus(focusRequest) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
                 report("outcome", id, "unavailable"); return@post
             }
-            lease.begin(id) { engine?.stop(); audio.abandonAudioFocusRequest(request) }
+            lease.begin(id) { engine?.stop(); audio.abandonAudioFocusRequest(focusRequest) }
             engine?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) = Unit
                 override fun onDone(utteranceId: String?) = complete(utteranceId, "finished")

@@ -12,7 +12,7 @@ internal data class SpeechRequest(
     }.joinToString(", ")
     companion object {
         fun decode(value: JSONObject): SpeechRequest? = runCatching {
-            require(value.keySet() == setOf("id", "expires_at_ms", "load", "speed", "imperial", "volume", "lower_other_audio"))
+            require(value.keys().asSequence().toSet() == setOf("id", "expires_at_ms", "load", "speed", "imperial", "volume", "lower_other_audio"))
             fun integer(objectValue: JSONObject, key: String, max: Long): Long {
                 val raw = objectValue.get(key)
                 require(raw is Number)
@@ -24,7 +24,7 @@ internal data class SpeechRequest(
             require(id > 0)
             require(value.get("imperial") is Boolean && value.get("lower_other_audio") is Boolean)
             val load = if (value.isNull("load")) null else value.getJSONObject("load").let {
-                require(it.keySet() == setOf("source", "percent"))
+                require(it.keys().asSequence().toSet() == setOf("source", "percent"))
                 val source = it.get("source")
                 require(source is String && source in listOf("duty", "motor", "battery"))
                 source to integer(it, "percent", 100).toInt()

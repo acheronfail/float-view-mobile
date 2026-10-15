@@ -91,7 +91,17 @@ class FixtureBluetoothAdapter(config: JSONObject, private val emit: (BluetoothEv
                         val result = try {
                             connection.outputStream.use { it.write(encoded) }
                             require(connection.responseCode == 200)
-                            val data = connection.inputStream.use { it.readNBytes(65537) }
+                            val data = connection.inputStream.use { input ->
+                                val buffer = ByteArray(65537)
+                                var size = 0
+                                while (size < buffer.size) {
+                                    require(System.nanoTime() < deadline)
+                                    val count = input.read(buffer, size, buffer.size - size)
+                                    if (count < 0) break
+                                    size += count
+                                }
+                                buffer.copyOf(size)
+                            }
                             require(data.size <= 65536 && System.nanoTime() < deadline)
                             JSONObject(String(data, Charsets.UTF_8))
                         } finally { connection.disconnect(); synchronized(lock) { active = null } }

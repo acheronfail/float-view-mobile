@@ -64,7 +64,15 @@ export async function runConformance(target: Target) {
     assert.equal(await client.request('uiState.get', {}), null);
     assert.deepEqual(await client.request('uiState.set', { checkpoint }), { accepted: true });
     assert.deepEqual(await client.request('uiState.get', {}), checkpoint);
-    assert.equal((await client.request('state.get', {})).revision, initial.revision);
+    const afterCheckpoint = await client.request('state.get', {});
+    // Native TTS initialization can complete during these requests and publish
+    // its own revision. Rust's checkpoint unit test checks the no-event invariant
+    // without concurrent OS facts; here all other product state must stay equal.
+    assert.ok(afterCheckpoint.revision >= initial.revision);
+    assert.deepEqual(
+      { ...afterCheckpoint, revision: initial.revision, announcementAudio: initial.announcementAudio },
+      initial
+    );
     for (const invalid of [
       { ...checkpoint, version: 2 },
       { ...checkpoint, draft: {} },

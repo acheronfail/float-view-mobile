@@ -30,7 +30,7 @@
 
 - [ ] 4.1 Add service-owned asynchronous TextToSpeech initialization, installed offline voice selection, per-utterance volume, speech/guidance attributes and operation-specific callbacks; verify focused JVM tests for no engine/voice, initialization failure, cancellation, readiness recovery and late callbacks.
 - [ ] 4.2 Request transient may-duck focus per utterance without delayed acquisition, release focus on every terminal path and enforce watchdog cancellation; verify fake focus/TTS tests cover focus denial/loss, error, stop, timeout and suppression of obsolete callbacks.
-- [ ] 4.3 Integrate existing foreground-service lifetime, review current service-type/permission requirements for actual TTS playback and add only required declarations; verify affected Android service tests/build checks and document lifetime, audio ownership and best-effort calls in the Android README.
+- [x] 4.3 Integrate existing foreground-service lifetime, review current service-type/permission requirements for actual TTS playback and add only required declarations; verify affected Android service tests/build checks and document lifetime, audio ownership and best-effort calls in the Android README.
 
 ## 5. Shared Settings UI
 
@@ -40,7 +40,7 @@
 
 ## 6. Integration acceptance
 
-- [ ] 6.1 Run affected Rust crate/consumer tests, formatting and warnings-denied Clippy, relevant frontend checks, linked Apple/Android tests and affected canonical direct/host conformance cases; verify contract parity, bounded resources, frontend recreation and audio failure without BLE or recording regression. Record actual commands and results.
+- [x] 6.1 Run affected Rust crate/consumer tests, formatting and warnings-denied Clippy, relevant frontend checks, linked Apple/Android tests and affected canonical direct/host conformance cases; verify contract parity, bounded resources, frontend recreation and audio failure without BLE or recording regression. Record actual commands and results.
 - [ ] 6.2 On iOS and Android hardware, verify above/below-threshold speech, repeats, background/locked-screen BLE delivery, speech volume including zero without ducking, simultaneous speed/load phrases, iOS lowering on/off for automatic and test speech, Android automatic ducking, music restoration, Bluetooth headset routing/disconnection, interruption, unavailable audio recovery and disabling; check macOS speech/mixing where affected. Probe representative calls as best effort, recording graceful skipping as acceptable. Preserve fixture safety/restore checks for any hardware fixture runs and report unavailable required coverage.
 - [ ] 6.3 Review implementation against all delta scenarios, confirm no duplicate load formulas or frontend winner selection, no speech backlog, alternate runtime, browser speech, new polling or compatibility machinery remains, and record remaining limitations before declaring implementation complete.
 
@@ -77,19 +77,48 @@ that native engine/focus/background behavior was established by software tests.
   focused arm64 build avoids that unrelated architecture. An initial broad Swift
   run also encountered a macOS effective-appearance test failure; the affected
   speech/shared-server/Live Activity selection passes with normal native access.
-- Android: four standalone Kotlin/JUnit request-validation and resource-lease
-  tests pass using the already installed compiler/JUnit/JSON dependencies. They
-  cover malformed input, one winning load plus speed, gain, exactly-once cleanup
-  and obsolete callbacks. This is not an Android app build: Gradle compilation
-  and full native tests are blocked because no Android SDK is configured on this
-  host (the installed JDK is available). No SDK or engine download was added.
+- Android SDK is now installed at `~/Library/Android/sdk` with API 36 (revision
+  2), Build Tools 35.0.0, NDK 28.2.13676358 and Platform Tools 37.0.1, using the
+  existing Homebrew JDK 21 and all four repository-pinned Rust targets. The SDK
+  path is configured in ignored `backends/android/local.properties`.
+- Android: the initial `./gradlew clean assembleDebug assembleRelease
+assembleConformance test lint assembleDebugAndroidTest` run exposed Kotlin/API
+  compilation failures and existing lint errors. After fixes,
+  `./gradlew assembleDebug assembleRelease assembleConformance test lintDebug
+lintRelease lintConformance assembleDebugAndroidTest` passes. Debug, Release and Conformance APKs
+  build; all 27 JVM tests pass in each variant (81 executions, no skips/failures),
+  including linked JNI, request validation and resource cleanup. Each variant's
+  lint has zero errors and 36 existing advisory warnings. The Rust helper's exact JNI
+  symbol/architecture audits pass, and ZIP integrity, the exact four-ABI Rust
+  library set and frontend assets are verified in all three APKs. The final
+  aggregate `./gradlew build auditAndroidRustRuntimeTasks` also passes.
+- Full Android compilation exposed speech request/focus variable shadowing and
+  use of JVM-only `JSONObject.keySet()`; these now use distinct names and the
+  Android-supported key iterator. The manifest declares TTS engine visibility
+  for Android 11+. Existing location registration now explicitly catches
+  permission revocation and provider removal, allowing lint to establish the
+  intended graceful failure behavior. Conformance's API-33-only `readNBytes`
+  is replaced by a size/deadline-bounded API-29-supported read loop.
+- Android emulator 37.2.12 with API 36 Google APIs ARM64: all three
+  `./gradlew connectedDebugAndroidTest` tests pass (JNI envelope/lifetime plus
+  native loading canvas, retained/disposed resume, memory pressure and Activity
+  recreation). Canonical `cd conformance && npm run android` passes at revision
+  489, including announcement settings/test behavior and frontend recreation.
+  The software target now pre-grants location/notification access rather than
+  waiting for interactive OS dialogs. The UI checkpoint assertion tolerates
+  independent native TTS readiness revisions while asserting all other state is
+  unchanged; Rust's deterministic checkpoint test retains the no-event assertion.
+  Direct and mock conformance reruns pass, as do `npm run check` and all eight
+  `node --strip-types --test test/targets.test.ts` checks.
 - The new required persisted announcement settings use product storage marker
   23; earlier development storage is reset only by the existing explicit version
   mismatch path. Session field representation and review behavior are unchanged.
 
-Remaining acceptance: configure an Android SDK and run the affected app build and
-JVM tests; exercise native engine-unavailable/voice recovery, audio-focus denial,
+Remaining acceptance: native fake-engine/focus coverage in tasks 3.1, 4.1 and
+4.2 remains incomplete; the passing request/lease and shared-policy tests must
+not be described as full adapter fault-injection coverage. Perform the exact
+[physical checklist](physical-checks.md), including native voice recovery,
 interruptions, iOS lowering on/off, headset routes, locked-screen BLE/speech and
-volume restoration on relevant real iOS/Android devices. No physical audio/BLE
-validation was performed. Keep this change active and do not sync/archive until
-these required checkpoints and the final scenario audit are complete.
+music restoration. No physical audio/BLE validation was performed. Keep this
+change active and do not sync/archive until these checkpoints and the final
+scenario audit are complete.

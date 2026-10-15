@@ -38,6 +38,36 @@ JNI exports. Select tests and packaging checks by impact using the root
 only for affected BLE, background, Activity or file-presentation behavior that
 software cannot establish; unrelated platforms need no regression run.
 
+## Local SDK and verification
+
+Install the [Android command-line tools](https://developer.android.com/studio#command-tools)
+under `$ANDROID_HOME/cmdline-tools/latest` and select an installed JDK with
+`JAVA_HOME` (Java 17 or 21). On macOS the conventional SDK directory is
+`$HOME/Library/Android/sdk`. Install the pinned build dependencies:
+
+```sh
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+  'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'ndk;28.2.13676358'
+rustup target add --toolchain 1.93.0 \
+  aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+```
+
+Keep `ANDROID_HOME` set when building, or put `sdk.dir=<absolute SDK path>` in
+the ignored `backends/android/local.properties`. Build the frontend assets first
+with `cd frontend && npm run build`. From `backends/android`, full software
+compilation, all JVM test variants and lint run with:
+
+```sh
+./gradlew clean assembleDebug assembleRelease assembleConformance test \
+  lintDebug lintRelease lintConformance assembleDebugAndroidTest
+```
+
+With an emulator running, `./gradlew connectedDebugAndroidTest` executes the
+instrumentation tests. Add SDK `platform-tools` to `PATH`, then run
+`cd conformance && npm run android` from the repository root for the canonical
+Android host contract suite. These software checks do not verify audible speech,
+ducking/restoration, real headset routes or locked-screen BLE delivery.
+
 ## GitHub Actions APK builds
 
 The [app workflow](../../.github/workflows/ipa.yml) builds a signed Debug APK

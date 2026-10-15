@@ -121,7 +121,14 @@ function makeAndroidTarget(configuredSerial?: string): Target {
       adb(serial, 'install', '-r', `${root}/backends/android/app/build/outputs/apk/conformance/app-conformance.apk`);
       adb(serial, 'shell', 'pm', 'clear', applicationId);
       const apiLevel = androidApiLevel(serial);
-      for (const permission of androidRuntimePermissions(apiLevel)) {
+      // The software contract suite must not wait for interactive OS dialogs.
+      // Permission presentation is covered separately; use granted location and
+      // notification access here, including the first-ride notification prompt.
+      const permissions = [
+        ...androidLocationRuntimePermissions(apiLevel),
+        ...(apiLevel >= 33 ? ['android.permission.POST_NOTIFICATIONS'] : []),
+      ];
+      for (const permission of permissions) {
         adb(serial, 'shell', 'pm', 'grant', applicationId, permission);
       }
       adb(serial, 'forward', `tcp:${hostPort}`, `tcp:${devicePort}`);

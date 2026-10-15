@@ -94,8 +94,12 @@ class AndroidLocationProvider(
         val providers = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
             .filter { runCatching { locationManager.isProviderEnabled(it) }.getOrDefault(false) }
         providers.forEach { provider ->
-            runCatching {
+            try {
                 locationManager.requestLocationUpdates(provider, 1_000L, 5f, next, Looper.getMainLooper())
+            } catch (_: SecurityException) {
+                // Access can be revoked after the foreground permission check.
+            } catch (_: IllegalArgumentException) {
+                // A provider can disappear between enumeration and registration.
             }
         }
     }
