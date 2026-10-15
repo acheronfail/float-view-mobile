@@ -11,6 +11,7 @@ Riders need to hear speed or duty readings above a chosen threshold without look
 - Use native text-to-speech on Apple and Android, briefly requesting audio ducking/focus for each utterance and releasing it on every terminal path.
 - Skip unavailable or interrupted audio gracefully without queuing old readings, disturbing the connection, or failing recording. Playback during calls is best effort.
 - Extend the authenticated contract, client/mock, settings UI, and canonical conformance coverage together, including an explicit test-announcement operation and bounded audio readiness state.
+- Update the root README's dot-point feature list when implemented to advertise spoken speed/duty announcements with configurable thresholds and repeat intervals.
 
 ### Non-goals
 

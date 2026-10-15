@@ -28,6 +28,7 @@
 
 - [ ] 5.1 Add off/speed/duty controls, metric-specific threshold input, interval input, bounded readiness and explicit test action in the existing settings feature; verify frontend tests and npm run check cover units, revisions, preserved edits, invalid input, save failures and test outcomes without board connection.
 - [ ] 5.2 Use native button semantics and established pointer/keyboard activation guards; verify primary pointer, non-primary pointer, cancellation and keyboard activation in relevant mock/browser coverage, including no duplicate tests and pending-state reactivation. Update frontend ownership/product documentation where needed.
+- [ ] 5.3 Add a bullet to the root README.md feature list describing spoken speed/duty announcements with configurable thresholds and repeat intervals; verify the wording matches implemented behavior, does not promise playback during calls, and passes git diff --check.
 
 ## 6. Integration acceptance
 
