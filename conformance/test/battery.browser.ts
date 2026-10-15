@@ -196,6 +196,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         false
       );
       await page.reload();
+      await page.getByRole('region', { name: 'Detailed board telemetry', exact: true }).waitFor();
+      await page.getByText('Estimated battery level:', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
+      await page.getByRole('button', { name: 'Normal View', exact: true }).tap();
       await gauge.waitFor();
       assert.equal(await gauge.getAttribute('aria-valuenow'), percent);
       await page.getByRole('button', { name: 'Board actions', exact: true }).click();

@@ -35,11 +35,13 @@
     if (focusFrame !== undefined) cancelAnimationFrame(focusFrame);
     void tick().then(() => {
       if (generation !== focusGeneration) return;
-      // Let a preceding native dialog release modal focus. Also run when an
-      // outgoing panel is reopened and Svelte reuses its existing DOM.
-      focusFrame = requestAnimationFrame(() => {
-        if (!dialog?.inert) closeButton?.focus();
-      });
+      const focusIfOutside = () => {
+        if (dialog && !dialog.inert && !dialog.contains(document.activeElement)) closeButton?.focus();
+      };
+      // Focus as soon as the panel is visible. Retry after a preceding native
+      // dialog releases focus, without resetting a user's first Tab movement.
+      focusIfOutside();
+      focusFrame = requestAnimationFrame(focusIfOutside);
     });
   }
   onMount(() => {
@@ -63,7 +65,9 @@
   function handleKeydown(event: KeyboardEvent) {
     // A confirmation above this overlay owns its own keyboard handling.
     if (event.defaultPrevented || dialog?.inert) return;
-    if (document.activeElement?.closest('[role="dialog"], [role="alertdialog"]') !== dialog) return;
+    const focusedDialog = document.activeElement?.closest('dialog, [role="dialog"], [role="alertdialog"]');
+    if (focusedDialog && focusedDialog !== dialog) return;
+    // Escape also works before the opening focus frame reaches this overlay.
     if (event.key === 'Escape') {
       event.preventDefault();
       void close();
@@ -75,6 +79,13 @@
         'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
       )
     );
+    // Some WebViews clear focus after a cancelled pointer gesture. Keep the
+    // next Tab inside the active panel even while focus is temporarily outside.
+    if (focusedDialog !== dialog) {
+      event.preventDefault();
+      (event.shiftKey ? controls.at(-1) : controls[0])?.focus();
+      return;
+    }
     const target = wrappedDialogFocus(
       document.activeElement instanceof HTMLElement ? document.activeElement : null,
       controls,

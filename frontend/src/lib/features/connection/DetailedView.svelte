@@ -72,9 +72,14 @@
 </script>
 
 {#if connection}
-  <div class:opacity-45={dimmed} class="motion-feedback space-y-2 transition-opacity motion-reduce:transition-none">
+  <section
+    aria-label="Detailed board telemetry"
+    class:opacity-45={dimmed}
+    class="detailed-telemetry motion-feedback space-y-4 transition-opacity motion-reduce:transition-none"
+  >
     <TelemetrySection
       title="Board state"
+      note="The board retains the last reported beep reason after the beep ends."
       items={[
         ['Ride state', telemetryState(sample?.rideState)],
         ['Package state', telemetryState(sample?.packageState)],
@@ -94,7 +99,6 @@
         ['Ride time', duration(sample?.ridingElapsedMs)],
       ] as [string, string][]}
     />
-    <p class="px-2 text-xs text-muted">The board retains the last reported beep reason after the beep ends.</p>
     <TelemetrySection
       title="Motion"
       items={[
@@ -152,19 +156,20 @@
         ['ATR speed boost', scalar(sample?.atrSpeedBoost, 3)],
       ] as [string, string][]}
     />
-    <div class="flex items-center justify-between gap-2 rounded border border-outline px-2 py-1 font-mono text-xs">
-      <span class="text-muted uppercase">{battery.label}:</span>
-      <div class="flex items-center gap-1">
-        <span>{batteryPercent == null ? 'Unavailable' : `${batteryPercent}%`}</span>
+    <TelemetrySection
+      title="Battery charge"
+      items={[[battery.label, batteryPercent == null ? 'Unavailable' : `${batteryPercent}%`]]}
+    >
+      {#snippet accessory()}
         {#if battery.needsSetup && onconfigure}<BatterySetupWarning {onconfigure} />{/if}
-      </div>
-    </div>
-    {#if connection.batteryEstimate.method}
-      <p class="px-2 text-xs text-muted" aria-label="Battery estimation method">
-        Estimated battery charge.
-        {#if connection.batteryEstimate.provisional}Waiting for stable readings…{/if}
-      </p>
-    {/if}
+      {/snippet}
+      {#if connection.batteryEstimate.method}
+        <p class="px-2 text-xs leading-5 text-muted" aria-label="Battery estimation method">
+          Estimated battery charge.
+          {#if connection.batteryEstimate.provisional}Waiting for stable readings…{/if}
+        </p>
+      {/if}
+    </TelemetrySection>
     <TelemetrySection
       title="Accumulated and charging"
       items={[
@@ -231,7 +236,7 @@
         ] as [string, string][]}
       />
     {/if}
-  </div>
+  </section>
 {:else}
   <p class="text-muted">Recovering active connection…</p>
 {/if}

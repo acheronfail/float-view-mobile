@@ -222,7 +222,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             ].map((element) => element.getBoundingClientRect());
             return {
               centreOffset: Math.abs((box.left + box.right - gauge.left - gauge.right) / 2),
-              topOffset: Math.abs(box.top - (gauge.top + (232 / 300) * gauge.height)),
+              insideGauge:
+                box.left >= gauge.left - 1 &&
+                box.right <= gauge.right + 1 &&
+                box.top >= gauge.top - 1 &&
+                box.bottom <= gauge.bottom + 1,
+              touchHeight: box.height,
               contained: readings.every(
                 (reading) =>
                   reading.left >= box.left &&
@@ -233,7 +238,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             };
           });
           assert.ok(bounds.centreOffset < 1, JSON.stringify(bounds));
-          assert.ok(bounds.topOffset < 1, JSON.stringify(bounds));
+          assert.ok(bounds.insideGauge, JSON.stringify(bounds));
+          assert.ok(bounds.touchHeight >= 44, JSON.stringify(bounds));
           assert.ok(bounds.contained, JSON.stringify(bounds));
         };
         await checkCentreBox();
@@ -301,8 +307,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.keyboard.press('Enter');
         await distancePicker.waitFor();
         const pickerBounds = await distancePicker.boundingBox();
-        assert.equal(pickerBounds?.width, 390);
-        assert.equal(pickerBounds?.height, 844);
+        assert.ok(pickerBounds && Math.abs(pickerBounds.width - 390) < 0.01);
+        assert.ok(pickerBounds && Math.abs(pickerBounds.height - 844) < 0.01);
         if (process.env.SCREENSHOT_DIR)
           await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/gauge-picker-${name}.png` });
         await page.keyboard.press('Escape');

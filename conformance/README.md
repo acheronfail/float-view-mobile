@@ -34,6 +34,29 @@ no evidence; failures print bounded first-failure context. The physical adapters
 contain only launch, loopback tunneling, lifecycle, and cleanup controls; all
 contract and VESC assertions remain in shared TypeScript.
 
+## Live viewport rendering
+
+Run `npm run test:live-viewports` from `conformance/` to build the current frontend
+and render the normal and detailed live views across 24 CSS viewports in Chromium
+and WebKit. Light/dark themes cover normal saved/BMS/guest states and detailed
+telemetry (384 render cases, plus bottom-of-scroll captures). The matrix includes
+compact phones, modern iPhones and Androids, browser-control height reductions,
+tablets, landscape, and square/unfolded shapes. Dimensions come from the installed
+Playwright device registry plus explicit compact, landscape and square cases.
+
+Open `generated/live-viewports/index.html` for the browser/theme/scenario gallery.
+The same directory contains original PNGs, labelled contact sheets and JSON
+geometry reports. Set `FLOAT_VIEW_VIEWPORT_OUTPUT` to choose another output path.
+These are web-content emulations; physical OS safe-area insets are not simulated.
+
+The suite rejects horizontal overflow, overlapping widgets, clipped battery bars
+or centre boxes, header targets smaller than 44 px and out-of-bounds location
+panels. Detailed rows are checked for wrapping, clipping and label/value overlap;
+representative widths verify one, two and three telemetry columns, and the final
+value must remain reachable by scrolling. Ordinary saved/BMS portrait and modern
+landscape views fit without scrolling. The shortest landscape and short guest layouts retain vertical
+scrolling, with checks that the entire battery section remains reachable.
+
 ## Interactive fixture development
 
 `just fixture dev [port]` starts the development-only SvelteKit controller on

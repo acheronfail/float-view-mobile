@@ -111,7 +111,9 @@
   }
 </script>
 
-<div class="[container-type:size] relative flex h-full min-h-0 items-center justify-center overflow-hidden">
+<div
+  class="[container-type:size] relative flex h-full min-h-0 items-center justify-center overflow-hidden [container-name:live-gauge]"
+>
   <div class="relative aspect-[320/300] max-h-full max-w-full" style:width="min(100%, calc(320 / 300 * 100cqh))">
     <svg
       viewBox="0 0 320 300"
@@ -221,9 +223,18 @@
         {load == null ? '—' : `${animatedLoad.current.toFixed(0)}%`}
       </text>
     </svg>
-    <div class="absolute top-[77.333333%] left-[32.8125%] w-[34.375%]">
+    <div class="gauge-centre absolute top-[77.333333%] left-[32.8125%] w-[34.375%]">
       <LiveValueBox {sample} slot={4} />
     </div>
   </div>
   <MarkerCapture {sessionId} />
 </div>
+
+<style>
+  @container live-gauge (max-height: 17rem) or (max-width: 18rem) {
+    .gauge-centre {
+      top: auto;
+      bottom: 4%;
+    }
+  }
+</style>

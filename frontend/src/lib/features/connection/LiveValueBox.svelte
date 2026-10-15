@@ -99,7 +99,7 @@
       : `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`}
     aria-describedby={`live-number-${slot} live-box-help-${slot}`}
     aria-keyshortcuts="Shift+Enter"
-    class="flex h-14 w-full min-w-0 touch-pan-y items-center justify-center rounded-lg border border-outline bg-surface px-1 py-1.5 text-center select-none focus-visible:outline-2 focus-visible:outline-accent"
+    class="live-value-button flex h-14 w-full min-w-0 touch-pan-y items-center justify-center rounded-lg border border-outline bg-surface px-1 py-1.5 text-center select-none focus-visible:outline-2 focus-visible:outline-accent"
     onclick={(event) => activateFromKeyboardOrAssistiveClick(event, keyboardActivate)}
     onkeydown={(event) => {
       if (
@@ -160,3 +160,11 @@
     onclose={close}
   />
 {/if}
+
+<style>
+  @container live-gauge (max-height: 17rem) or (max-width: 18rem) {
+    .live-value-button {
+      height: 2.75rem;
+    }
+  }
+</style>

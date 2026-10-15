@@ -72,3 +72,11 @@
     {/each}
   </div>
 </section>
+
+<style>
+  @media (max-height: 40rem) {
+    h2 {
+      margin-bottom: 0.25rem;
+    }
+  }
+</style>

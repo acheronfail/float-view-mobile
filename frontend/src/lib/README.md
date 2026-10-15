@@ -289,6 +289,16 @@ transport identity's hardware, firmware name, VESC version and stable/test relea
 Direct Bluetooth connections show the firmware once. These are live snapshot
 metadata, with no extra discovery requests or private identifiers.
 
+The live dashboard reserves full-height number and battery rows so a short viewport
+cannot squeeze their contents out of view. Short landscape screens place the gauge
+beside the remaining widgets; the smallest screens scroll vertically with the header
+remaining fixed. Compact gauges retain a 44 px centre-box target and a smaller
+marker target, hiding the marker hint when it would overlap the centre box. The
+repeatable mobile rendering matrix is documented in `conformance/README.md`.
+Within each section, detailed telemetry rows form one, two or three readable
+columns as width permits. Each label/value pair wraps within its cell; notes stay
+with their section and long firmware identities remain readable in narrow columns.
+
 ## Motion
 
 `ui/motion.ts` and the CSS motion tokens define short, consistent transitions:

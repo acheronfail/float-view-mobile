@@ -1,17 +1,45 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import SectionTitle from '../../ui/SectionTitle.svelte';
 
-  let { title, items }: { title: string; items: [string, string][] } = $props();
+  let {
+    title,
+    items,
+    note,
+    accessory,
+    children,
+  }: {
+    title: string;
+    items: [string, string][];
+    note?: string;
+    accessory?: Snippet;
+    children?: Snippet;
+  } = $props();
 </script>
 
-<section aria-label={title} class="flex flex-col gap-2">
+<section aria-label={title} class="flex min-w-0 flex-col gap-2">
   <SectionTitle {title} />
-  <dl class="divide-y divide-outline overflow-hidden rounded border border-outline font-mono">
-    {#each items as item (item[0])}
-      <div class="grid grid-cols-[max-content_minmax(0,1fr)] items-center px-2 py-1 odd:bg-surface">
-        <dt class="text-xs text-muted uppercase">{item[0]}:</dt>
-        <dd class="min-w-0 text-right text-xs font-medium break-words">{item[1]}</dd>
+  <dl class="telemetry-rows grid gap-1 font-mono">
+    {#each items as item, index (item[0])}
+      <div
+        class="grid grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] items-baseline gap-x-3 rounded border border-outline px-2 py-1 odd:bg-surface"
+      >
+        <dt class="min-w-0 text-xs leading-5 [overflow-wrap:anywhere] text-muted uppercase">{item[0]}:</dt>
+        <dd
+          class="flex min-w-0 items-center justify-end gap-1 text-right text-xs leading-5 font-medium [overflow-wrap:anywhere]"
+        >
+          <span class="min-w-0">{item[1]}</span>
+          {#if index === 0 && accessory}{@render accessory()}{/if}
+        </dd>
       </div>
     {/each}
   </dl>
+  {#if note}<p class="px-2 text-xs leading-5 text-muted">{note}</p>{/if}
+  {#if children}{@render children()}{/if}
 </section>
+
+<style>
+  .telemetry-rows {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  }
+</style>

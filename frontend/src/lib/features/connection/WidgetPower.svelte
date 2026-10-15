@@ -55,7 +55,7 @@
       onclick={(event) => activateFromKeyboardOrAssistiveClick(event, onbms)}
     ></button>
   {/if}
-  <div class="mb-3 flex shrink-0 items-baseline justify-between gap-3">
+  <div class="power-heading mb-3 flex shrink-0 items-baseline justify-between gap-3">
     <h2
       id="power-title"
       class="text-xs font-semibold tracking-[0.16em] text-muted uppercase tall:text-sm taller:text-base"
@@ -113,6 +113,12 @@
 </section>
 
 <style>
+  @media (max-height: 40rem) {
+    .power-heading {
+      margin-bottom: 0.25rem;
+    }
+  }
+
   @keyframes -global-battery-charging-pulse {
     from {
       background-position: 100% 0;

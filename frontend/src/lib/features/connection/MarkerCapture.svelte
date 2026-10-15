@@ -54,7 +54,7 @@
   aria-label="Save ride marker"
   disabled={!sessionId}
   aria-disabled={!sessionId || pending}
-  class="absolute top-[53%] left-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 touch-manipulation rounded-full focus-visible:outline-2 focus-visible:outline-warning"
+  class="marker-target absolute top-[53%] left-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 touch-manipulation rounded-full focus-visible:outline-2 focus-visible:outline-warning"
   onpointerdown={(event) => gesture.start(event)}
   onpointermove={(event) => gesture.move(event)}
   onpointerup={(event) => {
@@ -70,7 +70,7 @@
   }}
 ></button>
 {#if sessionId}<span
-    class="pointer-events-none absolute bottom-0 left-1/2 -translate-x-1/2 text-[10px] whitespace-nowrap text-muted"
+    class="marker-hint pointer-events-none absolute bottom-0 left-1/2 -translate-x-1/2 text-[10px] whitespace-nowrap text-muted"
     >Double-tap to mark</span
   >{/if}
 <div role="status" aria-live="polite" class="pointer-events-none absolute top-2 left-1/2 z-10 -translate-x-1/2">
@@ -81,6 +81,21 @@
 </div>
 
 <style>
+  @container live-gauge (max-height: 17rem) or (max-width: 18rem) {
+    .marker-target {
+      width: min(6rem, 32cqh);
+      height: min(6rem, 32cqh);
+    }
+    .marker-hint {
+      display: none;
+    }
+  }
+
+  @container live-gauge (max-height: 20rem) {
+    .marker-hint {
+      display: none;
+    }
+  }
   .marker-toast {
     color: #fff7ed;
     background: linear-gradient(135deg, #7c2d12, #431407);

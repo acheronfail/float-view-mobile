@@ -38,21 +38,24 @@
         <span>Guest connection — live data will not be saved or tracked.</span>
       </p>
     {/if}
-    <div class="grid min-h-0 flex-1 grid-rows-[2.5rem_auto_minmax(14rem,1fr)_auto_auto] gap-2">
+    <div class="live-widgets min-h-0 flex-1">
       <div
         class:opacity-45={dimmed}
-        class="motion-feedback min-h-0 overflow-hidden transition-opacity motion-reduce:transition-none"
+        class="live-footpads motion-feedback min-h-0 overflow-hidden transition-opacity motion-reduce:transition-none"
       >
         <WidgetFootpads {sample} />
       </div>
 
-      <div class:opacity-45={dimmed} class="motion-feedback min-h-0 transition-opacity motion-reduce:transition-none">
+      <div
+        class:opacity-45={dimmed}
+        class="live-numbers motion-feedback min-h-0 transition-opacity motion-reduce:transition-none"
+      >
         <WidgetNumbers {sample} />
       </div>
 
       <div
         class:opacity-45={dimmed}
-        class="motion-feedback min-h-0 overflow-hidden transition-opacity motion-reduce:transition-none"
+        class="live-gauge motion-feedback min-h-0 overflow-hidden transition-opacity motion-reduce:transition-none"
       >
         <WidgetGauge
           sessionId={connection.trackingMode === 'saved' ? (connection.activeSession?.sessionId ?? null) : null}
@@ -61,13 +64,16 @@
         />
       </div>
 
-      <div class:opacity-45={dimmed} class="motion-feedback transition-opacity motion-reduce:transition-none">
+      <div
+        class:opacity-45={dimmed}
+        class="live-temperatures motion-feedback transition-opacity motion-reduce:transition-none"
+      >
         <WidgetTemperatures {sample} bms={connection.bms} {nowMs} />
       </div>
 
       <div
         class:opacity-45={dimmed}
-        class="motion-feedback min-h-0 overflow-hidden transition-opacity motion-reduce:transition-none"
+        class="live-power motion-feedback transition-opacity motion-reduce:transition-none"
       >
         <WidgetPower
           {charging}
@@ -83,3 +89,43 @@
 {:else}
   <p class="text-muted">Recovering active connection…</p>
 {/if}
+
+<style>
+  .live-widgets {
+    display: grid;
+    grid-template-areas: 'footpads' 'numbers' 'gauge' 'temperatures' 'power';
+    grid-template-rows: 2.5rem 3.5rem minmax(11rem, 1fr) max-content max-content;
+    gap: 0.5rem;
+  }
+  .live-footpads {
+    grid-area: footpads;
+  }
+  .live-numbers {
+    grid-area: numbers;
+  }
+  .live-gauge {
+    grid-area: gauge;
+  }
+  .live-temperatures {
+    grid-area: temperatures;
+  }
+  .live-power {
+    grid-area: power;
+  }
+
+  @media (max-height: 40rem) {
+    .live-widgets {
+      grid-template-rows: 2rem 3.5rem minmax(11rem, 1fr) max-content max-content;
+      gap: 0.375rem;
+    }
+  }
+
+  @media (min-width: 30rem) and (max-height: 32rem) and (orientation: landscape) {
+    .live-widgets {
+      grid-template-areas: 'gauge footpads' 'gauge numbers' 'gauge temperatures' 'gauge power';
+      grid-template-columns: minmax(12rem, 0.9fr) minmax(0, 1fr);
+      grid-template-rows: 2rem 3.5rem max-content max-content;
+      column-gap: 1rem;
+    }
+  }
+</style>
