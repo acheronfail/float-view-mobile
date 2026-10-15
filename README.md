@@ -1,7 +1,10 @@
 # Float View
 
-Connect to your VESC board over Bluetooth, watch live telemetry, record rides,
-and tune Refloat. Available on macOS, Android, and iOS.
+- 📡 Connect to your VESC board over Bluetooth.
+- 📊 Watch live telemetry.
+- 🛞 Record and review rides.
+- 🎛️ Tune Refloat.
+- 💻 Available on macOS, Android, and iOS.
 
 <table>
   <tr>
@@ -33,8 +36,6 @@ and tune Refloat. Available on macOS, Android, and iOS.
     </td>
   </tr>
 </table>
-
-_Recorded ride data with a simulated live connection and BMS cell readings._
 
 ## How to install
 
