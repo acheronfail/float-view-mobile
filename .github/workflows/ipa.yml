@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Embed the release number when each platform builds the shared frontend.
+  FLOAT_VIEW_BUILD_NUMBER: ${{ github.run_number }}
+
 concurrency:
   group: ipa-${{ github.ref }}
   cancel-in-progress: false
@@ -60,8 +64,6 @@ jobs:
         run: cargo fetch --locked --target aarch64-apple-ios
 
       - name: Build AltStore IPA
-        env:
-          FLOAT_VIEW_BUILD_NUMBER: ${{ github.run_number }}
         run: just ipa
 
       - name: Upload IPA
@@ -209,7 +211,6 @@ jobs:
 
       - name: Build and sign universal macOS app
         env:
-          FLOAT_VIEW_BUILD_NUMBER: ${{ github.run_number }}
           MACOS_CODE_SIGN_P12_BASE64: ${{ secrets.MACOS_CODE_SIGN_P12_BASE64 }}
           MACOS_CODE_SIGN_P12_PASSWORD: ${{ secrets.MACOS_CODE_SIGN_P12_PASSWORD }}
         run: bash backends/apple/with-macos-signing-identity.sh bash backends/apple/build-macos-release.sh
