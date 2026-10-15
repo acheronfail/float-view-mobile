@@ -26,7 +26,9 @@ const skip =
           !existing.draft &&
           (newerNightly || (completeAssets && existing.body?.includes(sourceMarker(commit))))
       );
-const number = buildNumber(process.env.GITHUB_RUN_NUMBER);
+// ipa.yml ended at 60. Keep this offset and the current workflow path stable:
+// renaming a workflow file starts a new GitHub run-number sequence.
+const number = buildNumber(String(Number(buildNumber(process.env.GITHUB_RUN_NUMBER)) + 60));
 const output = { ...metadata, buildNumber: number, commit, skip: String(skip) };
 appendFileSync(
   process.env.GITHUB_OUTPUT!,

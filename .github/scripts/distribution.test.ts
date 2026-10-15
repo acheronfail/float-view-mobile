@@ -194,7 +194,7 @@ test('stable publication resumes a failed draft and never clobbers a published r
   git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'advance master'], f.cwd);
   git(['update-ref', 'refs/remotes/origin/master', git(['rev-parse', 'HEAD'], f.cwd)], f.cwd);
   git(['checkout', '--detach', f.sha], f.cwd);
-  const overrides = { GITHUB_REF: 'refs/tags/v0.2.0', FLOAT_VIEW_VERSION: 'v0.2.0' };
+  const overrides = { GITHUB_REF: 'refs/tags/v0.2.0', FLOAT_VIEW_VERSION: 'v0.2.0', GITHUB_RUN_NUMBER: '3' };
   for (const file of assetNames('v0.2.0')) writeFileSync(join(f.cwd, file), 'stable');
   f.save({ releases: [], actions: [], fail: 'publish' });
   assert.notEqual(f.run('publish', overrides).status, 0);
@@ -213,7 +213,7 @@ test('stable publication resumes a failed draft and never clobbers a published r
   assert.equal(f.state().actions.filter((a) => a.startsWith('upload')).length, uploads);
   assert.equal(f.run('prepare', overrides).status, 0);
   assert.match(f.output(), /configuration=Release/);
-  assert.match(f.output(), /buildNumber=60/);
+  assert.match(f.output(), /buildNumber=63/);
   assert.match(f.output(), /skip=true/);
 });
 

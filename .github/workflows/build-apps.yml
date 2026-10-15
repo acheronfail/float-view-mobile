@@ -9,10 +9,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # Numeric native identity is independent of the stable/nightly display version.
-  FLOAT_VIEW_BUILD_NUMBER: ${{ github.run_number }}
-
 concurrency:
   group: app-distribution
   cancel-in-progress: false
@@ -23,6 +19,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
+      build-number: ${{ steps.version.outputs.buildNumber }}
       configuration: ${{ steps.version.outputs.configuration }}
       skip: ${{ steps.version.outputs.skip }}
     env:
@@ -51,6 +48,7 @@ jobs:
     timeout-minutes: 45
     env:
       FLOAT_VIEW_VERSION: ${{ needs.prepare.outputs.version }}
+      FLOAT_VIEW_BUILD_NUMBER: ${{ needs.prepare.outputs.build-number }}
       FLOAT_VIEW_BUILD_CONFIGURATION: ${{ needs.prepare.outputs.configuration }}
     steps:
       - name: Check out repository
@@ -114,6 +112,7 @@ jobs:
     timeout-minutes: 45
     env:
       FLOAT_VIEW_VERSION: ${{ needs.prepare.outputs.version }}
+      FLOAT_VIEW_BUILD_NUMBER: ${{ needs.prepare.outputs.build-number }}
       FLOAT_VIEW_BUILD_CONFIGURATION: ${{ needs.prepare.outputs.configuration }}
       # Transfer reusable Cargo artifacts, not large per-checkout incremental state.
       CARGO_INCREMENTAL: "0"
@@ -219,6 +218,7 @@ jobs:
     timeout-minutes: 45
     env:
       FLOAT_VIEW_VERSION: ${{ needs.prepare.outputs.version }}
+      FLOAT_VIEW_BUILD_NUMBER: ${{ needs.prepare.outputs.build-number }}
       FLOAT_VIEW_BUILD_CONFIGURATION: ${{ needs.prepare.outputs.configuration }}
     steps:
       - name: Check out repository

@@ -114,8 +114,9 @@ above older stable versions. Source tags are immutable; only the current Nightly
 release and asset set is retained. Nightly never replaces the stable Latest release. Unchanged successful
 nightlies and reruns of older commits are skipped. Failed builds remain retryable.
 
-The retained Build apps workflow counter supplies an independent numeric native
-build identifier across both channels. Keep the same workflow/counter; native
+The retained Build apps workflow counter plus its fixed offset of 60 supplies an independent numeric native
+build identifier across both channels. The offset preserves the sequence from the former `ipa.yml` workflow.
+Keep the same workflow path, counter and offset; native
 build numbers must not reset on a minor/major bump. Reruns reuse the original
 identity; a future store upload needing a new build identifier needs a fresh run.
 Release bodies use GitHub-generated notes. Stable notes compare against the
