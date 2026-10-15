@@ -4,7 +4,7 @@
 
 ### Requirement: Complete mandatory contract
 
-Every supported backend SHALL implement the WebSocket control methods `state.get`, `uiState.get`, `uiState.set`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `announcements.test`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.marker.add`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, `events`, `locations`, and `markers`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities.
+Every supported backend SHALL implement the WebSocket control methods `state.get`, `uiState.get`, `uiState.set`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `announcements.test`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.marker.add`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, `events`, `locations`, and `markers`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities, except that the mandatory announcement audio state SHALL determine visibility of the iOS-only audio-lowering control.
 
 #### Scenario: Supported backend
 
@@ -27,7 +27,7 @@ The contract SHALL expose complete announcement settings and bounded audio readi
 - **THEN** the returned settings and subsequent complete snapshots contain the accepted values, including after frontend or process recreation
 
 #### Scenario: Invalid or conflicting save
-- **WHEN** an announcement patch is out of bounds, non-finite, has an invalid enable flags or volume, uses a stale revision, or fails persistence
+- **WHEN** an announcement patch is out of bounds, non-finite, has invalid enable flags or volume, uses a stale revision, or fails persistence
 - **THEN** it fails with the existing applicable structured error and leaves all settings unchanged
 
 #### Scenario: Audio availability changes
@@ -61,3 +61,15 @@ Every host SHALL implement announcements.test with a closed speed/load/combined 
 #### Scenario: Combined test and volume
 - **WHEN** an authenticated client requests a combined test with admission available
 - **THEN** it attempts the fixed winning-load test reading followed by speed at the saved announcement volume, independent of rule enable flags and thresholds; zero volume finishes without audio playback
+
+### Requirement: Announcement audio lowering availability
+
+Every host SHALL expose announcementAudio.loweringControl as adjustable on iOS or automatic on Android/macOS, and persist a boolean announcements.lowerOtherAudio defaulting to true. A false update on automatic-only hosts SHALL fail with unavailable and leave the entire patch unchanged. The frontend SHALL use this mandatory field to hide the unsupported control without platform detection or optional methods. Other announcement settings SHALL retain identical contract semantics.
+
+#### Scenario: iOS preference save
+- **WHEN** iOS receives a valid lowering preference at the current settings revision
+- **THEN** it persists the preference atomically and subsequent snapshots and process recreation retain it
+
+#### Scenario: Unsupported lowering request
+- **WHEN** Android or macOS receives a current-revision patch setting lowerOtherAudio to false
+- **THEN** the complete patch fails with unavailable without modifying any settings; other methods and audio playback remain available

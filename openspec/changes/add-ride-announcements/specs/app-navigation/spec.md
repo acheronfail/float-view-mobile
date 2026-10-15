@@ -33,3 +33,15 @@ Settings SHALL provide independent speed/load switches and thresholds with expli
 #### Scenario: Audio unavailable
 - **WHEN** audio readiness is unavailable or a test cannot play
 - **THEN** Settings explains the bounded reason or outcome and retains the user's announcement configuration and other working controls
+
+### Requirement: Conditional audio lowering control
+
+Settings SHALL show “Lower other audio while speaking” only when authoritative announcement audio state says lowering is adjustable. Helper text SHALL explain that music and other audio become quieter temporarily and that some apps may pause. Android and macOS SHALL hide this control while retaining announcement volume and other common settings. The frontend SHALL derive visibility from the mandatory state field, not detect the platform.
+
+#### Scenario: iOS audio controls
+- **WHEN** Settings receives adjustable lowering state
+- **THEN** it shows the saved lowering switch and its explanation alongside announcement volume
+
+#### Scenario: Android or macOS audio controls
+- **WHEN** Settings receives automatic lowering state
+- **THEN** it hides the lowering switch without hiding speech volume, thresholds, enable switches or testing

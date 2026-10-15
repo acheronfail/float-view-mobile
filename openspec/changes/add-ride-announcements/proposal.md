@@ -11,13 +11,14 @@ Riders need to hear speed or load readings above a chosen threshold without look
 - Combine the qualifying highest load component and speed in one utterance per interval, with load first, so neither rule overlaps or starves the other.
 - Evaluate fresh board telemetry in Rust and emit bounded typed speak/cancel effects independently of frontend publication and recording cadence.
 - Use native text-to-speech on Apple and Android, briefly requesting audio ducking/focus for each utterance and releasing it on every terminal path.
+- Add an iOS-only “Lower other audio while speaking” switch, enabled by default; Android and macOS retain automatic native audio handling and hide the switch.
 - Skip unavailable or interrupted audio gracefully without queuing old readings, disturbing the connection, or failing recording. Playback during calls is best effort.
 - Extend the authenticated contract, client/mock, settings UI, and canonical conformance coverage together, including an explicit test-announcement operation and bounded audio readiness state.
 - Update the root README's dot-point feature list when implemented to advertise spoken speed/load announcements with configurable thresholds and repeat intervals.
 
 ### Non-goals
 
-Arbitrary rule collections, configurable ducking depth or a cross-platform ducking switch, firmware alerts, custom voice downloads or voice pickers, cloud speech, a bundled speech engine, identical voices across platforms, guaranteed call playback, and new telemetry polling are out of scope.
+Arbitrary rule collections, configurable ducking depth or an Android/macOS ducking switch, firmware alerts, custom voice downloads or voice pickers, cloud speech, a bundled speech engine, identical voices across platforms, guaranteed call playback, and new telemetry polling are out of scope.
 
 ## Capabilities
 

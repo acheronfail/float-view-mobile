@@ -132,7 +132,7 @@ Policy SHALL run independently of the frontend and recording cadence. Disconnect
 
 ### Requirement: Native speech and graceful audio fallback
 
-Hosts SHALL use native speech with an installed offline-capable voice and temporarily request appropriate audio mixing or ducking. Audio resources SHALL be released on completion, cancellation, interruption, error and timeout. Unavailable speech, denied focus and calls SHALL skip the attempt without changing system volume settings, retry loops, stale playback, or disruption to BLE, recording or other application work. Successful playback during calls SHALL not be required.
+Hosts SHALL use native speech with an installed offline-capable voice and request mixing or ducking using the saved supported preference. Audio resources SHALL be released on completion, cancellation, interruption, error and timeout. Unavailable speech, denied focus and calls SHALL skip the attempt without system-volume changes, retry loops, stale playback or disruption to BLE and recording. Successful playback during calls SHALL not be required.
 
 #### Scenario: Music playing
 - **WHEN** an announcement plays while compatible music playback is active
@@ -157,3 +157,19 @@ The service SHALL admit at most one active utterance across automatic and test s
 #### Scenario: Voice becomes available
 - **WHEN** users return from system settings after making an offline voice available
 - **THEN** readiness is re-evaluated and a subsequent eligible attempt can speak without restarting the app
+
+### Requirement: Optional lowering of other audio on iOS
+
+On iOS, users SHALL be able to choose whether announcements request lowering other audio, enabled by default. When disabled, speech SHALL request mixing without ducking or interrupting spoken content. Android and macOS SHALL retain automatic audio handling without exposing this choice. Automatic and test speech SHALL use the same preference, captured at admission; edits SHALL affect the next utterance without changing device volume.
+
+#### Scenario: Lowering enabled
+- **WHEN** an iOS announcement plays with lowering enabled and compatible music is active
+- **THEN** the host requests temporary ducking and releases it at the end; other spoken content may pause according to native policy
+
+#### Scenario: Lowering disabled
+- **WHEN** an iOS announcement plays with lowering disabled
+- **THEN** it requests mixing without lowering or pausing other playback and still releases its session on all terminal paths
+
+#### Scenario: Edit during speech
+- **WHEN** the lowering preference changes while an utterance is active
+- **THEN** the current utterance retains its admitted audio policy and the next automatic or test utterance uses the new preference

@@ -2,7 +2,7 @@
 
 ## 1. Contract, storage and bounded OS exchange
 
-- [ ] 1.1 Extend contract.ts, client/mock, shared settings persistence and complete state projection with validated announcement settings (independent enable flags, thresholds, shared interval and 0–100 volume) and audio readiness; verify defaults, bounds, atomic nested replacement, revision conflicts, persistence failures, unit conversion and process recreation with focused store/contract/mock tests.
+- [ ] 1.1 Extend contract.ts, client/mock, shared settings persistence and complete state projection with validated announcement settings (independent enable flags, thresholds, shared interval and 0–100 volume and lowerOtherAudio) and audio readiness/loweringControl; verify defaults, bounds, atomic nested replacement, revision conflicts, persistence failures, unit conversion, unsupported false lowering requests failing atomically, and process recreation with focused store/contract/mock tests.
 - [ ] 1.2 Add typed operation-identified speak/cancel effects and terminal/readiness facts through the existing C/JNI families, with one slot, bounded payloads and ten-second deadlines; verify Apple/Android decoding and binding consumer tests reject malformed effects and ignore duplicate/late outcomes.
 - [ ] 1.3 Add authenticated announcements.test dispatch and bounded cancellable waiter handling across hosts and mock, initially returning unavailable where native speech is not yet connected; verify fixed speed, single-winner load and combined phrases, saved speech gain and silent zero-volume completion, invalid input, busy/cooldown errors, disconnect cleanup and exactly one terminal response in canonical conformance. Document new contract shapes beside their owning code.
 
@@ -15,7 +15,7 @@
 ## 3. Apple native speech
 
 - [ ] 3.1 Add the service-owned Apple synthesizer with offline voice selection, localized combined speed/load phrases, per-utterance volume and closed readiness; verify adapter tests cover initialization, cancellation, duplicate callbacks, route/interruption/reset events and watchdog resource cleanup on iOS/macOS boundaries.
-- [ ] 3.2 Add iOS background-audio capability and select one audio-session approach after a focused device experiment; verify music ducking and restoration on success, stop, error and interruption, and retain only the selected approach. Document the chosen session ownership and call limitation in the Apple README.
+- [ ] 3.2 Add iOS background-audio capability and explicit playback/voicePrompt session ownership, choosing duck/spoken-interruption options when lowering is on and mix-only options when off; verify both preference values, next-utterance changes, test parity, and music restoration on success, stop, error and interruption. Document the chosen session ownership and call limitation in the Apple README.
 - [ ] 3.3 Connect speech effects/facts across service and listener recreation; verify linked Apple consumer tests and affected iOS/macOS build checks, with no iOS-only audio-session calls in macOS builds.
 
 ## 4. Android native speech
@@ -26,14 +26,14 @@
 
 ## 5. Shared Settings UI
 
-- [ ] 5.1 Add independent speed/load switches and threshold inputs, shared interval input, announcement-volume slider with muted feedback, bounded readiness and explicit test action in the existing settings feature; verify frontend tests and npm run check cover units, revisions, preserved edits, invalid input, save failures, both enabled together, volume boundaries and speed/load/combined test outcomes without board connection.
+- [ ] 5.1 Add independent speed/load switches and threshold inputs, shared interval input, announcement-volume slider with muted feedback, bounded readiness, iOS-only “Lower other audio while speaking” with helper text driven by loweringControl, and explicit test action in the existing settings feature; verify frontend tests and npm run check cover units, revisions, preserved edits, invalid input, save failures, both enabled together, volume boundaries, iOS switch visibility/persistence, Android/macOS switch absence without platform detection, and speed/load/combined test outcomes without board connection.
 - [ ] 5.2 Use native button semantics and established pointer/keyboard activation guards; verify primary pointer, non-primary pointer, cancellation and keyboard activation in relevant mock/browser coverage, including no duplicate tests and pending-state reactivation. Update frontend ownership/product documentation where needed.
 - [ ] 5.3 Add a bullet to the root README.md feature list describing spoken speed/load announcements with configurable thresholds and repeat intervals; verify the wording matches implemented behavior, does not promise playback during calls, and passes git diff --check.
 
 ## 6. Integration acceptance
 
 - [ ] 6.1 Run affected Rust crate/consumer tests, formatting and warnings-denied Clippy, relevant frontend checks, linked Apple/Android tests and affected canonical direct/host conformance cases; verify contract parity, bounded resources, frontend recreation and audio failure without BLE or recording regression. Record actual commands and results.
-- [ ] 6.2 On iOS and Android hardware, verify above/below-threshold speech, repeats, background/locked-screen BLE delivery, speech volume including zero without ducking, simultaneous speed/load phrases, music ducking/restoration, Bluetooth headset routing/disconnection, interruption, unavailable audio recovery and disabling; check macOS speech/mixing where affected. Probe representative calls as best effort, recording graceful skipping as acceptable. Preserve fixture safety/restore checks for any hardware fixture runs and report unavailable required coverage.
+- [ ] 6.2 On iOS and Android hardware, verify above/below-threshold speech, repeats, background/locked-screen BLE delivery, speech volume including zero without ducking, simultaneous speed/load phrases, iOS lowering on/off for automatic and test speech, Android automatic ducking, music restoration, Bluetooth headset routing/disconnection, interruption, unavailable audio recovery and disabling; check macOS speech/mixing where affected. Probe representative calls as best effort, recording graceful skipping as acceptable. Preserve fixture safety/restore checks for any hardware fixture runs and report unavailable required coverage.
 - [ ] 6.3 Review implementation against all delta scenarios, confirm no speech backlog, alternate runtime, browser speech, new polling or compatibility machinery remains, and record remaining limitations before declaring implementation complete.
 
 ## Workflow follow-up
