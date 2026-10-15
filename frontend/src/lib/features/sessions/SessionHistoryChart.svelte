@@ -15,6 +15,7 @@
   import { historyTrend } from './history-trend';
   import { chartExtrema, chartShowsMinimum } from './chart-extrema';
   import { buildChartTooltipEntries } from './chart-tooltip';
+  import { chartTouchInspection } from './chart-touch-inspection';
   import {
     formatSessionFieldValue,
     sessionChartGroups,
@@ -908,6 +909,7 @@
                       </button>
                     {/each}
                     <svg
+                      use:chartTouchInspection={filterByMap || interactionMode === 'info'}
                       class="block h-full w-full touch-pan-y rounded bg-canvas"
                       viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
                       preserveAspectRatio="none"
@@ -960,7 +962,7 @@
                               data-history-band
                               d={band}
                               fill={field.color}
-                              fill-opacity={inspectionVisible ? 0.14 : 0.06}
+                              fill-opacity={inspectionVisible ? 0.2 : 0.1}
                             />
                           {/each}
                         {/if}
@@ -1049,20 +1051,18 @@
                           stroke-width="1.5"
                         />
                       {/if}
-                      {#each tooltipEntries as entry (entry.field.name)}
-                        {#if inspectionVisible}
-                          <circle
-                            cx={entry.point.x}
-                            cy={entry.point.y}
-                            r="2.75"
-                            fill={entry.field.color}
-                            stroke="var(--app-canvas)"
-                            stroke-width="1"
-                            vector-effect="non-scaling-stroke"
-                          />
-                        {/if}
-                      {/each}
                     </svg>
+                    <!-- Keep dots in CSS pixels: the plot SVG stretches each axis independently. -->
+                    {#each tooltipEntries as entry (entry.field.name)}
+                      {#if inspectionVisible}
+                        <span
+                          data-history-point
+                          aria-hidden="true"
+                          class="pointer-events-none absolute size-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-canvas"
+                          style={`left: ${(entry.point.x / CHART_WIDTH) * 100}%; top: ${(entry.point.y / CHART_HEIGHT) * 100}%; background: ${entry.field.color}`}
+                        ></span>
+                      {/if}
+                    {/each}
                     {#if panEdge === 'start'}
                       <div
                         class="pointer-events-none absolute inset-y-0 left-0 z-20 w-1.5 rounded-l bg-warning shadow-[0_0_0.5rem_var(--app-warning)]"

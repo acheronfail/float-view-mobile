@@ -96,6 +96,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             `tooltip fits ${width}px at ${ratio}`
           );
           assert.match(await tooltip.innerText(), /Motor current/);
+          const points = plot.locator('[data-history-point]');
+          assert.ok((await points.count()) > 0, 'inspection highlights the chart lines');
+          for (const point of await points.all()) {
+            const dot = (await point.boundingBox())!;
+            assert.ok(Math.abs(dot.width - dot.height) < 0.1, `highlight stays circular at ${width}px`);
+            assert.equal(dot.width, 7, 'highlight size is independent of plot scaling');
+          }
           assert.equal(await tooltip.evaluate((node) => node.scrollWidth <= node.clientWidth), true);
           for (const value of await tooltip.locator('.text-right').all()) {
             const valueBounds = (await value.boundingBox())!;
@@ -132,6 +139,35 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.match(await loadTooltip.innerText(), /40%/);
       assert.match(await loadTooltip.innerText(), /60%/);
       assert.match(await loadTooltip.innerText(), /75%/);
+      await chart.scrollIntoViewIfNeeded();
+      // Real touch input exercises browser scrolling and pointer cancellation;
+      // dispatchEvent alone cannot establish which recognizer owns the gesture.
+      if (name === 'chromium') {
+        const input = await page.context().newCDPSession(page);
+        const box = (await chart.boundingBox())!;
+        const x = box.x + box.width * 0.4;
+        const y = box.y + box.height * 0.7;
+        const scrollY = await page.evaluate(() => window.scrollY);
+        const move = async (clientX: number, clientY: number, type: 'touchStart' | 'touchMove' = 'touchMove') => {
+          await input.send('Input.dispatchTouchEvent', {
+            type,
+            touchPoints: [{ x: clientX, y: clientY }],
+          });
+          await page.waitForTimeout(30);
+        };
+        await move(x, y, 'touchStart');
+        await move(x + 6, y);
+        await move(x + 25, y);
+        for (let drift = 10; drift <= 90; drift += 10) await move(x + 25, y - drift);
+        assert.equal(await page.evaluate(() => window.scrollY), scrollY, 'horizontal inspection owns vertical drift');
+        await plot.getByRole('status').waitFor();
+        await input.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await move(x, y, 'touchStart');
+        for (let drift = 10; drift <= 90; drift += 10) await move(x, y - drift);
+        await input.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        assert.ok((await page.evaluate(() => window.scrollY)) > scrollY, 'vertical starts still scroll');
+        await input.detach();
+      }
     } finally {
       await browser.close();
       await stopMockServer();
