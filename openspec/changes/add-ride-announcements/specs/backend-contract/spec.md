@@ -36,11 +36,11 @@ The contract SHALL expose complete announcement settings and bounded audio readi
 
 ### Requirement: Authenticated announcement test
 
-Every host SHALL implement announcements.test with a closed speed/duty metric parameter and a terminal outcome of finished, interrupted, or unavailable within ten seconds of admission. The test SHALL use a fixed representative reading through the normal native audio path without requiring a board, changing settings or bypassing global cooldown. Arbitrary text, values and voice identifiers SHALL not be accepted. Invalid and busy requests SHALL use existing structured errors.
+Every host SHALL implement announcements.test with a closed speed/load metric parameter and a terminal outcome of finished, interrupted, or unavailable within ten seconds of admission. The test SHALL use a fixed representative reading through the normal native audio path without requiring a board, changing settings or bypassing global cooldown. Arbitrary text, values and voice identifiers SHALL not be accepted. Invalid and busy requests SHALL use existing structured errors.
 
 #### Scenario: Test with announcements disabled
-- **WHEN** an authenticated client tests duty while automatic announcements are off and the speech slot and cooldown permit
-- **THEN** the host attempts “66 percent duty” and returns its terminal outcome without enabling announcements or changing telemetry
+- **WHEN** an authenticated client tests load while automatic announcements are off and the speech slot and cooldown permit
+- **THEN** the host attempts “duty 66 percent, motor 72 percent, battery 80 percent” and returns its terminal outcome without enabling announcements or changing telemetry
 
 #### Scenario: Test speed
 - **WHEN** an authenticated client tests speed with the speech slot and cooldown available

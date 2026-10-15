@@ -2,26 +2,27 @@
 
 ## Why
 
-Riders need to hear speed or duty readings above a chosen threshold without looking at the screen. Native speech can provide short announcements over music while the shared Rust service keeps timing and behavior consistent across hosts and disposable WebViews.
+Riders need to hear speed or load readings above a chosen threshold without looking at the screen. Native speech can provide short announcements over music while the shared Rust service keeps timing and behavior consistent across hosts and disposable WebViews.
 
 ## What Changes
 
-- Add application-wide off/speed/duty selection, independent saved speed and duty thresholds, and a configurable repeat interval, disabled by default.
+- Add application-wide off/speed/load selection, independent saved speed and load thresholds, and a configurable repeat interval, disabled by default.
+- In load mode, announce all duty, motor and battery utilisation components exceeding the shared threshold in one phrase, using the live gauge calculations.
 - Evaluate fresh board telemetry in Rust and emit bounded typed speak/cancel effects independently of frontend publication and recording cadence.
 - Use native text-to-speech on Apple and Android, briefly requesting audio ducking/focus for each utterance and releasing it on every terminal path.
 - Skip unavailable or interrupted audio gracefully without queuing old readings, disturbing the connection, or failing recording. Playback during calls is best effort.
 - Extend the authenticated contract, client/mock, settings UI, and canonical conformance coverage together, including an explicit test-announcement operation and bounded audio readiness state.
-- Update the root README's dot-point feature list when implemented to advertise spoken speed/duty announcements with configurable thresholds and repeat intervals.
+- Update the root README's dot-point feature list when implemented to advertise spoken speed/load announcements with configurable thresholds and repeat intervals.
 
 ### Non-goals
 
-Multiple simultaneous rules, combined drive-load announcements, firmware alerts, custom voice downloads or voice pickers, cloud speech, a bundled speech engine, identical voices across platforms, guaranteed call playback, and new telemetry polling are out of scope.
+Multiple simultaneous rules, firmware alerts, custom voice downloads or voice pickers, cloud speech, a bundled speech engine, identical voices across platforms, guaranteed call playback, and new telemetry polling are out of scope.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `ride-announcements`: Threshold-triggered speed/duty speech, repeat policy, lifecycle behavior, native audio fallback and bounded playback.
+- `ride-announcements`: Threshold-triggered speed/load speech, repeat policy, lifecycle behavior, native audio fallback and bounded playback.
 
 ### Modified Capabilities
 

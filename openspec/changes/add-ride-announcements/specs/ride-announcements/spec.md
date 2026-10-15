@@ -2,37 +2,61 @@
 
 ## Purpose
 
-Let riders hear current board speed or duty above a chosen threshold, with consistent timing and graceful audio failure across native hosts.
+Let riders hear current board speed or load above a chosen threshold, with consistent timing and graceful audio failure across native hosts.
 
 ## ADDED Requirements
 
 ### Requirement: Global announcement configuration
 
-Announcements SHALL default to off. Users SHALL select exactly one mode: off, speed, or duty, retain independent speed and duty thresholds, and set a shared whole-second repeat interval from 1 through 60 seconds, defaulting to 5. Speed thresholds SHALL be finite and greater than zero through 200 km/h, defaulting to 25 km/h; duty thresholds SHALL be finite and greater than zero through 100 percent, defaulting to 65 percent.
+Announcements SHALL default to off. Users SHALL select exactly one mode: off, speed, or load, retain independent speed and load thresholds, and set a shared whole-second repeat interval from 1 through 60 seconds, defaulting to 5. Speed thresholds SHALL be finite and greater than zero through 200 km/h, defaulting to 25 km/h; load thresholds SHALL be finite and greater than zero through 100 percent, defaulting to 65 percent.
 
 #### Scenario: Disabled by default
 - **WHEN** the application starts with default settings
 - **THEN** no automatic announcement is spoken and the default thresholds and interval are available for editing
 
 #### Scenario: Change units or mode
-- **WHEN** users change speed units or switch between speed and duty
+- **WHEN** users change speed units or switch between speed and load
 - **THEN** the physical speed threshold is preserved, its display converts to the selected units, and both independently saved thresholds remain available
 
 ### Requirement: Current board reading eligibility
 
-Automatic announcements SHALL use only finite readings received less than two seconds ago from the ready active board and selected controller, in saved or guest mode. Speed SHALL use magnitude in the selected speed units; duty SHALL use magnitude as a percentage, not combined drive load. A reading SHALL qualify only when its unrounded value strictly exceeds the threshold. Standalone BMS, missing and out-of-range readings SHALL not qualify.
+Automatic announcements SHALL use only finite readings received less than two seconds ago from the ready active board and selected controller, in saved or guest mode. Speed SHALL use magnitude in the selected speed units. A reading SHALL qualify only when its unrounded value strictly exceeds the threshold. Standalone BMS, missing and out-of-range readings SHALL not qualify.
 
-#### Scenario: Duty exceeds threshold
+#### Scenario: Duty component exceeds load threshold
 - **WHEN** fresh duty is 66 percent with a 65 percent threshold
-- **THEN** the announcement says the current whole-number percentage and identifies duty
+- **THEN** the announcement says the current whole-number percentage and says “duty” before the percentage
 
 #### Scenario: Equality and missing readings
-- **WHEN** duty equals the threshold, exceeds 100 percent, is missing, or is two seconds old
+- **WHEN** a component equals the threshold, is unavailable, or is two seconds old
 - **THEN** it does not trigger an announcement
 
 #### Scenario: Reverse speed
 - **WHEN** a fresh reverse speed has a magnitude exceeding the speed threshold
 - **THEN** it qualifies and speech identifies the positive speed and selected unit
+
+### Requirement: Load component announcements
+
+Load mode SHALL compare duty, motor and battery utilisation individually against one shared percentage threshold using the same component calculations as the live gauge. Each announcement SHALL contain every qualifying component, once, in duty/motor/battery order, naming the component before its rounded percentage. Missing components SHALL be omitted without suppressing available components. A component's drop below threshold SHALL not cancel speech while another still qualifies.
+
+#### Scenario: Multiple components exceed threshold
+- **WHEN** the threshold is 65 percent and fresh duty, motor and battery loads are 68, 74 and 60 percent
+- **THEN** one announcement says “duty 68 percent, motor 74 percent”, omitting battery rather than announcing only the highest component
+
+#### Scenario: Battery utilisation
+- **WHEN** battery current utilisation exceeds the threshold
+- **THEN** speech says “battery” and that utilisation percentage, not battery state of charge
+
+#### Scenario: Limits unavailable or regenerated
+- **WHEN** current limits are missing or zero for a component, or a current changes sign
+- **THEN** unavailable components are omitted, valid duty can still announce, and available current components use the same signed-limit and filtered-current rules as the gauge
+
+#### Scenario: Gauge saturation
+- **WHEN** a finite component's utilisation exceeds its limit
+- **THEN** it saturates at 100 percent as on the gauge and remains eligible below a 100 percent threshold
+
+#### Scenario: Component set changes
+- **WHEN** duty drops below threshold but motor remains above it
+- **THEN** repeat eligibility remains active and the next attempt includes only currently qualifying components
 
 ### Requirement: Repeat cadence without backlog
 

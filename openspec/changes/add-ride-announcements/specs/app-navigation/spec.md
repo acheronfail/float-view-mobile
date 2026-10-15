@@ -20,10 +20,10 @@ Settings SHALL contain only application-wide appearance, session-retention, sess
 
 ### Requirement: Announcement settings controls
 
-Settings SHALL provide off/speed/duty selection, the selected metric's threshold with explicit units, a repeat interval, audio readiness, and a test action. The same frontend SHALL support pointer and keyboard activation without duplicate actions. Validation and save/test failures SHALL preserve edits and remain visible. A test SHALL identify its metric when mode is off. Unavailable audio SHALL not silently disable the saved rule.
+Settings SHALL provide off/speed/load selection, the selected metric's threshold with explicit units, a repeat interval, audio readiness, and a test action. The same frontend SHALL support pointer and keyboard activation without duplicate actions. Validation and save/test failures SHALL preserve edits and remain visible. A test SHALL identify its metric when mode is off. Unavailable audio SHALL not silently disable the saved rule.
 
 #### Scenario: Configure announcements
-- **WHEN** users select duty and set 65 percent with a five-second repeat interval
+- **WHEN** users select load and set 65 percent with a five-second repeat interval
 - **THEN** Settings saves a revision-checked patch and presents authoritative accepted values
 
 #### Scenario: Test feedback
