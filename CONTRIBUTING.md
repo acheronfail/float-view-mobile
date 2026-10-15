@@ -117,8 +117,9 @@ Master pushes and manual master builds produce Nightly
 prereleases such as `v0.1.50-nightly.12.gabcdef012345`: the next patch, commit count
 since the greatest stable ancestor, and source hash. Nightlies update one rolling
 Nightly prerelease, attaching it to the full SemVer version tag so GitHub sorts it
-above older stable versions. Source tags are immutable; only the current Nightly
-release and asset set is retained. Nightly never replaces the stable Latest release. Unchanged successful
+above older stable versions. After successful nightly publication, superseded nightly
+version tags are deleted; the current Nightly tag, release and asset set are retained.
+Stable and unrelated tags are preserved. Nightly never replaces the stable Latest release. Unchanged successful
 nightlies and reruns of older commits are skipped. Failed builds remain retryable.
 
 The retained Build apps workflow counter plus its fixed offset of 60 supplies an independent numeric native

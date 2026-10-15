@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { isNightlyVersion } from './version.ts';
 
 export interface Release {
   id: number;
@@ -37,6 +38,21 @@ export function getRelease(tag: string): Release | null {
 
 export function getNightlyRelease(): Release | null {
   return findRelease((release) => release.name === 'Nightly' && release.prerelease);
+}
+
+export function pruneNightlyTags(currentTag: string): void {
+  // Gather every page before deleting: removing tags changes pagination offsets.
+  const obsolete: string[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const tags = api<{ name: string }[]>(`tags?per_page=100&page=${page}`);
+    if (!tags) throw new Error('GitHub did not return a tag list');
+    obsolete.push(...tags.map((tag) => tag.name).filter((tag) => tag !== currentTag && isNightlyVersion(tag)));
+    if (tags.length < 100) {
+      for (const tag of obsolete) api(`git/refs/tags/${encodeURIComponent(tag)}`, 'DELETE');
+      return;
+    }
+  }
+  throw new Error('Tag search exceeded 1000 entries; refusing incomplete nightly cleanup');
 }
 
 function findRelease(matches: (release: Release) => boolean): Release | null {

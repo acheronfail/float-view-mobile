@@ -35,7 +35,12 @@ if (args[0] === 'api') {
     result = state.releases.find(r => r.tag_name === endpoint.slice(14) && !r.draft);
     if (!result) fail('gh: Not Found (HTTP 404)');
   } else if (endpoint.startsWith('releases?')) result = state.releases;
-  else if (endpoint === 'releases' && method === 'POST') {
+  else if (endpoint.startsWith('tags?')) {
+    const page = Number(new URLSearchParams(endpoint.slice(5)).get('page'));
+    result = Object.keys(state.refs ?? {}).slice((page - 1) * 100, page * 100).map(name => ({ name }));
+  } else if (endpoint.startsWith('git/refs/tags/') && method === 'DELETE') {
+    delete state.refs[decodeURIComponent(endpoint.slice('git/refs/tags/'.length))];
+  } else if (endpoint === 'releases' && method === 'POST') {
     // GitHub checks workflow permissions on explicit historical targets even
     // when the tag exists. Publication must use an existing tag without a target.
     if (body.target_commitish) fail('gh: Resource not accessible by integration (HTTP 403)');
@@ -192,7 +197,7 @@ test('stable publication resumes a failed draft and never clobbers a published r
   git(['checkout', '--detach', f.sha], f.cwd);
   const overrides = { GITHUB_REF: 'refs/tags/v0.2.0', FLOAT_VIEW_VERSION: 'v0.2.0', GITHUB_RUN_NUMBER: '3' };
   for (const file of assetNames('v0.2.0')) writeFileSync(join(f.cwd, file), 'stable');
-  f.save({ releases: [], actions: [], fail: 'publish' });
+  f.save({ releases: [], actions: [], fail: 'publish', refs: { 'v0.1.50-nightly.0.gabcdef012345': f.sha } });
   assert.notEqual(f.run('publish', overrides).status, 0);
   let state = f.state();
   assert.equal(state.releases.length, 1);
@@ -203,6 +208,8 @@ test('stable publication resumes a failed draft and never clobbers a published r
   state = f.state();
   assert.equal(state.releases.length, 1);
   assert.equal(state.releases[0]!.draft, false);
+  assert.equal(state.refs?.['v0.1.50-nightly.0.gabcdef012345'], f.sha);
+  assert.ok(!state.actions.some(action => action.startsWith('DELETE git/refs/tags/')));
   assert.match(state.releases[0]!.body!, /v0\.1\.49\.\.\.v0\.2\.0/);
   const uploads = state.actions.filter((a) => a.startsWith('upload')).length;
   assert.equal(f.run('publish', overrides).status, 0);
@@ -299,7 +306,7 @@ test('a newer nightly retains release identity while advancing its version tag a
     state.releases[0]!.assets.map((asset) => asset.name),
     assetNames(next.version)
   );
-  assert.equal(state.refs?.[initial.tag_name], f.sha);
+  assert.equal(state.refs?.[initial.tag_name], undefined);
   assert.equal(state.refs?.[next.version], commit);
   assert.equal(f.run('prepare', overrides).status, 0);
   assert.ok(f.output().endsWith('skip=true\n'));
@@ -313,4 +320,31 @@ test('a conflicting nightly version tag is not overwritten', () => {
   assert.match(result.stderr, /already points to another commit/);
   assert.equal(f.state().refs?.[f.metadata.version], 'another-commit');
   assert.equal(f.state().releases.length, 0);
+});
+
+test('nightly cleanup paginates before deleting and preserves current, stable and unrelated tags', () => {
+  const f = fixture();
+  const obsolete = Array.from({ length: 105 }, (_, i) => `v0.1.50-nightly.${i}.gabcdef012345`);
+  const retained = ['v0.1.49', 'nightly', 'backup-nightly.1.gabcdef012345', 'v0.1.50-nightly.invalid'];
+  f.save({ releases: [], actions: [], refs: Object.fromEntries([...obsolete, ...retained].map(tag => [tag, f.sha])) });
+  assert.equal(f.run('publish').status, 0);
+  const state = f.state();
+  assert.deepEqual(Object.keys(state.refs!).sort(), [...retained, f.metadata.version].sort());
+  const deleted = state.actions.findIndex(action => action.startsWith('DELETE git/refs/tags/'));
+  assert.ok(deleted > state.actions.indexOf('GET tags?per_page=100&page=2'));
+  assert.ok(deleted > state.actions.indexOf('PATCH releases/100'));
+});
+
+test('failed nightly publication leaves previous version tags intact', () => {
+  const f = fixture();
+  const oldTag = 'v0.1.50-nightly.0.gabcdef012345';
+  f.save({ releases: [], actions: [], refs: { [oldTag]: f.sha }, fail: 'publish' });
+  assert.notEqual(f.run('publish').status, 0);
+  assert.equal(f.state().refs?.[oldTag], f.sha);
+  assert.ok(!f.state().actions.some(action => action.startsWith('DELETE git/refs/tags/')));
+  const state = f.state();
+  delete state.fail;
+  f.save(state);
+  assert.equal(f.run('publish').status, 0);
+  assert.equal(f.state().refs?.[oldTag], undefined);
 });

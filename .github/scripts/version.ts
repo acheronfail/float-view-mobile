@@ -8,6 +8,10 @@ const displayPattern = new RegExp(
 );
 export type Bump = 'patch' | 'minor' | 'major';
 
+export function isNightlyVersion(value: string): boolean {
+  return value.includes('-nightly.') && displayPattern.test(value);
+}
+
 export function parseVersion(value: string) {
   const match = displayPattern.exec(value);
   if (!match || match[0] !== value) throw new Error(`Invalid app version: ${value}`);

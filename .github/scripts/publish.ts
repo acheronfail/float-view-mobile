@@ -1,6 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { api, getNightlyRelease, getRelease, sourceMarker, versionMarker, type Release } from './github.ts';
+import {
+  api,
+  getNightlyRelease,
+  getRelease,
+  pruneNightlyTags,
+  sourceMarker,
+  versionMarker,
+  type Release,
+} from './github.ts';
 import { releaseNotes } from './notes.ts';
 import { assetNames, git, latestStable, parseVersion, resolveVersion } from './version.ts';
 
@@ -65,5 +73,6 @@ if (stable && release && !release.draft) {
   for (const asset of current.assets) {
     if (!files.includes(asset.name)) api(`releases/assets/${asset.id}`, 'DELETE');
   }
+  if (!stable) pruneNightlyTags(tag);
   console.log(`Published ${version} (${channel}).`);
 }
