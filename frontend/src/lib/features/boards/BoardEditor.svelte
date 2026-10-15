@@ -220,12 +220,16 @@
             <span role="alert" class="mt-1 block text-xs text-warning"> Enter a whole CAN ID from 0 to 253. </span>
           {/if}
         </label>
-        <div class="rounded-md border border-outline bg-elevated px-3 py-2 text-sm sm:col-span-2">
-          <span class="block text-muted">Bluetooth identifier</span>
-          <code class="mt-1 block break-all text-foreground"
-            >{device.bluetoothIdentifier ?? 'Not locally associated'}</code
-          >
-        </div>
+        <dl class="py-1 text-sm sm:col-span-2">
+          <dt class="text-muted">Bluetooth identifier</dt>
+          <dd class="mt-1">
+            {#if device.bluetoothIdentifier}
+              <code class="break-all text-foreground select-text">{device.bluetoothIdentifier}</code>
+            {:else}
+              <span class="text-muted">Not locally associated</span>
+            {/if}
+          </dd>
+        </dl>
       {/if}
       <BatteryFields
         bind:this={batteryFields}
