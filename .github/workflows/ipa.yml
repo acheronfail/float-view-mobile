@@ -1,4 +1,4 @@
-name: Build IPA
+name: Build IPA and APK
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ipa-${{ github.ref }}
@@ -73,18 +73,120 @@ jobs:
           compression-level: 0
           retention-days: 14
 
-      - name: Publish numbered release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;28.2.13676358'
+          # Override any runner-provided NDK so Cargo uses the pinned revision.
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+
+      - name: Cache Cargo downloads and Android compilation
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backends/core/target
+          key: android-rust-${{ runner.os }}-${{ runner.arch }}-ndk28.2.13676358-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-${{ hashFiles('backends/core/**/*.rs', 'backends/core/**/Cargo.toml', 'backends/core/*.sh', 'backends/sql/**') }}
+          restore-keys: |
+            android-rust-${{ runner.os }}-${{ runner.arch }}-ndk28.2.13676358-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      # The Gradle Rust build helper invokes Cargo with --locked --offline.
+      - name: Fetch locked Rust dependencies
+        working-directory: backends/core
+        run: |
+          cargo fetch --locked \
+            --target aarch64-linux-android --target armv7-linux-androideabi \
+            --target i686-linux-android --target x86_64-linux-android
+
+      - name: Build Debug APK
+        working-directory: backends/android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Sign and verify numbered APK
         env:
-          GH_TOKEN: ${{ github.token }}
+          ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          ANDROID_SIGNING_PASSWORD: ${{ secrets.ANDROID_SIGNING_PASSWORD }}
+        run: |
+          : "${ANDROID_SIGNING_KEYSTORE_BASE64:?Missing Android signing keystore secret}"
+          : "${ANDROID_SIGNING_PASSWORD:?Missing Android signing password secret}"
+          umask 077
+          keystore="$RUNNER_TEMP/float-view-signing.p12"
+          trap 'rm -f "$keystore"' EXIT
+          printf '%s' "$ANDROID_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          printf -v version 'build-%010d' "$GITHUB_RUN_NUMBER"
+          apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$apksigner" sign --ks "$keystore" --ks-key-alias float-view-ci \
+            --ks-pass env:ANDROID_SIGNING_PASSWORD --key-pass env:ANDROID_SIGNING_PASSWORD \
+            --out "FloatView-$version.apk" \
+            backends/android/app/build/outputs/apk/debug/app-debug.apk
+          "$apksigner" verify --verbose --print-certs "FloatView-$version.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: FloatView-apk-${{ github.run_number }}
+          path: FloatView-*.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    needs: [ipa, apk]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download mobile artifacts
+        run: |
+          gh run download "$GITHUB_RUN_ID" --name "FloatView-ipa-$GITHUB_RUN_NUMBER" --dir .
+          gh run download "$GITHUB_RUN_ID" --name "FloatView-apk-$GITHUB_RUN_NUMBER" --dir .
+
+      - name: Publish numbered release
         run: |
           printf -v version 'build-%010d' "$GITHUB_RUN_NUMBER"
           ipa="FloatView-$version.ipa"
-          # A rerun keeps the same number and updates its existing asset.
+          apk="FloatView-$version.apk"
+          # A rerun keeps the same number and updates its existing assets.
           if gh release view "$version" >/dev/null 2>&1; then
-            gh release upload "$version" "$ipa" --clobber
+            gh release upload "$version" "$ipa" "$apk" --clobber
           else
-            gh release create "$version" "$ipa" \
+            gh release create "$version" "$ipa" "$apk" \
               --target "$GITHUB_SHA" --title "$GITHUB_RUN_NUMBER" \
-              --notes "Unsigned Debug IPA for AltStore. Build $GITHUB_RUN_NUMBER from commit $GITHUB_SHA."
+              --notes "Unsigned Debug IPA for AltStore and signed Debug APK for Android sideloading. Build $GITHUB_RUN_NUMBER from commit $GITHUB_SHA."
           fi

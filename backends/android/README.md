@@ -38,6 +38,35 @@ JNI exports. Select tests and packaging checks by impact using the root
 only for affected BLE, background, Activity or file-presentation behavior that
 software cannot establish; unrelated platforms need no regression run.
 
+## GitHub Actions APK builds
+
+The [mobile workflow](../../.github/workflows/ipa.yml) builds a signed Debug APK
+on Ubuntu for every push to `master` and manual run. It builds the shared
+frontend and packages the Rust runtime for all four supported ABIs using Java 17,
+API 36, NDK `28.2.13676358` and the repository-pinned Rust toolchain. Locked Cargo
+dependencies are fetched before Gradle's offline Rust build.
+
+Successful pushes publish `FloatView-build-<ten-digit run number>.apk` alongside
+the IPA in the same numbered GitHub release after both builds succeed. Manual
+runs build both platforms without publishing a release: select **Actions → Build
+IPA and APK → Run workflow**, then download `FloatView-apk-<run number>` from the
+run summary. Workflow artifacts are retained for 14 days.
+
+The APK can be sideloaded on Android 10/API 29 or newer. CI signs every published
+APK with the same persistent key, allowing subsequent CI builds to update the app
+without removing local data. These remain Debug builds. Locally built APKs use
+the local debug key and cannot replace a CI installation unless signed with the
+same CI key.
+
+Repository Actions secrets `ANDROID_SIGNING_KEYSTORE_BASE64` (base64-encoded
+PKCS12 keystore) and `ANDROID_SIGNING_PASSWORD` (both store and key password)
+provide the signing identity, with key alias `float-view-ci`. The workflow fails
+if either secret is missing, verifies the signed APK, and removes the temporary
+keystore after signing. Keep a secure backup of the keystore and password;
+GitHub secret values cannot be downloaded later. The local provisioning backup
+is in the ignored `.local/android-signing/` directory. Do not rotate this key
+casually: a different key prevents ordinary updates to existing installations.
+
 ## Ride notifications and Live Updates
 
 The foreground service runs while a device connection or recording is active,

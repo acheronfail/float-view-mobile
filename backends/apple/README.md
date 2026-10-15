@@ -55,7 +55,8 @@ account is required: AltStore signs the IPA when installing it. The archive omit
 macOS metadata files that can confuse AltStore's app detection.
 
 GitHub Actions runs the same `just ipa` command on every push to `master` and
-publishes the IPA to a [GitHub release](https://github.com/acheronfail/float-view-mobile/releases).
+publishes the IPA alongside an Android APK to a [GitHub release](https://github.com/acheronfail/float-view-mobile/releases)
+after both platform builds succeed.
 The workflow run number is the release title and app/extension build number.
 Tags use ten-digit zero padding (`build-0000000001`) so lexical and numeric order
 agree; the asset is named `FloatView-build-0000000001.ipa`. Rerunning a workflow
@@ -63,7 +64,7 @@ keeps its number and replaces that release's IPA. Failed runs can leave gaps.
 Locally, `FLOAT_VIEW_BUILD_NUMBER=1 just ipa` produces the same numbered package;
 without that variable, local builds retain the timestamp filename.
 
-To build another branch manually, open **Actions → Build IPA → Run workflow**
+To build another branch manually, open **Actions → Build IPA and APK → Run workflow**
 and select the branch. Manual builds do not publish releases. Download the
 `FloatView-ipa-<run number>` artifact from the run's summary and extract the
 numbered IPA inside. Artifacts are retained for 14 days; release assets remain
