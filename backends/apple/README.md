@@ -134,7 +134,7 @@ embedded metadata remains original.
 To build master manually, open **Actions → Build apps → Run workflow**. Download
 the `FloatView-ipa-<full version>` artifact from the run summary. Artifacts are
 retained for 14 days; release assets remain available independently of that expiry.
-The [workflow](../../.github/workflows/ipa.yml) uses Node.js 24, macOS runners for
+The [workflow](../../.github/workflows/build-apps.yml) uses Node.js 24, macOS runners for
 Apple builds and the pinned Rust toolchain. It fetches locked dependencies before
 offline native builds and caches frontend downloads and Rust build outputs.
 No connected device is required. AltStore signs the IPA when installing it;

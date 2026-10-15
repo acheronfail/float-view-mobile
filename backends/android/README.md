@@ -70,7 +70,7 @@ ducking/restoration, real headset routes or locked-screen BLE delivery.
 
 ## GitHub Actions APK builds
 
-The [app workflow](../../.github/workflows/ipa.yml) builds a signed Debug APK
+The [app workflow](../../.github/workflows/build-apps.yml) builds a signed Debug APK
 on Ubuntu for every push to `master` and manual run. It builds the shared
 frontend and packages the Rust runtime for all four supported ABIs using Java 17,
 API 36, NDK `28.2.13676358` and the repository-pinned Rust toolchain. Locked Cargo
