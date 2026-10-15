@@ -47,6 +47,15 @@ event pages remain separate revisioned queries; `session.get` never embeds
 history. Frequently updating controls use primary pointer release with
 cancellation and a guarded keyboard or assistive click path.
 
+The live header keeps a fixed-size ride-location status button beside Board actions,
+with a single-line truncated board name. Location details and Enable/Allow/Settings
+recovery open only on request in a compact modal, also available through Ride location…
+in Board actions. The header button uses warning text, border and a tinted background
+when recording is off or unavailable, and success text when enabled. The panel keeps
+deliberately disabled recording neutral and marks blocked recording as a warning.
+Neither status nor the modal changes the live widget layout. Guests have no
+ride-location controls.
+
 The connected-board action overlay uses the same full-page modal pattern as the
 live box picker, with scrollable two-column buttons grouped into View, Refloat,
 Board and Connection. Each action has an icon; incomplete board setup retains

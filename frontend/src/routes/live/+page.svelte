@@ -33,8 +33,7 @@
   } from '$lib/features/connection/live';
   import FullScreenOverlay from '$lib/ui/FullScreenOverlay.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-  import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
-  import { locationRequiresAction } from '$lib/features/connection/location-presentation';
+  import RideLocationControl from '$lib/features/connection/RideLocationControl.svelte';
 
   const motion = createMotion();
 
@@ -50,6 +49,7 @@
   let configuration = $state<{ savedDeviceId: string; batteryOnly: boolean; trigger?: HTMLButtonElement } | null>(null);
   let liveChartsOpen = $state(false);
   let bmsOpen = $state(false);
+  let locationOpen = $state(false);
   let refloatConfigurationOpen = $state(false);
   let refloatTunesOpen = $state(false);
   let disconnectConfirmationOpen = $state(false);
@@ -133,8 +133,6 @@
     return viewOptions[(currentIndex + 1) % viewOptions.length] ?? viewOptions[0];
   });
 
-  const location = $derived(backendState.snapshot?.location);
-  const locationNeedsAction = $derived(connection?.trackingMode === 'saved' && locationRequiresAction(location));
   const connectionIssueKey = $derived(
     connection?.connectionIssue ? `${connection.deviceId}:${connection.connectionIssue.code}` : null
   );
@@ -189,6 +187,8 @@
 
     appHeader.set(headerOwner, {
       title: connection.displayName,
+      titleClass: 'truncate text-3xl font-semibold',
+      accessory: connection.trackingMode === 'saved' ? locationAccessory : undefined,
       bottomBorder: view === 'detailed',
       subtitle: deviceState.display,
       subtitleClass: deviceState.safetyStateActive
@@ -225,6 +225,19 @@
                   closeMenu();
                   if (connection?.activeSession)
                     void goto(`#/sessions/${encodeURIComponent(connection.activeSession.sessionId)}`);
+                },
+              },
+            ]
+          : []),
+        ...(connection.trackingMode === 'saved'
+          ? [
+              {
+                label: 'Ride location…',
+                icon: 'map-pin' as const,
+                group: 'View',
+                onactivate: (closeMenu: () => void) => {
+                  closeMenu();
+                  locationOpen = true;
                 },
               },
             ]
@@ -333,14 +346,6 @@
     });
   });
   onDestroy(() => appHeader.clear(headerOwner));
-
-  function activateLocation() {
-    if (location?.status === 'disabled') {
-      void backendState.updateSessionSettings({ locationRecordingEnabled: true });
-    } else {
-      void backendState.requestLocationPermission();
-    }
-  }
 
   function cycleView(closeMenu: () => void) {
     closeMenu();
@@ -499,32 +504,16 @@
   }
 </script>
 
+{#snippet locationAccessory()}
+  <RideLocationControl
+    bind:open={locationOpen}
+    unavailable={flywheelOverlayVisible(connection)}
+    onclose={() => appHeader.focusMenu()}
+  />
+{/snippet}
+
 <section aria-labelledby="app-title" class="flex h-full min-h-0 flex-1 flex-col gap-2">
   {#if connection}
-    {#if locationNeedsAction && location}
-      <div
-        class="flex items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
-      >
-        <span>
-          {location.status === 'disabled'
-            ? 'Record this ride location?'
-            : (location.reason ?? 'Location recording is unavailable.')}
-        </span>
-        <button
-          type="button"
-          class="touch-manipulation rounded border border-warning px-2 py-1 text-warning"
-          onpointerdown={(event) => activateFromPointer(event, activateLocation)}
-          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, activateLocation)}
-        >
-          {location.status === 'disabled'
-            ? 'Enable'
-            : location.permissionAction === 'openSettings'
-              ? 'Settings'
-              : 'Allow'}
-        </button>
-      </div>
-    {/if}
-
     {#if view === 'normal'}
       <div use:motion.surface={'content'} class="h-full min-h-0 flex-1 overflow-hidden">
         <LiveView

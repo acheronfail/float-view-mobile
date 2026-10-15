@@ -265,6 +265,7 @@
       title={appHeader.title}
       subtitle={appHeader.subtitle}
       subtitleSnippet={appHeader.subtitleSnippet}
+      accessory={appHeader.accessory}
       subtitleClass={appHeader.subtitleClass}
       titleClass={appHeader.titleClass}
       bottomBorder={appHeader.bottomBorder}

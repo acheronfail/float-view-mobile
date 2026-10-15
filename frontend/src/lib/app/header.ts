@@ -17,6 +17,7 @@ export type AppHeaderPatch = {
   title?: string;
   subtitle?: string;
   subtitleSnippet?: Snippet;
+  accessory?: Snippet;
   subtitleClass?: string;
   titleClass?: string;
   bottomBorder?: boolean;

@@ -21,6 +21,7 @@ export const iconClasses = {
   'ellipsis-vertical': 'i-lucide-ellipsis-vertical',
   'loader-circle': 'i-lucide-loader-circle',
   'map-pin': 'i-lucide-map-pin',
+  'map-pin-off': 'i-lucide-map-pin-off',
   route: 'i-lucide-route',
   settings: 'i-lucide-settings',
   signal: 'i-lucide-signal',
