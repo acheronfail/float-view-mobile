@@ -7,6 +7,7 @@ export interface Release {
   prerelease: boolean;
   draft: boolean;
   body: string | null;
+  target_commitish?: string;
   assets: { id: number; name: string }[];
 }
 

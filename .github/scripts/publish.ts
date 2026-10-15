@@ -31,10 +31,18 @@ let release = stable ? getRelease(tag) : getNightlyRelease();
 if (stable && release && !release.draft) {
   console.log(`${tag} is already published; preserving its assets.`);
 } else {
+  if (!stable) {
+    // Create the immutable source tag before the release so its API request never
+    // needs target_commitish (which can require unavailable workflow permissions).
+    const ref = api<{ object: { sha: string } }>(`git/ref/tags/${tag}`, 'GET', undefined, true);
+    if (ref && ref.object.sha !== commit) throw new Error('Nightly version tag already points to another commit');
+    if (!ref) api('git/refs', 'POST', { ref: `refs/tags/${tag}`, sha: commit });
+  } else if (git(['rev-parse', `${tag}^{commit}`]) !== commit) {
+    throw new Error('Stable tag moved during publication');
+  }
   if (!release) {
     release = api<Release>('releases', 'POST', {
       tag_name: tag,
-      target_commitish: commit,
       name: stable ? version : 'Nightly',
       draft: true,
       prerelease: !stable,
@@ -44,21 +52,15 @@ if (stable && release && !release.draft) {
   if (!release) throw new Error('GitHub did not return a release');
   // Upload the replacement set first. Previous nightly assets survive any failed upload.
   execFileSync('gh', ['release', 'upload', release.tag_name, ...files, '--clobber'], { stdio: 'inherit' });
-  if (!stable) {
-    // A SemVer tag lets GitHub order Nightly alongside stable releases correctly.
-    // Versioned nightly tags identify immutable source snapshots; only the release/assets roll forward.
-    const ref = api<{ object: { sha: string } }>(`git/ref/tags/${tag}`, 'GET', undefined, true);
-    if (ref && ref.object.sha !== commit) throw new Error('Nightly version tag already points to another commit');
-    if (!ref) api('git/refs', 'POST', { ref: `refs/tags/${tag}`, sha: commit });
-  } else if (git(['rev-parse', `${tag}^{commit}`]) !== commit) {
-    throw new Error('Stable tag moved during publication');
-  }
   // Generate against the exact version tag, after ensuring it identifies this build.
   const previousTag = latestStable(commit, process.cwd(), stable ? tag : undefined);
   const notes = generatedNotes(tag, commit, previousTag);
   const body = `${notes}\n\n${sourceMarker(commit)}\n${versionMarker(version)}`;
   api(`releases/${release.id}`, 'PATCH', {
     tag_name: tag,
+    // The existing tag owns source identity. Reset API target metadata so rolling
+    // releases also avoid permission checks against a previous historical SHA.
+    target_commitish: 'master',
     name: stable ? version : 'Nightly',
     body,
     draft: false,
