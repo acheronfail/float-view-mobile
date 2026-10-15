@@ -2,11 +2,11 @@
 
 ## Why
 
-The live power widget and detailed view currently turn the controller's `batteryLevel` into a percentage. That value does not account for the board's selected cells and discharge curve. Floaty's cell-specific voltage tables provide a concrete, inspectable basis for a better estimate, including approximate compensation for discharge current where measurements exist.
+The live power widget and detailed view currently turn the controller's `batteryLevel` into a percentage. That value does not account for the board's selected cells and discharge curve. Community cell-specific voltage tables provide a concrete, inspectable basis for a better estimate, including approximate compensation for discharge current where measurements exist.
 
 ## What Changes
 
-- Add a bounded, versioned catalog of the six cell profiles found in `acheronfail/floaty`, plus an explicitly selected generic linear profile. Preserve the exact source tables and provenance with this proposal.
+- Add a bounded, versioned catalog of six community cell profiles, plus an explicitly selected generic linear profile. Preserve the exact source tables and provenance with this proposal.
 - Save the selected cell profile and display-empty cell voltage alongside the board's existing series and parallel counts.
 - Calculate one shared-service estimate from pack voltage, pack current, pack configuration, and the selected profile. Interpolate voltage and measured load curves, filter discharge current, and map the configured empty voltage to zero percent.
 - Publish the estimate in the authoritative connection snapshot and use it for the live power widget and detailed battery percentage, including consistent unavailable and stale states.

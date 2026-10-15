@@ -141,7 +141,7 @@ The estimator integrates on the original curve axis before applying the zero-loa
 display reserve. Initial estimates and uncertain intervals are provisional until
 stable low-load observations converge; details identify the method and provisional
 status. Missing capacity or a dedicated curve never adds a setup warning.
-The service pins Floaty's community curves and exposes their catalog version and
+The service pins community cell-model curves and exposes their catalog version and
 compensation mode; temperature, age and remaining range are not modeled.
 
 Battery setup uses one Basic/Advanced form in both board editors. The service supplies

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "refloat-1.2-rtdata-zero-synthetic",
-  "provenance": "synthetic from owner-authorized Floaty and legacy enum/layout comparison; hardware capture required at R6",
+  "provenance": "synthetic from enum/layout comparison; hardware capture required at R6",
   "firmware": "6.06",
   "package": "refloat",
   "packageVersion": "1.2",

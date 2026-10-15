@@ -14,7 +14,7 @@ See `proposal.md` for motivation. `WidgetPower.svelte` and `DetailedView.svelte`
 
 ### Pin the upstream measurements
 
-Use the tables in `profile-data.json`, taken from [Floaty's BatteryDischargeCurvePicker](https://github.com/acheronfail/floaty/blob/c4c87fe26e91ef2345518c3e0a1adb941a211885/apps/app/components/BoardsPage/BatteryDischargeCurvePicker.tsx). The profile file last changed in commit `0b513b2d6e11d79e9cd257993983e3e749064d26` (2025-05-18, adding M35A); the inspected master commit is dated 2025-07-04. Repository push time alone is not evidence of newer tables. These are community cell-model profiles, not a comprehensive chemistry catalog or certified capacity measurements.
+Use the tables in `profile-data.json`, pinned to the 2025-05-18 dataset, including M35A. These are community cell-model profiles, not a comprehensive chemistry catalog or certified capacity measurements.
 
 Supporting discussion: [profile data](https://discord.com/channels/1346864089170710739/1347601377815429151/1363086738440065125), [current compensation](https://discord.com/channels/1346864089170710739/1347601377815429151/1363089032397197432), and [minimum-voltage remapping](https://discord.com/channels/1346864089170710739/1347601377815429151/1363102665361457232). Float Control's [voltage/energy discussion](https://pev.dev/t/vesc-voltage-vs-battery-percentage/819) describes a different approach; integrating net energy is deferred.
 
@@ -30,7 +30,7 @@ BoardEditor adds a cell selector and “Display empty voltage per cell”, expla
 
 All curves list cell volts at SOC fractions [1, .9, .8, .7, .6, .5, .4, .3, .2, .1, 0]. They must be strictly decreasing and finite. Let `V(q)` be piecewise-linear voltage at SOC q and `Q(v)` its inverse, clamped at endpoints.
 
-For each load curve, remap to minimum m: `qMin = Q(m)`; its adjusted voltage knot at fraction q is `V(qMin + (1-qMin)*q)`. Force exact endpoints m and 4.2. This follows Floaty's range adjustment without intermediate four-decimal rounding; retain full precision until rendering.
+For each load curve, remap to minimum m: `qMin = Q(m)`; its adjusted voltage knot at fraction q is `V(qMin + (1-qMin)*q)`. Force exact endpoints m and 4.2. Apply the range adjustment without intermediate four-decimal rounding; retain full precision until rendering.
 
 Compute cell voltage as pack volts / S and discharge amps per cell as filtered positive pack amps / P. Between measured currents, interpolate each corresponding adjusted voltage knot linearly, then invert that resulting curve at the observed cell voltage. Clamp current above the highest measured load to that curve, never extrapolate. Single-curve profiles, missing current, and nonpositive current use the zero-load curve. Clamp the resulting fraction to [0,1]. Invalid/nonpositive voltage returns unavailable, never NaN or an old fresh-looking value. High current clamping and zero-load fallback are exposed as modes, not confidence claims.
 

@@ -1,8 +1,6 @@
-//! Community voltage curves from acheronfail/floaty, BatteryDischargeCurvePicker.tsx.
-//! Source: https://github.com/acheronfail/floaty/blob/c4c87fe26e91ef2345518c3e0a1adb941a211885/apps/app/components/BoardsPage/BatteryDischargeCurvePicker.tsx
-//! Pinned source: c4c87fe26e91ef2345518c3e0a1adb941a211885 (tables updated 2025-05-18).
+//! Community cell-model voltage curves (tables updated 2025-05-18).
 //! Approximate display state of charge, not a protection or remaining-range guarantee.
-pub const CATALOG_VERSION: &str = "floaty-2025-05-18-v1";
+pub const CATALOG_VERSION: &str = "community-curves-2025-05-18-v1";
 pub struct Curve {
     pub current_a: f64,
     pub volts: [f64; 11],

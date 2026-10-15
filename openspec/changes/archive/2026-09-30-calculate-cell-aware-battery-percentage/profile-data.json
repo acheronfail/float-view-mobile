@@ -1,7 +1,5 @@
 {
-  "catalogVersion": "floaty-2025-05-18-v1",
-  "sourceCommit": "c4c87fe26e91ef2345518c3e0a1adb941a211885",
-  "sourcePath": "apps/app/components/BoardsPage/BatteryDischargeCurvePicker.tsx",
+  "catalogVersion": "community-curves-2025-05-18-v1",
   "units": { "voltage": "V per cell", "current": "A per parallel cell" },
   "socFractions": [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0],
   "profiles": [

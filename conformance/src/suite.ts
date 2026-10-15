@@ -1135,7 +1135,7 @@ export function assertState(state: AppState) {
   const active = state.activeConnection;
   if (active) {
     const estimate = active.batteryEstimate;
-    assert.equal(estimate.catalogVersion, 'floaty-2025-05-18-v1');
+    assert.equal(estimate.catalogVersion, 'community-curves-2025-05-18-v1');
     assert.equal(estimate.sampleSequence, active.latestSample?.sequence ?? null);
     assert.ok(['load_compensated', 'load_clamped', 'voltage_only', 'unavailable'].includes(estimate.mode));
     assert.equal(typeof estimate.provisional, 'boolean');
