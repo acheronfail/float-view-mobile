@@ -161,3 +161,10 @@ location. It remains one service and one shared runtime. Background delivery,
 headset routing and music restoration need real-device validation; calls can
 gracefully prevent speech. Foreground return, connection and explicit tests
 refresh speech readiness without continuous engine initialization retries.
+
+Settings exposes the system TTS chooser when Android can resolve it. The adapter
+honors the engine's preferred installed offline English voice and reinitializes
+after returning from the chooser, deferring refresh until active speech ends.
+This uses standard Android TTS APIs with the selected engine, including Google
+and Samsung engines; it does not require Samsung hardware. Speed is spoken as
+the value and units, without a redundant “speed” prefix.

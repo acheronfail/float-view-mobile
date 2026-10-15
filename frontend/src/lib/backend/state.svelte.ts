@@ -367,6 +367,11 @@ export class BackendState {
     });
   }
 
+  async openVoiceSettings() {
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    return this.client.request('announcements.openVoiceSettings', {}, 6_000);
+  }
+
   async testAnnouncement(kind: 'speed' | 'load' | 'combined') {
     if (!this.client?.isOpen) throw new Error('Backend is not connected');
     return this.client.request('announcements.test', { kind }, 12_000);

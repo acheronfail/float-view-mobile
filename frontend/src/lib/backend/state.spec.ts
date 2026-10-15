@@ -55,7 +55,7 @@ const initial: AppState = {
     backgroundCapture: 'unavailable',
     reason: null,
   },
-  announcementAudio: { status: 'ready', reason: null, loweringControl: 'adjustable' },
+  announcementAudio: { status: 'ready', reason: null, loweringControl: 'adjustable', voiceSettingsAvailable: false },
   settings: {
     announcements: { ...defaultAnnouncements },
     revision: 0,

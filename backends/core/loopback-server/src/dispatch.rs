@@ -458,6 +458,10 @@ impl Backend {
                     id: p.text("savedDeviceId")?,
                 }
             }
+            "announcements.openVoiceSettings" => {
+                p.only(&[])?;
+                Operation::OpenVoiceSettings
+            }
             "announcements.test" => {
                 p.only(&["kind"])?;
                 Operation::TestAnnouncement {

@@ -98,3 +98,9 @@ monotonic cooldown and one ten-second speech operation. Typed native effects
 carry the highest load source, optional speed, speech gain and admission expiry.
 Missing/stale telemetry cancels automatic speech; unavailable audio drops an
 attempt without a backlog. Test waiters belong to their requesting client.
+
+The closed `voiceSettingsAvailable` OS fact controls the shared Settings button.
+`announcements.openVoiceSettings` requires the foreground and one bounded native
+completion within five seconds; it accepts no caller-provided URL. Android opens
+the system TTS chooser. Apple reports unavailable because no supported public
+deep link opens its speech voice chooser. Opening settings never takes audio focus.

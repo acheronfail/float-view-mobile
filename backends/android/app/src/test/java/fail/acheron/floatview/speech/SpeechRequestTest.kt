@@ -6,7 +6,7 @@ class SpeechRequestTest {
     private fun value() = JSONObject("""{"id":1,"expires_at_ms":10000,"load":{"source":"motor","percent":78},"speed":32,"imperial":false,"volume":42,"lower_other_audio":true}""")
     @Test fun combinedPhrasePreservesRustWinnerAndGain() {
         val request = SpeechRequest.decode(value())!!
-        assertEquals("motor 78 percent, speed 32 kilometres per hour", request.phrase)
+        assertEquals("motor 78 percent, 32 kilometres per hour", request.phrase)
         assertEquals(42, request.volume)
     }
     @Test fun malformedRequestsAreRejectedBeforeAudioAdmission() {
@@ -14,4 +14,9 @@ class SpeechRequestTest {
             assertNull(SpeechRequest.decode(bad))
         }
     }
+    @Test fun speedOnlyAndImperialPhrasesOmitRedundantPrefix() {
+        assertEquals("32 kilometres per hour", SpeechRequest.decode(value().put("load", JSONObject.NULL))!!.phrase)
+        assertEquals("motor 78 percent, 32 miles per hour", SpeechRequest.decode(value().put("imperial", true))!!.phrase)
+    }
+
 }

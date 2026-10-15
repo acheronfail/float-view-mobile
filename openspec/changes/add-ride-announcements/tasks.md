@@ -144,6 +144,27 @@ Native fake-engine/focus tests and the final scenario audit remain outstanding.
 
 ## 7. Verification refinements: wording and system voice settings
 
-- [ ] 7.1 Remove the speed prefix in Apple/Android speech, retaining units and combined ordering; verify both unit systems and native phrase tests without rewriting historical listening evidence.
-- [ ] 7.2 Add mandatory voice-settings availability/action across contract, client/mock, Rust, both hosts and canonical conformance; add a guarded Settings button and bounded native launch/error handling, with hidden unsupported Apple action.
-- [ ] 7.3 Honor the Android engine's preferred eligible voice and refresh after the system chooser returns; verify non-Samsung standard locales, Samsung ISO-3 locales, installed/offline filtering, no stale completion or audio resource takeover, plus the available physical Android chooser round trip.
+- [x] 7.1 Remove the speed prefix in Apple/Android speech, retaining units and combined ordering; verify both unit systems and native phrase tests without rewriting historical listening evidence.
+- [x] 7.2 Add mandatory voice-settings availability/action across contract, client/mock, Rust, both hosts and canonical conformance; add a guarded Settings button and bounded native launch/error handling, with hidden unsupported Apple action.
+- [x] 7.3 Honor the Android engine's preferred eligible voice and refresh after the system chooser returns; verify non-Samsung standard locales, Samsung ISO-3 locales, installed/offline filtering, no stale completion or audio resource takeover, plus the available physical Android chooser round trip.
+
+Refinement verification: backend-service's 62 tests, affected loopback/C/JNI
+consumer tests and warnings-denied Clippy pass. Frontend checks, 58 focused
+client/mock/state tests, production build and changed-file lint pass. Built-UI
+Chromium/WebKit checks cover conditional visibility, primary/touch/keyboard
+activation, errors and draft preservation. Direct/mock conformance and conformance
+type checks pass. Apple speech/shared-server tests and the arm64 iOS simulator
+build pass. Android Debug/Release/Conformance builds, JVM tests and lint pass.
+Three native voice-selection instrumentation tests pass on the physical Samsung,
+covering standard and ISO-3 English locales, preferred selection and rejected
+network/missing/non-English voices. The user confirmed the installed Android
+Voice settings button works. This does not establish audible voice changes,
+Google-engine physical playback or the outstanding original acceptance cases.
+Android host conformance passes at revision 502. The same three native selection
+tests pass on the API 36 Google emulator, whose standard TTS settings activity
+also opens successfully.
+
+The connected iPhone 12 / iOS 18.7.8 is paired with Developer Mode enabled, but
+the physical build is awaiting Xcode account/signing setup: no valid signing
+identity or app/Live Activity provisioning profiles were available. No iPhone
+audio checkpoint has been claimed.

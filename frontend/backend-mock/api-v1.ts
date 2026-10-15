@@ -305,7 +305,7 @@ export class MockBackend {
   private readonly tunes = new Map<string, RefloatTune>();
   private lastAnnouncement = -Infinity;
   private state: AppState = {
-    announcementAudio: { status: 'ready', reason: null, loweringControl: 'adjustable' },
+    announcementAudio: { status: 'ready', reason: null, loweringControl: 'adjustable', voiceSettingsAvailable: false },
     revision: 0,
     bluetooth: {
       radio: 'powered_on',
@@ -803,6 +803,12 @@ export class MockBackend {
           baseRevision: params.baseRevision,
           values: { ...this.refloatCurrentValues, ...tune.values },
         });
+      }
+      case 'announcements.openVoiceSettings': {
+        if (Object.keys(params).length) return failure(id, 'invalid_request', 'Unexpected parameters');
+        return this.state.announcementAudio.voiceSettingsAvailable
+          ? success(id, { accepted: true })
+          : failure(id, 'unavailable', 'System voice settings are unavailable');
       }
       case 'announcements.test': {
         if (Object.keys(params).length !== 1 || !['speed', 'load', 'combined'].includes(String(params.kind)))

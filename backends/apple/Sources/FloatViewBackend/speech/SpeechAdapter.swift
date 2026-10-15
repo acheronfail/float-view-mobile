@@ -22,7 +22,7 @@ struct SpeechRequest: Decodable, Sendable {
       parts.append("\(load.source) \(load.percent) percent")
     }
     if let speed {
-      parts.append("speed \(speed) \(imperial ? "miles per hour" : "kilometres per hour")")
+      parts.append("\(speed) \(imperial ? "miles per hour" : "kilometres per hour")")
     }
     return parts.joined(separator: ", ")
   }

@@ -68,7 +68,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await button.tap();
       await page.getByText('Test finished silently: announcement volume is muted.', { exact: true }).waitFor();
       assert.equal(requests.filter((x) => x === 'announcements.test').length, 1);
-      const automatic = await browser.newPage();
+      assert.equal(await page.getByRole('button', { name: 'Voice settings', exact: true }).count(), 0);
+      let voiceRequests = 0;
+      const automatic = await browser.newPage({ hasTouch: true });
       if (name === 'chromium')
         await automatic.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
       await automatic.routeWebSocket('**/api/ws?*', (socket) => {
@@ -79,12 +81,28 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             socket.send(
               JSON.stringify({ id: request.id, error: { code: 'unavailable', message: 'Test save failure' } })
             );
-          else server.send(raw);
+          else if (request.method === 'announcements.openVoiceSettings') {
+            voiceRequests++;
+            setTimeout(
+              () =>
+                socket.send(
+                  JSON.stringify(
+                    voiceRequests === 1
+                      ? { id: request.id, error: { code: 'unavailable', message: 'Test launch failure' } }
+                      : { id: request.id, result: { accepted: true } }
+                  )
+                ),
+              100
+            );
+          } else server.send(raw);
         });
         server.onMessage((raw) => {
           const message = JSON.parse(String(raw));
           const state = message.event === 'state.changed' ? message.data : message.result;
-          if (state?.announcementAudio) state.announcementAudio.loweringControl = 'automatic';
+          if (state?.announcementAudio) {
+            state.announcementAudio.loweringControl = 'automatic';
+            state.announcementAudio.voiceSettingsAvailable = true;
+          }
           socket.send(JSON.stringify(message));
         });
       });
@@ -100,6 +118,24 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await automatic
         .getByText('Could not save announcement settings. Your edits are kept; try again.', { exact: true })
         .waitFor();
+      assert.equal(await automatic.getByLabel('Load threshold (%)', { exact: true }).inputValue(), '77');
+      const voiceButton = automatic.getByRole('button', { name: 'Voice settings', exact: true });
+      await voiceButton.click({ button: 'right' });
+      assert.equal(voiceRequests, 0);
+      await voiceButton.tap();
+      await automatic
+        .getByText('Could not open voice settings. Open text-to-speech settings on your device and try again.', {
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(voiceRequests, 1);
+      assert.equal(await automatic.getByLabel('Load threshold (%)', { exact: true }).inputValue(), '77');
+      await voiceButton.focus();
+      await automatic.keyboard.press('Enter');
+      await automatic
+        .getByText('Voice settings opened. Return here after choosing an offline English voice.', { exact: true })
+        .waitFor();
+      assert.equal(voiceRequests, 2);
       assert.equal(await automatic.getByLabel('Load threshold (%)', { exact: true }).inputValue(), '77');
       await automatic.close();
       assert.deepEqual(errors, []);

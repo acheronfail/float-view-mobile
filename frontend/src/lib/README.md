@@ -304,3 +304,8 @@ without platform sniffing. Live load views only format `LiveSample.load`;
 `features/connection/gauge.ts` contains presentation selectors, not utilisation
 or winner calculations. Session views retain recorded raw duty and captured
 motor/battery fractions.
+
+The announcement Voice settings action renders only when mandatory
+`announcementAudio.voiceSettingsAvailable` is true. It sends the authenticated
+`announcements.openVoiceSettings` method, never an OS URI or platform guess;
+native hosts own chooser availability, launch and return-time voice refresh.

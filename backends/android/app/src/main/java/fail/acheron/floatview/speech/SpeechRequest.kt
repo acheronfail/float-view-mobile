@@ -8,7 +8,7 @@ internal data class SpeechRequest(
 ) {
     val phrase: String get() = buildList {
         load?.let { add("${it.first} ${it.second} percent") }
-        speed?.let { add("speed $it ${if (imperial) "miles per hour" else "kilometres per hour"}") }
+        speed?.let { add("$it ${if (imperial) "miles per hour" else "kilometres per hour"}") }
     }.joinToString(", ")
     companion object {
         fun decode(value: JSONObject): SpeechRequest? = runCatching {

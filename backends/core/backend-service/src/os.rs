@@ -56,6 +56,10 @@ pub enum Fact {
     SpeechReady {
         state: crate::announcements::AudioState,
     },
+    VoiceSettingsOpened {
+        id: u64,
+        success: bool,
+    },
     SpeechFinished {
         id: u64,
         outcome: crate::announcements::Outcome,
@@ -156,6 +160,10 @@ pub enum Effect {
         id: u64,
     },
     RefreshSpeech,
+    OpenVoiceSettings {
+        id: u64,
+        expires_at_ms: u64,
+    },
     Scan {
         scan_id: u64,
     },

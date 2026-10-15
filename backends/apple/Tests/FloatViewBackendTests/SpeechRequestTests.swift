@@ -14,8 +14,12 @@ struct SpeechRequestTests {
   @Test func combinedPhraseIsLoadThenSpeed() throws {
     let value = try request()
     #expect(value.valid)
-    #expect(value.phrase == "motor 78 percent, speed 32 kilometres per hour")
+    #expect(value.phrase == "motor 78 percent, 32 kilometres per hour")
     #expect(value.volume == 42)
+  }
+
+  @Test func speedOnlyHasUnitsWithoutPrefix() throws {
+    #expect(try request("null").phrase == "32 kilometres per hour")
   }
 
   @Test func rejectsInvalidValuesAndSources() throws {

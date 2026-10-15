@@ -92,7 +92,7 @@ public final class SharedService: @unchecked Sendable {
             #endif
             service.fact([
               "fact": "speech_ready",
-              "state": ["status": status, "reason": reason as Any? ?? NSNull(), "loweringControl": lowering],
+              "state": ["status": status, "reason": reason as Any? ?? NSNull(), "loweringControl": lowering, "voiceSettingsAvailable": false],
             ])
           }
         }
@@ -350,6 +350,8 @@ public final class SharedService: @unchecked Sendable {
         operation: number("operation"),
         response: value["mode"] as? String == "with_response"
       )
+    case "open_voice_settings":
+      fact(["fact": "voice_settings_opened", "id": id, "success": false])
     case "refresh_speech": speech.refresh()
     case "cancel_speech": speech.cancel(id)
     case "speak":

@@ -23,7 +23,7 @@ class SharedService(
 ) : AutoCloseable {
     private val speech = fail.acheron.floatview.speech.SpeechAdapter(context) { status, id, reason -> enqueue {
         if (status == "outcome") fact(json("fact" to "speech_finished", "id" to id, "outcome" to reason))
-        else fact(json("fact" to "speech_ready", "state" to json("status" to status, "reason" to reason, "loweringControl" to "automatic")))
+        else fact(json("fact" to "speech_ready", "state" to json("status" to status, "reason" to reason, "loweringControl" to "automatic", "voiceSettingsAvailable" to fail.acheron.floatview.speech.SpeechAdapter.canOpenVoiceSettings(context))))
     } }
     val handle: Long
     private val executor = ScheduledThreadPoolExecutor(1) { action -> Thread(action, "float-view-os") }
@@ -260,6 +260,12 @@ class SharedService(
             "speak" -> speech.speak(value.getJSONObject("speech"))
             "cancel_speech" -> speech.cancel(id)
             "refresh_speech" -> speech.refresh()
+            "open_voice_settings" -> {
+                val operationLifetime = lifetime
+                speech.openVoiceSettings(value.getLong("expires_at_ms")) { success -> enqueue {
+                    if (lifetime == operationLifetime) fact(json("fact" to "voice_settings_opened", "id" to id, "success" to success))
+                } }
+            }
             "live_activity" -> {
                 liveActivity = value.optJSONObject("state")?.let(LiveActivityState::decode)
             }

@@ -219,6 +219,7 @@ impl BackendService {
                 | Fact::PresentationStarted { .. }
                 | Fact::PresentationFinished { .. }
                 | Fact::UiCompleted { .. }
+                | Fact::VoiceSettingsOpened { .. }
                 | Fact::Foreground { foreground: false }
                 | Fact::Bluetooth {
                     radio: Radio::PoweredOff,
@@ -597,6 +598,7 @@ impl BackendService {
                 let _ = self.finish_presentation(id);
             }
             Fact::UiCompleted { id, success } => self.complete_ui(id, success),
+            Fact::VoiceSettingsOpened { id, success } => self.complete_voice_settings(id, success),
         }
         self.location_eligibility()?;
         self.step_announcements()?;
@@ -3208,6 +3210,7 @@ mod tests {
             status: Readiness::Ready,
             reason: None,
             lowering_control: Lowering::Adjustable,
+            voice_settings_available: false,
         };
         let settings = &mut t.service.policy.settings.announcements;
         settings.speed_enabled = true;
@@ -3277,6 +3280,7 @@ mod tests {
             status: Readiness::Ready,
             reason: None,
             lowering_control: Lowering::Adjustable,
+            voice_settings_available: false,
         };
         let crate::Dispatch::Pending(mut receiver) =
             t.service.test_announcement(7, TestKind::Combined).unwrap()
@@ -3393,6 +3397,7 @@ mod tests {
             status: Readiness::Ready,
             reason: None,
             lowering_control: Lowering::Automatic,
+            voice_settings_available: false,
         };
         let crate::Dispatch::Pending(mut receiver) =
             t.service.test_announcement(1, TestKind::Speed).unwrap()
@@ -3414,5 +3419,130 @@ mod tests {
                 outcome: Outcome::Unavailable
             }
         ));
+    }
+    #[test]
+    fn voice_settings_launch_is_foreground_bounded_and_ignores_stale_completion() {
+        use crate::{dispatch::Dispatch, operations::Operation};
+        let mut t = Test::new();
+        assert!(matches!(
+            t.service.dispatch(1, Operation::OpenVoiceSettings),
+            Err(Failure::Unavailable)
+        ));
+        t.service
+            .policy
+            .announcements
+            .audio
+            .voice_settings_available = true;
+        t.fact(Fact::Foreground { foreground: false }, 1).unwrap();
+        assert!(matches!(
+            t.service.dispatch(1, Operation::OpenVoiceSettings),
+            Err(Failure::Unavailable)
+        ));
+        t.fact(Fact::Foreground { foreground: true }, 2).unwrap();
+        t.drain();
+        let settings = serde_json::to_value(&t.service.policy.settings).unwrap();
+        let Dispatch::Pending(mut first) =
+            t.service.dispatch(1, Operation::OpenVoiceSettings).unwrap()
+        else {
+            panic!()
+        };
+        let id = t
+            .service
+            .drain_os()
+            .effects
+            .into_iter()
+            .find_map(|effect| match effect {
+                Effect::OpenVoiceSettings { id, expires_at_ms } => {
+                    assert_eq!(expires_at_ms, 5002);
+                    Some(id)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(matches!(
+            t.service.dispatch(2, Operation::OpenVoiceSettings),
+            Err(Failure::Conflict)
+        ));
+        t.fact(
+            Fact::VoiceSettingsOpened {
+                id: id + 1,
+                success: true,
+            },
+            3,
+        )
+        .unwrap();
+        assert!(first.try_recv().is_err());
+        t.fact(Fact::VoiceSettingsOpened { id, success: false }, 4)
+            .unwrap();
+        assert!(matches!(
+            first.try_recv().unwrap(),
+            Err(Failure::Unavailable)
+        ));
+        let Dispatch::Pending(mut expired) =
+            t.service.dispatch(1, Operation::OpenVoiceSettings).unwrap()
+        else {
+            panic!()
+        };
+        let expired_id = t
+            .service
+            .drain_os()
+            .effects
+            .into_iter()
+            .find_map(|e| {
+                if let Effect::OpenVoiceSettings { id, .. } = e {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        t.fact(Fact::Clock {}, 6000).unwrap();
+        assert!(matches!(
+            expired.try_recv().unwrap(),
+            Err(Failure::Unavailable)
+        ));
+        let Dispatch::Pending(mut current) =
+            t.service.dispatch(1, Operation::OpenVoiceSettings).unwrap()
+        else {
+            panic!()
+        };
+        let current_id = t
+            .service
+            .drain_os()
+            .effects
+            .into_iter()
+            .find_map(|e| {
+                if let Effect::OpenVoiceSettings { id, .. } = e {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        t.fact(
+            Fact::VoiceSettingsOpened {
+                id: expired_id,
+                success: true,
+            },
+            6001,
+        )
+        .unwrap();
+        assert!(current.try_recv().is_err());
+        t.fact(
+            Fact::VoiceSettingsOpened {
+                id: current_id,
+                success: true,
+            },
+            6002,
+        )
+        .unwrap();
+        assert!(matches!(
+            current.try_recv().unwrap(),
+            Ok(crate::facts::Completion::Unit)
+        ));
+        assert_eq!(
+            serde_json::to_value(&t.service.policy.settings).unwrap(),
+            settings
+        );
     }
 }

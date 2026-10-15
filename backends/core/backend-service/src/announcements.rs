@@ -52,6 +52,7 @@ pub struct AudioState {
     pub status: Readiness,
     pub reason: Option<Reason>,
     pub lowering_control: Lowering,
+    pub voice_settings_available: bool,
 }
 impl Default for AudioState {
     fn default() -> Self {
@@ -59,6 +60,7 @@ impl Default for AudioState {
             status: Readiness::Unavailable,
             reason: Some(Reason::EngineUnavailable),
             lowering_control: Lowering::Automatic,
+            voice_settings_available: false,
         }
     }
 }

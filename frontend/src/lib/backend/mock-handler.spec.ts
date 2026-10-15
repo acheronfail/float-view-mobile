@@ -999,6 +999,17 @@ describe('deterministic mock backend', () => {
 });
 
 describe('announcement mock contract', () => {
+  it('exposes the mandatory voice settings method and rejects unsupported or extra input', () => {
+    const backend = new MockBackend();
+    const initial = (backend.handle({ id: 1, method: 'state.get', params: {} }) as { result: AppState }).result;
+    expect(initial.announcementAudio.voiceSettingsAvailable).toBe(false);
+    expect(backend.handle({ id: 2, method: 'announcements.openVoiceSettings', params: {} })).toMatchObject({
+      error: { code: 'unavailable' },
+    });
+    expect(
+      backend.handle({ id: 3, method: 'announcements.openVoiceSettings', params: { uri: 'other' } })
+    ).toMatchObject({ error: { code: 'invalid_request' } });
+  });
   it('accepts both rules, validates atomically and enforces test cooldown', () => {
     const backend = new MockBackend();
     const initial = (backend.handle({ id: 1, method: 'state.get', params: {} }) as { result: AppState }).result;

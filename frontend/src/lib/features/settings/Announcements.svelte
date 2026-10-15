@@ -9,6 +9,7 @@
   let dirty = $state(false);
   let saving = $state(false);
   let testing = $state(false);
+  let openingVoiceSettings = $state(false);
   let message = $state('');
   let form: HTMLFormElement;
   const settings = $derived(backendState.settings);
@@ -25,7 +26,7 @@
     message = '';
   }
   async function save() {
-    if (saving || !form.reportValidity()) return;
+    if (saving || openingVoiceSettings || !form.reportValidity()) return;
     saving = true;
     const accepted = await backendState.updateSessionSettings({ announcements: { ...draft } });
     saving = false;
@@ -34,8 +35,21 @@
       message = 'Announcement settings saved.';
     } else message = 'Could not save announcement settings. Your edits are kept; try again.';
   }
+  async function openVoiceSettings() {
+    if (openingVoiceSettings || saving || testing) return;
+    openingVoiceSettings = true;
+    message = '';
+    try {
+      await backendState.openVoiceSettings();
+      message = 'Voice settings opened. Return here after choosing an offline English voice.';
+    } catch {
+      message = 'Could not open voice settings. Open text-to-speech settings on your device and try again.';
+    } finally {
+      openingVoiceSettings = false;
+    }
+  }
   async function test(kind: 'speed' | 'load' | 'combined') {
-    if (testing || saving) return;
+    if (testing || saving || openingVoiceSettings) return;
     testing = true;
     message = '';
     try {
@@ -160,7 +174,7 @@
     <button
       type="button"
       class="min-h-11 touch-manipulation rounded bg-accent px-3 py-2 text-on-accent disabled:opacity-50"
-      disabled={!dirty || saving}
+      disabled={!dirty || saving || openingVoiceSettings}
       onpointerdown={(e) => activateFromPointer(e, () => void save())}
       onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void save())}
       >{saving ? 'Saving…' : 'Save announcements'}</button
@@ -174,13 +188,28 @@
             ? 'No offline voice is available. Install an English voice in system speech settings, then return to the app.'
             : 'Speech is currently unavailable.'} Tests use your saved settings.
     </p>
+    {#if audio?.voiceSettingsAvailable}
+      <div>
+        <button
+          type="button"
+          class="min-h-11 touch-manipulation rounded border border-outline px-3 py-2 disabled:opacity-50"
+          disabled={openingVoiceSettings || testing || saving}
+          onpointerdown={(e) => activateFromPointer(e, () => void openVoiceSettings())}
+          onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void openVoiceSettings())}
+          >{openingVoiceSettings ? 'Opening…' : 'Voice settings'}</button
+        >
+        <p class="mt-1 text-xs text-muted">
+          Choose a speech engine or preferred offline English voice in your device's text-to-speech settings.
+        </p>
+      </div>
+    {/if}
     <div class="flex flex-wrap gap-2">
       {#each ['speed', 'load', 'combined'] as name (name)}
         {@const kind = name as 'speed' | 'load' | 'combined'}
         <button
           type="button"
           class="min-h-11 touch-manipulation rounded border border-outline px-3 py-2 disabled:opacity-50"
-          disabled={testing || saving}
+          disabled={testing || saving || openingVoiceSettings}
           onpointerdown={(e) => activateFromPointer(e, () => void test(kind))}
           onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void test(kind))}>Test {name}</button
         >

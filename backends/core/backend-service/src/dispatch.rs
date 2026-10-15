@@ -16,6 +16,7 @@ pub enum Dispatch {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PendingKind {
     Speech,
+    VoiceSettings,
     Permission,
     Bluetooth,
     Location,
@@ -46,6 +47,7 @@ impl BackendService {
         let epoch = self.policy.exchange.epoch;
         let generation = self.runtime.snapshot().application.generation;
         let result = match operation {
+            Operation::OpenVoiceSettings => return self.open_voice_settings(owner),
             Operation::TestAnnouncement { kind } => return self.test_announcement(owner, kind),
             Operation::AddRideMarker {
                 session_id,
@@ -614,7 +616,12 @@ impl BackendService {
         action: crate::permissions::Action,
         kind: PendingKind,
     ) -> Result<Dispatch, Failure> {
-        if self.policy.permission_presentation.is_some() {
+        if self.policy.permission_presentation.is_some()
+            || self
+                .pending
+                .values()
+                .any(|p| p.kind == PendingKind::VoiceSettings)
+        {
             return Err(Failure::Conflict);
         }
         let row = self
@@ -641,6 +648,44 @@ impl BackendService {
         })?;
         self.changed()?;
         Ok(Dispatch::Pending(receiver))
+    }
+    fn open_voice_settings(&mut self, owner: u64) -> Result<Dispatch, Failure> {
+        if !self.policy.foreground || !self.policy.announcements.audio.voice_settings_available {
+            return Err(Failure::Unavailable);
+        }
+        if self.policy.permission_presentation.is_some()
+            || self
+                .pending
+                .values()
+                .any(|p| p.kind == PendingKind::VoiceSettings)
+        {
+            return Err(Failure::Conflict);
+        }
+        let (id, receiver) = self.add_pending(owner, PendingKind::VoiceSettings, 5_000)?;
+        if let Err(error) = self.policy.exchange.push(os::Effect::OpenVoiceSettings {
+            id,
+            expires_at_ms: self.policy.exchange.now.saturating_add(5_000),
+        }) {
+            self.finish_pending(id, Err(error.clone()));
+            return Err(error);
+        }
+        Ok(Dispatch::Pending(receiver))
+    }
+    pub(crate) fn complete_voice_settings(&mut self, id: u64, success: bool) {
+        if self
+            .pending
+            .get(&id)
+            .is_some_and(|p| p.kind == PendingKind::VoiceSettings)
+        {
+            self.finish_pending(
+                id,
+                if success {
+                    Ok(f::Completion::Unit)
+                } else {
+                    Err(Failure::Unavailable)
+                },
+            );
+        }
     }
     fn add_pending(
         &mut self,

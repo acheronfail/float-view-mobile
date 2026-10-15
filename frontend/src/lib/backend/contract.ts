@@ -228,6 +228,7 @@ export interface AnnouncementAudio {
   status: 'initializing' | 'ready' | 'unavailable';
   reason: 'no_offline_voice' | 'engine_unavailable' | 'audio_unavailable' | null;
   loweringControl: 'adjustable' | 'automatic';
+  voiceSettingsAvailable: boolean;
 }
 export interface LiveSample {
   /** Authoritative backend fractions and winner for this sample. */
@@ -1021,6 +1022,7 @@ export interface BackendMethods {
     result: SavedDevice;
   };
   'savedDevice.delete': { params: { savedDeviceId: string }; result: Accepted };
+  'announcements.openVoiceSettings': { params: Record<string, never>; result: { accepted: true } };
   'announcements.test': {
     params: { kind: 'speed' | 'load' | 'combined' };
     result: { outcome: 'finished' | 'interrupted' | 'unavailable' };

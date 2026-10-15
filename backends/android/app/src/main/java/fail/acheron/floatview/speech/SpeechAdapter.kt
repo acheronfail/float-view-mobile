@@ -1,6 +1,7 @@
 package fail.acheron.floatview.speech
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -23,6 +24,8 @@ class SpeechAdapter(private val context: Context, private val report: (String, L
     private var engine: TextToSpeech? = null
     private var ready = false
     private var initializing = false
+    private var resetOnRefresh = false
+    private var refreshPending = false
     private var epoch = 0L
     private val lease = SpeechLease()
     private var closed = false
@@ -32,7 +35,14 @@ class SpeechAdapter(private val context: Context, private val report: (String, L
     init { audio.registerAudioDeviceCallback(route, handler) }
     fun refresh() { handler.post { refreshOnMain() } }
     private fun refreshOnMain() {
-        if (closed || initializing) return
+        if (closed) return
+        if (initializing) { if (resetOnRefresh) refreshPending = true; return }
+        if (resetOnRefresh) {
+            if (lease.active != null) { refreshPending = true; return }
+            resetOnRefresh = false
+            ready = false
+            engine?.shutdown(); engine = null
+        }
         if (engine != null && ready) { selectVoice(); return }
         initializing = true
         val token = ++epoch
@@ -41,6 +51,7 @@ class SpeechAdapter(private val context: Context, private val report: (String, L
         engine = TextToSpeech(context) { status -> handler.post {
             if (token != epoch || closed) return@post
             initializing = false
+            if (refreshPending && resetOnRefresh) { refreshPending = false; refreshOnMain(); return@post }
             ready = status == TextToSpeech.SUCCESS
             if (ready) selectVoice() else report("unavailable", 0, "engine_unavailable")
         } }
@@ -54,8 +65,7 @@ class SpeechAdapter(private val context: Context, private val report: (String, L
     }
     private fun selectVoice() {
         val tts = engine ?: return
-        val voice = tts.voices?.filter { !it.isNetworkConnectionRequired && isEnglishSpeechLocale(it.locale) }
-            ?.sortedWith(compareByDescending<android.speech.tts.Voice> { it.locale == Locale.getDefault() }.thenBy { it.name })?.firstOrNull()
+        val voice = chooseOfflineEnglishVoice(tts.voices.orEmpty(), tts.voice, Locale.getDefault())
         ready = voice != null
         if (voice == null) { report("unavailable", 0, "no_offline_voice"); return }
         if (tts.setVoice(voice) != TextToSpeech.SUCCESS || tts.setAudioAttributes(attributes) != TextToSpeech.SUCCESS) {
@@ -95,6 +105,24 @@ class SpeechAdapter(private val context: Context, private val report: (String, L
     private fun finish(outcome: String) {
         val id = lease.active ?: return
         if (lease.finish(id)) report("outcome", id, outcome)
+        if (refreshPending) { refreshPending = false; refreshOnMain() }
+    }
+    fun openVoiceSettings(expiresAt: Long, done: (Boolean) -> Unit) { handler.post {
+        val process = android.app.ActivityManager.RunningAppProcessInfo()
+        android.app.ActivityManager.getMyMemoryState(process)
+        if (closed || android.os.SystemClock.elapsedRealtime() >= expiresAt ||
+            process.importance > android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND ||
+            !canOpenVoiceSettings(context)) { done(false); return@post }
+        val launched = runCatching {
+            context.startActivity(voiceSettingsIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            resetOnRefresh = true
+        }.isSuccess
+        done(launched)
+    } }
+    companion object {
+        private fun voiceSettingsIntent() = Intent("com.android.settings.TTS_SETTINGS")
+        fun canOpenVoiceSettings(context: Context): Boolean =
+            voiceSettingsIntent().resolveActivity(context.packageManager) != null
     }
     fun close() { handler.post {
         closed = true; epoch++; finish("interrupted")

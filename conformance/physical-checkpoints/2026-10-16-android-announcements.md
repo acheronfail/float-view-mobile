@@ -79,6 +79,12 @@ existing product installation without authorization.
 
 ## Scope limits
 
+Follow-up: after installing the refinement build, the user confirmed the new
+Voice settings button works on this phone. Three native voice-selection tests
+also pass, including standard `en` and Samsung `eng` locales and preferred
+installed/offline filtering. Revised prefix-free speech and an actual change of
+engine/voice have not received a separate listening confirmation.
+
 No iOS/macOS checks, Bluetooth audio headset routing, call/focus-denial/loss
 cleanup, a genuinely missing voice and recovery without restart, prolonged
 missing-completion cleanup, a telemetry-only stall with BLE still connected,

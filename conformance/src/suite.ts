@@ -1107,6 +1107,7 @@ const stableConnectionIssueCodes = new Set<ConnectionIssueCode>([
 export function assertState(state: AppState) {
   assert.ok(['initializing', 'ready', 'unavailable'].includes(state.announcementAudio.status));
   assert.ok(['adjustable', 'automatic'].includes(state.announcementAudio.loweringControl));
+  assert.equal(typeof state.announcementAudio.voiceSettingsAvailable, 'boolean');
   const load = state.activeConnection?.latestSample?.load;
   if (load) {
     assert.ok(
@@ -1446,6 +1447,7 @@ export const mandatoryMethods: BackendMethod[] = [
   'savedDevice.delete',
   'settings.update',
   'announcements.test',
+  'announcements.openVoiceSettings',
   'boardProfile.get',
   'boardProfile.update',
   'session.list',
@@ -1576,6 +1578,9 @@ async function exerciseBatteryPresets(client: ConformanceClient, id: string) {
 
 async function exerciseAnnouncements(client: ConformanceClient, initial: AppState) {
   const original = initial.settings.announcements;
+  await expectError(client.request('announcements.openVoiceSettings', { uri: 'other' } as never), 'invalid_request');
+  if (!initial.announcementAudio.voiceSettingsAvailable)
+    await expectError(client.request('announcements.openVoiceSettings', {}), 'unavailable');
   const updated = await client.request('settings.update', {
     expectedRevision: initial.settings.revision,
     patch: { announcements: { ...original, speedEnabled: true, loadEnabled: true, volumePercent: 0 } },
