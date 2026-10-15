@@ -52,15 +52,17 @@ export function isAncestor(ancestor: string, descendant: string, cwd = process.c
   return result.status === 0;
 }
 
-export function latestStable(commit: string, cwd = process.cwd()): string | null {
+function compareStable(left: string, right: string): number {
+  const a = parseVersion(left),
+    b = parseVersion(right);
+  return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
+}
+
+export function latestStable(commit: string, cwd = process.cwd(), before?: string): string | null {
   const candidates = git(['tag', '--list'], cwd)
     .split('\n')
-    .filter((tag) => stablePattern.test(tag));
-  candidates.sort((a, b) => {
-    const left = parseVersion(a),
-      right = parseVersion(b);
-    return right.major - left.major || right.minor - left.minor || right.patch - left.patch;
-  });
+    .filter((tag) => stablePattern.test(tag) && (!before || compareStable(tag, before) < 0));
+  candidates.sort((a, b) => compareStable(b, a));
   return candidates.find((tag) => isAncestor(tag, commit, cwd)) ?? null;
 }
 

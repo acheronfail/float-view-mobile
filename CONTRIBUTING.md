@@ -116,6 +116,9 @@ The retained Build apps workflow counter supplies an independent numeric native
 build identifier across both channels. Keep the same workflow/counter; native
 build numbers must not reset on a minor/major bump. Reruns reuse the original
 identity; a future store upload needing a new build identifier needs a fresh run.
+Release bodies use GitHub-generated notes. Stable notes compare against the
+previous stable ancestor tag; Nightly compares against the latest stable ancestor.
+Hidden source/version comments support nightly skip and asset verification.
 Stable tags select Release configuration, while nightlies use Debug for mobile.
 Current downloads remain AltStore/sideload/self-signed packages, not store
 submissions. Store signing, Android App Bundles and protected upload jobs can

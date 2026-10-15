@@ -42,3 +42,17 @@ export function getRelease(tag: string): Release | null {
 export function sourceMarker(commit: string): string {
   return `<!-- float-view-source:${commit} -->`;
 }
+
+export function versionMarker(version: string): string {
+  return `<!-- float-view-version:${version} -->`;
+}
+
+export function generatedNotes(tag: string, commit: string, previousTag: string | null): string {
+  const notes = api<{ body: string }>('releases/generate-notes', 'POST', {
+    tag_name: tag,
+    target_commitish: commit,
+    ...(previousTag ? { previous_tag_name: previousTag } : {}),
+  });
+  if (!notes || typeof notes.body !== 'string') throw new Error('GitHub did not return generated release notes');
+  return notes.body;
+}

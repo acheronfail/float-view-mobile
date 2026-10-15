@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { api, getRelease, sourceMarker, type Release } from './github.ts';
-import { assetNames, git, parseVersion, resolveVersion } from './version.ts';
+import { api, generatedNotes, getRelease, sourceMarker, versionMarker, type Release } from './github.ts';
+import { assetNames, git, latestStable, parseVersion, resolveVersion } from './version.ts';
 
 const commit = process.env.GITHUB_SHA!;
 const version = process.env.FLOAT_VIEW_VERSION!;
@@ -23,7 +23,6 @@ let release = getRelease(tag);
 if (stable && release && !release.draft) {
   console.log(`${tag} is already published; preserving its assets.`);
 } else {
-  const body = `Version ${version} from commit ${commit}.\n\nIPA for AltStore, signed APK for Android sideloading, and self-signed universal macOS app (macOS 14+, not notarized). These are not app-store submissions.\n\n${sourceMarker(commit)}`;
   if (!release) {
     release = api<Release>('releases', 'POST', {
       tag_name: tag,
@@ -45,6 +44,10 @@ if (stable && release && !release.draft) {
   } else if (git(['rev-parse', `${tag}^{commit}`]) !== commit) {
     throw new Error('Stable tag moved during publication');
   }
+  // Generate after moving Nightly: GitHub ignores target_commitish when the tag already exists.
+  const previousTag = latestStable(commit, process.cwd(), stable ? tag : undefined);
+  const notes = generatedNotes(tag, commit, previousTag);
+  const body = `${notes}\n\n${sourceMarker(commit)}\n${versionMarker(version)}`;
   api(`releases/${release.id}`, 'PATCH', {
     name: stable ? version : 'Nightly',
     body,

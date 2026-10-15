@@ -13,7 +13,7 @@ const publishedSource = existing?.body?.match(/<!-- float-view-source:([0-9a-f]{
 const newerNightly = publishedSource && publishedSource !== commit && isAncestor(commit, publishedSource);
 // A stable tag added after publication may change the next nightly base for the same commit.
 // Check the published version's asset set so an unchanged complete nightly still skips.
-const publishedVersion = existing?.body?.match(/^Version (v[^\s]+) from commit /)?.[1];
+const publishedVersion = existing?.body?.match(/<!-- float-view-version:(v[^\s]+) -->/)?.[1];
 const expectedAssets = assetNames(publishedVersion ?? metadata.version);
 const completeAssets =
   existing?.assets.length === expectedAssets.length &&

@@ -67,6 +67,9 @@ test('greatest numeric stable ancestor determines nightly base, excluding unrela
   assert.equal(latestStable(sha, dir), 'v0.1.49');
   assert.equal(resolveVersion(sha, null, dir).version, `v0.1.50-nightly.1.g${sha.slice(0, 12)}`);
   git(['tag', 'v0.2.0'], dir);
+  git(['tag', 'v0.3.0'], dir);
+  assert.equal(latestStable(sha, dir, 'v0.2.0'), 'v0.1.49');
+  git(['tag', '-d', 'v0.3.0'], dir);
   const later = commit(dir);
   assert.equal(resolveVersion(later, null, dir).version, `v0.2.1-nightly.1.g${later.slice(0, 12)}`);
 });
