@@ -164,7 +164,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       // A delayed save of 77 must not replace a newer, still-focused edit.
       const loadInput = automatic.getByLabel('Load threshold (%)', { exact: true });
       await loadInput.fill('81');
-      await automatic.getByText('Announcement settings saved.', { exact: true }).waitFor();
+      await client.waitForState((s) => s.settings.announcements.loadThresholdPercent === 77);
       assert.equal(await loadInput.inputValue(), '81');
       assert.equal((await client.request('state.get', {})).settings.announcements.loadThresholdPercent, 77);
       await automatic.getByRole('button', { name: 'Test combined', exact: true }).tap();
@@ -184,6 +184,76 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       // The adjustable lowering control saves immediately too.
       await control.getByRole('button', { name: 'Off', exact: true }).tap();
       await client.waitForState((s) => !s.settings.announcements.lowerOtherAudio);
+      // Inline errors persist after blur and focus changes, with no native popovers.
+      const speedInput = page.getByLabel('Speed threshold (km/h)', { exact: true });
+      await speedInput.evaluate((input) => {
+        const form = input.closest('form')!;
+        form.dataset.invalidEvents = '0';
+        form.addEventListener(
+          'invalid',
+          () => {
+            form.dataset.invalidEvents = String(Number(form.dataset.invalidEvents) + 1);
+          },
+          true
+        );
+      });
+      const savedBeforeErrors = (await client.request('state.get', {})).settings.announcements;
+      const requestsBeforeErrors = requests.filter((x) => x === 'settings.update').length;
+      await speedInput.fill('0');
+      await speedInput.blur();
+      const speedHint = page.locator('#announcement-speed-error');
+      await speedHint.waitFor();
+      assert.match(await speedHint.innerText(), /0\.001 to 200 km\/h/);
+      assert.equal(await speedInput.getAttribute('aria-invalid'), 'true');
+      assert.equal(await speedInput.getAttribute('aria-describedby'), 'announcement-speed-error');
+      assert.match((await speedHint.getAttribute('class')) ?? '', /text-danger/);
+      await page.getByLabel('Load threshold (%)', { exact: true }).focus();
+      assert.equal(await speedHint.isVisible(), true);
+      await button.tap();
+      assert.equal(requests.filter((x) => x === 'announcements.test').length, 1);
+      assert.equal(requests.filter((x) => x === 'settings.update').length, requestsBeforeErrors);
+      await speedInput.fill('201');
+      assert.equal(await speedHint.isVisible(), true);
+      await speedInput.fill('');
+      await speedInput.blur();
+      assert.equal(await speedHint.isVisible(), true);
+      await speedInput.fill('0');
+      await page
+        .getByRole('group', { name: 'Units', exact: true })
+        .getByRole('button', { name: 'Imperial', exact: true })
+        .tap();
+      await client.waitForState((s) => s.settings.unitPreference === 'imperial');
+      await page.getByLabel('Speed threshold (mph)', { exact: true }).waitFor();
+      await page.getByText('Enter a speed from 0.001 to 124.274 mph.', { exact: true }).waitFor();
+      assert.match(await speedHint.innerText(), /124\.274 mph/);
+      const load = page.getByLabel('Load threshold (%)', { exact: true });
+      const repeat = page.getByLabel('Repeat interval (seconds)', { exact: true });
+      await load.fill('101');
+      await load.blur();
+      await page.locator('#announcement-load-error').waitFor();
+      await repeat.fill('1.5');
+      await repeat.blur();
+      await page.locator('#announcement-interval-error').waitFor();
+      assert.deepEqual((await client.request('state.get', {})).settings.announcements, savedBeforeErrors);
+      await speedHint.locator('..').screenshot({ path: `/private/tmp/float-view-announcement-inline-${name}.png` });
+      const mphInput = page.getByLabel('Speed threshold (mph)', { exact: true });
+      await mphInput.fill('20');
+      assert.equal(await speedHint.count(), 0);
+      assert.equal(await mphInput.getAttribute('aria-invalid'), null);
+      await mphInput.blur();
+      await load.fill('75');
+      await load.blur();
+      assert.equal(await page.locator('#announcement-load-error').count(), 0);
+      assert.equal(await page.locator('#announcement-interval-error').isVisible(), true);
+      await repeat.fill('2');
+      await repeat.blur();
+      await client.waitForState(
+        (s) =>
+          s.settings.announcements.loadThresholdPercent === 75 &&
+          Math.abs(s.settings.announcements.speedThresholdKph - 20 / 0.621371192237334) < 0.001
+      );
+      assert.equal(await page.locator('#announcement-interval-error').count(), 0);
+      assert.equal(await mphInput.evaluate((input) => input.closest('form')!.dataset.invalidEvents), '0');
       await automatic.close();
       assert.deepEqual(errors, []);
     } finally {

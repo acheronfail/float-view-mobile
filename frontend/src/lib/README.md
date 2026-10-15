@@ -300,7 +300,9 @@ Ride announcement controls belong to `features/settings/Announcements.svelte`.
 They automatically submit complete revision-checked announcement preferences on
 control changes or numeric-input blur, and authenticated
 test requests. Saves are serialized, newer edits survive delayed responses, and
-tests await successful saves; speech, telemetry decisions and scheduling stay native/shared.
+tests await successful saves. Invalid numeric fields use persistent danger-styled
+inline hints with accessible descriptions, rather than browser validation popovers;
+speech, telemetry decisions and scheduling stay native/shared.
 The iOS lowering switch renders from mandatory `announcementAudio.loweringControl`,
 without platform sniffing. Live load views only format `LiveSample.load`;
 `features/connection/gauge.ts` contains presentation selectors, not utilisation

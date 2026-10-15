@@ -240,6 +240,12 @@ Settings SHALL provide independent speed/load switches and thresholds with expli
 - **WHEN** users change an announcement switch or slider, or commit a numeric input by changing or leaving it
 - **THEN** valid preferences save automatically without a Save button; delayed saves preserve newer edits, and failures retain edits with an explicit retry action
 
+#### Scenario: Invalid announcement numeric input
+
+- **WHEN** a user commits an empty or out-of-range number, or a repeat interval that is not a whole number
+- **THEN** a persistent danger-styled hint appears under that input with its valid range and current units, the field is marked invalid for assistive technology, and neither saving nor testing submits the invalid preferences
+- **AND** correction clears the field's error immediately and valid committed preferences save automatically without native validation popovers
+
 #### Scenario: Test after editing preferences
 
 - **WHEN** users activate a test with valid uncommitted edits or a save in progress

@@ -11,7 +11,9 @@
   let testing = $state(false);
   let openingVoiceSettings = $state(false);
   let message = $state('');
-  let form: HTMLFormElement;
+  type NumericField = 'speedThresholdKph' | 'loadThresholdPercent' | 'repeatIntervalSeconds';
+  const numericFields: NumericField[] = ['speedThresholdKph', 'loadThresholdPercent', 'repeatIntervalSeconds'];
+  let validated = $state<Partial<Record<NumericField, boolean>>>({});
   let editVersion = 0;
   let submittedVersion = -1;
   let queuedSave: { value: AnnouncementSettings; version: number } | null = null;
@@ -20,7 +22,35 @@
   const audio = $derived(backendState.snapshot?.announcementAudio);
   const imperial = $derived(settings?.unitPreference === 'imperial');
   const factor = $derived(imperial ? 0.621371192237334 : 1);
-  const inputClass = 'mt-1 block w-full rounded border border-outline bg-surface px-3 py-2 text-foreground';
+  const inputClass = 'mt-1 block w-full rounded border bg-surface px-3 py-2 text-foreground';
+  const fieldErrors = $derived({
+    speedThresholdKph:
+      Number.isFinite(draft.speedThresholdKph) &&
+      draft.speedThresholdKph * factor >= 0.001 &&
+      draft.speedThresholdKph <= 200
+        ? ''
+        : `Enter a speed from 0.001 to ${Number((200 * factor).toFixed(3))} ${imperial ? 'mph' : 'km/h'}.`,
+    loadThresholdPercent:
+      Number.isFinite(draft.loadThresholdPercent) &&
+      draft.loadThresholdPercent >= 0.001 &&
+      draft.loadThresholdPercent <= 100
+        ? ''
+        : 'Enter a load from 0.001 to 100%.',
+    repeatIntervalSeconds:
+      Number.isInteger(draft.repeatIntervalSeconds) &&
+      draft.repeatIntervalSeconds >= 1 &&
+      draft.repeatIntervalSeconds <= 60
+        ? ''
+        : 'Enter a whole number from 1 to 60 seconds.',
+  });
+  const speedError = $derived(validated.speedThresholdKph ? fieldErrors.speedThresholdKph : '');
+  const loadError = $derived(validated.loadThresholdPercent ? fieldErrors.loadThresholdPercent : '');
+  const intervalError = $derived(validated.repeatIntervalSeconds ? fieldErrors.repeatIntervalSeconds : '');
+  function commit(field: NumericField) {
+    validated[field] = true;
+    void save();
+  }
+
   $effect(() => {
     if (!dirty && settings) draft = { ...settings.announcements };
   });
@@ -35,8 +65,13 @@
     void save();
   }
   function save(): Promise<boolean> {
+    const invalid = numericFields.filter((field) => fieldErrors[field]);
+    if (invalid.length) {
+      for (const field of invalid) validated[field] = true;
+      message = 'Correct the highlighted values to save your changes.';
+      return Promise.resolve(false);
+    }
     if (!dirty) return savePromise ?? Promise.resolve(true);
-    if (!form.reportValidity()) return Promise.resolve(false);
     // Change and blur can commit the same edit; serialize saves without losing newer edits.
     if (savePromise && submittedVersion === editVersion) return savePromise;
     submittedVersion = editVersion;
@@ -55,7 +90,7 @@
         }
         if (next.version === editVersion) dirty = false;
       }
-      message = 'Announcement settings saved.';
+      message = dirty ? '' : 'Announcement settings saved.';
       return true;
     })().finally(() => {
       saving = false;
@@ -103,8 +138,11 @@
 <div>
   <SectionTitle title="Ride announcements" />
   <form
-    bind:this={form}
-    onsubmit={(event) => event.preventDefault()}
+    novalidate
+    onsubmit={(event) => {
+      event.preventDefault();
+      void save();
+    }}
     class="mt-3 space-y-3 rounded-lg border border-outline bg-elevated p-3 text-sm"
   >
     <p class="text-muted">
@@ -126,51 +164,72 @@
         />
       </div>
     {/each}
-    <label class="block"
-      >Speed threshold ({imperial ? 'mph' : 'km/h'})
-      <input
-        class={inputClass}
-        type="number"
-        required
-        min="0.001"
-        max={200 * factor}
-        step="any"
-        value={Number((draft.speedThresholdKph * factor).toFixed(3))}
-        oninput={(e) => edit({ speedThresholdKph: e.currentTarget.valueAsNumber / factor })}
-        onchange={() => void save()}
-        onblur={() => void save()}
-      />
-    </label>
-    <label class="block"
-      >Load threshold (%)
-      <input
-        class={inputClass}
-        type="number"
-        required
-        min="0.001"
-        max="100"
-        step="any"
-        value={draft.loadThresholdPercent}
-        oninput={(e) => edit({ loadThresholdPercent: e.currentTarget.valueAsNumber })}
-        onchange={() => void save()}
-        onblur={() => void save()}
-      />
-    </label>
-    <label class="block"
-      >Repeat interval (seconds)
-      <input
-        class={inputClass}
-        type="number"
-        required
-        min="1"
-        max="60"
-        step="1"
-        value={draft.repeatIntervalSeconds}
-        oninput={(e) => edit({ repeatIntervalSeconds: e.currentTarget.valueAsNumber })}
-        onchange={() => void save()}
-        onblur={() => void save()}
-      />
-    </label>
+    <div>
+      <label class="block"
+        >Speed threshold ({imperial ? 'mph' : 'km/h'})
+        <input
+          class={`${inputClass} ${speedError ? 'border-danger' : 'border-outline'}`}
+          aria-invalid={speedError ? 'true' : undefined}
+          aria-describedby={speedError ? 'announcement-speed-error' : undefined}
+          type="number"
+          required
+          min="0.001"
+          max={200 * factor}
+          step="any"
+          value={Number((draft.speedThresholdKph * factor).toFixed(3))}
+          oninput={(e) => edit({ speedThresholdKph: e.currentTarget.valueAsNumber / factor })}
+          onchange={() => commit('speedThresholdKph')}
+          onblur={() => commit('speedThresholdKph')}
+        />
+      </label>
+      {#if speedError}
+        <p id="announcement-speed-error" role="alert" class="mt-1 text-xs text-danger">{speedError}</p>
+      {/if}
+    </div>
+    <div>
+      <label class="block"
+        >Load threshold (%)
+        <input
+          class={`${inputClass} ${loadError ? 'border-danger' : 'border-outline'}`}
+          aria-invalid={loadError ? 'true' : undefined}
+          aria-describedby={loadError ? 'announcement-load-error' : undefined}
+          type="number"
+          required
+          min="0.001"
+          max="100"
+          step="any"
+          value={draft.loadThresholdPercent}
+          oninput={(e) => edit({ loadThresholdPercent: e.currentTarget.valueAsNumber })}
+          onchange={() => commit('loadThresholdPercent')}
+          onblur={() => commit('loadThresholdPercent')}
+        />
+      </label>
+      {#if loadError}
+        <p id="announcement-load-error" role="alert" class="mt-1 text-xs text-danger">{loadError}</p>
+      {/if}
+    </div>
+    <div>
+      <label class="block"
+        >Repeat interval (seconds)
+        <input
+          class={`${inputClass} ${intervalError ? 'border-danger' : 'border-outline'}`}
+          aria-invalid={intervalError ? 'true' : undefined}
+          aria-describedby={intervalError ? 'announcement-interval-error' : undefined}
+          type="number"
+          required
+          min="1"
+          max="60"
+          step="1"
+          value={draft.repeatIntervalSeconds}
+          oninput={(e) => edit({ repeatIntervalSeconds: e.currentTarget.valueAsNumber })}
+          onchange={() => commit('repeatIntervalSeconds')}
+          onblur={() => commit('repeatIntervalSeconds')}
+        />
+      </label>
+      {#if intervalError}
+        <p id="announcement-interval-error" role="alert" class="mt-1 text-xs text-danger">{intervalError}</p>
+      {/if}
+    </div>
     <label class="block"
       >Announcement volume: {draft.volumePercent}%{draft.volumePercent === 0 ? ' (muted)' : ''}
       <input
