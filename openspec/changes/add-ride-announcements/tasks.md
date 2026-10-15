@@ -1,5 +1,13 @@
 # Tasks
 
+## 0. Unify load ownership and all consumers
+
+- [ ] 0.1 Audit the three formula owners and add one pure shared Rust component/winner calculation below application-runtime and backend-service; delete the duplicate Rust formulas and verify focused unit tests for filtered/directional/raw preference, draw/regen limits, missing/non-finite inputs, saturation and tie ordering.
+- [ ] 0.2 Extend the live sample contract, client/mock and Rust projection with authoritative load components/winner scoped to sample sequence and controller generation; verify saved persistence-before-publication, guest isolation, controller replacement, nullability and complete monotonic snapshots through affected runtime/contract/conformance tests.
+- [ ] 0.3 Capture dutyLoad, motorLoad and batteryLoad via the same owner, preserving raw dutyCycle; update session schemas/queries, descriptors, pruning and current-format import/export as affected. Verify round trips and historical stability after current-limit changes, explicit storage-version mismatch handling and preservation on ordinary failure without migrations or old-format readers.
+- [ ] 0.4 Switch primary gauge, load widgets and live charts to projected values; remove frontend utilisation and winner logic and current-limit reconstruction in chart buffers. Switch session load charts to captured dutyLoad/current-load fields. Verify frontend type checks and focused gauge/widget/chart/session/mock tests, including a retained point whose controller limits later change.
+- [ ] 0.5 Feed Android notification, iOS Live Activity/Dynamic Island and announcement eligibility from the shared Rust result; verify cross-consumer fixtures assert matching source and unrounded values for identical samples, without requiring identical presentation cadence. Update frontend/core/host ownership documentation and canonical conformance for the new load contract and recorded fields.
+
 ## 1. Contract, storage and bounded OS exchange
 
 - [ ] 1.1 Extend contract.ts, client/mock, shared settings persistence and complete state projection with validated announcement settings (independent enable flags, thresholds, shared interval and 0–100 volume and lowerOtherAudio) and audio readiness/loweringControl; verify defaults, bounds, atomic nested replacement, revision conflicts, persistence failures, unit conversion, unsupported false lowering requests failing atomically, and process recreation with focused store/contract/mock tests.
@@ -8,7 +16,7 @@
 
 ## 2. Shared Rust announcement policy
 
-- [ ] 2.1 Implement the coordinator against normalized board telemetry and monotonic time, independent of publication/persistence cadence; verify saved/guest eligibility, reverse magnitude, highest load selection and duty/motor/battery tie order, current-limit selection, unavailable components, rounding, bounds, equality, missing readings and two-second freshness using deterministic tests and parity fixtures against existing gauge component semantics, including saturation and reverse/regenerative current limits.
+- [ ] 2.1 Implement the coordinator against normalized board telemetry and monotonic time, independent of publication/persistence cadence; verify saved/guest eligibility, reverse magnitude, highest load selection and duty/motor/battery tie order, current-limit selection, unavailable components, rounding, bounds, equality, missing readings and two-second freshness using deterministic tests and consumer fixtures against the single Rust load owner, including saturation and reverse/regenerative current limits.
 - [ ] 2.2 Implement immediate eligible attempts, repeat timing, shared test/automatic admission and skipped busy/unavailable attempts; verify only the highest qualifying load component plus qualifying speed share one utterance and cooldown with load first, both enable flags work together, newly qualifying rules wait for shared cooldown, load-winner changes do not interrupt while still eligible, unchanged excess repeats, threshold chatter, settings edits, failed audio, delayed workers and long utterances cannot overlap, bypass cooldown or create catch-up speech.
 - [ ] 2.3 Wire connection/controller changes, shutdown and frontend-independent lifetime into cancellation; verify reconnect requires fresh readings, cooldown survives same-process reconnect, restart restores only settings, and obsolete callbacks cannot affect replacement speech. Document policy ownership and deadlines in the core backend documentation.
 
@@ -34,7 +42,7 @@
 
 - [ ] 6.1 Run affected Rust crate/consumer tests, formatting and warnings-denied Clippy, relevant frontend checks, linked Apple/Android tests and affected canonical direct/host conformance cases; verify contract parity, bounded resources, frontend recreation and audio failure without BLE or recording regression. Record actual commands and results.
 - [ ] 6.2 On iOS and Android hardware, verify above/below-threshold speech, repeats, background/locked-screen BLE delivery, speech volume including zero without ducking, simultaneous speed/load phrases, iOS lowering on/off for automatic and test speech, Android automatic ducking, music restoration, Bluetooth headset routing/disconnection, interruption, unavailable audio recovery and disabling; check macOS speech/mixing where affected. Probe representative calls as best effort, recording graceful skipping as acceptable. Preserve fixture safety/restore checks for any hardware fixture runs and report unavailable required coverage.
-- [ ] 6.3 Review implementation against all delta scenarios, confirm no speech backlog, alternate runtime, browser speech, new polling or compatibility machinery remains, and record remaining limitations before declaring implementation complete.
+- [ ] 6.3 Review implementation against all delta scenarios, confirm no duplicate load formulas or frontend winner selection, no speech backlog, alternate runtime, browser speech, new polling or compatibility machinery remains, and record remaining limitations before declaring implementation complete.
 
 ## Workflow follow-up
 

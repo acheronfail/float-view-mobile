@@ -6,6 +6,7 @@ Riders need to hear speed or load readings above a chosen threshold without look
 
 ## What Changes
 
+- Unify load calculation in one shared Rust owner for the primary gauge, widgets, live charts, notification/Live Activity/Dynamic Island, recorded session views and announcements; remove duplicate frontend and Rust calculations.
 - Add independent application-wide speed and load enable switches and thresholds, a shared repeat interval, and announcement volume, with both rules disabled by default.
 - When load is enabled, announce only the highest available duty, motor or battery utilisation component when it exceeds the shared threshold, using the live gauge calculations.
 - Combine the qualifying highest load component and speed in one utterance per interval, with load first, so neither rule overlaps or starves the other.
@@ -28,11 +29,11 @@ Arbitrary rule collections, configurable ducking depth or an Android/macOS ducki
 
 ### Modified Capabilities
 
-- `backend-contract`: Persist announcement settings, expose audio readiness, and add a mandatory authenticated test operation with bounded outcomes.
+- `backend-contract`: Expose authoritative live and captured historical load values; persist announcement settings, expose audio readiness, and add a mandatory authenticated test operation with bounded outcomes.
 - `app-navigation`: Include application-wide announcement controls and testing in Settings.
 
 ## Impact
 
-- Frontend contract/client/mock and settings feature; shared Rust backend-service, product settings persistence, loopback dispatch and existing C/JNI OS fact/effect exchange; Apple speech adapter and iOS background-audio configuration; Android TTS/audio-focus adapter and existing foreground-service integration; canonical conformance tests.
+- Frontend contract/client/mock and settings feature; shared Rust load calculation, application-runtime session capture, backend-service, session storage/queries, product settings persistence, loopback dispatch and existing C/JNI OS fact/effect exchange; Apple speech adapter and iOS background-audio configuration; Android TTS/audio-focus adapter and existing foreground-service integration; canonical conformance tests.
 - Apple covers iOS and macOS with shared synthesis and platform-specific audio-session handling. Android retains the same public contract and policy.
-- No new third-party dependency or generated API layer. There is no existing announcement implementation to remove. Do not add browser speech, compatibility readers, migration code or alternate runtimes; use explicit storage version handling if the settings format becomes incompatible and preserve data on operational failure.
+- No new third-party dependency or generated API layer. Remove the frontend gauge utilisation/winner implementation and duplicate Rust notification and session-capture formulas, retaining presentation-only helpers. There is no existing announcement implementation to remove. Do not add browser speech, compatibility readers, migration code or alternate runtimes; use explicit storage version handling if the settings format becomes incompatible and preserve data on operational failure.

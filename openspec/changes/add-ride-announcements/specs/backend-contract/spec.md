@@ -73,3 +73,39 @@ Every host SHALL expose announcementAudio.loweringControl as adjustable on iOS o
 #### Scenario: Unsupported lowering request
 - **WHEN** Android or macOS receives a current-revision patch setting lowerOtherAudio to false
 - **THEN** the complete patch fails with unavailable without modifying any settings; other methods and audio playback remain available
+
+### Requirement: Authoritative live load projection
+
+Each live sample SHALL expose nullable duty, motor and battery load fractions plus a nullable winning source/fraction, calculated by one shared backend owner. All fractions SHALL be finite in [0,1]. Gauge, widgets, charts, native notifications/Live Activities and announcements SHALL consume this result or the same owner at their own cadence. Frontend and native views SHALL not calculate utilisation or choose the winning source.
+
+#### Scenario: Equivalent sample across consumers
+- **WHEN** the same sample and controller limits feed the gauge, load widget, live chart, notification, Dynamic Island and announcement
+- **THEN** they use identical component values and winner before display rounding, independent of their refresh intervals
+
+#### Scenario: Signed limits and motor preference
+- **WHEN** motor or battery current changes sign
+- **THEN** the owner selects the corresponding draw/regen limit using raw current sign, uses filtered then directional then raw motor magnitude, and caps absolute component fractions at 1
+
+#### Scenario: Missing inputs and ties
+- **WHEN** limits or required inputs are absent, zero or non-finite, or valid components tie
+- **THEN** only affected components are unavailable, available duty remains usable, and equal highest fractions prefer duty, then motor, then battery
+
+#### Scenario: Controller changes
+- **WHEN** the active controller changes or a chart retains an older point
+- **THEN** the point retains its own projected load; replacement-controller limits cannot reinterpret its values
+
+### Requirement: Captured historical load values
+
+Saved samples SHALL capture dutyLoad, motorLoad and batteryLoad using the shared load owner and the limits applicable at capture. Session load charts SHALL use these fractions; raw dutyCycle SHALL retain its telemetry meaning. Historical readers, pruning and current-format export/import SHALL preserve captured values and missingness without using present-day limits. Any historical winner selection SHALL use the shared backend selector over captured fractions.
+
+#### Scenario: Session review after configuration change
+- **WHEN** controller limits change after a ride and that ride is reviewed or exported
+- **THEN** its load values remain those captured during the ride, with no frontend or reader formula using the new limits
+
+#### Scenario: Raw duty differs from displayed load
+- **WHEN** recorded raw duty is negative or exceeds the normalised load range
+- **THEN** the load chart uses captured absolute saturated dutyLoad while raw dutyCycle remains unchanged for telemetry inspection/export
+
+#### Scenario: Failed persistence or guest connection
+- **WHEN** a saved sample append fails or the connection is a guest
+- **THEN** saved public sample ordering is preserved; guest load remains ephemeral and creates no history
