@@ -1,10 +1,14 @@
 # Float View
 
+> [!WARNING]
+> The app is under active development and has not been released to app stores!
+> Features and stored data formats may change without notice until we reach version v1.0.0!
+
 - 📡 Connect to your VESC board over Bluetooth.
 - 📊 Watch live telemetry.
 - 🛞 Record and review rides.
-- 🎛️ Tune Refloat.
-- 💻 Available on macOS, Android, and iOS.
+- 🎛️ Configure Refloat, and swap easily between saved tunes.
+- 💻 Available on macOS, Android, and iOS (more coming soon).
 
 <table>
   <tr>
