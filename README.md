@@ -36,8 +36,8 @@
       <a href="docs/screenshots/board-configuration.png"><img src="docs/screenshots/board-configuration.png" width="240" alt="Motor and battery configuration"></a>
     </td>
     <td align="center" valign="top" width="33%">
-      <strong>App settings</strong><br>
-      <a href="docs/screenshots/settings.png"><img src="docs/screenshots/settings.png" width="240" alt="App preferences and enabled ride location recording"></a>
+      <strong>Saved tunes</strong><br>
+      <a href="docs/screenshots/tunes.png"><img src="docs/screenshots/tunes.png" width="240" alt="Two saved Refloat tunes with the active preset selected"></a>
     </td>
   </tr>
 </table>
