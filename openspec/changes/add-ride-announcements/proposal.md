@@ -6,8 +6,9 @@ Riders need to hear speed or load readings above a chosen threshold without look
 
 ## What Changes
 
-- Add application-wide off/speed/load selection, independent saved speed and load thresholds, and a configurable repeat interval, disabled by default.
-- In load mode, announce all duty, motor and battery utilisation components exceeding the shared threshold in one phrase, using the live gauge calculations.
+- Add independent application-wide speed and load enable switches and thresholds, a shared repeat interval, and announcement volume, with both rules disabled by default.
+- When load is enabled, announce all duty, motor and battery utilisation components exceeding the shared threshold in one phrase, using the live gauge calculations.
+- Combine qualifying load components and speed in one utterance per interval, with load first, so neither rule overlaps or starves the other.
 - Evaluate fresh board telemetry in Rust and emit bounded typed speak/cancel effects independently of frontend publication and recording cadence.
 - Use native text-to-speech on Apple and Android, briefly requesting audio ducking/focus for each utterance and releasing it on every terminal path.
 - Skip unavailable or interrupted audio gracefully without queuing old readings, disturbing the connection, or failing recording. Playback during calls is best effort.
@@ -16,7 +17,7 @@ Riders need to hear speed or load readings above a chosen threshold without look
 
 ### Non-goals
 
-Multiple simultaneous rules, firmware alerts, custom voice downloads or voice pickers, cloud speech, a bundled speech engine, identical voices across platforms, guaranteed call playback, and new telemetry polling are out of scope.
+Arbitrary rule collections, configurable ducking depth or a cross-platform ducking switch, firmware alerts, custom voice downloads or voice pickers, cloud speech, a bundled speech engine, identical voices across platforms, guaranteed call playback, and new telemetry polling are out of scope.
 
 ## Capabilities
 

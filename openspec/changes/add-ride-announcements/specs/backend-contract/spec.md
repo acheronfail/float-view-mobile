@@ -27,7 +27,7 @@ The contract SHALL expose complete announcement settings and bounded audio readi
 - **THEN** the returned settings and subsequent complete snapshots contain the accepted values, including after frontend or process recreation
 
 #### Scenario: Invalid or conflicting save
-- **WHEN** an announcement patch is out of bounds, non-finite, has an unknown mode, uses a stale revision, or fails persistence
+- **WHEN** an announcement patch is out of bounds, non-finite, has an invalid enable flags or volume, uses a stale revision, or fails persistence
 - **THEN** it fails with the existing applicable structured error and leaves all settings unchanged
 
 #### Scenario: Audio availability changes
@@ -36,7 +36,7 @@ The contract SHALL expose complete announcement settings and bounded audio readi
 
 ### Requirement: Authenticated announcement test
 
-Every host SHALL implement announcements.test with a closed speed/load metric parameter and a terminal outcome of finished, interrupted, or unavailable within ten seconds of admission. The test SHALL use a fixed representative reading through the normal native audio path without requiring a board, changing settings or bypassing global cooldown. Arbitrary text, values and voice identifiers SHALL not be accepted. Invalid and busy requests SHALL use existing structured errors.
+Every host SHALL implement announcements.test with a closed speed/load/combined test-kind parameter and a terminal outcome of finished, interrupted, or unavailable within ten seconds of admission. The test SHALL use a fixed representative reading through the normal native audio path without requiring a board, changing settings or bypassing global cooldown. Arbitrary text, values and voice identifiers SHALL not be accepted. Invalid and busy requests SHALL use existing structured errors.
 
 #### Scenario: Test with announcements disabled
 - **WHEN** an authenticated client tests load while automatic announcements are off and the speech slot and cooldown permit
@@ -51,9 +51,13 @@ Every host SHALL implement announcements.test with a closed speed/load metric pa
 - **THEN** it returns unavailable without claiming audible success, queuing speech, or disturbing connection or recording
 
 #### Scenario: Invalid request or cooldown
-- **WHEN** a test contains an unknown metric or extra speech input, or an utterance or cooldown already occupies admission
+- **WHEN** a test contains an unknown test kind or extra speech input, or an utterance or cooldown already occupies admission
 - **THEN** the backend rejects invalid input with invalid_request or occupied admission with invalid_state without creating a waiter or speech queue
 
 #### Scenario: Client disconnect
 - **WHEN** a client disconnects with its test pending
 - **THEN** its waiter is released and its speech is cancelled without cancelling an unrelated operation; the admission cooldown remains in effect
+
+#### Scenario: Combined test and volume
+- **WHEN** an authenticated client requests a combined test with admission available
+- **THEN** it attempts the fixed duty/motor/battery test readings followed by speed at the saved announcement volume, independent of rule enable flags and thresholds; zero volume finishes without audio playback

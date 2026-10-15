@@ -8,15 +8,43 @@ Let riders hear current board speed or load above a chosen threshold, with consi
 
 ### Requirement: Global announcement configuration
 
-Announcements SHALL default to off. Users SHALL select exactly one mode: off, speed, or load, retain independent speed and load thresholds, and set a shared whole-second repeat interval from 1 through 60 seconds, defaulting to 5. Speed thresholds SHALL be finite and greater than zero through 200 km/h, defaulting to 25 km/h; load thresholds SHALL be finite and greater than zero through 100 percent, defaulting to 65 percent.
+Speed and load SHALL have independent enable switches, both off by default, and retain independent thresholds. Users SHALL set a shared whole-second repeat interval from 1 through 60 seconds, defaulting to 5. Speed thresholds SHALL be finite and greater than zero through 200 km/h, defaulting to 25 km/h; load thresholds SHALL be finite and greater than zero through 100 percent, defaulting to 65 percent.
 
 #### Scenario: Disabled by default
 - **WHEN** the application starts with default settings
 - **THEN** no automatic announcement is spoken and the default thresholds and interval are available for editing
 
-#### Scenario: Change units or mode
-- **WHEN** users change speed units or switch between speed and load
+#### Scenario: Change units or enable flags
+- **WHEN** users change speed units or enable/disable either rule
 - **THEN** the physical speed threshold is preserved, its display converts to the selected units, and both independently saved thresholds remain available
+
+### Requirement: Announcement volume
+
+Users SHALL configure a shared whole-number announcement volume from 0 through 100 percent, defaulting to 100, relative to current device output volume. It SHALL apply to automatic and test speech without changing device volume or another app's volume setting. Zero SHALL mute speech without acquiring audio focus or ducking. Volume edits SHALL affect the next utterance; tests at zero SHALL finish without playback.
+
+#### Scenario: Reduced speech volume
+- **WHEN** users set announcement volume to 50 percent and test speech
+- **THEN** the host uses half-scale speech gain relative to current output volume, without promising half the perceived loudness or raising muted device audio
+
+#### Scenario: Muted announcements
+- **WHEN** announcement volume is zero
+- **THEN** automatic speech is skipped without taking audio resources, tests finish silently, and Settings clearly identifies the muted volume
+
+### Requirement: Simultaneous speed and load rules
+
+Both rules SHALL be enableable together. At each eligible attempt the service SHALL include all currently qualifying enabled readings in one utterance: duty, motor, battery, then speed with its selected units. Both rules SHALL share one repeat cooldown and speech slot. No rule SHALL be delayed to another interval solely because the other qualifies. An unavailable or below-threshold rule SHALL not suppress the other.
+
+#### Scenario: Speed and load qualify together
+- **WHEN** both rules are enabled and motor is 78 percent, battery is 70 percent and speed is 32 km/h, each above its threshold, with duty below threshold
+- **THEN** one utterance says “motor 78 percent, battery 70 percent, speed 32 kilometres per hour” and advances the shared cooldown once
+
+#### Scenario: Second rule qualifies during cooldown
+- **WHEN** speed exceeds its threshold during cooldown from a load announcement
+- **THEN** it waits for the next shared eligible attempt, which includes all currently qualifying readings without replaying the previous phrase
+
+#### Scenario: Only one rule remains eligible
+- **WHEN** enabled load readings become unavailable or drop below threshold while enabled speed remains eligible
+- **THEN** automatic speech remains eligible and the next utterance includes speed only
 
 ### Requirement: Current board reading eligibility
 
@@ -36,7 +64,7 @@ Automatic announcements SHALL use only finite readings received less than two se
 
 ### Requirement: Load component announcements
 
-Load mode SHALL compare duty, motor and battery utilisation individually against one shared percentage threshold using the same component calculations as the live gauge. Each announcement SHALL contain every qualifying component, once, in duty/motor/battery order, naming the component before its rounded percentage. Missing components SHALL be omitted without suppressing available components. A component's drop below threshold SHALL not cancel speech while another still qualifies.
+The enabled load rule SHALL compare duty, motor and battery utilisation individually against one shared percentage threshold using the same component calculations as the live gauge. Each announcement SHALL contain every qualifying component, once, in duty/motor/battery order, naming the component before its rounded percentage. Missing components SHALL be omitted without suppressing available components. Speech SHALL remain eligible while any enabled reading qualifies.
 
 #### Scenario: Multiple components exceed threshold
 - **WHEN** the threshold is 65 percent and fresh duty, motor and battery loads are 68, 74 and 60 percent
@@ -76,7 +104,11 @@ The first qualifying reading SHALL trigger an immediate attempt when cooldown pe
 
 ### Requirement: Lifecycle and connection isolation
 
-Announcement policy SHALL belong to the native service independently of the frontend and recording cadence. Disconnection, controller replacement, stale or ineligible telemetry, and configuration changes SHALL cancel pending automatic speech. Reconnection SHALL require fresh telemetry and retain process-local cooldown. Process restart SHALL retain settings but discard speech, readings and deadlines. Late callbacks SHALL not affect a replacement operation.
+Policy SHALL run independently of the frontend and recording cadence. Disconnection, controller replacement, loss of all eligible readings, and rule configuration changes SHALL cancel pending automatic speech. Reconnection SHALL require fresh telemetry and retain process-local cooldown. Process restart SHALL retain settings but discard speech, readings and deadlines. Late callbacks SHALL not affect a replacement operation.
+
+#### Scenario: Volume-only edit
+- **WHEN** volume changes during an utterance
+- **THEN** that utterance retains its admitted gain and the next utterance uses the new volume
 
 #### Scenario: WebView replaced
 - **WHEN** the WebView is replaced or its listener restarts during a connection
@@ -87,7 +119,7 @@ Announcement policy SHALL belong to the native service independently of the fron
 - **THEN** its old reading cannot trigger speech, and only a fresh qualifying reading after cooldown can trigger another attempt
 
 #### Scenario: Disable or drop below threshold
-- **WHEN** users turn announcements off or telemetry stops qualifying
+- **WHEN** users disable both rules or no enabled reading qualifies
 - **THEN** pending automatic speech is cancelled and no old reading is replayed
 
 ### Requirement: Native speech and graceful audio fallback
