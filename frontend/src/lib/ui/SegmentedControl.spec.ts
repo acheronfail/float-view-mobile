@@ -38,4 +38,25 @@ describe('segmented choices', () => {
     expect(body).toContain('disabled');
     expect(body).not.toContain('<button');
   });
+
+  it('keeps compact selectors native even with only two choices', () => {
+    const { body } = render(SegmentedControl, {
+      props: {
+        label: 'Section',
+        variant: 'compact',
+        options: [
+          { value: 'a', label: 'Ride' },
+          { value: 'b', label: 'Other' },
+        ],
+        value: 'a',
+        disabled: true,
+        describedby: 'help',
+        onchange() {},
+      },
+    });
+    expect(body).toContain('<select');
+    expect(body).not.toContain('<button');
+    expect(body).toContain('aria-describedby="help"');
+    expect(body).toContain('disabled');
+  });
 });

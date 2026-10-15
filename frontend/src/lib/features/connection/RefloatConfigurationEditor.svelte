@@ -70,17 +70,16 @@
   <div class="z-10 -mx-4 -mt-px shrink-0 border-y border-outline bg-surface px-4 py-1">
     <div class="flex min-h-11 items-center text-sm">
       {#if !controlsExpanded}
-        <select
-          aria-label="Section"
-          class="min-h-11 max-w-[65%] min-w-0 touch-manipulation rounded-md bg-surface font-medium focus-visible:outline-2 focus-visible:outline-accent"
-          disabled={controller.loading || !controller.sections.length}
-          value={selectedSection?.key ?? ''}
-          onchange={(event) => selectSection(event.currentTarget.value)}
-        >
-          {#each controller.sections as section (section.key)}
-            <option value={section.key}>{section.label}</option>
-          {/each}
-        </select>
+        <div class="max-w-[65%] min-w-0">
+          <SegmentedControl
+            label="Section"
+            variant="compact"
+            disabled={controller.loading || !controller.sections.length}
+            value={selectedSection?.key ?? ''}
+            options={controller.sections.map((section) => ({ value: section.key, label: section.label }))}
+            onchange={selectSection}
+          />
+        </div>
       {/if}
       <button
         type="button"

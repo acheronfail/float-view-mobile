@@ -51,6 +51,63 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const theme = page.getByRole('group', { name: 'Theme', exact: true });
         const dark = theme.getByRole('button', { name: 'Dark', exact: true });
         await dark.waitFor();
+        // A drag beginning on a choice must leave it unchanged and permit page scrolling.
+        assert.equal(
+          await dark.evaluate((el) => {
+            const down = new PointerEvent('pointerdown', {
+              bubbles: true,
+              cancelable: true,
+              pointerId: 77,
+              isPrimary: true,
+              button: 0,
+              clientX: 100,
+              clientY: 200,
+            });
+            // Synthetic contacts cannot take native capture.
+            const capture = el.setPointerCapture;
+            el.setPointerCapture = () => {};
+            try {
+              el.dispatchEvent(down);
+              for (const [type, y] of [
+                ['pointermove', 140],
+                ['pointerup', 200],
+              ] as const) {
+                el.dispatchEvent(
+                  new PointerEvent(type, {
+                    bubbles: true,
+                    pointerId: 77,
+                    isPrimary: true,
+                    button: 0,
+                    clientX: 100,
+                    clientY: y,
+                  })
+                );
+              }
+              return down.defaultPrevented;
+            } finally {
+              el.setPointerCapture = capture;
+            }
+          }),
+          false
+        );
+        if (name === 'chromium') {
+          const cdp = await page.context().newCDPSession(page);
+          const box = (await dark.boundingBox())!;
+          const x = box.x + box.width / 2;
+          const y = box.y + box.height / 2;
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+          for (let step = 1; step <= 8; step++) {
+            await cdp.send('Input.dispatchTouchEvent', {
+              type: 'touchMove',
+              touchPoints: [{ x, y: y - step * 12 }],
+            });
+          }
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          await page.waitForFunction(() => window.scrollY > 0);
+          await page.evaluate(() => window.scrollTo(0, 0));
+          await cdp.detach();
+        }
+        assert.equal(patches.length, 0);
         await dark.click({ button: 'right' });
         await dark.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
         await dark.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
