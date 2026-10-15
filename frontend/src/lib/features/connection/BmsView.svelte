@@ -16,7 +16,11 @@
           { name: 'IC', value: snapshot.icTemperatureC },
           { name: 'Highest cell', value: snapshot.highestCellTemperatureC },
           { name: 'Humidity sensor', value: snapshot.humiditySensorTemperatureC },
-        ]
+        ].map((reading) => ({
+          ...reading,
+          // Missing BMS sensors report -300 °C; check before display-unit conversion.
+          value: reading.value === -300 || !Number.isFinite(reading.value) ? null : reading.value,
+        }))
       : []
   );
   const candidates = $derived(
@@ -124,16 +128,18 @@
       <p class="mb-2 text-xs text-muted">Scale: {formatTemperatureC(0, units)}–{formatTemperatureC(100, units)}</p>
       <ul class="grid grid-cols-2 gap-1 sm:grid-cols-3">
         {#each temperatures as reading (reading.name)}
-          <li class="min-w-0 rounded border border-outline p-2">
+          <li class="min-w-0 rounded border border-outline p-2" class:opacity-50={reading.value == null}>
             <div class="mb-2 flex flex-wrap justify-between gap-x-2 gap-y-1 text-xs">
               <span class="text-muted">{reading.name}:</span>
-              <span class="font-mono tabular-nums">{formatTemperatureC(reading.value, units)}</span>
+              <span class="font-mono tabular-nums" class:text-muted={reading.value == null}
+                >{reading.value == null ? 'Unavailable' : formatTemperatureC(reading.value, units)}</span
+              >
             </div>
             <GaugeBar
-              value={Math.max(0, Math.min(100, reading.value))}
+              value={reading.value == null ? null : Math.max(0, Math.min(100, reading.value))}
               maximum={100}
               ariaLabel={`${reading.name} temperature`}
-              ariaValueText={formatTemperatureC(reading.value, units)}
+              ariaValueText={reading.value == null ? 'Unavailable' : formatTemperatureC(reading.value, units)}
               showTicks={false}
               heightClass="h-2"
               fillClass="bg-linear-to-r from-green-600 to-[var(--temperature-color)]"

@@ -167,6 +167,19 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await shortcut.tap();
       await dialog.waitFor();
       assert.equal(await dialog.count(), 1);
+      const missingSensor = dialog.getByRole('progressbar', { name: 'Sensor 5 temperature', exact: true });
+      assert.equal(await missingSensor.getAttribute('aria-valuetext'), 'Unavailable');
+      assert.equal(await missingSensor.getAttribute('aria-valuenow'), null);
+      const missingCard = missingSensor.locator('xpath=ancestor::li');
+      assert.match((await missingCard.textContent())!, /Unavailable/);
+      assert.equal(await missingCard.evaluate((el) => getComputedStyle(el).opacity), '0.5');
+      assert.equal(await missingSensor.locator(':scope > div').evaluate((el) => el.getBoundingClientRect().width), 0);
+      assert.equal(
+        await dialog
+          .getByRole('progressbar', { name: 'Sensor 1 temperature', exact: true })
+          .getAttribute('aria-valuenow'),
+        '43'
+      );
       await page.keyboard.press('Escape');
       await dialog.waitFor({ state: 'hidden' });
       await shortcut.focus();

@@ -39,6 +39,38 @@ const attached: BmsState = {
 };
 
 describe('BMS view', () => {
+  it.each(['metric', 'imperial'] as const)('marks missing temperature sensors unavailable in %s units', (units) => {
+    const { body } = render(BmsView, {
+      props: {
+        units,
+        bms: {
+          ...attached,
+          latestSnapshot: {
+            ...snapshot,
+            temperaturesC: [-300, -10, 0],
+            icTemperatureC: -300,
+            highestCellTemperatureC: -300,
+            humiditySensorTemperatureC: -300,
+          },
+        },
+      },
+    });
+    const cards = [...body.matchAll(/<li\b[^>]*>[\s\S]*?<\/li>/g)].map((match) => match[0]);
+    for (const name of ['Sensor 1', 'IC', 'Highest cell', 'Humidity sensor']) {
+      const card = cards.find((html) => html.includes(`aria-label="${name} temperature"`))!;
+      expect(card).toBeDefined();
+      expect(card).toContain('opacity-50');
+      expect(card).toContain('Unavailable');
+      expect(card).toContain('aria-valuetext="Unavailable"');
+      expect(card).not.toContain('aria-valuenow');
+      expect(card).toContain('width: 0%');
+    }
+    expect(body).not.toContain('-300');
+    expect(body).not.toContain('-508');
+    expect(body).toContain(units === 'metric' ? 'aria-valuetext="-10.0 °C"' : 'aria-valuetext="14.0 °F"');
+    expect(body).toContain(units === 'metric' ? 'aria-valuetext="0.0 °C"' : 'aria-valuetext="32.0 °F"');
+  });
+
   it('clamps cell and temperature bars while retaining exact readings and shared colours', () => {
     const { body } = render(BmsView, {
       props: {
