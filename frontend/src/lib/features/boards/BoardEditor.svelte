@@ -8,6 +8,7 @@
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import Icon from '$lib/ui/Icon.svelte';
   import { normalizedCustomName, SerialSaveQueue, validPreferredCanId } from './autosave';
+  import { motorOptions } from './motor-options';
 
   let {
     savedDeviceId,
@@ -249,11 +250,7 @@
           <span class="mb-1 block text-muted">Motor</span>
           <SegmentedControl
             label="Motor"
-            options={[
-              { value: 'hypercore_xr', label: 'Hypercore (XR)' },
-              { value: 'superflux_hs', label: 'Superflux HS' },
-              { value: 'custom', label: 'Custom / other' },
-            ]}
+            options={motorOptions}
             value={motor}
             onchange={(value) => {
               motor = value;
