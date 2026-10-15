@@ -149,8 +149,9 @@ not establish OEM presentation or background BLE behavior.
 
 Rust supplies the highest load source and optional speed in one bounded speech
 request. `speech/SpeechAdapter` owns installed offline English TTS voices and
-transient may-duck audio focus on the main looper. It never queues delayed focus;
-completion, errors, interruption and admission expiry stop playback and release
+transient may-duck audio focus on the main looper. Voice selection accepts both
+ISO 639-1 `en` and ISO 639-2 `eng` language identifiers, as emitted by Samsung
+TTS. It never queues delayed focus. Completion, errors, interruption and admission expiry stop playback and release
 focus. Speech gain is relative to current device volume. Audio lowering remains
 automatic; only iOS exposes its lowering preference.
 

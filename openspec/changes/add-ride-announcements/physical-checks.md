@@ -1,7 +1,28 @@
 # Remaining physical announcement checks
 
-Status: not run. Record device/OS, TTS engine/voice, audio route, steps and result
-for each row. Emulator, simulator and JVM results do not establish these effects.
+Status: core Android speaker/music/BLE checks passed on a Samsung Galaxy S9+
+(Android 10) on 2026-10-16; see the [physical evidence](../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md).
+iOS/macOS and the remaining Android cases below are pending. Emulator, simulator
+and JVM results do not establish physical audio effects.
+
+## Android results
+
+- [x] Production BLE fixture negotiation and fresh telemetry.
+- [x] Audible combined test and offline English speech with Wi-Fi/mobile data off.
+- [x] Duty/motor/battery winning-source speech, combined speed and load, roughly
+      five-second repeats without overlap, and below-threshold silence.
+- [x] Speech volume 100% / 50% / 0%, music lowering/restoration between phrases
+      and normal music while muted.
+- [x] More than one minute locked, continued speech/BLE/session growth, and
+      disabling with clean audio restoration.
+- [x] Physical BLE disconnect/reconnect and fresh speech recovery without a burst.
+- [x] Captured settings restored, ESP32 RESET/READY verified, app/tunnel cleanup.
+- [ ] Headset routing/disconnection; genuine focus interruption/denial and call
+      fallback; missing completion cleanup; genuine missing-voice recovery without
+      restart; telemetry-only stalls; imperial spoken units; manual device-volume
+      edits during speech; Android 15+ audio-focus/foreground restrictions.
+
+## Full cross-platform procedure
 
 Use one real iPhone and one real Android phone (prefer Android 15/API 35 or newer
 for its foreground audio-focus restrictions), a connected board or approved

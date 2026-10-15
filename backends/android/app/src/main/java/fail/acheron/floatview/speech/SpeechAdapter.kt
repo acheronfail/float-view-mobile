@@ -54,7 +54,7 @@ class SpeechAdapter(private val context: Context, private val report: (String, L
     }
     private fun selectVoice() {
         val tts = engine ?: return
-        val voice = tts.voices?.filter { !it.isNetworkConnectionRequired && it.locale.language == Locale.ENGLISH.language }
+        val voice = tts.voices?.filter { !it.isNetworkConnectionRequired && isEnglishSpeechLocale(it.locale) }
             ?.sortedWith(compareByDescending<android.speech.tts.Voice> { it.locale == Locale.getDefault() }.thenBy { it.name })?.firstOrNull()
         ready = voice != null
         if (voice == null) { report("unavailable", 0, "no_offline_voice"); return }

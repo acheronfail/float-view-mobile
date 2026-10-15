@@ -119,6 +119,25 @@ Remaining acceptance: native fake-engine/focus coverage in tasks 3.1, 4.1 and
 not be described as full adapter fault-injection coverage. Perform the exact
 [physical checklist](physical-checks.md), including native voice recovery,
 interruptions, iOS lowering on/off, headset routes, locked-screen BLE/speech and
-music restoration. No physical audio/BLE validation was performed. Keep this
-change active and do not sync/archive until these checkpoints and the final
+music restoration. At this 2026-10-15 checkpoint, no physical audio/BLE validation
+had been performed; see the Android follow-up below for subsequent evidence.
+Keep this change active and do not sync/archive until these checkpoints and the final
 scenario audit are complete.
+
+## Android physical checkpoint follow-up (2026-10-16)
+
+Core Android hardware observations now pass on a Samsung Galaxy S9+ / Android 10
+with the ESP32 fixture and production BLE adapter. See the
+[retained physical evidence](../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md)
+for actual values, manual listening confirmations, cleanup and remaining scope.
+The run exposed Samsung's ISO 639-2 `eng` voice identifiers; the selector now
+accepts both `en` and `eng`, with regression tests. All 31 JVM tests pass in each
+variant, all builds/lint pass, and all four instrumentation tests pass on the
+phone. The new interactive physical harness is type-checked, and the eight host
+target tests pass. A matching signed physical APK can be supplied explicitly
+without overwriting Gradle outputs or discarding installed app data.
+
+Task 6.2 remains unchecked because iOS/macOS and the listed remaining native
+audio cases have not been exercised. Do not interpret the earlier “No physical
+validation” note as current status; it describes the 2026-10-15 checkpoint.
+Native fake-engine/focus tests and the final scenario audit remain outstanding.

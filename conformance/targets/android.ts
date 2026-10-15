@@ -26,7 +26,10 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
     });
     report('Android: application built');
     report('Android: installing application...');
-    adb(deviceSerial, 'install', '-r', `${root}/backends/android/app/build/outputs/apk/debug/app-debug.apk`);
+    const apk =
+      process.env.FLOAT_VIEW_ANDROID_PHYSICAL_APK ??
+      `${root}/backends/android/app/build/outputs/apk/debug/app-debug.apk`;
+    adb(deviceSerial, 'install', '-r', apk);
     report('Android: application installed');
     execFileSync(
       'adb',
