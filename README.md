@@ -41,6 +41,21 @@
 
 Download the latest build from the [releases page](https://github.com/acheronfail/float-view-mobile/releases).
 
+### iOS
+
+For now, use [AltStore Classic](https://faq.altstore.io/altstore-classic).
+
+1. Install AltStore Classic using its linked guide (requires a Mac or PC).
+2. Download the `.ipa` on your iPhone.
+3. In AltStore, open **My Apps**, tap **+**, and select the IPA.
+
+With a free Apple account, [refresh the app every seven days](https://faq.altstore.io/altstore-classic/your-altstore).
+
+### Android
+
+Download the `.apk`, open it on your phone, and tap **Install**.
+Allow installation from this source if Android asks.
+
 ### macOS
 
 Requires macOS 14 or later. Supports Apple Silicon and Intel.
@@ -53,21 +68,6 @@ Requires macOS 14 or later. Supports Apple Silicon and Intel.
    ```
 
 3. Open FloatView.
-
-### Android
-
-Download the `.apk`, open it on your phone, and tap **Install**.
-Allow installation from this source if Android asks.
-
-### iOS
-
-For now, use [AltStore Classic](https://faq.altstore.io/altstore-classic).
-
-1. Install AltStore Classic using its linked guide (requires a Mac or PC).
-2. Download the `.ipa` on your iPhone.
-3. In AltStore, open **My Apps**, tap **+**, and select the IPA.
-
-With a free Apple account, [refresh the app every seven days](https://faq.altstore.io/altstore-classic/your-altstore).
 
 ## Contributing
 
