@@ -12,6 +12,10 @@
   let openingVoiceSettings = $state(false);
   let message = $state('');
   let form: HTMLFormElement;
+  let editVersion = 0;
+  let submittedVersion = -1;
+  let queuedSave: { value: AnnouncementSettings; version: number } | null = null;
+  let savePromise: Promise<boolean> | null = null;
   const settings = $derived(backendState.settings);
   const audio = $derived(backendState.snapshot?.announcementAudio);
   const imperial = $derived(settings?.unitPreference === 'imperial');
@@ -23,17 +27,42 @@
   function edit(patch: Partial<AnnouncementSettings>) {
     draft = { ...draft, ...patch };
     dirty = true;
+    editVersion++;
     message = '';
   }
-  async function save() {
-    if (saving || openingVoiceSettings || !form.reportValidity()) return;
+  function change(patch: Partial<AnnouncementSettings>) {
+    edit(patch);
+    void save();
+  }
+  function save(): Promise<boolean> {
+    if (!dirty) return savePromise ?? Promise.resolve(true);
+    if (!form.reportValidity()) return Promise.resolve(false);
+    // Change and blur can commit the same edit; serialize saves without losing newer edits.
+    if (savePromise && submittedVersion === editVersion) return savePromise;
+    submittedVersion = editVersion;
+    queuedSave = { value: { ...draft }, version: editVersion };
+    if (savePromise) return savePromise;
     saving = true;
-    const accepted = await backendState.updateSessionSettings({ announcements: { ...draft } });
-    saving = false;
-    if (accepted) {
-      dirty = false;
+    savePromise = (async () => {
+      while (queuedSave) {
+        const next = queuedSave;
+        queuedSave = null;
+        const accepted = await backendState.updateSessionSettings({ announcements: next.value });
+        if (!accepted) {
+          queuedSave = null;
+          message = 'Could not save announcement settings. Your edits are kept; try again.';
+          return false;
+        }
+        if (next.version === editVersion) dirty = false;
+      }
       message = 'Announcement settings saved.';
-    } else message = 'Could not save announcement settings. Your edits are kept; try again.';
+      return true;
+    })().finally(() => {
+      saving = false;
+      savePromise = null;
+      submittedVersion = -1;
+    });
+    return savePromise;
   }
   async function openVoiceSettings() {
     if (openingVoiceSettings || saving || testing) return;
@@ -49,10 +78,11 @@
     }
   }
   async function test(kind: 'speed' | 'load' | 'combined') {
-    if (testing || saving || openingVoiceSettings) return;
+    if (testing || openingVoiceSettings) return;
     testing = true;
     message = '';
     try {
+      if (!(await save())) return;
       const { outcome } = await backendState.testAnnouncement(kind);
       message =
         outcome === 'finished'
@@ -92,8 +122,7 @@
             { value: true, label: 'On' },
           ]}
           value={draft[field]}
-          disabled={saving}
-          onchange={(value) => edit({ [field]: value })}
+          onchange={(value) => change({ [field]: value })}
         />
       </div>
     {/each}
@@ -107,8 +136,9 @@
         max={200 * factor}
         step="any"
         value={Number((draft.speedThresholdKph * factor).toFixed(3))}
-        disabled={saving}
         oninput={(e) => edit({ speedThresholdKph: e.currentTarget.valueAsNumber / factor })}
+        onchange={() => void save()}
+        onblur={() => void save()}
       />
     </label>
     <label class="block"
@@ -121,8 +151,9 @@
         max="100"
         step="any"
         value={draft.loadThresholdPercent}
-        disabled={saving}
         oninput={(e) => edit({ loadThresholdPercent: e.currentTarget.valueAsNumber })}
+        onchange={() => void save()}
+        onblur={() => void save()}
       />
     </label>
     <label class="block"
@@ -135,8 +166,9 @@
         max="60"
         step="1"
         value={draft.repeatIntervalSeconds}
-        disabled={saving}
         oninput={(e) => edit({ repeatIntervalSeconds: e.currentTarget.valueAsNumber })}
+        onchange={() => void save()}
+        onblur={() => void save()}
       />
     </label>
     <label class="block"
@@ -148,8 +180,9 @@
         max="100"
         step="1"
         value={draft.volumePercent}
-        disabled={saving}
         oninput={(e) => edit({ volumePercent: e.currentTarget.valueAsNumber })}
+        onchange={() => void save()}
+        onblur={() => void save()}
       />
       <span class="text-xs text-muted">Relative to your phone or computer's current volume.</span>
     </label>
@@ -163,22 +196,13 @@
             { value: true, label: 'On' },
           ]}
           value={draft.lowerOtherAudio}
-          disabled={saving}
-          onchange={(value) => edit({ lowerOtherAudio: value })}
+          onchange={(value) => change({ lowerOtherAudio: value })}
         />
         <p class="mt-1 text-xs text-muted">
           Temporarily makes music and other audio quieter during announcements. Some apps may pause instead.
         </p>
       </div>
     {/if}
-    <button
-      type="button"
-      class="min-h-11 touch-manipulation rounded bg-accent px-3 py-2 text-on-accent disabled:opacity-50"
-      disabled={!dirty || saving || openingVoiceSettings}
-      onpointerdown={(e) => activateFromPointer(e, () => void save())}
-      onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void save())}
-      >{saving ? 'Saving…' : 'Save announcements'}</button
-    >
     <p class="text-xs text-muted">
       {audio?.status === 'ready'
         ? 'Speech ready.'
@@ -209,12 +233,21 @@
         <button
           type="button"
           class="min-h-11 touch-manipulation rounded border border-outline px-3 py-2 disabled:opacity-50"
-          disabled={testing || saving || openingVoiceSettings}
+          disabled={testing || openingVoiceSettings}
           onpointerdown={(e) => activateFromPointer(e, () => void test(kind))}
           onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void test(kind))}>Test {name}</button
         >
       {/each}
     </div>
-    <p role="status" aria-live="polite">{testing ? 'Playing test…' : message}</p>
+    <p role="status" aria-live="polite">{testing ? 'Playing test…' : saving ? 'Saving…' : message}</p>
+    {#if dirty && message.startsWith('Could not save')}
+      <button
+        type="button"
+        class="min-h-11 touch-manipulation rounded border border-outline px-3 py-2 disabled:opacity-50"
+        disabled={saving || openingVoiceSettings || testing}
+        onpointerdown={(e) => activateFromPointer(e, () => void save())}
+        onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void save())}>Retry saving</button
+      >
+    {/if}
   </form>
 </div>

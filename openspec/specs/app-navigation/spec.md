@@ -235,6 +235,16 @@ Settings SHALL provide independent speed/load switches and thresholds with expli
 - **WHEN** users enable load and set 65 percent with a five-second repeat interval
 - **THEN** Settings saves a revision-checked patch and presents authoritative accepted values
 
+#### Scenario: Automatic announcement preference saving
+
+- **WHEN** users change an announcement switch or slider, or commit a numeric input by changing or leaving it
+- **THEN** valid preferences save automatically without a Save button; delayed saves preserve newer edits, and failures retain edits with an explicit retry action
+
+#### Scenario: Test after editing preferences
+
+- **WHEN** users activate a test with valid uncommitted edits or a save in progress
+- **THEN** the test waits for those preferences to save and does not play using older settings if saving fails
+
 #### Scenario: Test feedback
 - **WHEN** users activate a test by primary pointer or keyboard
 - **THEN** exactly one test is sent, repeat activation is prevented while pending, and the terminal outcome is displayed without claiming that a finished utterance was necessarily heard

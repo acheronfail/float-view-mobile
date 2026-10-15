@@ -297,8 +297,10 @@ and first/recovered telemetry values change immediately; ordinary continuous
 readings use short interpolation.
 
 Ride announcement controls belong to `features/settings/Announcements.svelte`.
-They submit complete revision-checked announcement preferences and authenticated
-test requests; speech, telemetry decisions and scheduling stay native/shared.
+They automatically submit complete revision-checked announcement preferences on
+control changes or numeric-input blur, and authenticated
+test requests. Saves are serialized, newer edits survive delayed responses, and
+tests await successful saves; speech, telemetry decisions and scheduling stay native/shared.
 The iOS lowering switch renders from mandatory `announcementAudio.loweringControl`,
 without platform sniffing. Live load views only format `LiveSample.load`;
 `features/connection/gauge.ts` contains presentation selectors, not utilisation
