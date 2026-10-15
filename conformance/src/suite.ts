@@ -39,7 +39,7 @@ export async function runConformance(target: Target) {
   try {
     const endpoint = await target.start();
     client = await ConformanceClient.open(endpoint.url, endpoint.origin);
-    const initial = await client.request('state.get', {});
+    let initial = await client.request('state.get', {});
     assert.deepEqual(
       await client.request('diagnostics.report', {
         snapshots: 10,
@@ -58,6 +58,8 @@ export async function runConformance(target: Target) {
       })
     );
     assertState(initial);
+    await exerciseAnnouncements(client, initial);
+    initial = await client.request('state.get', {});
     const checkpoint = { version: 1 as const, route: { kind: 'settings' as const }, live: null, surface: null };
     assert.equal(await client.request('uiState.get', {}), null);
     assert.deepEqual(await client.request('uiState.set', { checkpoint }), { accepted: true });
@@ -703,6 +705,7 @@ async function createCompletedSession(
       'footpadAdc1V',
       'footpadAdc2V',
       'footpadState',
+      'load',
       'motorCurrentA',
       'motorTempC',
       'observedAt',
@@ -1094,6 +1097,18 @@ const stableConnectionIssueCodes = new Set<ConnectionIssueCode>([
 ]);
 
 export function assertState(state: AppState) {
+  assert.ok(['initializing', 'ready', 'unavailable'].includes(state.announcementAudio.status));
+  assert.ok(['adjustable', 'automatic'].includes(state.announcementAudio.loweringControl));
+  const load = state.activeConnection?.latestSample?.load;
+  if (load) {
+    assert.ok(
+      [load.duty, load.motor, load.battery].every((v) => v === null || (Number.isFinite(v) && v >= 0 && v <= 1))
+    );
+    if (load.winner) {
+      assert.equal(load[load.winner.source], load.winner.fraction);
+      assert.ok([load.duty, load.motor, load.battery].every((v) => v === null || v <= load.winner!.fraction));
+    }
+  }
   validatePermissions(state.permissions);
   assert.equal(state.batteryCellProfiles.length, 7);
   assert.equal(new Set(state.batteryCellProfiles.map((p) => p.id)).size, 7);
@@ -1169,6 +1184,7 @@ export function assertState(state: AppState) {
     assert.ok(board.summary.totalDistanceM === null || Number.isFinite(board.summary.totalDistanceM));
   }
   assert.deepEqual(Object.keys(state.settings).sort(), [
+    'announcements',
     'historyGapThresholdSeconds',
     'idlePersistIntervalMs',
     'idleProbeIntervalMs',
@@ -1421,6 +1437,7 @@ export const mandatoryMethods: BackendMethod[] = [
   'savedDevice.update',
   'savedDevice.delete',
   'settings.update',
+  'announcements.test',
   'boardProfile.get',
   'boardProfile.update',
   'session.list',
@@ -1547,4 +1564,35 @@ async function exerciseBatteryPresets(client: ConformanceClient, id: string) {
     assert.equal(profile.values.batteryPresetId, null);
     assert.equal(profile.values.batteryCapacityAh, null);
   }
+}
+
+async function exerciseAnnouncements(client: ConformanceClient, initial: AppState) {
+  const original = initial.settings.announcements;
+  const updated = await client.request('settings.update', {
+    expectedRevision: initial.settings.revision,
+    patch: { announcements: { ...original, speedEnabled: true, loadEnabled: true, volumePercent: 0 } },
+  });
+  assert.equal(updated.announcements.speedEnabled, true);
+  assert.equal(updated.announcements.loadEnabled, true);
+  assert.deepEqual(await client.request('announcements.test', { kind: 'combined' }), { outcome: 'finished' });
+  await expectError(client.request('announcements.test', { kind: 'speed' }), 'invalid_state');
+  await expectError(client.request('announcements.test', { kind: 'arbitrary' } as never), 'invalid_request');
+  await expectError(
+    client.request('settings.update', {
+      expectedRevision: updated.revision,
+      patch: { announcements: { ...updated.announcements, repeatIntervalSeconds: 0 } },
+    }),
+    'invalid_request'
+  );
+  if (initial.announcementAudio.loweringControl === 'automatic') {
+    await expectError(
+      client.request('settings.update', {
+        expectedRevision: updated.revision,
+        patch: { announcements: { ...updated.announcements, lowerOtherAudio: false }, unitPreference: 'imperial' },
+      }),
+      'unavailable'
+    );
+  }
+  assert.equal((await client.request('state.get', {})).settings.revision, updated.revision);
+  await client.request('settings.update', { expectedRevision: updated.revision, patch: { announcements: original } });
 }

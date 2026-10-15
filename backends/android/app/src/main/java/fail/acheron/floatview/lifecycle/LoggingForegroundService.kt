@@ -93,7 +93,9 @@ class LoggingForegroundService : Service() {
         // must still work after dismissal. Do not re-request promotion then.
         val notification = notification(model, !dismissal.suppressed(model.generation))
         lastPresentation = model
-        val connectedDeviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        val speechEnabled = (application as FloatViewApplication).runtime.service.announcementsEnabled
+        val connectedDeviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+            (if (speechEnabled) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0)
         val requestedType = if (hasLocationPermission()) {
             connectedDeviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         } else {

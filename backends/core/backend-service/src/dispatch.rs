@@ -15,6 +15,7 @@ pub enum Dispatch {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PendingKind {
+    Speech,
     Permission,
     Bluetooth,
     Location,
@@ -45,6 +46,7 @@ impl BackendService {
         let epoch = self.policy.exchange.epoch;
         let generation = self.runtime.snapshot().application.generation;
         let result = match operation {
+            Operation::TestAnnouncement { kind } => return self.test_announcement(owner, kind),
             Operation::AddRideMarker {
                 session_id,
                 operation_id,
@@ -404,10 +406,33 @@ impl BackendService {
                 revision,
                 patch_json,
             } => {
+                let patch: serde_json::Value =
+                    serde_json::from_str(&patch_json).map_err(|_| Failure::InvalidRequest)?;
+                if revision != self.policy.settings.revision {
+                    return Err(Failure::Conflict);
+                }
+                if patch
+                    .get("announcements")
+                    .and_then(|v| v.get("lowerOtherAudio"))
+                    .and_then(|v| v.as_bool())
+                    == Some(false)
+                    && self.policy.announcements.audio.lowering_control
+                        != crate::announcements::Lowering::Adjustable
+                {
+                    return Err(Failure::Unavailable);
+                }
+                let previous = self.policy.settings.announcements.clone();
                 self.policy.settings = self
                     .store
                     .update_settings(revision, &patch_json)
                     .map_err(store_failure)?;
+                let mut current = self.policy.settings.announcements.clone();
+                current.volume_percent = previous.volume_percent;
+                current.lower_other_audio = previous.lower_other_audio;
+                if current != previous {
+                    self.cancel_speech(crate::announcements::Outcome::Interrupted);
+                }
+                self.step_announcements()?;
                 if self.policy.active.is_some() {
                     self.runtime_command(Command::Application(c::Command::UpdateSettings {
                         generation,
@@ -776,6 +801,7 @@ impl BackendService {
         }
     }
     pub fn disconnect_client(&mut self, owner: u64) {
+        self.speech_client_disconnected(owner);
         let ids: Vec<_> = self
             .pending
             .iter()

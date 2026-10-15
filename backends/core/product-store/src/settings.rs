@@ -6,6 +6,7 @@ use serde_json::Value;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
+    pub announcements: AnnouncementSettings,
     pub session_display_options: SessionDisplayOptions,
     pub revision: u64,
     pub idle_probe_interval_ms: u64,
@@ -21,6 +22,42 @@ pub struct Settings {
     pub location_recording_enabled: bool,
     pub include_gps_location_when_exporting: bool,
 }
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AnnouncementSettings {
+    pub speed_enabled: bool,
+    pub load_enabled: bool,
+    pub speed_threshold_kph: f64,
+    pub load_threshold_percent: f64,
+    pub repeat_interval_seconds: u64,
+    pub volume_percent: u64,
+    pub lower_other_audio: bool,
+}
+impl Default for AnnouncementSettings {
+    fn default() -> Self {
+        Self {
+            speed_enabled: false,
+            load_enabled: false,
+            speed_threshold_kph: 25.,
+            load_threshold_percent: 65.,
+            repeat_interval_seconds: 5,
+            volume_percent: 100,
+            lower_other_audio: true,
+        }
+    }
+}
+impl AnnouncementSettings {
+    pub fn valid(&self) -> bool {
+        self.speed_threshold_kph.is_finite()
+            && self.speed_threshold_kph > 0.
+            && self.speed_threshold_kph <= 200.
+            && self.load_threshold_percent.is_finite()
+            && self.load_threshold_percent > 0.
+            && self.load_threshold_percent <= 100.
+            && (1..=60).contains(&self.repeat_interval_seconds)
+            && self.volume_percent <= 100
+    }
+}
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionDisplayOptions {
@@ -31,6 +68,7 @@ pub struct SessionDisplayOptions {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            announcements: AnnouncementSettings::default(),
             revision: 0,
             session_display_options: SessionDisplayOptions::default(),
             idle_probe_interval_ms: 500,
@@ -76,6 +114,9 @@ impl ProductStore {
         let target = values.as_object_mut().ok_or(Error::Database)?;
         for (key, mut value) in patch {
             match key.as_str() {
+                "announcements"
+                    if serde_json::from_value::<AnnouncementSettings>(value.clone())
+                        .is_ok_and(|v| v.valid()) => {}
                 "idleProbeIntervalMs" => clamp_integer(&mut value, 100, 10_000)?,
                 "idlePersistIntervalMs" => clamp_integer(&mut value, 100, 60_000)?,
                 "ridingPersistIntervalMs" => clamp_integer(&mut value, 50, 10_000)?,
@@ -125,7 +166,8 @@ fn read(db: &rusqlite::Connection) -> Result<Settings> {
     }
     let mut value: Settings = serde_json::from_str(&text).map_err(|_| Error::Corrupt)?;
     value.revision = revision;
-    if !(100..=10_000).contains(&value.idle_probe_interval_ms)
+    if !value.announcements.valid()
+        || !(100..=10_000).contains(&value.idle_probe_interval_ms)
         || !(100..=60_000).contains(&value.idle_persist_interval_ms)
         || !(50..=10_000).contains(&value.riding_persist_interval_ms)
         || value.post_ride_tail_ms > 300_000

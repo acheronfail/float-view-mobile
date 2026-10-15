@@ -190,7 +190,7 @@ impl BackendService {
                     })
                     .cloned(),
                 active_session: a.session.as_ref().map(session),
-                latest_sample: a.latest.as_ref().map(sample),
+                latest_sample: a.latest.as_ref().map(|v| sample(v, a.latest_load)),
                 battery_estimate: a.battery.estimate.clone(),
                 live_widget_slots: a.live_widget_slots.clone(),
                 latest_location: p.latest_location.clone(),
@@ -253,6 +253,7 @@ impl BackendService {
             }
         });
         f::Snapshot {
+            announcement_audio: self.policy.announcements.audio.clone(),
             battery_presets: store::battery_presets::PRESETS.clone(),
             battery_preset_catalog_version: store::battery_presets::CATALOG_VERSION.into(),
             battery_cell_profiles: store::battery_catalog::PROFILES
@@ -336,6 +337,7 @@ impl BackendService {
 
 pub(crate) fn settings(v: &store::Settings) -> f::Settings {
     f::Settings {
+        announcements: v.announcements.clone(),
         revision: v.revision,
         idle_probe_interval_ms: v.idle_probe_interval_ms,
         idle_persist_interval_ms: v.idle_persist_interval_ms,
@@ -388,8 +390,12 @@ pub(crate) fn controls(v: &c::mutation::Controls) -> f::Controls {
     }
 }
 
-pub(crate) fn sample(v: &telemetry::NormalizedSample) -> f::LiveSample {
+pub(crate) fn sample(
+    v: &telemetry::NormalizedSample,
+    load: float_view_application_runtime::load::Load,
+) -> f::LiveSample {
     f::LiveSample {
+        load,
         sequence: v.sequence,
         observed_at: date(v.observed_at_epoch_ms),
         slow_observed_at: v.slow_observed_at_epoch_ms.map(date),

@@ -15,6 +15,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -47,7 +48,7 @@
         <service
             android:name=".lifecycle.LoggingForegroundService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice|location"
+            android:foregroundServiceType="connectedDevice|location|mediaPlayback"
             android:stopWithTask="false" />
 
 

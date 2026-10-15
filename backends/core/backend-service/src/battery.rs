@@ -64,11 +64,16 @@ impl BackendService {
         &mut self,
         sample: float_view_application_runtime::telemetry::NormalizedSample,
     ) -> Result<(), Failure> {
+        let load = float_view_application_runtime::load::calculate(
+            &sample,
+            self.runtime.snapshot().application.current_limits.as_ref(),
+        );
         if let Some(active) = self.policy.active.as_mut()
             && active
                 .battery
                 .accept(sample.sequence, self.policy.exchange.now)
         {
+            active.latest_load = load;
             active.latest = Some(sample);
             // Consume every accepted observation, even when a transport fact yields a batch.
             self.refresh_battery()?;

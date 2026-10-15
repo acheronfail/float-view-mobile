@@ -53,6 +53,13 @@ pub enum LinkState {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "fact", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Fact {
+    SpeechReady {
+        state: crate::announcements::AudioState,
+    },
+    SpeechFinished {
+        id: u64,
+        outcome: crate::announcements::Outcome,
+    },
     Permissions {
         observation: crate::permissions::Observation,
     },
@@ -142,6 +149,13 @@ pub struct Envelope {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Effect {
+    Speak {
+        speech: crate::announcements::Speech,
+    },
+    CancelSpeech {
+        id: u64,
+    },
+    RefreshSpeech,
     Scan {
         scan_id: u64,
     },
@@ -191,6 +205,7 @@ pub enum Effect {
         state: Option<crate::live_activity::LiveActivity>,
     },
     HostState {
+        speech_enabled: bool,
         connected: bool,
         recording: bool,
         theme_preference: String,
@@ -218,6 +233,7 @@ pub(crate) struct Exchange {
     pub disconnect: Option<u64>,
     pub status: Option<Effect>,
     pub live_activity: Option<Effect>,
+    speech_cancel: Option<u64>,
 }
 impl Default for Exchange {
     fn default() -> Self {
@@ -234,10 +250,16 @@ impl Default for Exchange {
             disconnect: None,
             status: None,
             live_activity: None,
+            speech_cancel: None,
         }
     }
 }
 impl Exchange {
+    pub fn cancel_speech(&mut self, id: u64) {
+        self.queue
+            .retain(|e| !matches!(e,Effect::Speak{speech} if speech.id==id));
+        self.speech_cancel = Some(id);
+    }
     pub fn admit(&self) -> Result<(), Failure> {
         if self.queue.len() > MAX_EFFECTS - RUNTIME_RESERVE {
             Err(Failure::Unavailable)
@@ -307,6 +329,9 @@ impl Exchange {
         }
         if let Some(activity) = self.live_activity.take() {
             effects.push(activity);
+        }
+        if let Some(id) = self.speech_cancel.take() {
+            effects.push(Effect::CancelSpeech { id });
         }
         let mut bytes = 4096usize;
         while effects.len() < MAX_EFFECTS_PER_DRAIN {

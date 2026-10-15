@@ -16,7 +16,7 @@
   const field = $derived(slots[slot]);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
   const lighting = $derived(isLighting(field) ? lightingBox(connection, field) : null);
-  const currentLimits = $derived(backendState.snapshot?.activeConnection?.currentLimits);
+
   const estimatedLevel = $derived(backendState.snapshot?.activeConnection?.batteryEstimate.level);
   let nowMs = $state(Date.now());
   onMount(() => {
@@ -128,7 +128,7 @@
           {:else}<span class="text-xs text-muted">{lighting.status}</span>{/if}
         </div>
       {:else}
-        <LiveNumber {field} {sample} {units} {estimatedLevel} {currentLimits} {bms} {nowMs} />
+        <LiveNumber {field} {sample} {units} {estimatedLevel} {bms} {nowMs} />
       {/if}
     </div>
   </button>
@@ -152,7 +152,6 @@
     {sample}
     {units}
     {estimatedLevel}
-    {currentLimits}
     {bms}
     {nowMs}
     {busy}

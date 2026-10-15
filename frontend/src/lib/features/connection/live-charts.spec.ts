@@ -11,14 +11,8 @@ import {
 const point = (time: number, speedKph: number | null) => ({ time, sample: { speedKph } as LiveSample });
 describe('live chart window', () => {
   it('plots gauge load components on a fixed percentage axis with matching colours', () => {
-    const currentLimits = {
-      motorCurrentMaxA: 100,
-      motorCurrentMinA: -50,
-      batteryCurrentMaxA: 50,
-      batteryCurrentMinA: -20,
-      batterySeriesCells: null,
-    };
     const sample = {
+      load: { duty: 0.4, motor: 0.6, battery: 0.75, winner: { source: 'battery', fraction: 0.75 } },
       dutyCycle: -0.4,
       motorCurrentA: -10,
       filteredMotorCurrentA: 30,
@@ -26,16 +20,14 @@ describe('live chart window', () => {
     } as LiveSample;
     const group = liveChartGroups(false).find((group) => group.title === 'Load')!;
     expect(group.fields).toEqual(['dutyCycle', 'motorLoad', 'batteryLoad']);
-    expect(
-      group.fields.map((field) => liveChartReading(field, sample, 'metric', null, 0, currentLimits).value)
-    ).toEqual([40, 60, 75]);
+    expect(group.fields.map((field) => liveChartReading(field, sample, 'metric', null, 0).value)).toEqual([40, 60, 75]);
     expect(group.fields.map(liveChartColor)).toEqual(['var(--app-duty)', 'var(--app-danger)', 'var(--app-success)']);
-    const geometry = liveChartGeometry([{ time: 0, sample, currentLimits }], group.fields, 'metric', 0);
+    const geometry = liveChartGeometry([{ time: 0, sample }], group.fields, 'metric', 0);
     expect(geometry.low).toBe(0);
     expect(geometry.high).toBe(100);
     expect(geometry.paths).toEqual(['M1000.00,60.00', 'M1000.00,40.00', 'M1000.00,25.00']);
-    expect(liveChartReading('motorLoad', sample, 'metric').value).toBeNull();
-    expect(liveChartReading('batteryLoad', null, 'metric', null, 0, currentLimits).value).toBeNull();
+    expect(liveChartReading('motorLoad', sample, 'metric').value).toBe(60);
+    expect(liveChartReading('batteryLoad', null, 'metric', null, 0).value).toBeNull();
   });
   it('expires old samples and bounds the buffer', () => {
     expect(retainLivePoints([point(0, 1), point(10001, 2)], 40000)).toEqual([point(10001, 2)]);

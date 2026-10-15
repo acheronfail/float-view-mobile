@@ -458,6 +458,13 @@ impl Backend {
                     id: p.text("savedDeviceId")?,
                 }
             }
+            "announcements.test" => {
+                p.only(&["kind"])?;
+                Operation::TestAnnouncement {
+                    kind: serde_json::from_value(json!(p.text("kind")?))
+                        .map_err(|_| Failure::InvalidRequest)?,
+                }
+            }
             "settings.update" => {
                 p.only(&["expectedRevision", "patch"])?;
                 Operation::UpdateSettings {
@@ -542,6 +549,7 @@ impl Backend {
         };
         match self.call(client, operation).await? {
             Completion::Permissions(rows) => Ok(projection::value(&rows)),
+            Completion::Announcement { outcome } => Ok(json!({"outcome":outcome})),
             Completion::Unit => Ok(json!({"accepted":true})),
             Completion::Bluetooth(f) => Ok(projection::bluetooth(&f, false)),
             Completion::Location(f) => {

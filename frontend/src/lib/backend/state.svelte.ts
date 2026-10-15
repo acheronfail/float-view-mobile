@@ -367,6 +367,11 @@ export class BackendState {
     });
   }
 
+  async testAnnouncement(kind: 'speed' | 'load' | 'combined') {
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    return this.client.request('announcements.test', { kind }, 12_000);
+  }
+
   async updateSessionSettings(patch: Omit<Partial<Settings>, 'revision'>): Promise<boolean> {
     const settings = this.settings;
     if (!settings) return false;

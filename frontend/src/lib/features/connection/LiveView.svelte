@@ -20,7 +20,7 @@
 
   const connection = $derived(backendState.snapshot?.activeConnection);
   const sample = $derived(connection?.latestSample);
-  const currentLimits = $derived(connection?.currentLimits);
+
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
   const dimmed = $derived(connection ? readingsAreDimmed(connection) : false);
 </script>
@@ -57,7 +57,6 @@
         <WidgetGauge
           sessionId={connection.trackingMode === 'saved' ? (connection.activeSession?.sessionId ?? null) : null}
           {sample}
-          {currentLimits}
           {units}
         />
       </div>

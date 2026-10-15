@@ -215,3 +215,16 @@ primary UI, then lock the phone and verify updates while BLE runs in the
 background. Check expanded and compact Island layouts, stale telemetry,
 disconnect/reconnect, user dismissal and disabled Live Activities. Simulator
 builds and service tests do not establish this OS/background behavior.
+
+## Spoken announcements
+
+The shared Rust service owns load/speed eligibility and timing. The service-owned
+`speech/` adapter executes bounded typed utterances on the main queue using an
+installed English voice. iOS declares background audio and uses a short playback
+voice-prompt session per utterance. “Lower other audio while speaking” selects
+ducking/spoken-content interruption or mix-only behavior; all terminal paths
+stop speech and release the session. macOS uses native synthesis without iOS
+audio-session APIs. Neither host changes system volume or keeps silence playing.
+Calls, route changes and unavailable audio can skip an announcement; successful
+call playback is not guaranteed. Music restoration, headset routing and locked
+iOS playback require a real-device checkpoint.

@@ -12,6 +12,7 @@ data class NativeFilePresentation(val file: File, val fileName: String, val fini
 
 /** Bounded OS capability executor. Product policy and state stay in Rust. */
 class SharedService(
+    context: android.content.Context,
     private val root: File,
     private val bluetooth: BluetoothPort,
     private val location: LocationProviderPort,
@@ -20,6 +21,10 @@ class SharedService(
     private val foregroundRequiredChanged: (Boolean) -> Unit,
     private val locationChanged: () -> Unit,
 ) : AutoCloseable {
+    private val speech = fail.acheron.floatview.speech.SpeechAdapter(context) { status, id, reason -> enqueue {
+        if (status == "outcome") fact(json("fact" to "speech_finished", "id" to id, "outcome" to reason))
+        else fact(json("fact" to "speech_ready", "state" to json("status" to status, "reason" to reason, "loweringControl" to "automatic")))
+    } }
     val handle: Long
     private val executor = ScheduledThreadPoolExecutor(1) { action -> Thread(action, "float-view-os") }
     private var diagnosticCallbacks = 0L
@@ -42,6 +47,7 @@ class SharedService(
     private val timers = mutableMapOf<Long, Pair<Long, Boolean>>()
     @Volatile private var lastCapabilities = 0L
     private var foregroundRequired = false
+    @Volatile var announcementsEnabled = false; private set
     @Volatile var recording = false; private set
     @Volatile var liveActivity: LiveActivityState? = null; private set
     private var locationState: LocationProviderState? = null
@@ -60,9 +66,10 @@ class SharedService(
     fun start() {
         // Publish the platform inventory before any listener can serve a complete snapshot.
         executor.submit { exchange(json("command" to "drain")); capabilities() }.get(5, TimeUnit.SECONDS)
+        speech.refresh()
         executor.scheduleWithFixedDelay({ runCatching { tick() } }, 20, 20, TimeUnit.MILLISECONDS)
     }
-    fun setForeground(value: Boolean) { synchronized(callbackLock) { foreground = value; lastCapabilities = 0 } }
+    fun setForeground(value: Boolean) { if (value) speech.refresh(); synchronized(callbackLock) { foreground = value; lastCapabilities = 0 } }
     fun requestStop() { synchronized(callbackLock) { stopRequested = true } }
     fun refreshCapabilities() { synchronized(callbackLock) { lastCapabilities = 0 } }
     @Synchronized fun observeTheme(handler: (ThemePreference) -> Unit): AutoCloseable {
@@ -203,6 +210,7 @@ class SharedService(
             "scan" -> { synchronized(callbackLock) { callbackScan = value.getLong("scan_id") }; bluetooth.startDiscovery() }
             "stop_scan" -> bluetooth.stopDiscovery()
             "connect" -> {
+                speech.refresh()
                 synchronized(callbackLock) { callbackGeneration = value.getLong("generation") }
                 activeDevice = DeviceId(value.getString("device_id"))
                 bluetooth.connect(activeDevice!!, BluetoothConnection(lifetime, value.getLong("generation")))
@@ -249,6 +257,9 @@ class SharedService(
                 fact(json("fact" to "presentation_started", "id" to id, "accepted" to accepted))
                 if (!accepted) finish()
             }
+            "speak" -> speech.speak(value.getJSONObject("speech"))
+            "cancel_speech" -> speech.cancel(id)
+            "refresh_speech" -> speech.refresh()
             "live_activity" -> {
                 liveActivity = value.optJSONObject("state")?.let(LiveActivityState::decode)
             }
@@ -257,6 +268,8 @@ class SharedService(
                 theme = preference
                 val handlers = synchronized(this) { themeHandlers.values.toList() }
                 handlers.forEach { it(preference) }
+                val speechEnabled = value.getBoolean("speech_enabled")
+                if (announcementsEnabled != speechEnabled) { announcementsEnabled = speechEnabled; locationChanged() }
                 recording = value.getBoolean("recording")
                 val active = value.getBoolean("connected") || recording
                 if (active != foregroundRequired) { foregroundRequired = active; foregroundRequiredChanged(active) }
@@ -266,6 +279,7 @@ class SharedService(
     override fun close() {
         if (closed) return
         executor.submit {
+            speech.close()
             location.stopUpdates(); bluetooth.stopDiscovery(); activeDevice?.let { bluetooth.disconnect(it, BluetoothConnection(lifetime, callbackGeneration)) }
             check(RustApplicationRuntime.serviceDestroy(handle) == 0)
             closed = true

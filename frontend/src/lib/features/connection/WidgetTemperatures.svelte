@@ -24,7 +24,7 @@
   }
 
   const batteryTemperature = $derived(
-    liveValue('bmsHighestCellTempC', sample, 'metric', undefined, undefined, bms, Math.max(nowMs, Date.now())).value
+    liveValue('bmsHighestCellTempC', sample, 'metric', undefined, bms, Math.max(nowMs, Date.now())).value
   );
   const circuitryTemperature = $derived(
     freshBmsSnapshot(bms, Math.max(nowMs, Date.now()))?.highestCircuitryTemperatureC ?? null

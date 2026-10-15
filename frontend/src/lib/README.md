@@ -295,3 +295,12 @@ surface transitions. Explicit disclosures may animate height; controls, maps,
 charts and refreshed lists otherwise retain their position. Unavailable readings
 and first/recovered telemetry values change immediately; ordinary continuous
 readings use short interpolation.
+
+Ride announcement controls belong to `features/settings/Announcements.svelte`.
+They submit complete revision-checked announcement preferences and authenticated
+test requests; speech, telemetry decisions and scheduling stay native/shared.
+The iOS lowering switch renders from mandatory `announcementAudio.loweringControl`,
+without platform sniffing. Live load views only format `LiveSample.load`;
+`features/connection/gauge.ts` contains presentation selectors, not utilisation
+or winner calculations. Session views retain recorded raw duty and captured
+motor/battery fractions.

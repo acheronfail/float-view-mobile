@@ -200,7 +200,38 @@ export type FirmwareFault =
   | 'phaseFilter'
   | 'unknown';
 
+export interface DriveLoad {
+  duty: number | null;
+  motor: number | null;
+  battery: number | null;
+  winner: { source: 'duty' | 'motor' | 'battery'; fraction: number } | null;
+}
+export interface AnnouncementSettings {
+  speedEnabled: boolean;
+  loadEnabled: boolean;
+  speedThresholdKph: number;
+  loadThresholdPercent: number;
+  repeatIntervalSeconds: number;
+  volumePercent: number;
+  lowerOtherAudio: boolean;
+}
+export const defaultAnnouncements: AnnouncementSettings = {
+  speedEnabled: false,
+  loadEnabled: false,
+  speedThresholdKph: 25,
+  loadThresholdPercent: 65,
+  repeatIntervalSeconds: 5,
+  volumePercent: 100,
+  lowerOtherAudio: true,
+};
+export interface AnnouncementAudio {
+  status: 'initializing' | 'ready' | 'unavailable';
+  reason: 'no_offline_voice' | 'engine_unavailable' | 'audio_unavailable' | null;
+  loweringControl: 'adjustable' | 'automatic';
+}
 export interface LiveSample {
+  /** Authoritative backend fractions and winner for this sample. */
+  load: DriveLoad;
   sequence: number;
   observedAt: string;
   slowObservedAt: string | null;
@@ -816,6 +847,7 @@ export interface SessionDisplayOptions {
 }
 
 export interface Settings {
+  announcements: AnnouncementSettings;
   sessionDisplayOptions: SessionDisplayOptions;
   revision: number;
   idleProbeIntervalMs: number;
@@ -839,6 +871,7 @@ export interface ExportResult {
 }
 
 export interface AppState {
+  announcementAudio: AnnouncementAudio;
   /** Seven shared-service choices; numeric curves never cross the contract. */
   batteryCellProfiles: BatteryCellProfile[];
   batteryPresets: BatteryPreset[];
@@ -988,6 +1021,10 @@ export interface BackendMethods {
     result: SavedDevice;
   };
   'savedDevice.delete': { params: { savedDeviceId: string }; result: Accepted };
+  'announcements.test': {
+    params: { kind: 'speed' | 'load' | 'combined' };
+    result: { outcome: 'finished' | 'interrupted' | 'unavailable' };
+  };
   'settings.update': {
     params: { expectedRevision: number; patch: Omit<Partial<Settings>, 'revision'> };
     result: Settings;

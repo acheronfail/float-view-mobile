@@ -911,3 +911,43 @@ fn board_live_widget_layouts_are_independent_validated_and_persisted() {
     assert_eq!(store.profile(id).unwrap(), updated);
     assert_eq!(store.profile(&second.saved_device_id).unwrap().revision, 0);
 }
+
+#[test]
+fn announcement_preferences_validate_atomically_and_reopen() {
+    let root = Root::new();
+    let mut store = root.open();
+    let mut a = Settings::default().announcements;
+    a.speed_enabled = true;
+    a.load_enabled = true;
+    a.volume_percent = 42;
+    let updated = store
+        .update_settings(0, &serde_json::json!({"announcements":a}).to_string())
+        .unwrap();
+    drop(store);
+    let mut store = root.open();
+    assert_eq!(store.settings().unwrap(), updated);
+    for invalid in [
+        serde_json::json!({"volumePercent":101}),
+        serde_json::json!({"repeatIntervalSeconds":0}),
+        serde_json::json!({"speedThresholdKph":0}),
+        serde_json::json!({"loadThresholdPercent":101}),
+        serde_json::json!({"volumePercent":1.5}),
+    ] {
+        let mut bad = serde_json::to_value(&a).unwrap();
+        for (k, v) in invalid.as_object().unwrap() {
+            bad[k] = v.clone();
+        }
+        assert_eq!(
+            store.update_settings(
+                1,
+                &serde_json::json!({"announcements":bad,"unitPreference":"imperial"}).to_string()
+            ),
+            Err(Error::InvalidInput)
+        );
+        assert_eq!(store.settings().unwrap(), updated);
+    }
+    assert_eq!(
+        store.update_settings(1, "{\"announcements\":{}}"),
+        Err(Error::InvalidInput)
+    );
+}

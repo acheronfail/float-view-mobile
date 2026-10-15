@@ -1,69 +1,22 @@
-import type { ControllerCurrentLimits, LiveSample } from '../../backend/contract';
-
-type GaugeSample = Pick<
-  LiveSample,
-  'dutyCycle' | 'motorCurrentA' | 'directionalMotorCurrentA' | 'filteredMotorCurrentA' | 'batteryCurrentA'
->;
-
-const percentage = (value: number, limit: number) => Math.min(Math.abs(value) / Math.abs(limit), 1) * 100;
+import type { LiveSample } from '../../backend/contract';
 
 export type DriveLoadSource = 'duty' | 'motor' | 'battery';
-
 export interface DriveLoad {
   source: DriveLoadSource;
   percentage: number;
 }
-
-export function driveLoadComponents(
-  sample: GaugeSample | null | undefined,
-  limits: ControllerCurrentLimits | null | undefined
-): Record<DriveLoadSource, number | null> {
-  if (!sample) return { duty: null, motor: null, battery: null };
-
-  const duty = sample.dutyCycle == null ? null : Math.min(Math.abs(sample.dutyCycle), 1) * 100;
-  const motorCurrent = sample.filteredMotorCurrentA ?? sample.directionalMotorCurrentA ?? sample.motorCurrentA;
-  const motorLimit =
-    sample.motorCurrentA == null || !limits
-      ? null
-      : sample.motorCurrentA < 0
-        ? limits.motorCurrentMinA
-        : limits.motorCurrentMaxA;
-  const motor =
-    motorCurrent == null || motorLimit == null || motorLimit === 0 ? null : percentage(motorCurrent, motorLimit);
-  const batteryLimit =
-    sample.batteryCurrentA == null || !limits
-      ? null
-      : sample.batteryCurrentA < 0
-        ? limits.batteryCurrentMinA
-        : limits.batteryCurrentMaxA;
-  const battery =
-    sample.batteryCurrentA == null || batteryLimit == null || batteryLimit === 0
-      ? null
-      : percentage(sample.batteryCurrentA, batteryLimit);
-  return { duty, motor, battery };
+/** Presentation only: all utilisation and winner policy belongs to Rust. */
+export function driveLoadComponents(sample: Pick<LiveSample, 'load'> | null | undefined) {
+  return {
+    duty: sample?.load.duty == null ? null : sample.load.duty * 100,
+    motor: sample?.load.motor == null ? null : sample.load.motor * 100,
+    battery: sample?.load.battery == null ? null : sample.load.battery * 100,
+  };
 }
-
-export function driveLoad(
-  sample: GaugeSample | null | undefined,
-  limits: ControllerCurrentLimits | null | undefined
-): DriveLoad | null {
-  const { duty, motor, battery } = driveLoadComponents(sample, limits);
-  const candidates: DriveLoad[] = [
-    duty == null ? null : { source: 'duty', percentage: duty },
-    motor == null ? null : { source: 'motor', percentage: motor },
-    battery == null ? null : { source: 'battery', percentage: battery },
-  ].filter((value): value is DriveLoad => value != null);
-  return (
-    candidates.reduce<DriveLoad | null>(
-      (winner, candidate) => (winner == null || candidate.percentage > winner.percentage ? candidate : winner),
-      null
-    ) ?? null
-  );
+export function driveLoad(sample: Pick<LiveSample, 'load'> | null | undefined): DriveLoad | null {
+  const winner = sample?.load.winner;
+  return winner ? { source: winner.source, percentage: winner.fraction * 100 } : null;
 }
-
-export function driveLoadPercent(
-  sample: GaugeSample | null | undefined,
-  limits: ControllerCurrentLimits | null | undefined
-): number | null {
-  return driveLoad(sample, limits)?.percentage ?? null;
+export function driveLoadPercent(sample: Pick<LiveSample, 'load'> | null | undefined): number | null {
+  return driveLoad(sample)?.percentage ?? null;
 }

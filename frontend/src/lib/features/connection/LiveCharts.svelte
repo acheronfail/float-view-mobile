@@ -49,7 +49,6 @@
           {
             time: now,
             sample,
-            currentLimits: connection?.currentLimits,
             bmsTemperatures: bmsSnapshot
               ? {
                   circuitryC: bmsSnapshot.highestCircuitryTemperatureC,
@@ -122,8 +121,7 @@
                 stale ? null : connection?.latestSample,
                 units,
                 stale ? null : connection?.bms,
-                Date.now(),
-                connection?.currentLimits
+                Date.now()
               )}
               <div class="flex items-baseline gap-2 text-sm">
                 <span

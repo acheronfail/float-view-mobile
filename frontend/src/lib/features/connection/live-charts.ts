@@ -1,10 +1,4 @@
-import type {
-  BmsState,
-  ControllerCurrentLimits,
-  LiveSample,
-  LiveWidgetField,
-  UnitPreference,
-} from '$lib/backend/contract';
+import type { BmsState, LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
 import { driveLoadComponents } from './gauge';
 import { freshBmsSnapshot } from './bms';
 import { liveValue } from './live-values';
@@ -14,7 +8,6 @@ export type LiveChartField = LiveWidgetField | 'bmsCircuitryTempC' | 'motorLoad'
 export interface LiveChartPoint {
   time: number;
   sample: LiveSample;
-  currentLimits?: ControllerCurrentLimits | null;
   bmsTemperatures?: { circuitryC: number | null; cellsC: number | null };
 }
 export function liveChartGroups(showBmsTemperatures: boolean): { title: string; fields: LiveChartField[] }[] {
@@ -42,8 +35,7 @@ export function liveChartReading(
   sample: LiveSample | null | undefined,
   units: UnitPreference,
   bms?: BmsState | null,
-  nowMs: number = Date.now(),
-  currentLimits?: ControllerCurrentLimits | null
+  nowMs: number = Date.now()
 ) {
   if (field === 'dutyCycle' || field === 'motorLoad' || field === 'batteryLoad') {
     const source = field === 'dutyCycle' ? 'duty' : field === 'motorLoad' ? 'motor' : 'battery';
@@ -52,11 +44,11 @@ export function liveChartReading(
       label: { duty: 'Duty', motor: 'Motor', battery: 'Battery' }[source],
       unit: '%',
       digits: 0,
-      value: driveLoadComponents(sample, currentLimits)[source],
+      value: driveLoadComponents(sample)[source],
     };
   }
   if (field !== 'bmsCircuitryTempC') {
-    const reading = liveValue(field, sample, units, undefined, undefined, bms, nowMs);
+    const reading = liveValue(field, sample, units, undefined, bms, nowMs);
     return field === 'bmsHighestCellTempC' ? { ...reading, label: 'Cells' } : reading;
   }
   const celsius = freshBmsSnapshot(bms, nowMs)?.highestCircuitryTemperatureC;
@@ -83,7 +75,7 @@ export function liveChartGeometry(
           ? displayTemperature(point.bmsTemperatures?.circuitryC, units)
           : field === 'bmsHighestCellTempC'
             ? displayTemperature(point.bmsTemperatures?.cellsC, units)
-            : liveChartReading(field, point.sample, units, undefined, undefined, point.currentLimits).value,
+            : liveChartReading(field, point.sample, units).value,
     }))
   );
   const values = series.flatMap((line) => line.flatMap((point) => (point.value === null ? [] : [point.value])));

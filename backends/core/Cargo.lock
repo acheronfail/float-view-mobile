@@ -230,6 +230,7 @@ dependencies = [
  "float-view-session-history-kernel",
  "float-view-session-sqlite",
  "float-view-vesc-frame",
+ "serde",
 ]
 
 [[package]]

@@ -114,3 +114,19 @@ background/lock the phone and check BLE updates, notification permission denial
 and later grant, Stop, dismissal and reconnect. Check both a standard notification
 and Live Update promotion on a supporting Android 16+ device. Software checks do
 not establish OEM presentation or background BLE behavior.
+
+## Spoken announcements
+
+Rust supplies the highest load source and optional speed in one bounded speech
+request. `speech/SpeechAdapter` owns installed offline English TTS voices and
+transient may-duck audio focus on the main looper. It never queues delayed focus;
+completion, errors, interruption and admission expiry stop playback and release
+focus. Speech gain is relative to current device volume. Audio lowering remains
+automatic; only iOS exposes its lowering preference.
+
+The existing ride foreground service includes mediaPlayback while automatic
+announcements are enabled and non-muted, alongside connectedDevice and optional
+location. It remains one service and one shared runtime. Background delivery,
+headset routing and music restoration need real-device validation; calls can
+gracefully prevent speech. Foreground return, connection and explicit tests
+refresh speech readiness without continuous engine initialization retries.

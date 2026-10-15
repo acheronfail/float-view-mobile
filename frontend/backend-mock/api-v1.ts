@@ -6,6 +6,7 @@ import { permissionInventory, locationSummary } from './permissions.ts';
 import { batteryPresets, batteryPresetCatalogVersion, applyBatteryPatch } from './battery-presets.ts';
 import { batteryCellProfiles, emptyEstimate, MockBattery } from './battery.ts';
 import {
+  defaultAnnouncements,
   defaultLiveWidgetSlots,
   liveWidgetFields,
   MAX_MESSAGE_BYTES,
@@ -302,7 +303,9 @@ export class MockBackend {
   } satisfies Record<string, RefloatConfigurationValue>;
   private nextTune = 1;
   private readonly tunes = new Map<string, RefloatTune>();
+  private lastAnnouncement = -Infinity;
   private state: AppState = {
+    announcementAudio: { status: 'ready', reason: null, loweringControl: 'adjustable' },
     revision: 0,
     bluetooth: {
       radio: 'powered_on',
@@ -318,6 +321,7 @@ export class MockBackend {
     batteryPresets,
     batteryPresetCatalogVersion,
     settings: {
+      announcements: { ...defaultAnnouncements },
       revision: 0,
       idleProbeIntervalMs: 500,
       idlePersistIntervalMs: 1_000,
@@ -800,6 +804,20 @@ export class MockBackend {
           values: { ...this.refloatCurrentValues, ...tune.values },
         });
       }
+      case 'announcements.test': {
+        if (Object.keys(params).length !== 1 || !['speed', 'load', 'combined'].includes(String(params.kind)))
+          return failure(id, 'invalid_request', 'Invalid test');
+        const now = Date.now();
+        if (now - this.lastAnnouncement < this.state.settings.announcements.repeatIntervalSeconds * 1000)
+          return failure(id, 'invalid_state', 'Please wait before testing again');
+        this.lastAnnouncement = now;
+        return success(id, {
+          outcome:
+            this.state.settings.announcements.volumePercent === 0 || this.state.announcementAudio.status === 'ready'
+              ? 'finished'
+              : 'unavailable',
+        });
+      }
       case 'settings.update': {
         const expectedRevision = number(params.expectedRevision);
         const patch = asObject(params.patch);
@@ -810,6 +828,7 @@ export class MockBackend {
           return failure(id, 'conflict', 'Settings revision changed');
         }
         const allowed = new Set([
+          'announcements',
           'idleProbeIntervalMs',
           'idlePersistIntervalMs',
           'ridingPersistIntervalMs',
@@ -824,6 +843,29 @@ export class MockBackend {
           'locationRecordingEnabled',
           'includeGpsLocationWhenExporting',
         ]);
+        if ('announcements' in patch) {
+          const a = patch.announcements as import('../src/lib/backend/contract.ts').AnnouncementSettings;
+          if (
+            !a ||
+            Object.keys(a).length !== 7 ||
+            typeof a.speedEnabled !== 'boolean' ||
+            typeof a.loadEnabled !== 'boolean' ||
+            typeof a.lowerOtherAudio !== 'boolean' ||
+            !Number.isFinite(a.speedThresholdKph) ||
+            !(a.speedThresholdKph > 0 && a.speedThresholdKph <= 200) ||
+            !Number.isFinite(a.loadThresholdPercent) ||
+            !(a.loadThresholdPercent > 0 && a.loadThresholdPercent <= 100) ||
+            !Number.isInteger(a.repeatIntervalSeconds) ||
+            a.repeatIntervalSeconds < 1 ||
+            a.repeatIntervalSeconds > 60 ||
+            !Number.isInteger(a.volumePercent) ||
+            a.volumePercent < 0 ||
+            a.volumePercent > 100
+          )
+            return failure(id, 'invalid_request', 'Invalid announcement settings');
+          if (!a.lowerOtherAudio && this.state.announcementAudio.loweringControl !== 'adjustable')
+            return failure(id, 'unavailable', 'Audio lowering is automatic');
+        }
         const historyGap = patch.historyGapThresholdSeconds;
         if (
           !Object.keys(patch).length ||
@@ -1074,6 +1116,7 @@ export class MockBackend {
       alertReason: 'none' as const,
       firmwareFault: null,
       packVoltageV: 58.4 - sequence * 0.002,
+      load: { duty: 0.42, motor: 0.2, battery: 0.18, winner: { source: 'duty' as const, fraction: 0.42 } },
       dutyCycle: 0.42,
       controllerTempC: 38.2,
       motorTempC: 41.7,

@@ -1,13 +1,7 @@
 import { driveLoad } from './gauge';
 import { freshBmsSnapshot } from './bms';
 import { footpadPresentation } from './footpads';
-import type {
-  BmsState,
-  ControllerCurrentLimits,
-  LiveSample,
-  LiveWidgetField,
-  UnitPreference,
-} from '$lib/backend/contract';
+import type { BmsState, LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
 
 export const liveValueCatalog = {
   empty: { name: 'Empty', label: 'Hold to set', unit: '', digits: 0 },
@@ -77,11 +71,11 @@ export function liveValue(
   sample: LiveSample | null | undefined,
   units: UnitPreference,
   estimatedLevel?: number | null,
-  currentLimits?: ControllerCurrentLimits | null,
+
   bms?: BmsState | null,
   nowMs: number = Date.now()
 ) {
-  const load = field === 'driveLoad' ? driveLoad(sample, currentLimits) : null;
+  const load = field === 'driveLoad' ? driveLoad(sample) : null;
   const snapshot = freshBmsSnapshot(bms, nowMs);
   const cells = snapshot?.cellVoltagesV.filter(Number.isFinite) ?? [];
   const hottest = field === 'highestTempC' ? highestTemperature(sample, bms, nowMs) : null;
@@ -151,12 +145,11 @@ export function liveValueColor(
   field: LiveWidgetField,
   value: number | null,
   sample?: LiveSample | null,
-  units: UnitPreference = 'metric',
-  currentLimits?: ControllerCurrentLimits | null
+  units: UnitPreference = 'metric'
 ) {
   if (value == null) return 'text-foreground';
   if (field === 'driveLoad') {
-    const load = driveLoad(sample, currentLimits);
+    const load = driveLoad(sample);
     return load
       ? { duty: 'text-duty', motor: 'text-motor', battery: 'text-battery-current' }[load.source]
       : 'text-muted';

@@ -7,7 +7,6 @@
   import {
     liveWidgetFields,
     type BmsState,
-    type ControllerCurrentLimits,
     type LiveWidgetField,
     type LiveSample,
     type UnitPreference,
@@ -23,7 +22,7 @@
     sample,
     units,
     estimatedLevel,
-    currentLimits,
+
     bms,
     nowMs,
     busy,
@@ -36,7 +35,7 @@
     sample: LiveSample | null | undefined;
     units: UnitPreference;
     estimatedLevel?: number | null;
-    currentLimits?: ControllerCurrentLimits | null;
+
     bms?: BmsState | null;
     nowMs?: number;
     busy: boolean;
@@ -89,7 +88,7 @@
             sample,
             units,
             estimatedLevel,
-            currentLimits,
+
             bms,
             Math.max(nowMs ?? 0, Date.now())
           )}
@@ -116,7 +115,7 @@
             {:else}
               {#if field === 'highestTempC'}<span class="text-xs text-muted">{reading.label}</span>{/if}
               <span
-                class={`font-mono text-xl font-semibold break-all tabular-nums ${liveValueColor(field, reading.value, sample, units, currentLimits)}`}
+                class={`font-mono text-xl font-semibold break-all tabular-nums ${liveValueColor(field, reading.value, sample, units)}`}
               >
                 <span class="sr-only">{liveValueStatus(field, sample)} </span>{liveValueText(
                   field,

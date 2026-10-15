@@ -11,3 +11,4 @@ float-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }
 float-view-session-history-kernel = { path = "../session-history-kernel" }
 float-view-session-sqlite = { path = "../session-sqlite" }
 float-view-vesc-frame = { path = "../vesc-frame" }
+serde = { version = "1", features = ["derive"] }

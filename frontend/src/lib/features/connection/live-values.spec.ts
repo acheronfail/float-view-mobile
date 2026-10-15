@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { liveValue, liveValueCatalog, liveValueColor, liveValueText } from './live-values';
-import {
-  defaultLiveWidgetSlots,
-  liveWidgetFields,
-  type ControllerCurrentLimits,
-  type LiveSample,
-} from '$lib/backend/contract';
+import { defaultLiveWidgetSlots, liveWidgetFields, type LiveSample } from '$lib/backend/contract';
 const sample = {
   packVoltageV: 75,
   batteryCurrentA: -4,
@@ -82,13 +77,6 @@ describe('live value colours', () => {
 });
 
 describe('load widget', () => {
-  const limits: ControllerCurrentLimits = {
-    motorCurrentMaxA: 100,
-    motorCurrentMinA: -50,
-    batteryCurrentMaxA: 50,
-    batteryCurrentMinA: -20,
-    batterySeriesCells: 18,
-  };
   it.each([
     [0.9, 60, 10, 90, 'Duty', 'text-duty'],
     [0.2, 60, 10, 60, 'Motor', 'text-motor'],
@@ -96,14 +84,35 @@ describe('load widget', () => {
   ] as const)(
     'matches the gauge source and percentage',
     (dutyCycle, motorCurrentA, batteryCurrentA, value, label, color) => {
-      const readingSample = { ...sample, dutyCycle, motorCurrentA, batteryCurrentA };
-      expect(liveValue('driveLoad', readingSample, 'metric', null, limits)).toMatchObject({ value, label, unit: '%' });
-      expect(liveValueColor('driveLoad', value, readingSample, 'metric', limits)).toBe(color);
+      const readingSample = {
+        ...sample,
+        dutyCycle,
+        motorCurrentA,
+        batteryCurrentA,
+        load: {
+          duty: null,
+          motor: null,
+          battery: null,
+          winner: { source: label.toLowerCase() as 'duty' | 'motor' | 'battery', fraction: value / 100 },
+        },
+      };
+      expect(liveValue('driveLoad', readingSample, 'metric', null)).toMatchObject({ value, label, unit: '%' });
+      expect(liveValueColor('driveLoad', value, readingSample, 'metric')).toBe(color);
     }
   );
   it('keeps unavailable load unavailable and supports duty without limits', () => {
     expect(liveValue('driveLoad', null, 'metric').value).toBeNull();
-    expect(liveValue('driveLoad', { ...sample, dutyCycle: 0.4 }, 'imperial').value).toBe(40);
+    expect(
+      liveValue(
+        'driveLoad',
+        {
+          ...sample,
+          dutyCycle: 0.4,
+          load: { duty: 0.4, motor: null, battery: null, winner: { source: 'duty', fraction: 0.4 } },
+        },
+        'imperial'
+      ).value
+    ).toBe(40);
   });
 });
 
@@ -142,7 +151,7 @@ describe('BMS boxes and highest temperature', () => {
     },
   } as import('$lib/backend/contract').BmsState;
   const reading = (field: import('$lib/backend/contract').LiveWidgetField, state = bms, time = now) =>
-    liveValue(field, { ...sample, controllerTempC: 38, motorTempC: 45 }, 'metric', null, null, state, time);
+    liveValue(field, { ...sample, controllerTempC: 38, motorTempC: 45 }, 'metric', null, state, time);
 
   it('uses BMS fractions, signed current, cell extrema and explicit cell temperature', () => {
     expect(reading('bmsStateOfCharge').value).toBe(75);
@@ -176,7 +185,7 @@ describe('BMS boxes and highest temperature', () => {
     expect(
       reading('bmsMinCellVoltageV', { ...bms, latestSnapshot: { ...bms.latestSnapshot!, cellVoltagesV: [] } }).value
     ).toBeNull();
-    expect(liveValue('highestTempC', null, 'metric', null, null, null, now).value).toBeNull();
+    expect(liveValue('highestTempC', null, 'metric', null, null, now).value).toBeNull();
   });
 
   it('identifies every winning sensor, switches immediately and converts the winner to Fahrenheit', () => {
@@ -187,9 +196,11 @@ describe('BMS boxes and highest temperature', () => {
       const state = { ...bms, latestSnapshot: { ...bms.latestSnapshot!, [key]: 70 } };
       expect(reading('highestTempC', state)).toMatchObject({ value: 70, label });
     }
-    expect(
-      liveValue('highestTempC', { ...sample, controllerTempC: 80 }, 'imperial', null, null, bms, now)
-    ).toMatchObject({ value: 176, label: 'ESC temp', unit: '°F' });
+    expect(liveValue('highestTempC', { ...sample, controllerTempC: 80 }, 'imperial', null, bms, now)).toMatchObject({
+      value: 176,
+      label: 'ESC temp',
+      unit: '°F',
+    });
     expect(liveValue('highestTempC', { ...sample, controllerTempC: -10, motorTempC: -5 }, 'metric')).toMatchObject({
       value: -5,
       label: 'Motor temp',

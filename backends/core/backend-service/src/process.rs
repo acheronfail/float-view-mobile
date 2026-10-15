@@ -43,6 +43,7 @@ impl Process {
         loop {
             match self.service.try_lock() {
                 Ok(mut service) => {
+                    service.cancel_speech(crate::announcements::Outcome::Interrupted);
                     service.stopping = true;
                     service.cancel_workers();
                     service.disconnect("service_shutdown")?;

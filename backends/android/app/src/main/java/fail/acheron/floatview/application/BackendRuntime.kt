@@ -24,6 +24,7 @@ class BackendRuntime(application: FloatViewApplication) {
         permissionBroker::wasResolved,
     )
     val service = SharedService(
+        applicationContext,
         java.io.File(application.filesDir, "float-view/logs"), bluetooth, locationProvider, permissionBroker,
         exportPresentationBroker::present,
         foregroundRequiredChanged = { active ->

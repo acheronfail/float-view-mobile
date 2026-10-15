@@ -30,6 +30,7 @@ pub(crate) struct Connection {
     pub continuity: c::discovery::Continuity,
     pub package_version: Option<String>,
     pub latest: Option<telemetry::NormalizedSample>,
+    pub latest_load: float_view_application_runtime::load::Load,
     pub battery: crate::battery::State,
     pub live_widget_slots: [String; 5],
     pub bms: Option<c::bms::BmsObservation>,
@@ -40,6 +41,7 @@ pub(crate) struct Connection {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Timer {
+    Speech,
     Deadline(c::scheduler::DeadlineToken),
     Kernel(c::TimerToken),
     Reconnect,
@@ -60,8 +62,9 @@ pub(crate) struct Capture {
     pub start: u64,
 }
 #[derive(PartialEq)]
-struct HostStatus(bool, bool, String, Option<String>, Vec<String>);
+struct HostStatus(bool, bool, String, Option<String>, Vec<String>, bool);
 pub(crate) struct Policy {
+    pub announcements: crate::announcements::State,
     pub exchange: os::Exchange,
     pub ble: crate::ble::Transport,
     pub settings: Settings,
@@ -90,6 +93,7 @@ pub(crate) struct Policy {
 impl Policy {
     pub fn new(settings: Settings) -> Self {
         Self {
+            announcements: crate::announcements::State::default(),
             exchange: os::Exchange::default(),
             ble: crate::ble::Transport::default(),
             settings,
@@ -280,7 +284,10 @@ impl BackendService {
         let expired: Vec<_> = self
             .pending
             .iter()
-            .filter(|(_, p)| p.deadline <= envelope.monotonic_ms)
+            .filter(|(_, p)| {
+                p.kind != crate::dispatch::PendingKind::Speech
+                    && p.deadline <= envelope.monotonic_ms
+            })
             .map(|(id, _)| *id)
             .collect();
         for id in expired {
@@ -295,6 +302,7 @@ impl BackendService {
             self.changed()?;
         }
         let unchanged_capability = match &envelope.fact {
+            Fact::SpeechReady { state } => *state == self.policy.announcements.audio,
             Fact::Permissions { observation } => {
                 self.policy.permissions.as_ref() == Some(observation)
             }
@@ -320,17 +328,21 @@ impl BackendService {
         let inactive_timer = matches!(&envelope.fact, Fact::Timer { id }
             if self.policy.timers.get(id).is_none_or(|t| envelope.monotonic_ms < t.due));
         let discovery_only = matches!(envelope.fact, Fact::Discovered { .. } | Fact::Clock {});
-        let private_completion = matches!(
-            envelope.fact,
-            Fact::PresentationStarted { .. }
-                | Fact::PresentationFinished { .. }
-                | Fact::Profile { .. }
-                | Fact::Notifications { .. }
-                | Fact::WriteProgress { .. }
-                | Fact::Link { .. }
-                | Fact::Storage { .. }
-                | Fact::NativeDiagnostics { .. }
-        );
+        let speech_timer = matches!(&envelope.fact, Fact::Timer { id }
+            if self.policy.timers.get(id).is_some_and(|t|t.kind==Timer::Speech));
+        let private_completion = speech_timer
+            || matches!(
+                envelope.fact,
+                Fact::SpeechFinished { .. }
+                    | Fact::PresentationStarted { .. }
+                    | Fact::PresentationFinished { .. }
+                    | Fact::Profile { .. }
+                    | Fact::Notifications { .. }
+                    | Fact::WriteProgress { .. }
+                    | Fact::Link { .. }
+                    | Fact::Storage { .. }
+                    | Fact::NativeDiagnostics { .. }
+            );
         let first_discovery = matches!(envelope.fact, Fact::Discovered { .. })
             && self.policy.visible_devices.is_empty();
         match envelope.fact {
@@ -358,6 +370,9 @@ impl BackendService {
                     self.diagnostics
                         .capture(now, epoch, "native_delay_or_failure", false);
                 }
+            }
+            fact @ (Fact::SpeechReady { .. } | Fact::SpeechFinished { .. }) => {
+                self.apply_speech_fact(fact)
             }
             Fact::Clock {} => {}
             Fact::StopRequested {} => self.disconnect("native_stop_requested")?,
@@ -584,6 +599,7 @@ impl BackendService {
             Fact::UiCompleted { id, success } => self.complete_ui(id, success),
         }
         self.location_eligibility()?;
+        self.step_announcements()?;
         if first_discovery {
             self.policy.visible_devices = self.policy.devices.clone();
         }
@@ -630,9 +646,13 @@ impl BackendService {
                     .unwrap_or_else(|| a.device.id.clone())
             }),
             self.policy.saved_device_ids.clone(),
+            self.policy.settings.announcements.volume_percent > 0
+                && (self.policy.settings.announcements.speed_enabled
+                    || self.policy.settings.announcements.load_enabled),
         );
         if self.policy.host_status.as_ref() != Some(&status) {
             self.policy.exchange.status = Some(Effect::HostState {
+                speech_enabled: status.5,
                 connected: status.0,
                 recording: status.1,
                 theme_preference: status.2.clone(),
@@ -736,6 +756,7 @@ impl BackendService {
             refloat_draft_key: None,
             package_version: None,
             latest: None,
+            latest_load: Default::default(),
             battery: crate::battery::State::default(),
             live_widget_slots: float_view_product_store::Settings::default().live_widget_slots,
             bms: None,
@@ -807,7 +828,7 @@ impl BackendService {
         self.policy.exchange.clear_connection(generation);
         self.policy
             .timers
-            .retain(|_, t| matches!(t.kind, Timer::Request(_) | Timer::Discovery));
+            .retain(|_, t| matches!(t.kind, Timer::Request(_) | Timer::Discovery | Timer::Speech));
         self.policy.capture = None;
         if self.runtime.snapshot().session_attached {
             self.runtime
@@ -862,7 +883,7 @@ impl BackendService {
         self.policy.exchange.clear_connection(a.generation);
         self.policy
             .timers
-            .retain(|_, t| matches!(t.kind, Timer::Request(_) | Timer::Discovery));
+            .retain(|_, t| matches!(t.kind, Timer::Request(_) | Timer::Discovery | Timer::Speech));
         self.policy.capture = None;
         let delay = (1_000u64 << a.reconnect_attempt.min(5))
             .min(30_000)
@@ -897,7 +918,7 @@ impl BackendService {
         self.policy.exchange.push(Effect::ArmTimer {
             id,
             delay_ms,
-            connection: !matches!(kind, Timer::Request(_) | Timer::Discovery),
+            connection: !matches!(kind, Timer::Request(_) | Timer::Discovery | Timer::Speech),
         })
     }
     pub(crate) fn cancel_timer(&mut self, kind: Timer) {
@@ -922,12 +943,16 @@ impl BackendService {
             self.policy.exchange.push(Effect::ArmTimer {
                 id,
                 delay_ms,
-                connection: !matches!(timer.kind, Timer::Request(_) | Timer::Discovery),
+                connection: !matches!(
+                    timer.kind,
+                    Timer::Request(_) | Timer::Discovery | Timer::Speech
+                ),
             })?;
             self.policy.timers.insert(id, timer);
             return Ok(());
         }
         match timer.kind {
+            Timer::Speech => self.step_announcements()?,
             Timer::Request(request) => {
                 if let Some(p) = self.pending.get(&request) {
                     if self.policy.exchange.now < p.deadline {
@@ -1147,6 +1172,8 @@ impl BackendService {
                         }
                     }
                     c::Effect::PublishTelemetry(sample) => {
+                        self.observe_announcement(&sample);
+                        self.step_announcements()?;
                         self.diagnostics.sample(
                             self.policy.exchange.now,
                             self.policy.exchange.epoch,
@@ -1158,7 +1185,7 @@ impl BackendService {
                             .policy
                             .active
                             .as_ref()
-                            .map(|a| (a.battery.clone(), a.latest.clone()));
+                            .map(|a| (a.battery.clone(), a.latest.clone(), a.latest_load));
                         self.accept_battery_sample((*sample).clone())?;
                         let level = self
                             .policy
@@ -1172,11 +1199,12 @@ impl BackendService {
                         if recorded
                             .iter()
                             .any(|e| matches!(e, RuntimeEffect::Failure(_)))
-                            && let (Some(active), Some((battery, latest))) =
+                            && let (Some(active), Some((battery, latest, load))) =
                                 (self.policy.active.as_mut(), previous)
                         {
                             active.battery = battery;
                             active.latest = latest;
+                            active.latest_load = load;
                         }
                         // Publish this commit (or stop on failure) before the next observation.
                         for effect in recorded.into_iter().rev() {
@@ -1312,6 +1340,8 @@ impl BackendService {
             .controller(facts.selected.identity.controller_uuid)
         {
             a.latest = None;
+            a.latest_load = Default::default();
+            self.policy.announcements.invalidate();
         }
         let mut session_started = false;
         if a.saved {
@@ -3162,5 +3192,227 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, Effect::Disconnect { generation: g } if *g == generation))
         );
+    }
+    #[test]
+    fn announcements_combine_fresh_values_keep_cooldown_and_cancel_stale_speech() {
+        #[allow(dead_code)]
+        mod samples {
+            use float_view_application_runtime::telemetry as float_view_refloat_telemetry_service;
+            include!("../../session-sqlite/tests/support/mod.rs");
+        }
+        use crate::announcements::*;
+        let mut t = Test::new();
+        t.activate(false);
+        t.drain();
+        t.service.policy.announcements.audio = AudioState {
+            status: Readiness::Ready,
+            reason: None,
+            lowering_control: Lowering::Adjustable,
+        };
+        let settings = &mut t.service.policy.settings.announcements;
+        settings.speed_enabled = true;
+        settings.load_enabled = true;
+        let mut sample = samples::sample(1, 100);
+        sample.duty_cycle = Some(0.8);
+        sample.speed_kph = Some(-32.);
+        t.service.policy.exchange.now = 100;
+        t.service.observe_announcement(&sample);
+        t.service.step_announcements().unwrap();
+        let effects = t.service.drain_os().effects;
+        let speech = effects
+            .iter()
+            .find_map(|e| {
+                if let Effect::Speak { speech } = e {
+                    Some(speech.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert_eq!(
+            speech.load.as_ref().unwrap().source,
+            float_view_application_runtime::load::Source::Duty
+        );
+        assert_eq!(speech.load.as_ref().unwrap().percent, 80);
+        assert_eq!(speech.speed, Some(32));
+        assert!(matches!(
+            t.service.test_announcement(7, TestKind::Combined),
+            Err(Failure::InvalidState)
+        ));
+        t.fact(Fact::Clock {}, 2100).unwrap();
+        assert!(
+            t.service
+                .drain_os()
+                .effects
+                .iter()
+                .any(|e| matches!(e,Effect::CancelSpeech{id} if *id==speech.id))
+        );
+        t.service.complete_speech(speech.id, Outcome::Finished);
+        t.service.policy.exchange.now = 3000;
+        t.service.observe_announcement(&sample);
+        t.service.step_announcements().unwrap();
+        assert!(
+            !t.service
+                .drain_os()
+                .effects
+                .iter()
+                .any(|e| matches!(e, Effect::Speak { .. }))
+        );
+        t.service.policy.exchange.now = 5100;
+        t.service.observe_announcement(&sample);
+        t.service.step_announcements().unwrap();
+        assert!(
+            t.service
+                .drain_os()
+                .effects
+                .iter()
+                .any(|e| matches!(e, Effect::Speak { .. }))
+        );
+    }
+    #[test]
+    fn announcement_tests_have_one_terminal_outcome_and_client_scoped_cancellation() {
+        use crate::announcements::*;
+        let mut t = Test::new();
+        t.service.policy.announcements.audio = AudioState {
+            status: Readiness::Ready,
+            reason: None,
+            lowering_control: Lowering::Adjustable,
+        };
+        let crate::Dispatch::Pending(mut receiver) =
+            t.service.test_announcement(7, TestKind::Combined).unwrap()
+        else {
+            panic!("pending")
+        };
+        let speech = t
+            .service
+            .drain_os()
+            .effects
+            .into_iter()
+            .find_map(|e| {
+                if let Effect::Speak { speech } = e {
+                    Some(speech)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert_eq!(speech.load.unwrap().percent, 72);
+        assert_eq!(speech.speed, Some(25));
+        t.service.disconnect_client(8);
+        assert!(receiver.try_recv().is_err());
+        t.service.disconnect_client(7);
+        assert!(matches!(
+            receiver.try_recv().unwrap().unwrap(),
+            crate::facts::Completion::Announcement {
+                outcome: Outcome::Interrupted
+            }
+        ));
+        t.service.complete_speech(speech.id, Outcome::Finished);
+        assert!(t.service.pending.is_empty());
+        t.service.policy.exchange.now = 5000;
+        let crate::Dispatch::Pending(mut receiver) =
+            t.service.test_announcement(9, TestKind::Load).unwrap()
+        else {
+            panic!("pending")
+        };
+        t.fact(Fact::Clock {}, 15000).unwrap();
+        assert!(matches!(
+            receiver.try_recv().unwrap().unwrap(),
+            crate::facts::Completion::Announcement {
+                outcome: Outcome::Unavailable
+            }
+        ));
+        assert!(t.service.pending.is_empty());
+    }
+    #[test]
+    fn announcement_settings_reject_unsupported_lowering_without_partial_writes() {
+        let mut t = Test::new();
+        let mut a = t.service.policy.settings.announcements.clone();
+        a.lower_other_audio = false;
+        a.speed_enabled = true;
+        let request = crate::operations::Operation::UpdateSettings {
+            revision: 0,
+            patch_json: serde_json::json!({"announcements":a,"unitPreference":"imperial"})
+                .to_string(),
+        };
+        assert!(matches!(
+            t.service.dispatch(1, request),
+            Err(Failure::Unavailable)
+        ));
+        assert_eq!(t.service.store.settings().unwrap().revision, 0);
+        assert_eq!(t.service.policy.settings.unit_preference, "metric");
+    }
+    #[test]
+    fn announcement_backpressure_drops_audio_without_failing_telemetry() {
+        #[allow(dead_code)]
+        mod samples {
+            use float_view_application_runtime::telemetry as float_view_refloat_telemetry_service;
+            include!("../../session-sqlite/tests/support/mod.rs");
+        }
+        let mut t = Test::new();
+        t.activate(false);
+        t.drain();
+        t.service.policy.announcements.audio.status = crate::announcements::Readiness::Ready;
+        t.service.policy.settings.announcements.load_enabled = true;
+        let mut sample = samples::sample(1, 0);
+        sample.duty_cycle = Some(0.8);
+        t.service.observe_announcement(&sample);
+        while t
+            .service
+            .policy
+            .exchange
+            .push(Effect::RefreshSpeech)
+            .is_ok()
+        {}
+        assert!(t.service.step_announcements().is_ok());
+        assert!(
+            !t.service
+                .policy
+                .timers
+                .values()
+                .any(|t| t.kind == Timer::Speech)
+        );
+        assert!(t.service.policy.active.is_some());
+        t.drain();
+        t.service.policy.exchange.now += 5000;
+        t.service.observe_announcement(&sample);
+        t.service.step_announcements().unwrap();
+        assert!(
+            t.service
+                .drain_os()
+                .effects
+                .iter()
+                .any(|e| matches!(e, Effect::Speak { .. }))
+        );
+    }
+    #[test]
+    fn announcement_delayed_completion_expires_before_accepting_success() {
+        use crate::announcements::*;
+        let mut t = Test::new();
+        t.service.policy.announcements.audio = AudioState {
+            status: Readiness::Ready,
+            reason: None,
+            lowering_control: Lowering::Automatic,
+        };
+        let crate::Dispatch::Pending(mut receiver) =
+            t.service.test_announcement(1, TestKind::Speed).unwrap()
+        else {
+            panic!("pending")
+        };
+        let id = t.service.pending.keys().next().copied().unwrap();
+        t.fact(
+            Fact::SpeechFinished {
+                id,
+                outcome: Outcome::Finished,
+            },
+            10_000,
+        )
+        .unwrap();
+        assert!(matches!(
+            receiver.try_recv().unwrap().unwrap(),
+            crate::facts::Completion::Announcement {
+                outcome: Outcome::Unavailable
+            }
+        ));
     }
 }

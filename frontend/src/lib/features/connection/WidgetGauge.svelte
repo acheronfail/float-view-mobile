@@ -2,19 +2,19 @@
   import LiveValueBox from './LiveValueBox.svelte';
   import MarkerCapture from './MarkerCapture.svelte';
   import { prefersReducedMotion, Tween } from 'svelte/motion';
-  import type { ControllerCurrentLimits, LiveSample, UnitPreference } from '../../backend/contract';
+  import type { LiveSample, UnitPreference } from '../../backend/contract';
   import { formatSpeedKph } from '../measurements/format';
   import { driveLoad } from './gauge';
 
   let {
     sessionId = null,
     sample,
-    currentLimits,
+
     units,
   }: {
     sessionId?: string | null;
     sample: LiveSample | null | undefined;
-    currentLimits: ControllerCurrentLimits | null | undefined;
+
     units: UnitPreference;
   } = $props();
 
@@ -29,7 +29,7 @@
   const speed = $derived(
     sample?.speedKph == null ? null : Math.abs(sample.speedKph) * (units === 'metric' ? 1 : 0.621371)
   );
-  const load = $derived(driveLoad(sample, currentLimits));
+  const load = $derived(driveLoad(sample));
   const animatedSpeed = new Tween(0);
   const animatedLoad = new Tween(0);
   let previousSpeedUnits: string | undefined;

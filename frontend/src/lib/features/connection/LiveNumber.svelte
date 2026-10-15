@@ -1,12 +1,6 @@
 <script lang="ts">
   import { prefersReducedMotion, Tween } from 'svelte/motion';
-  import type {
-    BmsState,
-    ControllerCurrentLimits,
-    LiveSample,
-    LiveWidgetField,
-    UnitPreference,
-  } from '$lib/backend/contract';
+  import type { BmsState, LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
   import { liveValue, liveValueColor, liveValueText, liveValueStatus } from './live-values';
 
   let {
@@ -14,7 +8,7 @@
     sample,
     units,
     estimatedLevel,
-    currentLimits,
+
     bms,
     nowMs,
   }: {
@@ -22,13 +16,11 @@
     sample: LiveSample | null | undefined;
     units: UnitPreference;
     estimatedLevel?: number | null;
-    currentLimits?: ControllerCurrentLimits | null;
+
     bms?: BmsState | null;
     nowMs?: number;
   } = $props();
-  const reading = $derived(
-    liveValue(field, sample, units, estimatedLevel, currentLimits, bms, Math.max(nowMs ?? 0, Date.now()))
-  );
+  const reading = $derived(liveValue(field, sample, units, estimatedLevel, bms, Math.max(nowMs ?? 0, Date.now())));
   const animated = new Tween(0);
   let previousIdentity: string | undefined;
   let previousAvailable = false;
@@ -58,7 +50,7 @@
 <div class="[container-type:inline-size]">
   <div class="truncate text-[10px] font-semibold tracking-wide text-muted uppercase">{label}</div>
   <div
-    class={`font-mono font-semibold whitespace-nowrap tabular-nums ${liveValueColor(field, value, sample, units, currentLimits)}`}
+    class={`font-mono font-semibold whitespace-nowrap tabular-nums ${liveValueColor(field, value, sample, units)}`}
     style:font-size={`min(0.875rem, ${fontWidth}cqi)`}
   >
     <span class="sr-only">{liveValueStatus(field, sample)} </span>{text}<span class="ml-0.5 text-[0.7em] font-normal"

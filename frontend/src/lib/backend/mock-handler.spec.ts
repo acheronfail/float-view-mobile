@@ -997,3 +997,42 @@ describe('deterministic mock backend', () => {
     ).toHaveProperty('result');
   });
 });
+
+describe('announcement mock contract', () => {
+  it('accepts both rules, validates atomically and enforces test cooldown', () => {
+    const backend = new MockBackend();
+    const initial = (backend.handle({ id: 1, method: 'state.get', params: {} }) as { result: AppState }).result;
+    const announcements = {
+      ...initial.settings.announcements,
+      speedEnabled: true,
+      loadEnabled: true,
+      volumePercent: 0,
+    };
+    expect(
+      backend.handle({ id: 2, method: 'settings.update', params: { expectedRevision: 0, patch: { announcements } } })
+    ).toMatchObject({ result: { announcements } });
+    expect(backend.handle({ id: 3, method: 'announcements.test', params: { kind: 'combined' } })).toMatchObject({
+      result: { outcome: 'finished' },
+    });
+    expect(backend.handle({ id: 4, method: 'announcements.test', params: { kind: 'speed' } })).toMatchObject({
+      error: { code: 'invalid_state' },
+    });
+    expect(
+      backend.handle({
+        id: 5,
+        method: 'settings.update',
+        params: {
+          expectedRevision: 1,
+          patch: { announcements: { ...announcements, volumePercent: 101 }, unitPreference: 'imperial' },
+        },
+      })
+    ).toMatchObject({ error: { code: 'invalid_request' } });
+    expect(
+      (backend.handle({ id: 6, method: 'state.get', params: {} }) as { result: AppState }).result.settings
+        .unitPreference
+    ).toBe('metric');
+    expect(
+      backend.handle({ id: 7, method: 'announcements.test', params: { kind: 'combined', text: 'other' } })
+    ).toMatchObject({ error: { code: 'invalid_request' } });
+  });
+});

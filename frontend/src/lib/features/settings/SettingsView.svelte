@@ -8,6 +8,7 @@
   import SectionTitle from '../../ui/SectionTitle.svelte';
 
   import Permissions from './Permissions.svelte';
+  import Announcements from './Announcements.svelte';
 
   const trackedDistanceM = $derived(
     backendState.savedDevices.reduce((total, device) => total + (device.summary.totalDistanceM ?? 0), 0)
@@ -122,6 +123,8 @@
         <span id="history-gap-help" class="mt-1 block text-xs">Leave on Automatic for easy setup.</span>
       </label>
     </div>
+
+    <Announcements />
 
     <Permissions />
 

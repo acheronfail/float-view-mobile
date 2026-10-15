@@ -16,6 +16,7 @@ record!(Bluetooth {
 });
 record!(Location { authorization: String, background_capture: String, reason: Option<String>, permission_action: Option<crate::permissions::Action> });
 record!(Settings {
+    announcements: float_view_product_store::AnnouncementSettings,
     session_display_options: float_view_product_store::SessionDisplayOptions,
     revision: u64, idle_probe_interval_ms: u64, idle_persist_interval_ms: u64,
     riding_persist_interval_ms: u64, post_ride_tail_ms: u64, reconnect_duration_ms: u64,
@@ -150,6 +151,7 @@ record!(BmsSnapshot {
 });
 record!(Bms { status: String, connection: Option<Route>, candidates: Vec<BmsCandidate>, latest_snapshot: Option<BmsSnapshot> });
 record!(LiveSample {
+    load: float_view_application_runtime::load::Load,
     sequence: u64, observed_at: String, slow_observed_at: Option<String>, elapsed_ms: u64, riding_elapsed_ms: u64,
     ride_state: String, package_state: Option<String>, package_mode: Option<String>, footpad_state: Option<String>,
     stop_condition: Option<String>, setpoint_adjustment: Option<String>, wheelslip: Option<bool>, darkride: Option<bool>,
@@ -179,6 +181,7 @@ record!(Connection {
     refloat_controls: Option<Controls>, controller_actions: ControllerActions,
 });
 record!(Snapshot {
+    announcement_audio: crate::announcements::AudioState,
     battery_cell_profiles: Vec<BatteryCellProfile>,
     battery_presets: Vec<float_view_product_store::battery_presets::Preset>,
     battery_preset_catalog_version: String,
@@ -207,6 +210,9 @@ record!(LocationPage { points: Vec<LocationPoint>, gaps: Vec<LocationGap>, next_
     deny_unknown_fields
 )]
 pub enum Completion {
+    Announcement {
+        outcome: crate::announcements::Outcome,
+    },
     Permissions(Vec<crate::permissions::Row>),
     RideMarker {
         marker: float_view_application_runtime::session::RideMarker,

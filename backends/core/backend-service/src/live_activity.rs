@@ -64,33 +64,6 @@ fn status(state: Option<PackageState>) -> Option<String> {
     }
 }
 
-// Keep tie order, signed-limit selection and filtered-current preference aligned
-// with frontend/src/lib/features/connection/gauge.ts.
-fn drive_load(
-    duty: Option<f64>,
-    motor: Option<f64>,
-    battery: Option<f64>,
-) -> (Option<&'static str>, Option<f64>) {
-    let mut winner = (None, None);
-    for (source, value) in [("duty", duty), ("motor", motor), ("battery", battery)] {
-        if let Some(value) = value.filter(|v| v.is_finite()) {
-            let percent = value.abs().min(1.) * 100.;
-            if winner.1.is_none_or(|previous| percent > previous) {
-                winner = (Some(source), Some(percent));
-            }
-        }
-    }
-    winner
-}
-fn ratio(
-    value: Option<f64>,
-    signed_current: Option<f64>,
-    limits: Option<(f64, f64)>,
-) -> Option<f64> {
-    let (max, min) = limits?;
-    let limit = if signed_current? < 0. { min } else { max };
-    (limit != 0.).then(|| value.map(|v| v / limit)).flatten()
-}
 // Match the frontend highest-temperature widget, including stable tie order.
 fn highest_temperature(values: [Option<f64>; 5]) -> (Option<&'static str>, Option<f64>) {
     let mut winner = (None, None);
@@ -139,26 +112,13 @@ impl BackendService {
             bms.map(|b| b.highest_circuitry_temperature_c()),
             bms.map(|b| b.humidity_sensor_temperature_c),
         ]);
-        let limits = runtime.current_limits.as_ref();
-        let (source, percentage) = sample
-            .map(|s| {
-                drive_load(
-                    s.duty_cycle,
-                    ratio(
-                        s.filtered_motor_current_a
-                            .or(s.directional_motor_current_a)
-                            .or(s.motor_current_a),
-                        s.motor_current_a,
-                        limits.map(|l| (l.motor_current_max_a, l.motor_current_min_a)),
-                    ),
-                    ratio(
-                        s.battery_current_a,
-                        s.battery_current_a,
-                        limits.map(|l| (l.battery_current_max_a, l.battery_current_min_a)),
-                    ),
-                )
-            })
-            .unwrap_or((None, None));
+        let winner = sample.and(active.latest_load.winner);
+        let source = winner.map(|w| match w.source {
+            float_view_application_runtime::load::Source::Duty => "duty",
+            float_view_application_runtime::load::Source::Motor => "motor",
+            float_view_application_runtime::load::Source::Battery => "battery",
+        });
+        let percentage = winner.map(|w| w.fraction * 100.);
         let estimate = &active.battery.estimate;
         let level = estimate.level.or_else(|| {
             if active.saved && estimate.unavailable_reason == Some(UnavailableReason::NotConfigured)
@@ -259,25 +219,5 @@ mod tests {
         assert!(fresh_temperature_observation(100, 5099));
         assert!(!fresh_temperature_observation(100, 5100));
         assert!(!fresh_temperature_observation(100, 99));
-    }
-
-    #[test]
-    fn gauge_winner_ties_clamping_and_missing_values() {
-        assert_eq!(drive_load(None, None, None), (None, None));
-        assert_eq!(
-            drive_load(Some(-0.5), Some(0.5), Some(0.5)),
-            (Some("duty"), Some(50.))
-        );
-        assert_eq!(
-            drive_load(Some(0.1), Some(-0.8), Some(0.2)),
-            (Some("motor"), Some(80.))
-        );
-        assert_eq!(
-            drive_load(Some(0.1), Some(0.2), Some(2.)),
-            (Some("battery"), Some(100.))
-        );
-        assert_eq!(ratio(Some(20.), Some(-5.), Some((80., -40.))), Some(-0.5));
-        assert_eq!(ratio(Some(20.), None, Some((80., -40.))), None);
-        assert_eq!(ratio(Some(20.), Some(5.), Some((0., -40.))), None);
     }
 }

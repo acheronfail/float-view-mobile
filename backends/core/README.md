@@ -85,3 +85,16 @@ ordinary surface. The frontend owns current-target eligibility and rendering.
 Checkpoint changes produce no state events, revision increments, product
 writes, BLE effects or exports. A new process starts empty; no schema change,
 migration, browser store or background task is involved.
+
+## Ride announcements and load ownership
+
+`application-runtime::load` is the only utilisation/winner calculation. It feeds
+recorded motor/battery fractions, sample-scoped live load, native presentation
+and announcement policy. Frontend consumers format these results; session review
+keeps raw duty and captured current-load fields without present-day limits.
+
+`backend-service::announcements` owns both enable flags, thresholds, one shared
+monotonic cooldown and one ten-second speech operation. Typed native effects
+carry the highest load source, optional speed, speech gain and admission expiry.
+Missing/stale telemetry cancels automatic speech; unavailable audio drops an
+attempt without a backlog. Test waiters belong to their requesting client.

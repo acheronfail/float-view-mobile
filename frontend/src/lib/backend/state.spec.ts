@@ -9,6 +9,7 @@ import type {
   BluetoothPermissionState,
   BluetoothState,
 } from '$lib/backend/contract';
+import { defaultAnnouncements } from '$lib/backend/contract';
 import { ApiRequestError, type ApiClient } from './client';
 import { BackendState, permissionOutcome } from './state.svelte';
 
@@ -54,7 +55,9 @@ const initial: AppState = {
     backgroundCapture: 'unavailable',
     reason: null,
   },
+  announcementAudio: { status: 'ready', reason: null, loweringControl: 'adjustable' },
   settings: {
+    announcements: { ...defaultAnnouncements },
     revision: 0,
     idleProbeIntervalMs: 500,
     idlePersistIntervalMs: 1_000,

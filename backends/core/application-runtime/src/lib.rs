@@ -12,6 +12,8 @@ use std::path::{Component, Path, PathBuf};
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
 
+pub mod load;
+
 pub use float_view_connection_application_coordinator as coordinator;
 pub use float_view_refloat_telemetry_service as telemetry;
 pub use float_view_session_history_kernel as history;
@@ -392,42 +394,13 @@ fn persisted_sample(
     persisted
         .extensions
         .retain(|v| v.name != "motorLoad" && v.name != "batteryLoad");
-    let ratio = |value: Option<f64>, signed: Option<f64>, max: f64, min: f64| {
-        let limit = if signed? < 0. { min } else { max };
-        let value = value?;
-        (value.is_finite() && limit.is_finite() && limit != 0.)
-            .then(|| (value / limit).abs().min(1.))
-    };
-    if let Some(limits) = limits {
-        for (name, value) in [
-            (
-                "motorLoad",
-                ratio(
-                    sample
-                        .filtered_motor_current_a
-                        .or(sample.directional_motor_current_a)
-                        .or(sample.motor_current_a),
-                    sample.motor_current_a,
-                    limits.motor_current_max_a,
-                    limits.motor_current_min_a,
-                ),
-            ),
-            (
-                "batteryLoad",
-                ratio(
-                    sample.battery_current_a,
-                    sample.battery_current_a,
-                    limits.battery_current_max_a,
-                    limits.battery_current_min_a,
-                ),
-            ),
-        ] {
-            if let Some(value) = value {
-                persisted.extensions.push(telemetry::ExtensionValue {
-                    name: name.into(),
-                    value,
-                });
-            }
+    let load = load::calculate(sample, limits);
+    for (name, value) in [("motorLoad", load.motor), ("batteryLoad", load.battery)] {
+        if let Some(value) = value {
+            persisted.extensions.push(telemetry::ExtensionValue {
+                name: name.into(),
+                value,
+            });
         }
     }
 
@@ -1176,5 +1149,45 @@ mod tests {
         ));
         std::fs::create_dir_all(&path).expect("create temp directory");
         path
+    }
+    #[test]
+    fn canonical_load_winner_matches_capture_and_stable_ties() {
+        let limits = coordinator::controller_data::CurrentLimits {
+            motor_current_max_a: 100.,
+            motor_current_min_a: -50.,
+            battery_current_max_a: 50.,
+            battery_current_min_a: -20.,
+            battery_series_cells: None,
+        };
+        let mut s = sample(1);
+        s.duty_cycle = Some(-0.8);
+        s.motor_current_a = Some(-1.);
+        s.filtered_motor_current_a = Some(40.);
+        s.battery_current_a = Some(-16.);
+        let value = load::calculate(&s, Some(&limits));
+        assert_eq!(value.winner.unwrap().source, load::Source::Duty);
+        s.duty_cycle = Some(0.1);
+        assert_eq!(
+            load::calculate(&s, Some(&limits)).winner.unwrap().source,
+            load::Source::Motor
+        );
+        s.battery_current_a = Some(-40.);
+        assert_eq!(
+            load::calculate(&s, Some(&limits)).winner.unwrap().source,
+            load::Source::Battery
+        );
+        let captured = persisted_sample(&s, Some(&limits), None);
+        assert_eq!(
+            captured
+                .extensions
+                .iter()
+                .find(|v| v.name == "motorLoad")
+                .unwrap()
+                .value,
+            value.motor.unwrap()
+        );
+        assert_eq!(load::calculate(&s, None).motor, None);
+        s.duty_cycle = Some(f64::NAN);
+        assert_eq!(load::calculate(&s, None).winner, None);
     }
 }

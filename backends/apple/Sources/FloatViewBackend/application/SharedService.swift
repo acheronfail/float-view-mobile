@@ -39,6 +39,7 @@ public final class SharedService: @unchecked Sendable {
   private var presenter: (@Sendable (NativeFilePresentation) -> Bool)?
   private var themeHandler: (@Sendable (ThemePreference) -> Void)?
   private var liveActivityHandler: (@Sendable (LiveActivityState?) -> Void)?
+  private let speech = SpeechAdapter()
   private var stopped = false
   private var bluetoothPermissionCompletion: (UInt64, UInt64)?
 
@@ -75,6 +76,28 @@ public final class SharedService: @unchecked Sendable {
       try exchange(["command": "drain"])
       location.refreshAuthorization { [weak self] in self?.enqueue { $0.capabilities() } }
       capabilities()
+      speech.report = { [weak self] status, id, reason in
+        self?.enqueue { service in
+          if status == "outcome" {
+            service.fact([
+              "fact": "speech_finished",
+              "id": id,
+              "outcome": reason ?? "unavailable",
+            ])
+          } else {
+            #if os(iOS)
+              let lowering = "adjustable"
+            #else
+              let lowering = "automatic"
+            #endif
+            service.fact([
+              "fact": "speech_ready",
+              "state": ["status": status, "reason": reason as Any? ?? NSNull(), "loweringControl": lowering],
+            ])
+          }
+        }
+      }
+      speech.refresh()
       let timer = DispatchSource.makeTimerSource(queue: queue)
       timer.schedule(deadline: .now(), repeating: .milliseconds(20), leeway: .milliseconds(5))
       timer.setEventHandler { [weak self] in self?.tick() }
@@ -186,6 +209,7 @@ public final class SharedService: @unchecked Sendable {
     if let foreground = cleanup.0 {
       fact(["fact": "foreground", "foreground": foreground])
       if foreground {
+        speech.refresh()
         location.refreshAuthorization { [weak self] in self?.enqueue { $0.capabilities() } }
       }
     }
@@ -294,6 +318,7 @@ public final class SharedService: @unchecked Sendable {
       bluetooth.startDiscovery()
     case "stop_scan": bluetooth.stopDiscovery()
     case "connect":
+      speech.refresh()
       guard let device = value["device_id"] as? String else { return }
       callbackLock.withLock { callbackGeneration = number("generation") }
       activeDevice = DeviceID(device)
@@ -325,6 +350,14 @@ public final class SharedService: @unchecked Sendable {
         operation: number("operation"),
         response: value["mode"] as? String == "with_response"
       )
+    case "refresh_speech": speech.refresh()
+    case "cancel_speech": speech.cancel(id)
+    case "speak":
+      if let value = value["speech"], let data = try? JSONSerialization.data(withJSONObject: value),
+         let request = try? JSONDecoder().decode(SpeechRequest.self, from: data)
+      {
+        speech.speak(request)
+      }
     case "arm_timer":
       guard timers[id] != nil || timers.count < 2048 else { return }
       timers[id] = (
@@ -442,6 +475,7 @@ public final class SharedService: @unchecked Sendable {
   }
 
   public func shutdown() {
+    speech.close()
     let stop = { [self] in
       guard !stopped else { return }
       poll?.cancel(); poll = nil

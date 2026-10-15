@@ -99,7 +99,7 @@ describe('BMS view', () => {
     });
     const text = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
 
-    expect(text).toContain('retained from their original observation time');
+    expect(text).toContain('Readings below may be out of date.');
     expect(text).toContain('ago');
     expect(text).toContain('30.0 °C');
     expect(text).toContain('63.50 V');
