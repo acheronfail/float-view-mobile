@@ -7,5 +7,9 @@
     <string name="ride_notification_waiting_connection">Waiting for the device connection</string>
     <string name="ride_notification_waiting_telemetry">Waiting for telemetry</string>
     <string name="ride_notification_values">%1$s · Distance %2$s · Battery %3$s</string>
+    <string name="ride_notification_temperature">Temp · %1$s</string>
+    <string name="ride_notification_temperature_accessibility">Temperature, %1$s, %2$s</string>
+    <string name="ride_notification_temperature_sensor">sensor</string>
+    <string name="ride_notification_unavailable">unavailable</string>
     <string name="logging_notification_stop">Stop and disconnect</string>
 </resources>

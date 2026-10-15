@@ -33,6 +33,36 @@ class RideNotificationTest {
         assertEquals("1.61 km", RideNotification.from(state().copy(imperial = false), false, 100001).distance)
     }
 
+    @Test fun temperatureMatchesIosUnitsAndSensorColorThresholds() {
+        fun model(celsius: Double, source: String = "Motor", imperial: Boolean = false) =
+            RideNotification.from(state().copy(highestTemperatureC = celsius, temperatureSource = source,
+                imperial = imperial), false, 100001)
+
+        assertEquals("54°C", model(54.0).temperature)
+        assertEquals("129°F", model(54.0, imperial = true).temperature)
+        assertEquals("Motor", model(54.0).temperatureSource)
+        assertEquals(0xff16a34a.toInt(), model(30.0).temperatureColor)
+        assertEquals(0xffea580c.toInt(), model(45.0).temperatureColor)
+        assertEquals(0xffdc2626.toInt(), model(60.0).temperatureColor)
+        assertEquals(0xffdc2626.toInt(), model(80.0).temperatureColor)
+        assertEquals(0xffea580c.toInt(), model(37.5, "Battery").temperatureColor)
+        assertEquals(0xffdc2626.toInt(), model(45.0, "Battery").temperatureColor)
+        assertEquals(0xff807e2b.toInt(), model(37.5).temperatureColor)
+    }
+
+    @Test fun unavailableOrStaleTemperatureHasNoColorOrSource() {
+        for (value in listOf(null, Double.NaN, Double.POSITIVE_INFINITY)) {
+            val model = RideNotification.from(state().copy(highestTemperatureC = value), false, 100001)
+            assertEquals("—", model.temperature)
+            assertNull(model.temperatureColor)
+            assertNull(model.temperatureSource)
+        }
+        val stale = RideNotification.from(state(), false, 115000)
+        assertEquals("—", stale.temperature)
+        assertNull(stale.temperatureColor)
+        assertNull(stale.temperatureSource)
+    }
+
     @Test fun staleAndMissingReadingsNeverLookLive() {
         val stale = RideNotification.from(state(), false, 115000)
         assertTrue(stale.stale)
@@ -69,6 +99,8 @@ class RideNotificationTest {
         assertEquals(initial, RideNotification.from(state().copy(observedAt = 100001), true, 100002))
         assertNotEquals(initial, RideNotification.from(state().copy(batteryVoltage = 76.0), true, 100002))
         assertNotEquals(initial, RideNotification.from(state().copy(percentage = 83.0), true, 100002))
+        assertNotEquals(initial, RideNotification.from(state().copy(highestTemperatureC = 55.0), true, 100002))
+        assertNotEquals(initial, RideNotification.from(state().copy(temperatureSource = "Battery"), true, 100002))
     }
 
     @Test fun dismissalSurvivesMissingReadingsUntilANewConnection() {

@@ -24,7 +24,7 @@ struct FloatViewLiveActivity: Widget {
           }
           .foregroundStyle(.white)
           .accessibilityElement(children: .ignore)
-          .accessibilityLabel("Battery charge \(context.isStale ? "unavailable" : context.state.batteryText)")
+          .accessibilityLabel("Battery \(context.isStale ? "unavailable" : context.state.batteryText)")
         } else {
           FootpadIndicator(state: context.state, stale: context.isStale)
             .frame(width: 24, height: 14)
@@ -82,7 +82,7 @@ private struct RideSummary: View {
         metric("Distance", value: stale ? "—" : state.distanceText)
         Spacer(minLength: 0)
         VStack(alignment: .leading, spacing: 3) {
-          metric("Battery charge", value: stale ? "—" : state.batteryText)
+          metric("Battery", value: stale ? "—" : state.batteryText)
           Text(stale ? "—" : state.voltageText)
             .font(.caption).monospacedDigit()
             .accessibilityLabel("Battery voltage \(stale ? "unavailable" : state.voltageText)")

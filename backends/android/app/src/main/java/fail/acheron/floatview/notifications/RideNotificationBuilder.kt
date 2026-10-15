@@ -52,6 +52,19 @@ internal fun buildRideNotification(
         content.append(" · ")
     }
     content.append(text)
+    if (model.generation != null && !model.stale) {
+        content.append("\n")
+        val start = content.length
+        content.append(context.getString(R.string.ride_notification_temperature, model.temperature))
+        model.temperatureColor?.let {
+            content.setSpan(ForegroundColorSpan(it), start, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        content.setSpan(TtsSpan.TextBuilder(context.getString(
+            R.string.ride_notification_temperature_accessibility,
+            model.temperatureSource ?: context.getString(R.string.ride_notification_temperature_sensor),
+            if (model.temperature == "—") context.getString(R.string.ride_notification_unavailable) else model.temperature,
+        )).build(), start, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
     val builder = Notification.Builder(context, channel)
         .setSmallIcon(R.drawable.ic_ride_notification)
         .setContentTitle(title)
