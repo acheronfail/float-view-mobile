@@ -15,11 +15,13 @@ Riders need to hear speed or load readings above a chosen threshold without look
 - Add an iOS-only “Lower other audio while speaking” switch, enabled by default; Android and macOS retain automatic native audio handling and hide the switch.
 - Skip unavailable or interrupted audio gracefully without queuing old readings, disturbing the connection, or failing recording. Playback during calls is best effort.
 - Extend the authenticated contract, client/mock, settings UI, and canonical conformance coverage together, including an explicit test-announcement operation and bounded audio readiness state.
+- Offer “Voice settings” where the host can open the system TTS chooser; respect the Android engine’s preferred installed offline English voice and refresh after returning. iOS/macOS hide the action without a supported chooser link.
+- Omit the redundant “speed” prefix from native speech; retain explicit units.
 - Update the root README's dot-point feature list when implemented to advertise spoken speed/load announcements with configurable thresholds and repeat intervals.
 
 ### Non-goals
 
-Arbitrary rule collections, configurable ducking depth or an Android/macOS ducking switch, firmware alerts, custom voice downloads or voice pickers, cloud speech, a bundled speech engine, identical voices across platforms, guaranteed call playback, and new telemetry polling are out of scope.
+Arbitrary rule collections, configurable ducking depth or an Android/macOS ducking switch, firmware alerts, custom voice downloads or in-app voice pickers, cloud speech, a bundled speech engine, identical voices across platforms, guaranteed call playback, and new telemetry polling are out of scope.
 
 ## Capabilities
 

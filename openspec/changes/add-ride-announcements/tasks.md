@@ -141,3 +141,9 @@ Task 6.2 remains unchecked because iOS/macOS and the listed remaining native
 audio cases have not been exercised. Do not interpret the earlier “No physical
 validation” note as current status; it describes the 2026-10-15 checkpoint.
 Native fake-engine/focus tests and the final scenario audit remain outstanding.
+
+## 7. Verification refinements: wording and system voice settings
+
+- [ ] 7.1 Remove the speed prefix in Apple/Android speech, retaining units and combined ordering; verify both unit systems and native phrase tests without rewriting historical listening evidence.
+- [ ] 7.2 Add mandatory voice-settings availability/action across contract, client/mock, Rust, both hosts and canonical conformance; add a guarded Settings button and bounded native launch/error handling, with hidden unsupported Apple action.
+- [ ] 7.3 Honor the Android engine's preferred eligible voice and refresh after the system chooser returns; verify non-Samsung standard locales, Samsung ISO-3 locales, installed/offline filtering, no stale completion or audio resource takeover, plus the available physical Android chooser round trip.

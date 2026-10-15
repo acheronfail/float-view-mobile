@@ -46,7 +46,7 @@ Replace exclusive mode selection with two enable flags. At every due attempt eva
 
 ### Typed speech effects and bounded lifecycle
 
-Add closed speak/cancel effects with an operation identity, connection generation for automatic speech, an optional winning load reading (source duty/motor/battery) and optional speed reading, at most two items in load-then-speed order, plus speech gain. Swift/Kotlin render one localized utterance, naming the winning load component before its percentage. Rust selects the qualifying load winner and speed; native code does not calculate utilisation. Do not pass board identity, raw telemetry collections or arbitrary strings. A cancellation arriving before speech starts must suppress that operation; adapters must check admission and expiry before acquiring audio resources.
+Add closed speak/cancel effects with an operation identity, connection generation for automatic speech, an optional winning load reading (source duty/motor/battery) and optional speed reading, at most two items in load-then-speed order, plus speech gain. Swift/Kotlin render one localized utterance, naming the winning load component before its percentage. Speed is spoken as its number and units, without the word “speed”. Rust selects the qualifying load winner and speed; native code does not calculate utilisation. Do not pass board identity, raw telemetry collections or arbitrary strings. A cancellation arriving before speech starts must suppress that operation; adapters must check admission and expiry before acquiring audio resources.
 
 Maintain one active operation and no pending queue. Native started/finished/interrupted/unavailable facts carry its identity. Both coordinator and adapter enforce a ten-second deadline from admission; every terminal path stops playback as appropriate and releases only the matching operation's audio resources. Ignore duplicate or late completions. Coalesce readiness changes rather than publishing per-sample audio state. The readiness reason is bounded; a denied transient focus request need not mark the engine permanently unavailable.
 
@@ -98,3 +98,29 @@ Additional ducking reference: [Apple voice-processing ducking](https://developer
 ## Migration Plan
 
 Commit this validated planning change before implementation. Implement coherent verified slices with task updates, update the contract and all consumers together, then run affected software and native audio/background checkpoints. Sync delta specs and archive in one final commit after relevant verification. No migration or legacy settings path is introduced.
+
+### System voice settings refinement
+
+Expose mandatory `announcementAudio.voiceSettingsAvailable`, a closed native OS
+presentation fact, and authenticated `announcements.openVoiceSettings({})`.
+The latter returns `{accepted:true}` only after successful native launch, or
+`unavailable` if unsupported, not foreground, or launch fails. Use one bounded
+request with an operation-specific completion and a five-second deadline; late
+completions cannot affect another request. Concurrent settings launches conflict,
+and existing permission presentation blocks the action.
+
+Android resolves and opens `com.android.settings.TTS_SETTINGS`, with a manifest
+query so availability works under package visibility rules. The frontend shows
+“Voice settings” only when the mandatory state fact is true; no frontend platform
+sniffing or caller-supplied URI is permitted. The host reinitializes speech on
+return from that screen, deferring refresh until current speech finishes. Prefer
+the engine's selected offline English voice, then a deterministic installed
+English fallback. Continue accepting standard two- and three-letter language
+codes and reject voices marked not installed or network-required. No engine or
+voice identifier is stored by Rust and no downloads are started by Float View.
+
+Apple exposes the same method/schema but advertises false and returns unavailable:
+the supported public Settings/accessibility APIs do not link to the system speech
+voice chooser. Do not use private Settings URL schemes or send users to unrelated
+app settings. This narrow presentation exception joins the lowering-control
+exception in the mandatory contract. It does not add an in-app voice picker.

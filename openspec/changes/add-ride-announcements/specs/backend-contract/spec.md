@@ -4,7 +4,7 @@
 
 ### Requirement: Complete mandatory contract
 
-Every supported backend SHALL implement the WebSocket control methods `state.get`, `uiState.get`, `uiState.set`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `announcements.test`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.marker.add`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, `events`, `locations`, and `markers`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities, except that the mandatory announcement audio state SHALL determine visibility of the iOS-only audio-lowering control.
+Every supported backend SHALL implement the WebSocket control methods `state.get`, `uiState.get`, `uiState.set`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `announcements.test`, `announcements.openVoiceSettings`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.marker.add`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, `events`, `locations`, and `markers`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities, except that the mandatory announcement audio state SHALL determine visibility of the iOS-only audio-lowering control.
 
 #### Scenario: Supported backend
 
@@ -109,3 +109,21 @@ Saved samples SHALL capture existing motorLoad and batteryLoad fractions using t
 #### Scenario: Failed persistence or guest connection
 - **WHEN** a saved sample append fails or the connection is a guest
 - **THEN** saved public sample ordering is preserved; guest load remains ephemeral and creates no history
+
+### Requirement: Native voice settings access
+
+Every host SHALL expose mandatory boolean announcementAudio.voiceSettingsAvailable
+and authenticated announcements.openVoiceSettings with empty parameters. The
+frontend MAY use this closed OS fact to show the system voice settings action.
+The operation SHALL return accepted true only after successful native launch,
+return unavailable if unsupported, not foreground or launch fails, reject extra
+parameters, and terminate within five seconds. It SHALL admit one settings launch
+at a time and ignore obsolete completions.
+
+#### Scenario: Open supported system chooser
+- **WHEN** a foreground user activates Voice settings and the host can resolve the chooser
+- **THEN** the native host opens it and completes with accepted true without changing saved announcement rules or acquiring audio focus
+
+#### Scenario: Unsupported or missing chooser
+- **WHEN** no supported chooser link is available
+- **THEN** state reports false, the button is hidden, and the mandatory method returns unavailable

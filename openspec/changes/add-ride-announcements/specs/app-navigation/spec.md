@@ -45,3 +45,16 @@ Settings SHALL show “Lower other audio while speaking” only when authoritati
 #### Scenario: Android or macOS audio controls
 - **WHEN** Settings receives automatic lowering state
 - **THEN** it hides the lowering switch without hiding speech volume, thresholds, enable switches or testing
+
+### Requirement: System voice settings action
+
+Announcement settings SHALL show a guarded Voice settings button only when
+announcementAudio.voiceSettingsAvailable is true. It SHALL open the native
+chooser via the authenticated backend, preserve unsaved edits, prevent duplicate
+activation while pending and display launch failures. Help text SHALL explain
+that users choose an English offline voice in device text-to-speech settings.
+Returning SHALL refresh the selected engine/voice without restarting the app.
+
+#### Scenario: Guarded voice settings activation
+- **WHEN** a primary pointer or keyboard activates Voice settings
+- **THEN** exactly one native launch is requested and failures remain visible without discarding announcement edits

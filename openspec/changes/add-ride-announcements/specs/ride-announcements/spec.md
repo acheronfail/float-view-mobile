@@ -36,7 +36,7 @@ Both rules SHALL be enableable together. At each eligible attempt the service SH
 
 #### Scenario: Speed and load qualify together
 - **WHEN** both rules are enabled and motor is 78 percent, battery is 70 percent and speed is 32 km/h, each above its threshold, with duty below threshold
-- **THEN** one utterance says “motor 78 percent, speed 32 kilometres per hour” and advances the shared cooldown once
+- **THEN** one utterance says “motor 78 percent, 32 kilometres per hour” and advances the shared cooldown once
 
 #### Scenario: Second rule qualifies during cooldown
 - **WHEN** speed exceeds its threshold during cooldown from a load announcement
@@ -173,3 +173,19 @@ On iOS, users SHALL be able to choose whether announcements request lowering oth
 #### Scenario: Edit during speech
 - **WHEN** the lowering preference changes while an utterance is active
 - **THEN** the current utterance retains its admitted audio policy and the next automatic or test utterance uses the new preference
+
+### Requirement: Concise speed and preferred native voice
+
+Speech SHALL announce speed using its number and selected units without a
+redundant speed prefix. On Android, a selected installed offline English engine
+voice SHALL be preferred over other eligible voices; if unavailable, a bounded
+deterministic installed offline English fallback MAY be used. Voices requiring
+network or marked not installed SHALL not be selected.
+
+#### Scenario: Concise combined phrase
+- **WHEN** motor load is 78 percent and speed is 32 kilometres per hour
+- **THEN** combined speech says “motor 78 percent, 32 kilometres per hour”
+
+#### Scenario: Voice settings return
+- **WHEN** a user selects an engine or eligible voice in system settings and returns
+- **THEN** native readiness refreshes and subsequent speech uses the refreshed choice without restarting or disturbing current speech resources
