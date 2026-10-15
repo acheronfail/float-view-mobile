@@ -32,15 +32,15 @@ Users SHALL configure a shared whole-number announcement volume from 0 through 1
 
 ### Requirement: Simultaneous speed and load rules
 
-Both rules SHALL be enableable together. At each eligible attempt the service SHALL include all currently qualifying enabled readings in one utterance: duty, motor, battery, then speed with its selected units. Both rules SHALL share one repeat cooldown and speech slot. No rule SHALL be delayed to another interval solely because the other qualifies. An unavailable or below-threshold rule SHALL not suppress the other.
+Both rules SHALL be enableable together. At each eligible attempt the service SHALL include the highest qualifying enabled load component, followed by qualifying enabled speed with its selected units, in one utterance. Both rules SHALL share one repeat cooldown and speech slot. No rule SHALL be delayed to another interval solely because the other qualifies. An unavailable or below-threshold rule SHALL not suppress the other.
 
 #### Scenario: Speed and load qualify together
 - **WHEN** both rules are enabled and motor is 78 percent, battery is 70 percent and speed is 32 km/h, each above its threshold, with duty below threshold
-- **THEN** one utterance says “motor 78 percent, battery 70 percent, speed 32 kilometres per hour” and advances the shared cooldown once
+- **THEN** one utterance says “motor 78 percent, speed 32 kilometres per hour” and advances the shared cooldown once
 
 #### Scenario: Second rule qualifies during cooldown
 - **WHEN** speed exceeds its threshold during cooldown from a load announcement
-- **THEN** it waits for the next shared eligible attempt, which includes all currently qualifying readings without replaying the previous phrase
+- **THEN** it waits for the next shared eligible attempt, which includes the current qualifying load winner and/or speed without replaying the previous phrase
 
 #### Scenario: Only one rule remains eligible
 - **WHEN** enabled load readings become unavailable or drop below threshold while enabled speed remains eligible
@@ -64,11 +64,19 @@ Automatic announcements SHALL use only finite readings received less than two se
 
 ### Requirement: Load component announcements
 
-The enabled load rule SHALL compare duty, motor and battery utilisation individually against one shared percentage threshold using the same component calculations as the live gauge. Each announcement SHALL contain every qualifying component, once, in duty/motor/battery order, naming the component before its rounded percentage. Missing components SHALL be omitted without suppressing available components. Speech SHALL remain eligible while any enabled reading qualifies.
+The enabled load rule SHALL use the live gauge component calculations and one shared percentage threshold. Each announcement SHALL name only the highest available component before its rounded percentage, provided it exceeds the threshold. Equal percentages SHALL use gauge tie order: duty, then motor, then battery. Missing components SHALL be omitted. Speech SHALL remain eligible while any enabled reading qualifies.
 
 #### Scenario: Multiple components exceed threshold
 - **WHEN** the threshold is 65 percent and fresh duty, motor and battery loads are 68, 74 and 60 percent
-- **THEN** one announcement says “duty 68 percent, motor 74 percent”, omitting battery rather than announcing only the highest component
+- **THEN** one announcement says “motor 74 percent”, omitting duty and battery even though duty also exceeds the threshold
+
+#### Scenario: Equal load components
+- **WHEN** duty and motor tie for highest available load above threshold
+- **THEN** the announcement names duty only; when motor and battery tie above duty, it names motor only, matching the gauge even for saturated 100 percent readings
+
+#### Scenario: Winner changes
+- **WHEN** motor replaces duty as the highest component during cooldown
+- **THEN** the next eligible announcement names the current motor percentage without resetting cooldown or replaying the old duty value
 
 #### Scenario: Battery utilisation
 - **WHEN** battery current utilisation exceeds the threshold
@@ -84,7 +92,7 @@ The enabled load rule SHALL compare duty, motor and battery utilisation individu
 
 #### Scenario: Component set changes
 - **WHEN** duty drops below threshold but motor remains above it
-- **THEN** repeat eligibility remains active and the next attempt includes only currently qualifying components
+- **THEN** repeat eligibility remains active and the next attempt names the current highest component only
 
 ### Requirement: Repeat cadence without backlog
 

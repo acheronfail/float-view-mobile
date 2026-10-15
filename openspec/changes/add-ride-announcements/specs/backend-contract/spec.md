@@ -40,7 +40,7 @@ Every host SHALL implement announcements.test with a closed speed/load/combined 
 
 #### Scenario: Test with announcements disabled
 - **WHEN** an authenticated client tests load while automatic announcements are off and the speech slot and cooldown permit
-- **THEN** the host attempts “duty 66 percent, motor 72 percent, battery 80 percent” and returns its terminal outcome without enabling announcements or changing telemetry
+- **THEN** the host attempts “motor 72 percent” and returns its terminal outcome without enabling announcements or changing telemetry
 
 #### Scenario: Test speed
 - **WHEN** an authenticated client tests speed with the speech slot and cooldown available
@@ -60,4 +60,4 @@ Every host SHALL implement announcements.test with a closed speed/load/combined 
 
 #### Scenario: Combined test and volume
 - **WHEN** an authenticated client requests a combined test with admission available
-- **THEN** it attempts the fixed duty/motor/battery test readings followed by speed at the saved announcement volume, independent of rule enable flags and thresholds; zero volume finishes without audio playback
+- **THEN** it attempts the fixed winning-load test reading followed by speed at the saved announcement volume, independent of rule enable flags and thresholds; zero volume finishes without audio playback
