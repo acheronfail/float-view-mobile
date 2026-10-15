@@ -1,5 +1,6 @@
 import { render } from 'svelte/server';
 import { describe, expect, it, vi } from 'vitest';
+import type { PermissionRow } from '$lib/backend/contract';
 import { APP_HEADER_CONTEXT } from '$lib/app/header';
 import HomeView from './HomeView.svelte';
 
@@ -8,8 +9,11 @@ const { state } = vi.hoisted(() => ({
     status: 'connected',
     busy: false,
     error: null,
-    scanError: null,
+    scanError: null as string | null,
+    permissionBusy: false,
+    scanPermissionPending: false,
     snapshot: {
+      permissions: [] as PermissionRow[],
       bluetooth: { radio: 'powered_on', scanPermission: 'granted', connectPermission: 'granted', scanning: false },
     },
     discoveredDevices: [
@@ -58,4 +62,27 @@ it('explains disabled Bluetooth without showing stale boards', () => {
   expect(body).not.toContain('Looking for VESC');
   state.snapshot.bluetooth.radio = 'powered_on';
   expect(renderDiscovery()).toContain('Another board');
+});
+
+it('explains first-use access and pending permission rather than claiming scan readiness', () => {
+  state.snapshot.bluetooth.radio = 'unknown';
+  state.snapshot.bluetooth.scanPermission = 'not_determined';
+  expect(renderDiscovery()).toContain('Allow Float View to use Bluetooth when prompted');
+  expect(renderDiscovery()).not.toContain('Another board');
+  state.scanPermissionPending = true;
+  expect(renderDiscovery()).toContain('Waiting for Bluetooth access');
+  state.scanPermissionPending = false;
+  state.snapshot.bluetooth.scanPermission = 'granted';
+  expect(renderDiscovery()).toContain('Checking Bluetooth');
+  state.snapshot.bluetooth.radio = 'powered_on';
+});
+
+it('offers a scan retry with actionable failure text and hides stale discoveries', () => {
+  state.scanError = 'Scanning is temporarily unavailable.';
+  const body = renderDiscovery();
+  expect(body).toContain('Could not scan for boards');
+  expect(body).toContain('Try scanning again');
+  expect(body).not.toContain('Another board');
+  expect(body).not.toContain('Keep your board nearby');
+  state.scanError = null;
 });

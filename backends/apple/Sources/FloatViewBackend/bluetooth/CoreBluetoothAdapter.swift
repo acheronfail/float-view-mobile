@@ -20,30 +20,48 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
   private let diagnostic: DiagnosticHandler
   private let queue: DispatchQueue
   private let restorationIdentifier: String?
-  private lazy var central = CBCentralManager(delegate: self, queue: queue, options:
-    restorationIdentifier.map { [CBCentralManagerOptionRestoreIdentifierKey: $0] })
+  private let queueKey = DispatchSpecificKey<Bool>()
+  private let authorization: @Sendable () -> CBManagerAuthorization
+  private(set) var central: CBCentralManager?
   private var session: BluetoothSession?
 
   public init(queue: DispatchQueue = DispatchQueue(label: "fail.acheron.float-view.bluetooth"),
               eventHandler: @escaping EventHandler, diagnosticHandler: @escaping DiagnosticHandler = { _ in },
-              restorationIdentifier: String? = nil)
+              restorationIdentifier: String? = nil,
+              authorization: @escaping @Sendable () -> CBManagerAuthorization = { CBManager.authorization })
   {
     self.queue = queue; event = eventHandler; diagnostic = diagnosticHandler
     self.restorationIdentifier = restorationIdentifier
-    super.init(); if CBManager.authorization != .notDetermined {
-      _ = central
+    self.authorization = authorization
+    super.init()
+    queue.setSpecific(key: queueKey, value: true)
+    if authorization() != .notDetermined {
+      queue.async { [self] in _ = ensureCentral() }
     }
   }
 
+  private func ensureCentral() -> CBCentralManager {
+    if let central {
+      return central
+    }
+    let manager = CBCentralManager(delegate: self, queue: queue, options:
+      restorationIdentifier.map { [CBCentralManagerOptionRestoreIdentifierKey: $0] })
+    central = manager
+    return manager
+  }
+
   public func currentState() -> BluetoothState {
-    let radio: BluetoothRadioState = switch CBManager.authorization == .notDetermined ? .unknown : central.state {
+    if DispatchQueue.getSpecific(key: queueKey) != true {
+      return queue.sync { currentState() }
+    }
+    let radio: BluetoothRadioState = switch central?.state ?? .unknown {
     case .poweredOn: .poweredOn
     case .poweredOff: .poweredOff
     case .unsupported: .unsupported
     case .resetting: .resetting
     default: .unknown
     }
-    let permission: BluetoothPermissionState = switch CBManager.authorization {
+    let permission: BluetoothPermissionState = switch authorization() {
     case .allowedAlways: .granted
     case .denied: .denied
     case .restricted: .restricted
@@ -55,26 +73,27 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
 
   public func requestPermission() {
     queue.async { [self] in
-      _ = central
+      _ = ensureCentral()
       event(.stateChanged(currentState()))
     }
   }
 
   public func startDiscovery() {
     queue.async { [self] in
+      let central = ensureCentral()
       guard central.state == .poweredOn else { event(.scanFailed("bluetooth_unavailable")); return }
       central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
     }
   }
 
   public func stopDiscovery() {
-    queue.async { [self] in central.stopScan() }
+    queue.async { [self] in central?.stopScan() }
   }
 
   public func connect(_ deviceID: DeviceID, generation: BluetoothConnection) {
     queue.async { [self] in
       session?.cancel()
-      central.stopScan()
+      central?.stopScan()
       session = BluetoothSession(deviceID, generation: generation, queue: queue, event: event, diagnostic: diagnostic)
     }
   }

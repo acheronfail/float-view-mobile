@@ -296,10 +296,47 @@ describe('BackendState', () => {
     store.snapshot = { ...client.state, bluetooth: bluetooth('granted') };
     await store.scan();
     expect(scans).toBe(1);
-    expect(store.scanError).toBe('Backend service is unavailable');
+    expect(store.scanError).toContain('Scanning is temporarily unavailable');
     expect(store.error).toBe('An unrelated operation failed');
     expect(store.savedDevices).toHaveLength(1);
     expect(store.status).toBe('connected');
+    store.close();
+  });
+
+  it.each(['unknown', 'powered_on'] as const)('requests first-use access and waits for radio %s', async (radio) => {
+    const client = new FakeClient();
+    client.state.bluetooth = { ...bluetooth('not_determined'), radio: 'unknown' };
+    const calls: string[] = [];
+    const original = client.request.bind(client);
+    client.request = async <M extends BackendMethod>(
+      method: M,
+      params: BackendParams<M>
+    ): Promise<BackendResult<M>> => {
+      if (method === 'bluetooth.scan') {
+        calls.push(method);
+        if (calls.length === 1)
+          throw new ApiRequestError({ code: 'permission_required', message: 'Permission required' });
+        return { accepted: true } as BackendResult<M>;
+      }
+      if (method === 'bluetooth.requestPermission') {
+        calls.push(method);
+        return { ...bluetooth('granted'), radio } as BackendResult<M>;
+      }
+      return original(method, params);
+    };
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    await store.scan();
+    expect(calls).toEqual(
+      radio === 'powered_on'
+        ? ['bluetooth.scan', 'bluetooth.requestPermission', 'bluetooth.scan']
+        : ['bluetooth.scan', 'bluetooth.requestPermission']
+    );
+    expect(store.scanError).toBeNull();
+    expect(store.permissionBusy).toBe(false);
     store.close();
   });
 

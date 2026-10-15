@@ -226,3 +226,127 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     }
   });
 }
+
+for (const [name, engine] of Object.entries({ chromium, webkit })) {
+  test(`${name}: first-use Bluetooth permission, readiness, and scan retry`, { timeout: 60_000 }, async () => {
+    const port = await startMockServer(11002);
+    const endpoint = getMockBootstrap(port);
+    const browser = await engine.launch();
+    try {
+      const page = await browser.newPage({ hasTouch: true });
+      if (name === 'chromium')
+        await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
+      let bluetooth: import('../../frontend/src/lib/backend/contract.ts').BluetoothState = {
+        radio: 'unknown',
+        scanPermission: 'not_determined',
+        connectPermission: 'not_determined',
+        scanning: false,
+      };
+      let scans = 0;
+      let requests = 0;
+      let failScan = true;
+      let grant = () => {};
+      let ready = () => {};
+      await page.routeWebSocket('**/api/ws?*', (socket) => {
+        const server = socket.connectToServer();
+        let lastState: import('../../frontend/src/lib/backend/contract.ts').AppState;
+        let revision = 100;
+        const update = () => {
+          socket.send(
+            JSON.stringify({ event: 'state.changed', data: { ...lastState, revision: ++revision, bluetooth } })
+          );
+        };
+        ready = () => {
+          bluetooth = { ...bluetooth, radio: 'powered_on' };
+          update();
+        };
+        socket.onMessage((raw) => {
+          const message = JSON.parse(String(raw));
+          if (message.method === 'bluetooth.scan') {
+            scans++;
+            if (bluetooth.scanPermission === 'not_determined') {
+              socket.send(
+                JSON.stringify({
+                  id: message.id,
+                  error: { code: 'permission_required', message: 'Permission required' },
+                })
+              );
+            } else if (failScan) {
+              socket.send(
+                JSON.stringify({
+                  id: message.id,
+                  error: { code: 'unavailable', message: 'Backend service is unavailable' },
+                })
+              );
+            } else {
+              bluetooth = { ...bluetooth, scanning: true };
+              update();
+              socket.send(JSON.stringify({ id: message.id, result: { accepted: true } }));
+            }
+            return;
+          }
+          if (message.method === 'bluetooth.requestPermission') {
+            requests++;
+            grant = () => {
+              bluetooth = { ...bluetooth, scanPermission: 'granted', connectPermission: 'granted' };
+              update();
+              socket.send(JSON.stringify({ id: message.id, result: bluetooth }));
+            };
+            return;
+          }
+          server.send(raw);
+        });
+        server.onMessage((raw) => {
+          const message = JSON.parse(String(raw));
+          const state = message.result?.permissions
+            ? message.result
+            : message.event === 'state.changed'
+              ? message.data
+              : null;
+          if (state) {
+            state.bluetooth = bluetooth;
+            state.revision = ++revision;
+            state.discoveredDevices = [];
+            state.permissions = permissionInventory('macos');
+            lastState = state;
+          }
+          socket.send(JSON.stringify(message));
+        });
+      });
+      await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      await page.goto(endpoint.origin);
+      await page.getByRole('heading', { name: 'Waiting for Bluetooth access' }).waitFor();
+      assert.equal(requests, 1);
+      assert.equal(scans, 1);
+      assert.equal(await page.getByText('Ready to scan', { exact: true }).count(), 0);
+      grant();
+      await page.getByRole('heading', { name: 'Checking Bluetooth' }).waitFor();
+      assert.equal(scans, 1, 'Do not scan before the radio is ready');
+      ready();
+      const retry = page.getByRole('button', { name: 'Try scanning again' });
+      await retry.waitFor();
+      await page.getByText('Scan unavailable', { exact: true }).waitFor();
+      assert.equal(await page.getByText('Backend service is unavailable', { exact: false }).count(), 0);
+      assert.equal(await page.getByText('Keep your board nearby and powered on.', { exact: true }).count(), 0);
+      const before = scans;
+      await retry.dispatchEvent('pointerdown', { button: 2, isPrimary: true, pointerId: 2 });
+      await retry.dispatchEvent('pointerup', { button: 2, isPrimary: true, pointerId: 2 });
+      await retry.dispatchEvent('pointerdown', { button: 0, isPrimary: true, pointerId: 3 });
+      await retry.dispatchEvent('pointercancel', { pointerId: 3 });
+      await retry.dispatchEvent('pointerup', { button: 0, isPrimary: true, pointerId: 3 });
+      assert.equal(scans, before);
+      await retry.tap();
+      await page.waitForFunction(() => !document.querySelector<HTMLButtonElement>('[role="alert"] button')?.disabled);
+      assert.equal(scans, before + 1);
+      failScan = false;
+      await retry.focus();
+      await page.keyboard.press('Enter');
+      await page.getByText('Looking for VESC devices…', { exact: true }).waitFor();
+      assert.equal(scans, before + 2);
+      assert.equal(requests, 1, 'Permission should not be requested again after approval');
+    } finally {
+      await browser.close();
+      await stopMockServer();
+    }
+  });
+}

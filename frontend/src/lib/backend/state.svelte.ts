@@ -54,6 +54,7 @@ export class BackendState {
   snapshot = $state<AppState | null>(null);
   error = $state<string | null>(null);
   scanError = $state<string | null>(null);
+  scanPermissionPending = $state(false);
   permissionError = $state<string | null>(null);
   permissionBusy = $state(false);
   selectedSession = $state<SessionSummary | null>(null);
@@ -166,6 +167,7 @@ export class BackendState {
   }
 
   async scan(): Promise<void> {
+    if (this.permissionBusy || this.snapshot?.permissions.some((row) => row.pending)) return;
     const bluetooth = this.snapshot?.bluetooth;
     if (
       bluetooth &&
@@ -179,11 +181,29 @@ export class BackendState {
       try {
         await client.request('bluetooth.scan', { timeoutMs: 5_000 });
       } catch (error) {
-        if (!(error instanceof ApiRequestError) || error.code !== 'permission_required') throw error;
-        const bluetooth = await client.request('bluetooth.requestPermission', {}, 35_000);
+        if (!(error instanceof ApiRequestError) || error.code !== 'permission_required') {
+          if (error instanceof ApiRequestError && error.code === 'unavailable') {
+            throw new Error(
+              'Scanning is temporarily unavailable. Check Bluetooth and permissions in Settings, then try again.'
+            );
+          }
+          throw error;
+        }
+        this.permissionBusy = true;
+        this.scanPermissionPending = true;
+        let bluetooth: BluetoothState;
+        try {
+          bluetooth = await client.request('bluetooth.requestPermission', {}, 35_000);
+        } finally {
+          this.permissionBusy = false;
+          this.scanPermissionPending = false;
+        }
         if (permissionOutcome(bluetooth) !== 'ready') {
           throw new Error('Bluetooth permission is required before scanning.');
         }
+        // Permission can resolve before CoreBluetooth reports its powered-on state.
+        // The next authoritative state lets the discovery loop resume safely.
+        if (bluetooth.radio !== 'powered_on') return;
         await client.request('bluetooth.scan', { timeoutMs: 5_000 });
       }
     }, 'scan');
@@ -383,6 +403,7 @@ export class BackendState {
     this.permissionError = null;
     try {
       await this.client.request('permissions.recover', { permission: row.permission, action: row.action }, 35_000);
+      if (row.permission === 'bluetooth') this.scanError = null;
     } catch (error) {
       this.permissionError = error instanceof Error ? error.message : 'Permission recovery failed. Try again.';
     } finally {

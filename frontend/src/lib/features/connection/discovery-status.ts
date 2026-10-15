@@ -1,7 +1,19 @@
 import type { BluetoothState } from '$lib/backend/contract';
 
-export function discoveryNotice(bluetooth: BluetoothState | undefined) {
+export function discoveryNotice(bluetooth: BluetoothState | undefined, permissionPending = false) {
   if (!bluetooth) return null;
+  if (permissionPending) {
+    return {
+      title: 'Waiting for Bluetooth access',
+      detail: 'Respond to your device’s permission prompt so Float View can find your board.',
+    };
+  }
+  if (bluetooth.scanPermission === 'not_determined') {
+    return {
+      title: 'Bluetooth access is needed',
+      detail: 'Allow Float View to use Bluetooth when prompted. Scanning will start after access is granted.',
+    };
+  }
   if (bluetooth.radio === 'powered_off') {
     return {
       title: 'Bluetooth is off',
@@ -25,6 +37,12 @@ export function discoveryNotice(bluetooth: BluetoothState | undefined) {
     return {
       title: 'Bluetooth is restarting',
       detail: 'Waiting for Bluetooth. Scanning will resume automatically when it is ready.',
+    };
+  }
+  if (bluetooth.radio === 'unknown' || bluetooth.scanPermission === 'unknown') {
+    return {
+      title: 'Checking Bluetooth',
+      detail: 'Waiting for your device to report Bluetooth availability. Scanning will start when it is ready.',
     };
   }
   return null;

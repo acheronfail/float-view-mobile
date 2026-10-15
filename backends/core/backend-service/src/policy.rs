@@ -656,11 +656,13 @@ impl BackendService {
         if !(1..=60_000).contains(&timeout_ms) {
             return Err(Failure::InvalidRequest);
         }
-        if self.policy.radio != Radio::PoweredOn {
-            return Err(Failure::Unavailable);
-        }
         if !allowed(self.policy.scan_permission) {
             return Err(Failure::PermissionRequired);
+        }
+        // Apple cannot report radio readiness until the permission-triggering
+        // manager exists. Let clients request access before checking the radio.
+        if self.policy.radio != Radio::PoweredOn {
+            return Err(Failure::Unavailable);
         }
         if let Some((id, _)) = self.policy.scan {
             return Ok(id);
@@ -2583,6 +2585,48 @@ mod tests {
                 .is_err()
         );
     }
+    #[test]
+    fn first_scan_requests_permission_before_radio_readiness() {
+        let mut t = Test::new();
+        t.fact(
+            Fact::Bluetooth {
+                radio: Radio::Unknown,
+                scan: Permission::NotDetermined,
+                connect: Permission::NotDetermined,
+            },
+            1,
+        )
+        .unwrap();
+        assert!(matches!(
+            t.service.start_scan(5_000),
+            Err(Failure::PermissionRequired)
+        ));
+        assert!(t.service.policy.scan.is_none());
+        t.fact(
+            Fact::Bluetooth {
+                radio: Radio::Unknown,
+                scan: Permission::Granted,
+                connect: Permission::Granted,
+            },
+            2,
+        )
+        .unwrap();
+        assert!(matches!(
+            t.service.start_scan(5_000),
+            Err(Failure::Unavailable)
+        ));
+        t.fact(
+            Fact::Bluetooth {
+                radio: Radio::PoweredOn,
+                scan: Permission::Granted,
+                connect: Permission::Granted,
+            },
+            3,
+        )
+        .unwrap();
+        assert!(t.service.start_scan(5_000).is_ok());
+    }
+
     #[test]
     fn unchanged_discovery_ticks_preserve_revision_but_scan_expiry_publishes() {
         let mut t = Test::new();

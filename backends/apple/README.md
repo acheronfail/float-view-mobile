@@ -45,6 +45,15 @@ enabled and permission not yet requested, then use Settings → Permissions →
 Location → Request access. Confirm the native prompt appears and allowing access
 updates the Location grant. This OS checkpoint cannot be established by unit tests.
 
+Discovery requests Bluetooth access before checking radio readiness: CoreBluetooth
+can report an unknown radio until its manager has triggered the first permission
+prompt. Reading adapter state and stopping discovery never create that manager,
+so closing or quitting an unused app must not trigger a new prompt. The Connect
+page distinguishes access requests, pending prompts, radio startup and scan
+failures, with settings/retry actions where appropriate. Validate the first-use
+prompt, denial/recovery and quit-without-requesting behavior on macOS; mocked
+permission tests cannot establish actual OS prompt presentation.
+
 ## macOS release app
 
 The **Build apps** workflow builds macOS in parallel with iOS and Android. The

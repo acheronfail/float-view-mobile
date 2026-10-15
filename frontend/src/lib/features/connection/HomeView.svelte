@@ -16,7 +16,11 @@
 
   const { discover: discoverRow } = createMotion();
 
-  const notice = $derived(discoveryNotice(backendState.snapshot?.bluetooth));
+  const bluetoothPermission = $derived(
+    backendState.snapshot?.permissions.find((row) => row.permission === 'bluetooth')
+  );
+  const permissionPending = $derived(backendState.scanPermissionPending || bluetoothPermission?.pending === true);
+  const notice = $derived(discoveryNotice(backendState.snapshot?.bluetooth, permissionPending));
 
   const SCAN_INTERVAL_MS = 10_000;
   const RETRY_INTERVAL_MS = 1_000;
@@ -33,10 +37,19 @@
 
     async function scanWhileActive() {
       while (active) {
-        if (backendState.status === 'connected' && !notice && !backendState.scanning && !backendState.busy) {
+        const needsPermission = backendState.snapshot?.bluetooth.scanPermission === 'not_determined';
+        if (
+          backendState.status === 'connected' &&
+          (!notice || needsPermission) &&
+          !backendState.scanError &&
+          !permissionPending &&
+          !backendState.permissionBusy &&
+          !backendState.scanning &&
+          !backendState.busy
+        ) {
           await backendState.scan();
           if (!active) return;
-          await wait(SCAN_INTERVAL_MS);
+          await wait(needsPermission ? RETRY_INTERVAL_MS : SCAN_INTERVAL_MS);
         } else {
           await wait(RETRY_INTERVAL_MS);
         }
@@ -107,6 +120,8 @@
       {backendState.status === 'failed' ? 'Connection unavailable' : 'Connecting…'}
     {:else if notice}
       {notice.title}
+    {:else if backendState.scanError}
+      Scan unavailable
     {:else if backendState.scanning}
       <Spinner /> Scanning…
     {:else}
@@ -124,7 +139,36 @@
           <h2 class="text-lg font-medium">{notice.title}</h2>
         </div>
         <p class="mt-3 text-muted">{notice.detail}</p>
+        {#if bluetoothPermission?.action && !permissionPending}
+          <button
+            type="button"
+            class="mt-3 touch-manipulation rounded-lg bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
+            disabled={backendState.busy || backendState.permissionBusy}
+            onpointerdown={(event) =>
+              activateFromPointer(event, () => backendState.recoverPermission(bluetoothPermission!))}
+            onclick={(event) =>
+              activateFromKeyboardOrAssistiveClick(event, () => backendState.recoverPermission(bluetoothPermission!))}
+            >{bluetoothPermission.action === 'requestPermission' ? 'Allow Bluetooth' : 'Open settings'}</button
+          >
+        {/if}
+        {#if backendState.permissionError}<p role="alert" class="mt-3 text-warning">
+            {backendState.permissionError}
+          </p>{/if}
+        {#if backendState.scanError}<p role="alert" class="mt-3 text-warning">{backendState.scanError}</p>{/if}
         <p class="mt-3 text-sm text-muted">You can still browse your saved boards and sessions.</p>
+      </div>
+    {:else if backendState.scanError}
+      <div role="alert" class="rounded-lg border border-outline bg-elevated p-4">
+        <h2 class="text-lg font-medium">Could not scan for boards</h2>
+        <p class="mt-3 text-warning">{backendState.scanError}</p>
+        <button
+          type="button"
+          class="mt-3 touch-manipulation rounded-lg bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
+          disabled={backendState.busy}
+          onpointerdown={(event) => activateFromPointer(event, () => backendState.scan())}
+          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => backendState.scan())}
+          >Try scanning again</button
+        >
       </div>
     {:else if backendState.discoveredDevices.length}
       <div class="flex flex-col gap-2">
@@ -175,10 +219,6 @@
     >
   {:else}
     <p class="text-muted">Connecting to backend…</p>
-  {/if}
-
-  {#if backendState.scanError && backendState.status === 'connected' && !notice}
-    <p role="alert" class="text-warning">Could not scan for boards. {backendState.scanError}</p>
   {/if}
 
   {#if backendState.error && backendState.status !== 'failed'}
