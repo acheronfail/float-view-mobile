@@ -71,6 +71,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await button.tap();
       await page.getByText('Test finished silently: announcement volume is muted.', { exact: true }).waitFor();
       assert.equal(requests.filter((x) => x === 'announcements.test').length, 1);
+      for (const name of ['Test combined', 'Test speed']) {
+        await page.getByRole('button', { name, exact: true }).tap();
+        await page.getByText('Test finished silently: announcement volume is muted.', { exact: true }).waitFor();
+      }
+      assert.equal(requests.filter((x) => x === 'announcements.test').length, 3);
       assert.equal(await page.getByRole('button', { name: 'Voice settings', exact: true }).count(), 0);
       let voiceRequests = 0;
       let failSaves = true;
@@ -149,7 +154,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await voiceButton.focus();
       await automatic.keyboard.press('Enter');
       await automatic
-        .getByText('Voice settings opened. Return here after choosing an offline English voice.', { exact: true })
+        .getByText(
+          'Settings opened. Choose and fully download an offline English voice, then return here to test it.',
+          { exact: true }
+        )
         .waitFor();
       assert.equal(voiceRequests, 2);
       assert.equal(await automatic.getByLabel('Load threshold (%)', { exact: true }).inputValue(), '77');
@@ -210,7 +218,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByLabel('Load threshold (%)', { exact: true }).focus();
       assert.equal(await speedHint.isVisible(), true);
       await button.tap();
-      assert.equal(requests.filter((x) => x === 'announcements.test').length, 1);
+      assert.equal(requests.filter((x) => x === 'announcements.test').length, 3);
       assert.equal(requests.filter((x) => x === 'settings.update').length, requestsBeforeErrors);
       await speedInput.fill('201');
       assert.equal(await speedHint.isVisible(), true);

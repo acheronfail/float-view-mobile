@@ -1588,7 +1588,8 @@ async function exerciseAnnouncements(client: ConformanceClient, initial: AppStat
   assert.equal(updated.announcements.speedEnabled, true);
   assert.equal(updated.announcements.loadEnabled, true);
   assert.deepEqual(await client.request('announcements.test', { kind: 'combined' }), { outcome: 'finished' });
-  await expectError(client.request('announcements.test', { kind: 'speed' }), 'invalid_state');
+  assert.deepEqual(await client.request('announcements.test', { kind: 'speed' }), { outcome: 'finished' });
+  assert.deepEqual(await client.request('announcements.test', { kind: 'load' }), { outcome: 'finished' });
   await expectError(client.request('announcements.test', { kind: 'arbitrary' } as never), 'invalid_request');
   await expectError(
     client.request('settings.update', {

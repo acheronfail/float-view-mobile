@@ -220,8 +220,16 @@ builds and service tests do not establish this OS/background behavior.
 
 The shared Rust service owns load/speed eligibility and timing. The service-owned
 `speech/` adapter executes bounded typed utterances on the main queue using an
-installed English voice. iOS declares background audio and uses a short playback
-voice-prompt session per utterance. “Lower other audio while speaking” selects
+installed system voice, leaving the utterance voice unset for the system default.
+The default reported to apps may differ from the Spoken Content selection; voices
+must be downloaded and exposed by iOS to be available to this adapter.
+iOS and macOS do not expose the Voice settings action. On iOS 18.7.8, the tested
+undocumented Settings links only launched Settings without navigating when it was
+not already open; apparent navigation was retained Settings state. The UI includes
+the manual Spoken Content (Read & Speak) → Voices path and download instructions.
+The connected iPhone audibly used Lee after its download completed.
+iOS declares background audio and uses a short playback voice-prompt session per
+utterance. “Lower other audio while speaking” selects
 ducking/spoken-content interruption or mix-only behavior; all terminal paths
 stop speech and release the session. macOS uses native synthesis without iOS
 audio-session APIs. Neither host changes system volume or keeps silence playing.

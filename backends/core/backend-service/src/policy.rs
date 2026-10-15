@@ -3273,6 +3273,59 @@ mod tests {
         );
     }
     #[test]
+    fn announcement_tests_repeat_after_completion_but_never_overlap() {
+        use crate::announcements::*;
+        let mut t = Test::new();
+        t.service
+            .policy
+            .settings
+            .announcements
+            .repeat_interval_seconds = 60;
+        t.service.policy.announcements.audio.status = Readiness::Ready;
+        for (index, kind) in [
+            TestKind::Speed,
+            TestKind::Speed,
+            TestKind::Combined,
+            TestKind::Load,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let now = (index as u64 + 1) * 100;
+            t.service.policy.exchange.now = now;
+            let crate::Dispatch::Pending(mut receiver) =
+                t.service.test_announcement(7, kind).unwrap()
+            else {
+                panic!("pending")
+            };
+            let speech_id = t
+                .service
+                .drain_os()
+                .effects
+                .into_iter()
+                .find_map(|effect| {
+                    if let Effect::Speak { speech } = effect {
+                        Some(speech.id)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            assert!(matches!(
+                t.service.test_announcement(7, TestKind::Speed),
+                Err(Failure::InvalidState)
+            ));
+            t.service.complete_speech(speech_id, Outcome::Finished);
+            assert!(matches!(
+                receiver.try_recv().unwrap().unwrap(),
+                crate::facts::Completion::Announcement {
+                    outcome: Outcome::Finished
+                }
+            ));
+            assert!(t.service.pending.is_empty());
+        }
+    }
+    #[test]
     fn announcement_tests_have_one_terminal_outcome_and_client_scoped_cancellation() {
         use crate::announcements::*;
         let mut t = Test::new();

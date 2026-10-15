@@ -1023,6 +1023,7 @@ export interface BackendMethods {
   };
   'savedDevice.delete': { params: { savedDeviceId: string }; result: Accepted };
   'announcements.openVoiceSettings': { params: Record<string, never>; result: { accepted: true } };
+  /** Manual preview: requires a free speech slot, independent of the automatic repeat interval. */
   'announcements.test': {
     params: { kind: 'speed' | 'load' | 'combined' };
     result: { outcome: 'finished' | 'interrupted' | 'unavailable' };

@@ -105,7 +105,7 @@
     message = '';
     try {
       await backendState.openVoiceSettings();
-      message = 'Voice settings opened. Return here after choosing an offline English voice.';
+      message = 'Settings opened. Choose and fully download an offline English voice, then return here to test it.';
     } catch {
       message = 'Could not open voice settings. Open text-to-speech settings on your device and try again.';
     } finally {
@@ -128,7 +128,7 @@
             ? 'Test was interrupted.'
             : 'Audio is unavailable. Try again when other audio or calls have finished.';
     } catch {
-      message = 'Could not play the test. Wait for the repeat interval and try again.';
+      message = 'Could not play the test. Wait for any current announcement to finish and try again.';
     } finally {
       testing = false;
     }
@@ -262,15 +262,6 @@
         </p>
       </div>
     {/if}
-    <p class="text-xs text-muted">
-      {audio?.status === 'ready'
-        ? 'Speech ready.'
-        : audio?.status === 'initializing'
-          ? 'Preparing speech…'
-          : audio?.reason === 'no_offline_voice'
-            ? 'No offline voice is available. Install an English voice in system speech settings, then return to the app.'
-            : 'Speech is currently unavailable.'} Tests use your saved settings.
-    </p>
     {#if audio?.voiceSettingsAvailable}
       <div>
         <button
@@ -282,10 +273,15 @@
           >{openingVoiceSettings ? 'Opening…' : 'Voice settings'}</button
         >
         <p class="mt-1 text-xs text-muted">
-          Choose a speech engine or preferred offline English voice in your device's text-to-speech settings.
+          Choose a speech engine or preferred offline English voice in your device's text-to-speech settings. Fully
+          download the voice before testing.
         </p>
       </div>
     {/if}
+    <p class="text-xs text-muted">
+      On iPhone: Settings → Accessibility → Spoken Content (Read &amp; Speak) → Voices → English. Choose a voice and tap
+      its cloud icon to download it on Wi-Fi.
+    </p>
     <div class="flex flex-wrap gap-2">
       {#each ['speed', 'load', 'combined'] as name (name)}
         {@const kind = name as 'speed' | 'load' | 'combined'}
@@ -298,6 +294,15 @@
         >
       {/each}
     </div>
+    <p class="text-xs text-muted">
+      {audio?.status === 'ready'
+        ? 'Speech ready.'
+        : audio?.status === 'initializing'
+          ? 'Preparing speech…'
+          : audio?.reason === 'no_offline_voice'
+            ? 'No offline voice is available. Install an English voice in system speech settings, then return to the app.'
+            : 'Speech is currently unavailable.'} Tests use your saved settings.
+    </p>
     <p role="status" aria-live="polite">{testing ? 'Playing test…' : saving ? 'Saving…' : message}</p>
     {#if dirty && message.startsWith('Could not save')}
       <button

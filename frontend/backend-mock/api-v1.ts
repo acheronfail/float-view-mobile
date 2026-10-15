@@ -303,7 +303,6 @@ export class MockBackend {
   } satisfies Record<string, RefloatConfigurationValue>;
   private nextTune = 1;
   private readonly tunes = new Map<string, RefloatTune>();
-  private lastAnnouncement = -Infinity;
   private state: AppState = {
     announcementAudio: { status: 'ready', reason: null, loweringControl: 'adjustable', voiceSettingsAvailable: false },
     revision: 0,
@@ -813,10 +812,6 @@ export class MockBackend {
       case 'announcements.test': {
         if (Object.keys(params).length !== 1 || !['speed', 'load', 'combined'].includes(String(params.kind)))
           return failure(id, 'invalid_request', 'Invalid test');
-        const now = Date.now();
-        if (now - this.lastAnnouncement < this.state.settings.announcements.repeatIntervalSeconds * 1000)
-          return failure(id, 'invalid_state', 'Please wait before testing again');
-        this.lastAnnouncement = now;
         return success(id, {
           outcome:
             this.state.settings.announcements.volumePercent === 0 || this.state.announcementAudio.status === 'ready'

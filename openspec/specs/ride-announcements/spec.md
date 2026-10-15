@@ -148,7 +148,7 @@ Hosts SHALL use native speech with an installed offline-capable voice and reques
 
 ### Requirement: Bounded speech admission and recovery
 
-The service SHALL admit at most one active utterance across automatic and test speech, with no pending utterance queue and a ten-second terminal deadline. A busy automatic attempt SHALL be dropped. A busy test SHALL fail with invalid_state. Audio readiness SHALL refresh at bounded native lifecycle opportunities, allowing recovery without app restart or continuous initialization retries. Normal logs SHALL omit spoken readings and private identity.
+The service SHALL admit at most one active utterance across automatic and test speech, with no pending utterance queue and a ten-second terminal deadline. A busy automatic attempt SHALL be dropped. A busy test SHALL fail with invalid_state. Manual tests SHALL ignore the automatic repeat interval and MAY repeat immediately after the previous utterance finishes. Each admitted test SHALL advance the automatic cooldown. Audio readiness SHALL refresh at bounded native lifecycle opportunities, allowing recovery without app restart or continuous initialization retries. Normal logs SHALL omit spoken readings and private identity.
 
 #### Scenario: Concurrent test and automatic trigger
 - **WHEN** automatic speech is active and a test is requested

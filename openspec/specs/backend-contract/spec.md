@@ -1195,16 +1195,16 @@ The contract SHALL expose complete announcement settings and bounded audio readi
 
 ### Requirement: Authenticated announcement test
 
-Every host SHALL implement announcements.test with a closed speed/load/combined test-kind parameter and a terminal outcome of finished, interrupted, or unavailable within ten seconds of admission. The test SHALL use a fixed representative reading through the normal native audio path without requiring a board, changing settings or bypassing global cooldown. Arbitrary text, values and voice identifiers SHALL not be accepted. Invalid and busy requests SHALL use existing structured errors.
+Every host SHALL implement announcements.test with a closed speed/load/combined test-kind parameter and a terminal outcome of finished, interrupted, or unavailable within ten seconds of admission. The test SHALL use a fixed representative reading through the normal native audio path without requiring a board or changing settings. Manual tests SHALL require a free speech slot but SHALL NOT be blocked by the automatic repeat interval. Each admitted test SHALL advance the automatic cooldown. Arbitrary text, values and voice identifiers SHALL not be accepted. Invalid and busy requests SHALL use existing structured errors.
 
 #### Scenario: Test with announcements disabled
 
-- **WHEN** an authenticated client tests load while automatic announcements are off and the speech slot and cooldown permit
+- **WHEN** an authenticated client tests load while automatic announcements are off and the speech slot is available
 - **THEN** the host attempts “motor 72 percent” and returns its terminal outcome without enabling announcements or changing telemetry
 
 #### Scenario: Test speed
 
-- **WHEN** an authenticated client tests speed with the speech slot and cooldown available
+- **WHEN** an authenticated client tests speed with the speech slot available
 - **THEN** it speaks the fixed physical speed of 25 km/h rounded in current display units, identifies those units, and returns a terminal outcome
 
 #### Scenario: Blocked test
@@ -1212,9 +1212,14 @@ Every host SHALL implement announcements.test with a closed speed/load/combined 
 - **WHEN** a valid test is admitted but the voice, focus or audio route prevents playback
 - **THEN** it returns unavailable without claiming audible success, queuing speech, or disturbing connection or recording
 
-#### Scenario: Invalid request or cooldown
+#### Scenario: Successive completed tests
 
-- **WHEN** a test contains an unknown test kind or extra speech input, or an utterance or cooldown already occupies admission
+- **WHEN** a manual test finishes and the user requests another test before the automatic repeat interval expires
+- **THEN** the backend admits the new test immediately and advances the automatic cooldown
+
+#### Scenario: Invalid request or occupied speech slot
+
+- **WHEN** a test contains an unknown test kind or extra speech input, or an utterance already occupies admission
 - **THEN** the backend rejects invalid input with invalid_request or occupied admission with invalid_state without creating a waiter or speech queue
 
 #### Scenario: Client disconnect

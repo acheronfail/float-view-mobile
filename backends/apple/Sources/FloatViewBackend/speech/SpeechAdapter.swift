@@ -40,19 +40,17 @@ protocol SpeechDriver: AnyObject {
 private final class NativeSpeechDriver: NSObject, SpeechDriver, AVSpeechSynthesizerDelegate, @unchecked Sendable {
   var completion: ((AVSpeechUtterance, String) -> Void)?
   private let synthesizer = AVSpeechSynthesizer()
-  private var voice: AVSpeechSynthesisVoice?
   override init() {
     super.init()
     synthesizer.delegate = self
   }
 
   func refresh() -> Bool {
-    voice = AVSpeechSynthesisVoice(language: "en-AU") ?? AVSpeechSynthesisVoice(language: "en-US")
-    return voice != nil
+    !AVSpeechSynthesisVoice.speechVoices().isEmpty
   }
 
   func start(_ utterance: AVSpeechUtterance, lowerOtherAudio: Bool) throws {
-    utterance.voice = voice
+    // Leave voice selection to the system instead of forcing an Australian English voice.
     #if os(iOS)
       synthesizer.usesApplicationAudioSession = true
       let options: AVAudioSession.CategoryOptions = lowerOtherAudio

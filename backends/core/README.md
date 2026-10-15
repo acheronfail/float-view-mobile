@@ -94,7 +94,9 @@ and announcement policy. Frontend consumers format these results; session review
 keeps raw duty and captured current-load fields without present-day limits.
 
 `backend-service::announcements` owns both enable flags, thresholds, one shared
-monotonic cooldown and one ten-second speech operation. Typed native effects
+monotonic cooldown for automatic announcements and one ten-second speech operation.
+Manual tests can repeat as soon as playback finishes and still advance the
+automatic cooldown to keep automatic speech from following a test immediately. Typed native effects
 carry the highest load source, optional speed, speech gain and admission expiry.
 Missing/stale telemetry cancels automatic speech; unavailable audio drops an
 attempt without a backlog. Test waiters belong to their requesting client.

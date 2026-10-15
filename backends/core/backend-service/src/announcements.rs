@@ -229,7 +229,8 @@ impl BackendService {
         kind: TestKind,
     ) -> Result<Dispatch, Failure> {
         self.step_announcements()?;
-        if !self.speech_ready() || self.policy.announcements.active.is_some() {
+        // Manual previews wait only for the speech slot, not the automatic repeat interval.
+        if self.policy.announcements.active.is_some() {
             return Err(Failure::InvalidState);
         }
         self.policy.announcements.last_attempt = Some(self.policy.exchange.now);

@@ -1010,7 +1010,7 @@ describe('announcement mock contract', () => {
       backend.handle({ id: 3, method: 'announcements.openVoiceSettings', params: { uri: 'other' } })
     ).toMatchObject({ error: { code: 'invalid_request' } });
   });
-  it('accepts both rules, validates atomically and enforces test cooldown', () => {
+  it('accepts both rules, validates atomically and permits successive completed tests', () => {
     const backend = new MockBackend();
     const initial = (backend.handle({ id: 1, method: 'state.get', params: {} }) as { result: AppState }).result;
     const announcements = {
@@ -1026,7 +1026,7 @@ describe('announcement mock contract', () => {
       result: { outcome: 'finished' },
     });
     expect(backend.handle({ id: 4, method: 'announcements.test', params: { kind: 'speed' } })).toMatchObject({
-      error: { code: 'invalid_state' },
+      result: { outcome: 'finished' },
     });
     expect(
       backend.handle({
