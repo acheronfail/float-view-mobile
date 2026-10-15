@@ -44,7 +44,7 @@ jobs:
           echo "xcode=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Cargo downloads and iOS compilation
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             ~/.cargo/registry
@@ -67,7 +67,7 @@ jobs:
         run: just ipa
 
       - name: Upload IPA
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: FloatView-ipa-${{ github.run_number }}
           path: FloatView-*.ipa
@@ -78,6 +78,9 @@ jobs:
   apk:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      # Transfer reusable Cargo artifacts, not large per-checkout incremental state.
+      CARGO_INCREMENTAL: '0'
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -107,15 +110,16 @@ jobs:
           rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
 
       - name: Cache Cargo downloads and Android compilation
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             backends/core/target
-          key: android-rust-${{ runner.os }}-${{ runner.arch }}-ndk28.2.13676358-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-${{ hashFiles('backends/core/**/*.rs', 'backends/core/**/Cargo.toml', 'backends/core/*.sh', 'backends/sql/**') }}
+            !backends/core/target/**/incremental/**
+          key: android-rust-v2-${{ runner.os }}-${{ runner.arch }}-ndk28.2.13676358-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-${{ hashFiles('backends/core/**/*.rs', 'backends/core/**/Cargo.toml', 'backends/core/*.sh', 'backends/sql/**') }}
           restore-keys: |
-            android-rust-${{ runner.os }}-${{ runner.arch }}-ndk28.2.13676358-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-
+            android-rust-v2-${{ runner.os }}-${{ runner.arch }}-ndk28.2.13676358-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-
 
       - name: Build frontend
         working-directory: frontend
@@ -131,9 +135,13 @@ jobs:
             --target aarch64-linux-android --target armv7-linux-androideabi \
             --target i686-linux-android --target x86_64-linux-android
 
+      # Cache the wrapper, dependencies, compiled build scripts and task outputs.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
+
       - name: Build Debug APK
         working-directory: backends/android
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon --build-cache assembleDebug
 
       - name: Sign and verify numbered APK
         env:
@@ -155,7 +163,7 @@ jobs:
           "$apksigner" verify --verbose --print-certs "FloatView-$version.apk"
 
       - name: Upload APK
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: FloatView-apk-${{ github.run_number }}
           path: FloatView-*.apk
@@ -190,7 +198,7 @@ jobs:
           echo "xcode=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Cargo downloads and macOS compilation
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             ~/.cargo/registry
@@ -216,7 +224,7 @@ jobs:
         run: bash backends/apple/with-macos-signing-identity.sh bash backends/apple/build-macos-release.sh
 
       - name: Upload macOS app
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: FloatView-macos-${{ github.run_number }}
           path: FloatView-*-macos-universal.zip

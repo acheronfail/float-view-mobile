@@ -77,8 +77,10 @@ Actions secrets containing the PKCS12 identity and its password. Keep the
 certificate named `Float View Code Signing` and its private key unchanged across
 releases. A local provisioning backup is in ignored `.local/macos-signing/`;
 back it up securely because GitHub secrets cannot be read back. The signing
-wrapper only imports into disposable GitHub-hosted macOS runners, removes its
-temporary keychain and trust after use, and never modifies developer keychains.
+wrapper only imports into disposable GitHub-hosted macOS runners and removes its
+temporary keychain and private files after use. The public certificate and its
+system trust are removed when GitHub destroys the VM; explicitly removing admin
+trust can stall unattended cleanup. Developer keychains are never modified.
 CI verifies both executable architectures, the signature and its designated
 requirement before packaging. Local development continues to use ad-hoc signing.
 

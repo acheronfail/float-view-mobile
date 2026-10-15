@@ -44,7 +44,13 @@ The [app workflow](../../.github/workflows/ipa.yml) builds a signed Debug APK
 on Ubuntu for every push to `master` and manual run. It builds the shared
 frontend and packages the Rust runtime for all four supported ABIs using Java 17,
 API 36, NDK `28.2.13676358` and the repository-pinned Rust toolchain. Locked Cargo
-dependencies are fetched before Gradle's offline Rust build.
+dependencies are fetched before Gradle's offline Rust build. CI caches Gradle's
+wrapper, dependencies, compiled build scripts and local task outputs, with
+`--build-cache` enabled. Cargo downloads and compilation artifacts are cached
+separately; CI disables Rust incremental compilation and excludes incremental
+state from that cache to reduce transfer overhead. Local builds retain their
+usual incremental settings. A new cache format or dependency set needs a cold
+build before later runs benefit.
 
 Successful pushes publish `FloatView-build-<ten-digit run number>.apk` alongside
 the IPA and macOS app in the same numbered GitHub release after all three builds

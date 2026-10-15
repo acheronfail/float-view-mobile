@@ -23,7 +23,6 @@ keychain_path="$working_directory/signing.keychain-db"
 identity_path="$working_directory/identity.p12"
 certificate_path="$working_directory/certificate.pem"
 keychain_password="$("$openssl_bin" rand -hex 32)"
-certificate_trusted=false
 original_keychains=()
 while read -r keychain; do
     # security indents and quotes each path. read strips the indentation.
@@ -35,30 +34,31 @@ done < <(security list-keychains -d user)
 # Security services can stall during runner teardown. Bound each cleanup command;
 # the hosted VM is discarded after the job even if a service stops responding.
 cleanup_command() {
-    python3 - "$@" <<'PYTHON'
+    local operation="$1"
+    shift
+    python3 - "$operation" "$@" <<'PYTHON'
 import subprocess
 import sys
 try:
-    result = subprocess.run(sys.argv[1:], timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run(sys.argv[2:], timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if result.returncode:
-        print("::warning::A CI keychain cleanup command failed; the hosted runner will be discarded.")
+        print(f"::warning::CI keychain cleanup failed ({sys.argv[1]}); the hosted runner will be discarded.")
 except subprocess.TimeoutExpired:
-    print("::warning::A CI keychain cleanup command timed out; the hosted runner will be discarded.")
+    print(f"::warning::CI keychain cleanup timed out ({sys.argv[1]}); the hosted runner will be discarded.")
 PYTHON
 }
 
 cleanup() {
-    if [[ "$certificate_trusted" == true ]]; then
-        echo 'Removing temporary CI certificate trust.'
-        cleanup_command sudo -n security remove-trusted-cert -d "$certificate_path" || true
-        cleanup_command sudo -n security delete-certificate -Z "$certificate_sha1" /Library/Keychains/System.keychain || true
-    fi
+    # Leave the public certificate and its system trust to hosted-VM disposal.
+    # Re-entering Security's admin trust service here can stall unattended jobs.
+    # The guard above prohibits persistent/self-hosted machines; private material
+    # is still deleted explicitly below, before any later artifact/cache upload.
     if [[ "${#original_keychains[@]}" -gt 0 ]]; then
         echo 'Restoring the CI keychain search list.'
-        cleanup_command security list-keychains -d user -s "${original_keychains[@]}" || true
+        cleanup_command restore-search-list security list-keychains -d user -s "${original_keychains[@]}" || true
     fi
     echo 'Deleting temporary CI keychain and private files.'
-    cleanup_command security delete-keychain "$keychain_path" || true
+    cleanup_command delete-temporary-keychain security delete-keychain "$keychain_path" || true
     rm -rf "$working_directory"
 }
 trap cleanup EXIT
@@ -76,10 +76,9 @@ security import "$identity_path" -k "$keychain_path" -f pkcs12 \
 certificate_sha1="$("$openssl_bin" x509 -in "$certificate_path" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
 [[ "$certificate_sha1" =~ ^[A-F0-9]{40}$ ]]
 
-# Trust applies only to this disposable runner, and is removed by the EXIT trap.
+# Trust applies only to this disposable runner and ends when GitHub destroys it.
 sudo -n security add-trusted-cert -d -r trustRoot -p codeSign \
     -k /Library/Keychains/System.keychain "$certificate_path"
-certificate_trusted=true
 security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path" >/dev/null
 if [[ "${#original_keychains[@]}" -gt 0 ]]; then
     security list-keychains -d user -s "$keychain_path" "${original_keychains[@]}"
