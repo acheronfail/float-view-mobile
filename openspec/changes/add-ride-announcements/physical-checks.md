@@ -2,8 +2,10 @@
 
 Status: core Android speaker/music/BLE checks passed on a Samsung Galaxy S9+
 (Android 10) on 2026-10-16; see the [physical evidence](../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md).
-iOS/macOS and the remaining Android cases below are pending. Emulator, simulator
-and JVM results do not establish physical audio effects.
+Core iOS speaker/music/BLE checks also passed on an iPhone 12 (iOS 18.7.8);
+see the [iOS physical evidence](../../../conformance/physical-checkpoints/2026-10-16-ios-announcements.md).
+macOS and the remaining cases below are pending. Emulator, simulator and JVM
+results do not establish physical audio effects.
 
 ## Android results
 
@@ -23,6 +25,15 @@ and JVM results do not establish physical audio effects.
       edits during speech; Android 15+ audio-focus/foreground restrictions.
 
 ## Full cross-platform procedure
+
+iOS now has confirmed combined/winning-load speech, repeats, 100%/50%/0% gain,
+test-speech lowering on/off with music restoration, a locked-screen minute with
+continued BLE/recording, imperial wording, offline speech and clean disabling.
+Headset/call/interruption cases, unavailable-voice recovery, independent
+below-threshold/stale-telemetry cancellation, automatic mix-only playback and
+changing lowering/system volume during speech remain pending. The USB controller
+needed fresh connections after backgrounding; cleanup was independently verified
+as recorded in the evidence.
 
 Use one real iPhone and one real Android phone (prefer Android 15/API 35 or newer
 for its foreground audio-focus restrictions), a connected board or approved

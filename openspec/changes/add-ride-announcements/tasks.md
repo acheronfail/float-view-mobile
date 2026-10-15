@@ -164,7 +164,14 @@ Android host conformance passes at revision 502. The same three native selection
 tests pass on the API 36 Google emulator, whose standard TTS settings activity
 also opens successfully.
 
-The connected iPhone 12 / iOS 18.7.8 is paired with Developer Mode enabled, but
-the physical build is awaiting Xcode account/signing setup: no valid signing
-identity or app/Live Activity provisioning profiles were available. No iPhone
-audio checkpoint has been claimed.
+The iPhone 12 / iOS 18.7.8 initially lacked signing/provisioning; the user
+configured Xcode signing and trusted the profile. The signed device build and
+signature verification then passed. Physical combined/winning-load speech,
+repeats, volume 100%/50%/0%, test lowering on/off with music restoration, a
+locked-screen minute with BLE/recording growth, imperial wording, offline speech
+and clean disabling are confirmed. See the
+[iOS evidence](../../../conformance/physical-checkpoints/2026-10-16-ios-announcements.md)
+for exact scope and the USB controller's stale-connection cleanup limitation.
+Settings restoration was independently read back, fixture RESET/READY verified,
+and app/tunnel stopped. Tasks 3.1/3.2/6.2 retain their remaining original criteria;
+do not treat this checkpoint as completion of native fault tests or all routes.
