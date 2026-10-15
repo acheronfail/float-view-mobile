@@ -124,3 +124,12 @@ the supported public Settings/accessibility APIs do not link to the system speec
 voice chooser. Do not use private Settings URL schemes or send users to unrelated
 app settings. This narrow presentation exception joins the lowering-control
 exception in the mandatory contract. It does not add an in-app voice picker.
+
+## Closeout verification scope
+
+At the user’s request on 2026-10-16, remaining physical checks are excluded from
+this change and will be handled through the user’s own manual testing. Existing
+physical evidence is retained without claiming unrun cases passed. Native
+failure-path software tests and the final ownership/scenario audit remain
+required before spec sync and archive. This supersedes earlier physical
+acceptance gates in this change without changing runtime behavior or guarantees.

@@ -1,4 +1,9 @@
-# Remaining physical announcement checks
+# Physical announcement evidence and optional manual checks
+
+Closeout decision (2026-10-16): the user removed all remaining physical checks
+from this change and will perform further manual testing independently. The
+procedure below is optional reference material, not an archive gate. Unchecked
+items mean unverified, not failed or required by this change.
 
 Status: core Android speaker/music/BLE checks passed on a Samsung Galaxy S9+
 (Android 10) on 2026-10-16; see the [physical evidence](../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md).

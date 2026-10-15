@@ -41,7 +41,7 @@
 ## 6. Integration acceptance
 
 - [x] 6.1 Run affected Rust crate/consumer tests, formatting and warnings-denied Clippy, relevant frontend checks, linked Apple/Android tests and affected canonical direct/host conformance cases; verify contract parity, bounded resources, frontend recreation and audio failure without BLE or recording regression. Record actual commands and results.
-- [ ] 6.2 On iOS and Android hardware, verify above/below-threshold speech, repeats, background/locked-screen BLE delivery, speech volume including zero without ducking, simultaneous speed/load phrases, iOS lowering on/off for automatic and test speech, Android automatic ducking, music restoration, Bluetooth headset routing/disconnection, interruption, unavailable audio recovery and disabling; check macOS speech/mixing where affected. Probe representative calls as best effort, recording graceful skipping as acceptable. Preserve fixture safety/restore checks for any hardware fixture runs and report unavailable required coverage.
+- [x] 6.2 Retain the completed Android/iPhone physical evidence and record the user’s 2026-10-16 decision to exclude remaining physical checks from this change. Further manual testing is user-owned; excluded checks are not claimed as passed.
 - [ ] 6.3 Review implementation against all delta scenarios, confirm no duplicate load formulas or frontend winner selection, no speech backlog, alternate runtime, browser speech, new polling or compatibility machinery remains, and record remaining limitations before declaring implementation complete.
 
 ## Workflow follow-up
@@ -175,3 +175,11 @@ for exact scope and the USB controller's stale-connection cleanup limitation.
 Settings restoration was independently read back, fixture RESET/READY verified,
 and app/tunnel stopped. Tasks 3.1/3.2/6.2 retain their remaining original criteria;
 do not treat this checkpoint as completion of native fault tests or all routes.
+
+## Closeout scope decision (2026-10-16)
+
+The user explicitly removed remaining physical-device checks from this change
+and will perform their own manual testing. Earlier pending-device checklists and
+“do not archive until physical checkpoints” notes are historical and superseded
+by this decision. Preserve existing observations; do not mark unrun cases passed.
+Native software fault coverage and final scenario review remain required.

@@ -39,3 +39,12 @@ Arbitrary rule collections, configurable ducking depth or an Android/macOS ducki
 - Frontend contract/client/mock and settings feature; shared Rust load calculation, application-runtime session capture, backend-service, existing captured session load fields, product settings persistence, loopback dispatch and existing C/JNI OS fact/effect exchange; Apple speech adapter and iOS background-audio configuration; Android TTS/audio-focus adapter and existing foreground-service integration; canonical conformance tests.
 - Apple covers iOS and macOS with shared synthesis and platform-specific audio-session handling. Android retains the same public contract and policy.
 - No new third-party dependency or generated API layer. Remove the frontend gauge utilisation/winner implementation and duplicate Rust notification and session-capture formulas, retaining presentation-only helpers. There is no existing announcement implementation to remove. Do not add browser speech, compatibility readers, migration code or alternate runtimes; use explicit storage version handling if the settings format becomes incompatible and preserve data on operational failure.
+
+## Acceptance scope at closeout
+
+The user removed the remaining physical-device checklist from this change on
+2026-10-16 and will perform further manual testing independently. Preserve the
+completed Android/iPhone observations as historical evidence. Unrun headset,
+call/interruption, engine recovery, additional OS-version and macOS listening
+cases are not acceptance gates for this change and must not be marked passed.
+Native software failure-path coverage and the final scenario audit remain in scope.
