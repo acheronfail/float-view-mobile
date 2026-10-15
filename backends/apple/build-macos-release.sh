@@ -19,7 +19,8 @@ swift_arguments=(-c release --scratch-path "$scratch" --arch arm64 --arch x86_64
 swift build "${swift_arguments[@]}" --product FloatViewMac
 binary_root="$(swift build "${swift_arguments[@]}" --show-bin-path)"
 app="$scratch/FloatView.app"
-bash "$apple_root/package-macos.sh" "$binary_root/FloatViewMac" "$app"
+bash "$apple_root/package-macos.sh" "$binary_root/FloatViewMac" "$app" \
+  "$binary_root/FloatViewApple_FloatViewMac.bundle/Contents/Resources/Resources"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $FLOAT_VIEW_BUILD_NUMBER" "$app/Contents/Info.plist"
 # Both Swift and the linked Rust runtime must be available on both Mac families.
 xcrun lipo "$app/Contents/MacOS/FloatViewMac" -verify_arch arm64 x86_64
