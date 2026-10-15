@@ -106,7 +106,7 @@ releases and their assets are retained on reruns; a failed draft can be resumed.
 If a helper push fails, its local tag remains for inspection and an explicit
 `git push origin <tag>` retry. Tagging does not modify app source or package manifests.
 
-Master pushes, daily scheduled runs and manual master builds produce Nightly
+Master pushes and manual master builds produce Nightly
 prereleases such as `v0.1.50-nightly.12.gabcdef012345`: the next patch, commit count
 since the greatest stable ancestor, and source hash. Nightlies update one rolling
 `nightly` tag/release, never the stable Latest release. Unchanged successful

@@ -22,7 +22,7 @@ Stable builds SHALL use strict `vX.Y.Z` tags on master history as their version 
 
 ### Requirement: Nightlies identify development commits
 
-Master pushes, daily scheduled runs and manual master runs SHALL resolve a nightly from the next patch after the greatest stable ancestor, the count of commits since that tag and the source hash. Successful builds SHALL update one rolling prerelease without marking it latest. An unchanged nightly commit SHALL skip rebuilding; failed publication SHALL remain retryable.
+Master pushes and manual master runs SHALL resolve a nightly from the next patch after the greatest stable ancestor, the count of commits since that tag and the source hash. Successful builds SHALL update one rolling prerelease without marking it latest. An unchanged nightly commit SHALL skip rebuilding; failed publication SHALL remain retryable.
 
 #### Scenario: Development after a minor release
 

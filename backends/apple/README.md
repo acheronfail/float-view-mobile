@@ -97,7 +97,7 @@ the current local date and time. No connected device or Xcode signing
 account is required: AltStore signs the IPA when installing it. The archive omits
 macOS metadata files that can confuse AltStore's app detection.
 
-GitHub Actions builds master pushes, a daily schedule and manual master runs as a
+GitHub Actions builds master pushes and manual master runs as a
 rolling [Nightly prerelease](https://github.com/acheronfail/float-view-mobile/releases/tag/nightly).
 A nightly such as `v0.1.50-nightly.12.gabcdef012345` uses the next patch after the
 greatest stable ancestor, the commit count since that tag and the source hash.
