@@ -11,7 +11,7 @@
 
 ## 3. Integration verification
 
-- [ ] 3.1 Run all focused release tests, formatting, strict spec validation and affected packaging checks; record actual results and remaining platform limitations.
+- [x] 3.1 Run all focused release tests, formatting, strict spec validation and affected packaging checks; record actual results and remaining platform limitations.
 
 ## Workflow follow-up
 
