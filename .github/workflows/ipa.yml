@@ -1,4 +1,4 @@
-name: Build IPA and APK
+name: Build apps
 
 on:
   push:
@@ -161,8 +161,70 @@ jobs:
           compression-level: 0
           retention-days: 14
 
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install build tools
+        id: tools
+        run: |
+          brew install ripgrep openssl@3
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          xcodebuild -version
+          echo "xcode=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Cargo downloads and macOS compilation
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backends/core/target/apple/macos/cargo
+          key: macos-rust-${{ runner.os }}-${{ runner.arch }}-${{ steps.tools.outputs.xcode }}-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-${{ hashFiles('backends/core/**/*.rs', 'backends/core/**/Cargo.toml', 'backends/core/*.sh', 'backends/sql/**') }}
+          restore-keys: |
+            macos-rust-${{ runner.os }}-${{ runner.arch }}-${{ steps.tools.outputs.xcode }}-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-
+
+      - name: Build frontend
+        run: |
+          (cd frontend && npm ci && npm run build)
+          cp frontend/build/index.html backends/apple/macos/Resources/index.html
+
+      - name: Fetch locked Rust dependencies
+        working-directory: backends/core
+        run: cargo fetch --locked --target aarch64-apple-darwin --target x86_64-apple-darwin
+
+      - name: Build and sign universal macOS app
+        env:
+          FLOAT_VIEW_BUILD_NUMBER: ${{ github.run_number }}
+          MACOS_CODE_SIGN_P12_BASE64: ${{ secrets.MACOS_CODE_SIGN_P12_BASE64 }}
+          MACOS_CODE_SIGN_P12_PASSWORD: ${{ secrets.MACOS_CODE_SIGN_P12_PASSWORD }}
+        run: bash backends/apple/with-macos-signing-identity.sh bash backends/apple/build-macos-release.sh
+
+      - name: Upload macOS app
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: FloatView-macos-${{ github.run_number }}
+          path: FloatView-*-macos-universal.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
   release:
-    needs: [ipa, apk]
+    needs: [ipa, apk, macos]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -173,21 +235,23 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - name: Download mobile artifacts
+      - name: Download app artifacts
         run: |
           gh run download "$GITHUB_RUN_ID" --name "FloatView-ipa-$GITHUB_RUN_NUMBER" --dir .
           gh run download "$GITHUB_RUN_ID" --name "FloatView-apk-$GITHUB_RUN_NUMBER" --dir .
+          gh run download "$GITHUB_RUN_ID" --name "FloatView-macos-$GITHUB_RUN_NUMBER" --dir .
 
       - name: Publish numbered release
         run: |
           printf -v version 'build-%010d' "$GITHUB_RUN_NUMBER"
           ipa="FloatView-$version.ipa"
           apk="FloatView-$version.apk"
+          macos="FloatView-$version-macos-universal.zip"
           # A rerun keeps the same number and updates its existing assets.
           if gh release view "$version" >/dev/null 2>&1; then
-            gh release upload "$version" "$ipa" "$apk" --clobber
+            gh release upload "$version" "$ipa" "$apk" "$macos" --clobber
           else
-            gh release create "$version" "$ipa" "$apk" \
+            gh release create "$version" "$ipa" "$apk" "$macos" \
               --target "$GITHUB_SHA" --title "$GITHUB_RUN_NUMBER" \
-              --notes "Unsigned Debug IPA for AltStore and signed Debug APK for Android sideloading. Build $GITHUB_RUN_NUMBER from commit $GITHUB_SHA."
+              --notes "Unsigned Debug IPA for AltStore, signed Debug APK for Android sideloading, and a self-signed universal macOS app (macOS 14+, not notarized). Build $GITHUB_RUN_NUMBER from commit $GITHUB_SHA."
           fi

@@ -45,6 +45,38 @@ enabled and permission not yet requested, then use Settings → Permissions →
 Location → Request access. Confirm the native prompt appears and allowing access
 updates the Location grant. This OS checkpoint cannot be established by unit tests.
 
+## macOS release app
+
+The **Build apps** workflow builds macOS in parallel with iOS and Android. The
+Release build includes both Apple Silicon (`arm64`) and Intel (`x86_64`) in one
+`FloatView.app`, requires macOS 14 or later, and embeds the shared frontend.
+Successful pushes to `master` attach
+`FloatView-build-<ten-digit run number>-macos-universal.zip` to the numbered
+release once all three platforms succeed. Extract the ZIP and move the app to
+Applications. Manual runs provide a `FloatView-macos-<run number>` artifact
+retained for 14 days, without publishing a release.
+
+The app keeps bundle identifier `fail.acheron.float-view.macos` and uses the run
+number for `CFBundleVersion`. CI reuses a dedicated self-signed certificate and
+an explicit designated requirement anchored to that certificate and identifier,
+so changing app contents does not change its signing identity. An upgrade from
+an earlier ad-hoc build may require granting permissions again. Permission
+retention across two signed builds still needs an on-device update check.
+
+`MACOS_CODE_SIGN_P12_BASE64` and `MACOS_CODE_SIGN_P12_PASSWORD` are repository
+Actions secrets containing the PKCS12 identity and its password. Keep the
+certificate named `Float View Code Signing` and its private key unchanged across
+releases. A local provisioning backup is in ignored `.local/macos-signing/`;
+back it up securely because GitHub secrets cannot be read back. The signing
+wrapper only imports into disposable GitHub-hosted macOS runners, removes its
+temporary keychain and trust after use, and never modifies developer keychains.
+CI verifies both executable architectures, the signature and its designated
+requirement before packaging. Local development continues to use ad-hoc signing.
+
+These builds do not use Apple Developer ID or notarization. Gatekeeper approval
+is still needed for downloaded apps; persistent signing preserves identity but
+does not grant Apple's distribution trust.
+
 ## AltStore installation
 
 Run `just ipa` on macOS to build the frontend and iOS device app in Debug, as
@@ -55,8 +87,8 @@ account is required: AltStore signs the IPA when installing it. The archive omit
 macOS metadata files that can confuse AltStore's app detection.
 
 GitHub Actions runs the same `just ipa` command on every push to `master` and
-publishes the IPA alongside an Android APK to a [GitHub release](https://github.com/acheronfail/float-view-mobile/releases)
-after both platform builds succeed.
+publishes the IPA alongside an Android APK and universal macOS app to a [GitHub release](https://github.com/acheronfail/float-view-mobile/releases)
+after all three platform builds succeed.
 The workflow run number is the release title and app/extension build number.
 Tags use ten-digit zero padding (`build-0000000001`) so lexical and numeric order
 agree; the asset is named `FloatView-build-0000000001.ipa`. Rerunning a workflow
@@ -64,7 +96,7 @@ keeps its number and replaces that release's IPA. Failed runs can leave gaps.
 Locally, `FLOAT_VIEW_BUILD_NUMBER=1 just ipa` produces the same numbered package;
 without that variable, local builds retain the timestamp filename.
 
-To build another branch manually, open **Actions → Build IPA and APK → Run workflow**
+To build another branch manually, open **Actions → Build apps → Run workflow**
 and select the branch. Manual builds do not publish releases. Download the
 `FloatView-ipa-<run number>` artifact from the run's summary and extract the
 numbered IPA inside. Artifacts are retained for 14 days; release assets remain

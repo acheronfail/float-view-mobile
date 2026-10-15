@@ -40,17 +40,18 @@ software cannot establish; unrelated platforms need no regression run.
 
 ## GitHub Actions APK builds
 
-The [mobile workflow](../../.github/workflows/ipa.yml) builds a signed Debug APK
+The [app workflow](../../.github/workflows/ipa.yml) builds a signed Debug APK
 on Ubuntu for every push to `master` and manual run. It builds the shared
 frontend and packages the Rust runtime for all four supported ABIs using Java 17,
 API 36, NDK `28.2.13676358` and the repository-pinned Rust toolchain. Locked Cargo
 dependencies are fetched before Gradle's offline Rust build.
 
 Successful pushes publish `FloatView-build-<ten-digit run number>.apk` alongside
-the IPA in the same numbered GitHub release after both builds succeed. Manual
-runs build both platforms without publishing a release: select **Actions → Build
-IPA and APK → Run workflow**, then download `FloatView-apk-<run number>` from the
-run summary. Workflow artifacts are retained for 14 days.
+the IPA and macOS app in the same numbered GitHub release after all three builds
+succeed. Manual runs build all three platforms without publishing a release:
+select **Actions → Build apps → Run workflow**, then download
+`FloatView-apk-<run number>` from the run summary. Workflow artifacts are retained
+for 14 days.
 
 The APK can be sideloaded on Android 10/API 29 or newer. CI signs every published
 APK with the same persistent key, allowing subsequent CI builds to update the app
