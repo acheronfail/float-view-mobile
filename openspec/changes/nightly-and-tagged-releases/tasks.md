@@ -2,12 +2,12 @@
 
 ## 1. Version resolution and release helper
 
-- [ ] 1.1 Implement strict stable/nightly parsing, numeric ancestor ordering, semantic increments and a clean-master annotated tag helper; verify with isolated Git integration tests and document helper commands.
+- [x] 1.1 Implement strict stable/nightly parsing, numeric ancestor ordering, semantic increments and a clean-master annotated tag helper; verify with isolated Git integration tests and document helper commands.
 
 ## 2. Build and publication integration
 
-- [ ] 2.1 Add version preparation, daily/manual/push nightlies, tagged Release builds and recoverable bounded publication; verify workflow syntax and mocked GitHub publication tests.
-- [ ] 2.2 Separate native build numbers and generalize frontend/native version handling; verify frontend checks/build/browser rendering and native metadata paths, and update packaging documentation.
+- [x] 2.1 Add version preparation, daily/manual/push nightlies, tagged Release builds and recoverable bounded publication; verify workflow syntax and mocked GitHub publication tests.
+- [x] 2.2 Separate native build numbers and generalize frontend/native version handling; verify frontend checks/build/browser rendering and native metadata paths, and update packaging documentation.
 
 ## 3. Integration verification
 

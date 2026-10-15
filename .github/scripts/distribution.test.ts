@@ -1,0 +1,222 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, delimiter } from 'node:path';
+import { afterEach, test } from 'node:test';
+import { assetNames, git, resolveVersion } from './version.ts';
+import type { Release } from './github.ts';
+
+const directories: string[] = [];
+afterEach(() => {
+  for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+interface State {
+  releases: Release[];
+  actions: string[];
+  fail?: string;
+  nightly?: string;
+}
+const fakeGh = `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = process.env.FAKE_GH_STATE;
+const state = JSON.parse(fs.readFileSync(path, 'utf8'));
+const args = process.argv.slice(2);
+let result = null;
+function save() { fs.writeFileSync(path, JSON.stringify(state)); }
+function fail(message) { save(); console.error(message); process.exit(1); }
+if (args[0] === 'api') {
+  const endpoint = args[1].replace('repos/test/repo/', '');
+  const method = args[args.indexOf('--method') + 1];
+  const body = args.includes('--input') ? JSON.parse(fs.readFileSync(0, 'utf8')) : null;
+  state.actions.push(method + ' ' + endpoint);
+  if (state.fail === 'api') fail('gh: Bad credentials (HTTP 401)');
+  if (endpoint.startsWith('releases/tags/')) {
+    result = state.releases.find(r => r.tag_name === endpoint.slice(14) && !r.draft);
+    if (!result) fail('gh: Not Found (HTTP 404)');
+  } else if (endpoint.startsWith('releases?')) result = state.releases;
+  else if (endpoint === 'releases' && method === 'POST') {
+    result = { ...body, id: 100 + state.releases.length, assets: [] }; state.releases.push(result);
+  } else if (/^releases\\/assets\\/\\d+$/.test(endpoint)) {
+    const id = Number(endpoint.split('/').pop());
+    for (const r of state.releases) r.assets = r.assets.filter(a => a.id !== id);
+  } else if (/^releases\\/\\d+$/.test(endpoint)) {
+    result = state.releases.find(r => r.id === Number(endpoint.split('/').pop()));
+    if (state.fail === 'publish' && body.draft === false) fail('gh: Service Unavailable (HTTP 503)');
+    Object.assign(result, body);
+  } else if (endpoint === 'git/ref/tags/nightly') {
+    if (!state.nightly) fail('gh: Not Found (HTTP 404)');
+    result = { object: { sha: state.nightly } };
+  } else if (endpoint === 'git/refs/tags/nightly' || endpoint === 'git/refs') state.nightly = body.sha;
+  else fail('Unhandled API endpoint: ' + method + ' ' + endpoint);
+} else if (args[0] === 'release' && args[1] === 'upload') {
+  state.actions.push('upload ' + args[2]);
+  const r = state.releases.find(r => r.tag_name === args[2]);
+  const files = args.slice(3).filter(a => !a.startsWith('--'));
+  for (const file of files) {
+    r.assets = r.assets.filter(a => a.name !== file);
+    r.assets.push({ id: 1000 + state.actions.length * 10 + r.assets.length, name: file });
+    if (state.fail === 'upload') fail('Upload interrupted');
+  }
+} else fail('Unhandled gh command');
+save();
+if (result !== null) console.log(JSON.stringify(result));
+`;
+
+function fixture() {
+  const cwd = mkdtempSync(join(tmpdir(), 'float-distribution-'));
+  directories.push(cwd);
+  git(['init', '-b', 'master', cwd]);
+  git(['config', 'user.email', 'test@example.invalid'], cwd);
+  git(['config', 'user.name', 'Test'], cwd);
+  git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'base'], cwd);
+  git(['tag', 'v0.1.49'], cwd);
+  git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'development'], cwd);
+  const sha = git(['rev-parse', 'HEAD'], cwd);
+  git(['update-ref', 'refs/remotes/origin/master', sha], cwd);
+  const metadata = resolveVersion(sha, null, cwd);
+  const statePath = join(cwd, 'state.json');
+  const executable = join(cwd, 'gh');
+  writeFileSync(executable, fakeGh);
+  chmodSync(executable, 0o755);
+  function save(state: State) {
+    writeFileSync(statePath, JSON.stringify(state));
+  }
+  function state(): State {
+    return JSON.parse(readFileSync(statePath, 'utf8'));
+  }
+  save({ releases: [], actions: [] });
+  for (const file of assetNames(metadata.version)) writeFileSync(join(cwd, file), 'package');
+  const env = {
+    ...process.env,
+    PATH: `${cwd}${delimiter}${process.env.PATH}`,
+    FAKE_GH_STATE: statePath,
+    GH_REPO: 'test/repo',
+    GITHUB_SHA: sha,
+    GITHUB_REF: 'refs/heads/master',
+    GITHUB_RUN_NUMBER: '60',
+    FLOAT_VIEW_VERSION: metadata.version,
+    GITHUB_OUTPUT: join(cwd, 'outputs'),
+  };
+  function run(script: string, overrides: Record<string, string> = {}) {
+    return spawnSync(process.execPath, ['--strip-types', new URL(`./${script}.ts`, import.meta.url).pathname], {
+      cwd,
+      env: { ...env, ...overrides },
+      encoding: 'utf8',
+    });
+  }
+  return { cwd, sha, metadata, save, state, run, output: () => readFileSync(env.GITHUB_OUTPUT, 'utf8') };
+}
+
+test('nightly preparation, publish and unchanged skip preserve bounded assets', () => {
+  const f = fixture();
+  assert.equal(f.run('prepare').status, 0);
+  assert.match(f.output(), /skip=false/);
+  assert.equal(f.run('publish').status, 0);
+  let state = f.state();
+  assert.equal(state.releases.length, 1);
+  assert.equal(state.releases[0]!.draft, false);
+  assert.equal(state.releases[0]!.tag_name, 'nightly');
+  assert.equal(state.nightly, f.sha);
+  assert.deepEqual(
+    state.releases[0]!.assets.map((a) => a.name),
+    assetNames(f.metadata.version)
+  );
+  assert.match(state.releases[0]!.body!, new RegExp(f.sha));
+  assert.equal(f.run('prepare').status, 0);
+  assert.match(f.output(), /skip=true/);
+  // A stale asset from an interrupted cleanup must trigger a repair, not a skip.
+  state.releases[0]!.assets.push({ id: 1, name: 'old.apk' });
+  f.save(state);
+  assert.equal(f.run('prepare').status, 0);
+  assert.ok(f.output().endsWith('skip=false\n'));
+  assert.equal(f.run('publish').status, 0);
+  state = f.state();
+  assert.equal(state.releases[0]!.assets.length, 3);
+});
+
+test('failed replacement upload retains previous nightly and retries successfully', () => {
+  const f = fixture();
+  const previous: Release = {
+    id: 1,
+    tag_name: 'nightly',
+    draft: false,
+    body: 'previous successful nightly',
+    assets: [{ id: 1, name: 'previous.ipa' }],
+  };
+  f.save({ releases: [previous], actions: [], fail: 'upload', nightly: 'previous-sha' });
+  assert.notEqual(f.run('publish').status, 0);
+  let state = f.state();
+  assert.equal(state.releases[0]!.body, previous.body);
+  assert.ok(state.releases[0]!.assets.some((a) => a.name === 'previous.ipa'));
+  assert.equal(state.nightly, 'previous-sha');
+  delete state.fail;
+  f.save(state);
+  assert.equal(f.run('publish').status, 0);
+  state = f.state();
+  assert.equal(state.releases[0]!.assets.length, 3);
+  const uploaded = state.actions.lastIndexOf('upload nightly');
+  const deleted = state.actions.findIndex((a) => a.startsWith('DELETE'));
+  assert.ok(deleted > uploaded);
+});
+
+test('API failure aborts preparation instead of creating a release', () => {
+  const f = fixture();
+  f.save({ releases: [], actions: [], fail: 'api' });
+  const result = f.run('prepare');
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /401/);
+  assert.equal(f.state().releases.length, 0);
+});
+
+test('stable publication resumes a failed draft and never clobbers a published release', () => {
+  const f = fixture();
+  git(['tag', '-a', 'v0.2.0', '-m', 'release'], f.cwd);
+  const overrides = { GITHUB_REF: 'refs/tags/v0.2.0', FLOAT_VIEW_VERSION: 'v0.2.0' };
+  for (const file of assetNames('v0.2.0')) writeFileSync(join(f.cwd, file), 'stable');
+  f.save({ releases: [], actions: [], fail: 'publish' });
+  assert.notEqual(f.run('publish', overrides).status, 0);
+  let state = f.state();
+  assert.equal(state.releases.length, 1);
+  assert.equal(state.releases[0]!.draft, true);
+  delete state.fail;
+  f.save(state);
+  assert.equal(f.run('publish', overrides).status, 0);
+  state = f.state();
+  assert.equal(state.releases.length, 1);
+  assert.equal(state.releases[0]!.draft, false);
+  const uploads = state.actions.filter((a) => a.startsWith('upload')).length;
+  assert.equal(f.run('publish', overrides).status, 0);
+  assert.equal(f.state().actions.filter((a) => a.startsWith('upload')).length, uploads);
+  assert.equal(f.run('prepare', overrides).status, 0);
+  assert.match(f.output(), /configuration=Release/);
+  assert.match(f.output(), /buildNumber=60/);
+  assert.match(f.output(), /skip=true/);
+});
+
+test('nightly preparation skips older reruns and rejects manual builds from other branches', () => {
+  const f = fixture();
+  git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'newer development'], f.cwd);
+  const newer = git(['rev-parse', 'HEAD'], f.cwd);
+  git(['update-ref', 'refs/remotes/origin/master', newer], f.cwd);
+  f.save({
+    releases: [{ id: 1, tag_name: 'nightly', draft: false, body: `<!-- float-view-source:${newer} -->`, assets: [] }],
+    actions: [],
+  });
+  git(['checkout', '--detach', f.sha], f.cwd);
+  assert.equal(f.run('prepare').status, 0);
+  assert.match(f.output(), /skip=true/);
+  const invalid = f.run('prepare', { GITHUB_REF: 'refs/heads/feature' });
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stderr, /require master/);
+});
+
+test('a new stable tag during a nightly build does not change its prepared package version', () => {
+  const f = fixture();
+  assert.equal(f.run('prepare').status, 0);
+  git(['tag', 'v0.2.0'], f.cwd);
+  assert.equal(f.run('publish').status, 0);
+  assert.match(f.state().releases[0]!.body!, new RegExp(f.metadata.version));
+  assert.equal(f.run('prepare').status, 0);
+  assert.ok(f.output().endsWith('skip=true\n'));
+});

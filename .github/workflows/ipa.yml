@@ -3,23 +3,57 @@ name: Build apps
 on:
   push:
     branches: [master]
+    tags: ["v*"]
   workflow_dispatch:
+  schedule:
+    - cron: "17 16 * * *"
 
 permissions:
   contents: read
 
 env:
-  # Keep the workflow counter as the patch version and native build identifier.
-  FLOAT_VIEW_VERSION: v0.1.${{ github.run_number }}
+  # Numeric native identity is independent of the stable/nightly display version.
+  FLOAT_VIEW_BUILD_NUMBER: ${{ github.run_number }}
 
 concurrency:
-  group: ipa-${{ github.ref }}
+  group: app-distribution
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      configuration: ${{ steps.version.outputs.configuration }}
+      skip: ${{ steps.version.outputs.skip }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out version history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - name: Test release tooling
+        run: node --strip-types --test .github/scripts/*.test.ts
+      - name: Resolve version and publication channel
+        id: version
+        run: node --strip-types .github/scripts/prepare.ts
+
   ipa:
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'false'
     runs-on: macos-15
     timeout-minutes: 45
+    env:
+      FLOAT_VIEW_VERSION: ${{ needs.prepare.outputs.version }}
+      FLOAT_VIEW_BUILD_CONFIGURATION: ${{ needs.prepare.outputs.configuration }}
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -76,9 +110,13 @@ jobs:
           retention-days: 14
 
   apk:
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'false'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
+      FLOAT_VIEW_VERSION: ${{ needs.prepare.outputs.version }}
+      FLOAT_VIEW_BUILD_CONFIGURATION: ${{ needs.prepare.outputs.configuration }}
       # Transfer reusable Cargo artifacts, not large per-checkout incremental state.
       CARGO_INCREMENTAL: "0"
     steps:
@@ -139,9 +177,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
 
-      - name: Build Debug APK
+      - name: Build APK
         working-directory: backends/android
-        run: ./gradlew --no-daemon --build-cache assembleDebug
+        run: ./gradlew --no-daemon --build-cache "assemble$FLOAT_VIEW_BUILD_CONFIGURATION"
 
       - name: Sign and verify versioned APK
         env:
@@ -156,10 +194,15 @@ jobs:
           printf '%s' "$ANDROID_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$keystore"
           version="$FLOAT_VIEW_VERSION"
           apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          if [[ "$FLOAT_VIEW_BUILD_CONFIGURATION" == Release ]]; then
+            source_apk=backends/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          else
+            source_apk=backends/android/app/build/outputs/apk/debug/app-debug.apk
+          fi
           "$apksigner" sign --ks "$keystore" --ks-key-alias float-view-ci \
             --ks-pass env:ANDROID_SIGNING_PASSWORD --key-pass env:ANDROID_SIGNING_PASSWORD \
             --out "FloatView-$version.apk" \
-            backends/android/app/build/outputs/apk/debug/app-debug.apk
+            "$source_apk"
           "$apksigner" verify --verbose --print-certs "FloatView-$version.apk"
 
       - name: Upload APK
@@ -172,8 +215,13 @@ jobs:
           retention-days: 14
 
   macos:
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'false'
     runs-on: macos-15
     timeout-minutes: 45
+    env:
+      FLOAT_VIEW_VERSION: ${{ needs.prepare.outputs.version }}
+      FLOAT_VIEW_BUILD_CONFIGURATION: ${{ needs.prepare.outputs.configuration }}
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -233,34 +281,31 @@ jobs:
           retention-days: 14
 
   release:
-    needs: [ipa, apk, macos]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [prepare, ipa, apk, macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       actions: read
       contents: write
     env:
+      FLOAT_VIEW_VERSION: ${{ needs.prepare.outputs.version }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - name: Check out version history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
       - name: Download app artifacts
         run: |
           gh run download "$GITHUB_RUN_ID" --name "FloatView-ipa-$FLOAT_VIEW_VERSION" --dir .
           gh run download "$GITHUB_RUN_ID" --name "FloatView-apk-$FLOAT_VIEW_VERSION" --dir .
           gh run download "$GITHUB_RUN_ID" --name "FloatView-macos-$FLOAT_VIEW_VERSION" --dir .
 
-      - name: Publish versioned release
-        run: |
-          version="$FLOAT_VIEW_VERSION"
-          ipa="FloatView-$version.ipa"
-          apk="FloatView-$version.apk"
-          macos="FloatView-$version-macos-universal.zip"
-          # A rerun keeps the same version and updates its existing assets.
-          if gh release view "$version" >/dev/null 2>&1; then
-            gh release upload "$version" "$ipa" "$apk" "$macos" --clobber
-          else
-            gh release create "$version" "$ipa" "$apk" "$macos" \
-              --target "$GITHUB_SHA" --title "$version" \
-              --notes "Unsigned Debug IPA for AltStore, signed Debug APK for Android sideloading, and a self-signed universal macOS app (macOS 14+, not notarized). Version $version from commit $GITHUB_SHA."
-          fi
+      - name: Publish stable release or rolling Nightly
+        run: node --strip-types .github/scripts/publish.ts

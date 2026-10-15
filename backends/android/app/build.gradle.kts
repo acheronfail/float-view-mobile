@@ -83,8 +83,14 @@ val auditAndroidRustRuntimeTasks by tasks.registering {
 }
 
 val releaseVersion = providers.environmentVariable("FLOAT_VIEW_VERSION").orNull
-require(releaseVersion == null || Regex("v0\\.1\\.(0|[1-9][0-9]*)").matches(releaseVersion)) {
-    "FLOAT_VIEW_VERSION must be a v0.1.x release tag"
+require(releaseVersion == null || Regex("v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-nightly\\.(0|[1-9][0-9]*)\\.g[0-9a-f]{7,40})?").matches(releaseVersion)) {
+    "FLOAT_VIEW_VERSION must be a stable or nightly app version"
+}
+
+val releaseBuildNumber = providers.environmentVariable("FLOAT_VIEW_BUILD_NUMBER").orNull
+require(releaseVersion == null || (releaseBuildNumber?.matches(Regex("[1-9][0-9]*")) == true &&
+    (releaseBuildNumber?.toLongOrNull() ?: 0L) in 1L..2_100_000_000L)) {
+    "Versioned builds require FLOAT_VIEW_BUILD_NUMBER in 1..2100000000"
 }
 
 android {
@@ -96,8 +102,8 @@ android {
         applicationId = "fail.acheron.floatview"
         minSdk = 29
         targetSdk = 36
-        versionCode = releaseVersion?.substringAfterLast('.')?.toInt() ?: 1
-        versionName = releaseVersion?.removePrefix("v") ?: "0.1.0"
+        versionCode = if (releaseVersion != null) releaseBuildNumber!!.toInt() else 1
+        versionName = releaseVersion?.removePrefix("v") ?: "0.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {

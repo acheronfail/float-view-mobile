@@ -97,33 +97,46 @@ the current local date and time. No connected device or Xcode signing
 account is required: AltStore signs the IPA when installing it. The archive omits
 macOS metadata files that can confuse AltStore's app detection.
 
-GitHub Actions runs the same `just ipa` command on every push to `master` and
-publishes the IPA alongside an Android APK and universal macOS app to a [GitHub release](https://github.com/acheronfail/float-view-mobile/releases)
-after all three platform builds succeed.
-Release tags and titles use `v0.1.x`, with the workflow run number as the patch
-version: run 47 publishes `v0.1.47` and `FloatView-v0.1.47.ipa` (with equivalent
-APK and macOS ZIP names). Every push advances the patch automatically; rerunning
-a workflow keeps its version and replaces its assets. Failed or manual runs can
-leave gaps. Native apps use `0.1.x` as their version and the patch as their
-numeric build identifier. The shared frontend displays the `v0.1.x` release tag
-in Settings alongside the commit revision.
-Locally, `FLOAT_VIEW_VERSION=v0.1.47 just ipa` produces the same versioned package;
-without that variable, local builds retain the timestamp filename and display
-“Development build”. Historical build tags/releases were renamed to `v0.1.x`
-without rebuilding their binaries, so their embedded metadata remains original.
+GitHub Actions builds master pushes, a daily schedule and manual master runs as a
+rolling [Nightly prerelease](https://github.com/acheronfail/float-view-mobile/releases/tag/nightly).
+A nightly such as `v0.1.50-nightly.12.gabcdef012345` uses the next patch after the
+greatest stable ancestor, the commit count since that tag and the source hash.
+Unchanged successful commits are skipped. Only the current Nightly asset set is
+retained; Nightly never replaces the stable Latest release.
 
-To build another branch manually, open **Actions → Build apps → Run workflow**
-and select the branch. Manual builds do not publish releases. Download the
-`FloatView-ipa-v0.1.<run number>` artifact from the run's summary and extract the
-versioned IPA inside. Artifacts are retained for 14 days; release assets remain
-available independently of that expiry.
-The [workflow](../../.github/workflows/ipa.yml) uses a macOS runner, Node.js 24,
-and the repository's pinned Rust toolchain with the iOS device target. It fetches
-locked Cargo dependencies before Xcode's offline build. npm downloads, Cargo
-downloads, and Rust iOS compilation outputs are cached; the Rust cache separates
-runner architectures, Xcode versions, Rust toolchains and dependency lockfiles,
-and allows reuse of unchanged dependencies across source changes. No signing certificates,
-Apple account secrets, or connected device are required; AltStore signs the IPA.
+Push an explicit `vX.Y.Z` tag on master history, or run
+`just release patch|minor|major` from clean, current master, to publish a permanent
+stable [GitHub release](https://github.com/acheronfail/float-view-mobile/releases).
+The helper fetches tags, calculates the next version, creates an annotated tag
+and pushes it without changing source. Minor and major bumps reset the patch.
+Stable mobile packages use Release configuration; nightly mobile packages use
+Debug. macOS packages always use Release. All three packages must succeed before
+publication. Published stable assets are preserved on reruns; failed drafts can
+be resumed.
+
+Package names include the full display version, for example
+`FloatView-v0.2.0.ipa` or `FloatView-v0.2.1-nightly.3.gabcdef012345.ipa`, with
+corresponding APK and universal macOS ZIP names. Settings displays the same version
+and commit revision. Native Apple marketing versions omit the nightly suffix;
+app and extension build numbers use the independent workflow counter. These
+outputs remain AltStore/sideload/self-signed packages, not app-store submissions.
+
+Locally, `FLOAT_VIEW_VERSION=v0.2.0 FLOAT_VIEW_BUILD_NUMBER=60 just ipa` produces
+a versioned package with marketing version `0.2.0` and build `60`; add
+`FLOAT_VIEW_BUILD_CONFIGURATION=Release` for stable packaging. Nightly display
+versions are accepted with the same separate build-number requirement. Without a
+version, local builds keep timestamp filenames and display “Development build”.
+Historical releases were renamed without rebuilding their binaries, so their
+embedded metadata remains original.
+
+To build master manually, open **Actions → Build apps → Run workflow**. Download
+the `FloatView-ipa-<full version>` artifact from the run summary. Artifacts are
+retained for 14 days; release assets remain available independently of that expiry.
+The [workflow](../../.github/workflows/ipa.yml) uses Node.js 24, macOS runners for
+Apple builds and the pinned Rust toolchain. It fetches locked dependencies before
+offline native builds and caches frontend downloads and Rust build outputs.
+No connected device is required. AltStore signs the IPA when installing it;
+macOS uses the configured persistent signing identity.
 
 Transfer the IPA to Files on the iPhone and select it in AltStore's My Apps tab
 using the + button. If switching from a `just run ios` installation fails, export

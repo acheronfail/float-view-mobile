@@ -109,6 +109,10 @@ emulate platform:
       *) echo 'Usage: just emulate android|ios' >&2; exit 2 ;;
     esac
 
+# Tag the current clean, pushed master as the next deliberate stable release.
+release bump="patch":
+    node --strip-types .github/scripts/release.ts {{ quote(bump) }}
+
 build:
     cd frontend && npm run build
     cp frontend/build/index.html backends/apple/macos/Resources/index.html
@@ -120,21 +124,24 @@ ipa: build
     derived_data=/tmp/float-view-ios-ipa
     output_dir={{ quote(invocation_directory()) }}
     output="$output_dir/FloatView-$(date '+%Y%m%d-%H%M%S').ipa"
+    configuration="${FLOAT_VIEW_BUILD_CONFIGURATION:-Debug}"
+    [[ "$configuration" == Debug || "$configuration" == Release ]] || { echo 'Invalid build configuration' >&2; exit 2; }
     build_settings=(CODE_SIGNING_ALLOWED=NO)
     if [[ -n "${FLOAT_VIEW_VERSION:-}" ]]; then
-      [[ "$FLOAT_VIEW_VERSION" =~ ^v0\.1\.(0|[1-9][0-9]*)$ ]] || { echo 'Invalid release version' >&2; exit 2; }
+      metadata="$(node --strip-types .github/scripts/version.ts native)"
+      read -r app_version build_number <<< "$metadata"
       version="$FLOAT_VIEW_VERSION"
       output="$output_dir/FloatView-$version.ipa"
-      build_settings+=("MARKETING_VERSION=${version#v}" "CURRENT_PROJECT_VERSION=${version##*.}")
+      build_settings+=("MARKETING_VERSION=$app_version" "CURRENT_PROJECT_VERSION=$build_number")
     fi
     xcodebuild -project backends/apple/ios/float-view.xcodeproj \
-      -scheme float-view -configuration Debug -sdk iphoneos \
+      -scheme float-view -configuration "$configuration" -sdk iphoneos \
       -destination 'generic/platform=iOS' -derivedDataPath "$derived_data" \
       "${build_settings[@]}" build
     staging="$(mktemp -d)"
     trap 'rm -rf "$staging"' EXIT
     mkdir -p "$staging/Payload" "$(dirname "$output")"
-    ditto --norsrc --noqtn "$derived_data/Build/Products/Debug-iphoneos/float-view.app" \
+    ditto --norsrc --noqtn "$derived_data/Build/Products/$configuration-iphoneos/float-view.app" \
       "$staging/Payload/float-view.app"
     (cd "$staging" && ditto -c -k --norsrc --noqtn --keepParent Payload FloatView.ipa)
     unzip -tq "$staging/FloatView.ipa"

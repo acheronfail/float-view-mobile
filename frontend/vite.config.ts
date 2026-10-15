@@ -7,6 +7,7 @@ import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
 import { MOCK_BACKEND_PORT, startMockServer, stopMockServer } from './backend-mock';
 import { iconClasses } from './src/lib/ui/icon';
 import { execFileSync } from 'node:child_process';
+import { parseVersion } from '../.github/scripts/version';
 
 let revision: string | null = null;
 try {
@@ -18,9 +19,7 @@ try {
   // Source archives can be built without Git metadata.
 }
 const version = process.env.FLOAT_VIEW_VERSION ?? null;
-if (version !== null && !/^v0\.1\.(0|[1-9][0-9]*)$/.test(version)) {
-  throw new Error('FLOAT_VIEW_VERSION must be a v0.1.x release tag');
-}
+if (version !== null) parseVersion(version);
 
 export const DEVELOPMENT_PORT = 11002;
 export const MOCK_BACKEND_ORIGIN = `http://127.0.0.1:${MOCK_BACKEND_PORT}`;
