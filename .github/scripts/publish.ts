@@ -1,14 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import {
-  api,
-  generatedNotes,
-  getNightlyRelease,
-  getRelease,
-  sourceMarker,
-  versionMarker,
-  type Release,
-} from './github.ts';
+import { api, getNightlyRelease, getRelease, sourceMarker, versionMarker, type Release } from './github.ts';
+import { releaseNotes } from './notes.ts';
 import { assetNames, git, latestStable, parseVersion, resolveVersion } from './version.ts';
 
 const commit = process.env.GITHUB_SHA!;
@@ -31,6 +24,8 @@ let release = stable ? getRelease(tag) : getNightlyRelease();
 if (stable && release && !release.draft) {
   console.log(`${tag} is already published; preserving its assets.`);
 } else {
+  const previousTag = latestStable(commit, process.cwd(), stable ? tag : undefined);
+  const notes = releaseNotes(tag, commit, previousTag, process.env.GH_REPO!);
   if (!stable) {
     // Create the immutable source tag before the release so its API request never
     // needs target_commitish (which can require unavailable workflow permissions).
@@ -52,9 +47,6 @@ if (stable && release && !release.draft) {
   if (!release) throw new Error('GitHub did not return a release');
   // Upload the replacement set first. Previous nightly assets survive any failed upload.
   execFileSync('gh', ['release', 'upload', release.tag_name, ...files, '--clobber'], { stdio: 'inherit' });
-  // Generate against the exact version tag, after ensuring it identifies this build.
-  const previousTag = latestStable(commit, process.cwd(), stable ? tag : undefined);
-  const notes = generatedNotes(tag, commit, previousTag);
   const body = `${notes}\n\n${sourceMarker(commit)}\n${versionMarker(version)}`;
   api(`releases/${release.id}`, 'PATCH', {
     tag_name: tag,

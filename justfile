@@ -109,9 +109,9 @@ emulate platform:
       *) echo 'Usage: just emulate android|ios' >&2; exit 2 ;;
     esac
 
-# Tag the current clean, pushed master as the next deliberate stable release.
-release bump="patch":
-    node --strip-types .github/scripts/release.ts {{ quote(bump) }}
+# Tag a stable release, or preview next-patch notes locally with preview [ref].
+release bump="patch" ref="":
+    node --strip-types .github/scripts/release.ts {{ quote(bump) }} {{ if ref == "" { "" } else { quote(ref) } }}
 
 build:
     cd frontend && npm run build

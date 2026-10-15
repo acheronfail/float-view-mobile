@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { buildNumber, bumpVersion, git, latestStable, parseVersion, resolveVersion } from './version.ts';
-import { release } from './release.ts';
+import { preview, release } from './release.ts';
+import { releaseNotes } from './notes.ts';
 
 const directories: string[] = [];
 let commitNumber = 0;
@@ -144,4 +145,48 @@ test('a stale local rolling nightly tag does not block stable release creation',
   git(['update-ref', 'refs/tags/nightly', next], origin);
   assert.equal(release('patch', dir), 'v0.1.50');
   assert.equal(git(['rev-parse', 'v0.1.50^{commit}'], origin), next);
+});
+
+test('release preview uses publication notes on dirty, unpushed branches without a remote', () => {
+  const dir = repository();
+  git(['tag', 'v0.1.49'], dir);
+  git(['checkout', '-b', 'feature'], dir);
+  git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'app: Show speed'], dir);
+  writeFileSync(join(dir, 'untracked'), 'not committed');
+  const before = git(['status', '--porcelain'], dir);
+  const result = preview('HEAD', dir);
+  assert.equal(result.version, 'v0.1.50');
+  assert.equal(result.previousTag, 'v0.1.49');
+  assert.equal(
+    result.notes,
+    releaseNotes(
+      result.version,
+      result.commit,
+      result.previousTag,
+      process.env.GH_REPO ?? 'acheronfail/float-view-mobile',
+      dir
+    )
+  );
+  assert.match(result.notes, /## App\n\n- Show speed/);
+  assert.doesNotMatch(result.notes, /not committed/);
+  assert.equal(git(['tag', '--list'], dir), 'v0.1.49');
+  assert.equal(git(['status', '--porcelain'], dir), before);
+  const historical = preview('master', dir);
+  assert.match(historical.notes, /No changes since the previous stable release/);
+  assert.throws(() => preview('missing-ref', dir));
+});
+
+test('release preview CLI prints Markdown and supports the first release', () => {
+  const dir = repository();
+  const script = new URL('./release.ts', import.meta.url).pathname;
+  const result = spawnSync(process.execPath, ['--strip-types', script, 'preview'], {
+    cwd: dir,
+    encoding: 'utf8',
+    env: { ...process.env, GH_REPO: 'test/repo' },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Previewing v0\.0\.1: start of history\.\.HEAD/);
+  assert.match(result.stdout, /^## Other changes/);
+  assert.match(result.stdout, /https:\/\/github.com\/test\/repo\/commits\/v0.0.1/);
+  assert.equal(git(['tag', '--list'], dir), '');
 });

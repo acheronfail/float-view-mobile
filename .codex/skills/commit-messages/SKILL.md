@@ -6,8 +6,7 @@ description: Write and review Float View commit messages and squash titles. Appl
 # Commit messages
 
 Use consistent area prefixes and concrete, action-led titles so Float View's
-history is easy to scan. These conventions do not require release-note
-generation, changelog entries, or release tooling changes.
+history is easy to scan. Release notes group commit titles by these prefixes.
 
 ## Required format
 
@@ -21,6 +20,8 @@ short description:
 | `app` | Shared app behavior, including the frontend, shared Rust service, protocol handling, and persistence |
 | `apple` | Behavior specific to the iOS or macOS host and its OS integrations |
 | `android` | Behavior specific to the Android host and its OS integrations |
+| `windows` | Behavior specific to the planned Windows host and its OS integrations |
+| `linux` | Behavior specific to the planned Linux host and its OS integrations |
 | `repo` | Repository guidance, build and release tooling, tests, documentation, and maintenance without an app behavior change |
 
 Choose the prefix by the effect of the change, not just its file location.
@@ -28,6 +29,9 @@ Tests and documentation accompanying a behavior change share its area.
 A shared behavior change that also updates native adapters uses `app`.
 An Apple-only change uses `apple`; name iOS or macOS in the description when
 the distinction matters.
+
+When adding an area, update the section list in `.github/scripts/notes.ts`, its
+release-note tests, and the release documentation in `CONTRIBUTING.md` together.
 
 Split independent changes into separate commits. For an inseparable change,
 choose the primary affected area. Do not use multiple prefixes or invent new

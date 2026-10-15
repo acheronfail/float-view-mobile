@@ -35,6 +35,7 @@ just dev
 just build
 just run android|ios|macos [target]
 just release patch|minor|major # Tag and push a deliberate stable release.
+just release preview [ref] # Preview next-patch release notes locally (default: HEAD).
 just ipa # Build an IPA for AltStore; see backends/apple/README.md.
 just test frontend|conformance|apple|android|core|fixture|all
 just conformance direct|mock|android|ios|macos
@@ -97,6 +98,12 @@ for retained hardware observations.
 
 ## App releases
 
+`just release preview` prints the next patch release's Markdown notes from the latest
+local stable ancestor tag through `HEAD`. Pass a ref, such as `just release preview master`,
+to inspect another commit. It uses the same note generator as publication, works offline
+and on dirty or unpushed branches, and does not create tags or publish anything.
+Only committed changes appear; fetch tags first if the local release history is stale.
+
 `just release patch` fetches tags and creates/pushes the next annotated stable
 version on a clean `master` matching `origin/master`. Use `minor` or `major` to
 reset lower version components. The greatest numeric stable ancestor is the
@@ -119,8 +126,14 @@ build identifier across both channels. The offset preserves the sequence from th
 Keep the same workflow path, counter and offset; native
 build numbers must not reset on a minor/major bump. Reruns reuse the original
 identity; a future store upload needing a new build identifier needs a fresh run.
-Release bodies use GitHub-generated notes. Stable notes compare against the
-previous stable ancestor tag; Nightly compares against the latest stable ancestor.
+Release notes list non-merge commit titles, grouped by `app:`, `apple:`, `android:`,
+`windows:`, `linux:` and `repo:` under App, Apple, Android, Windows, Linux and Repository.
+Windows and Linux areas are reserved for the planned hosts; sections appear only when they have entries.
+Unprefixed or unrecognized
+titles appear under Other changes. Entries link to their commits and include a full
+changelog link. Stable notes compare against the previous stable ancestor tag;
+Nightly compares against the latest stable ancestor. A first release includes all
+reachable non-merge commits. Empty ranges are stated explicitly.
 Hidden source/version comments support nightly skip and asset verification.
 Stable tags select Release configuration, while nightlies use Debug for mobile.
 Current downloads remain AltStore/sideload/self-signed packages, not store
