@@ -80,7 +80,7 @@ def bundles(app, version, number):
 def verify_distribution(app, version, number, team):
     for bundle, identifier in bundles(app, version, number):
         run("codesign", "--verify", "--strict", "--verbose=2", "-R",
-            'anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.4] exists', str(bundle))
+            '=anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.4] exists', str(bundle))
         profile = plistlib.loads(run("security", "cms", "-D", "-i", str(bundle / "embedded.mobileprovision"), capture=True))
         require(profile.get("TeamIdentifier") == [team], "Provisioning profile belongs to another team")
         require(profile["ExpirationDate"] > datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
@@ -137,7 +137,7 @@ def archive(args):
     if store:
         for bundle, _ in archived_bundles:
             run("codesign", "--verify", "--strict", "-R",
-                'anchor apple generic and certificate leaf[subject.OU] = "' + team + '"', str(bundle))
+                '=anchor apple generic and certificate leaf[subject.OU] = "' + team + '"', str(bundle))
     require(not (archive_path / "Products/Applications/float-view-lifecycle-tests.xctest").exists(),
             "Unexpected lifecycle test product")
     if store:

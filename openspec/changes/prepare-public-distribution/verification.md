@@ -155,3 +155,23 @@ Checks completed:
   `float-view-ios`; Full Access for the solo App Store Connect account. Adding
   macOS to the same record would use the same bundle ID and universal purchase;
   this remains a later store-distribution choice, not a change to direct Mac IDs.
+
+
+## Initial iOS signing attempt — 2026-10-17
+
+- Owner confirmed creating the iOS App Store Connect record. The selected Apple
+  Distribution identity is valid and available locally; no private material was
+  exported or uploaded.
+- Automatic provisioning successfully produced an Xcode-signed archive for the
+  app and extension using the publishing team. The subsequent custom validator
+  exposed an argument-format bug: inline `codesign -R` expressions require a
+  leading `=`; otherwise codesign treats the expression as a file path.
+- Corrected both archive and export requirement arguments. The 18 fixture tests
+  pass with the mock now enforcing this real CLI requirement syntax. Direct
+  verification of the first archive against the Apple anchor/publishing team
+  passed outside the Codex sandbox; inside the sandbox trust evaluation returned
+  `CSSMERR_TP_NOT_TRUSTED`. Apple trust services were used normally; no trust-root
+  override was installed.
+- A fresh clean-source archive and real distribution export follow this fix.
+  Initial build number `1` remains a local unallocated test value and no upload
+  or release has occurred.

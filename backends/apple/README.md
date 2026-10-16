@@ -69,8 +69,9 @@ Live Activity extension. No current command uploads a build or creates a tag.
 
 Apple Developer membership is confirmed. On 2026-10-17 the owner installed Xcode
 26.0, registered the two identifiers below and created an Apple Distribution
-certificate. App Store Connect record creation is in progress; actual profile
-provisioning and signed-export verification remain pending.
+certificate. The owner also confirmed creating the iOS App Store Connect record.
+Automatic provisioning has signed the app and extension locally; complete
+archive/export verification and store uploads remain pending.
 
 1. Install a supported [Xcode release](https://developer.apple.com/xcode/resources/).
    [Apple currently requires Xcode 26+ and the iOS 26+ SDK](https://developer.apple.com/news/upcoming-requirements/?id=04282026a)

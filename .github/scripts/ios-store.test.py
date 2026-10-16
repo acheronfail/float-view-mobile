@@ -56,6 +56,9 @@ class StoreTests(unittest.TestCase):
         if args[:3] == ("git", "status", "--porcelain"):
             return b""
         if args[0] in ("security", "codesign"):
+            if args[0] == "codesign" and "-R" in args:
+                self.assertTrue(args[args.index("-R") + 1].startswith("="),
+                                "codesign requires = before an inline requirement; otherwise it reads a file")
             identifier = store.EXTENSION_ID if "FloatViewLiveActivity.appex" in args[-1] else store.APP_ID
             entitlements = {"application-identifier": TEAM + "." + identifier,
                             "com.apple.developer.team-identifier": TEAM, "get-task-allow": False}
