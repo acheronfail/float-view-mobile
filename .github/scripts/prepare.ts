@@ -9,6 +9,8 @@ const ref = process.env.GITHUB_REF ?? '';
 const isTag = ref.startsWith('refs/tags/');
 if (!isTag && ref !== 'refs/heads/master') throw new Error('Nightly builds require master');
 const storeRequested = process.env.FLOAT_VIEW_BUILD_IOS_STORE === 'true';
+if (process.env.FLOAT_VIEW_UPLOAD_IOS_STORE === 'true' && !storeRequested)
+  throw new Error('Upload requires a fresh iOS store build in the same workflow run');
 if (storeRequested && (ref !== 'refs/heads/master' || process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch'))
   throw new Error('iOS store builds require an explicit manual master run');
 const metadata = resolveVersion(commit, isTag ? ref.slice('refs/tags/'.length) : null, process.cwd(), 'v1.0.0');

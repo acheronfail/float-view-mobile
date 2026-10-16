@@ -63,7 +63,8 @@ permission tests cannot establish actual OS prompt presentation.
 
 The GitHub `just ipa` route remains unsigned for AltStore to re-sign. Store
 preparation is separate and always uses Release for the app and its embedded
-Live Activity extension. No current command uploads a build or creates a tag.
+Live Activity extension. These local preparation commands do not upload a build
+or create a tag; protected CI delivery is described separately below.
 
 ### Account and signing setup
 
@@ -192,7 +193,7 @@ record plus the actual build job/attempt and IPA hash. The store artifact name
 includes its build number and attempt. These records link native build `N` back
 to workflow run number `N - 60`; release notes also link the build to its CI run.
 A rerun keeps its native number. Use a new workflow run for corrected binaries;
-a future upload retry must check whether Apple already received that number.
+the delivery job queries Apple before considering a retry of that number.
 
 Configure [the repository's environments](https://github.com/acheronfail/float-view-mobile/settings/environments)
 before enabling this job. The `ios-store-signing` environment was created with
@@ -263,20 +264,69 @@ is needed. Renewal means replacing the matching certificate/profiles together.
 The same importer still handles the Mac Developer ID route with its existing
 secret names; there is no change to the Mac signer or trust policy.
 
+### Protected Apple delivery
+
+The separate `ios-store-upload` environment has owner review and a master-only
+deployment policy. Only its delivery step receives the App Store Connect team
+key; signing and sideload jobs do not receive it. A Developer-role team key can
+access the team's apps, so keep its one-time `.p8` download and backups private.
+Store `ASC_API_PRIVATE_KEY_BASE64` as an environment secret and `ASC_API_KEY_ID`,
+`ASC_API_ISSUER_ID`, and the numeric `ASC_APP_ID` as environment variables.
+The repository's `APPLE_TEAM_ID` is reused. These values are configured; live
+authentication has not yet been verified.
+
+After reviewing and pushing the source, request a fresh signed candidate and a
+read-only authentication/app/build-number check:
+
+```sh
+gh workflow run build-apps.yml --ref master -f ios-store=true -f ios-delivery=check --repo acheronfail/float-view-mobile
+```
+
+Approve the signing and delivery environment requests for that exact source.
+`check` independently verifies the exported signatures, profiles, privacy
+manifests, version and digest, authenticates to Apple, checks the numeric app
+record's bundle ID, and queries whether Apple already has that build number.
+It never uploads. The three sideload packages still build and can refresh the
+public rolling Nightly with the same native number. Signing/export artifacts
+and delivery receipts in this public repository are not confidential.
+
+Keep `IOS_STORE_UPLOAD_READY` unset until the distribution, privacy, storage and
+review-material gates below are accepted. Then the owner can set it to `true`
+in `ios-store-upload` and explicitly dispatch `ios-delivery=upload` with
+`ios-store=true`. This makes a fresh candidate, uploads it once, and polls Apple
+processing. It does not invite testers or submit beta/App Store review.
+
+Each attempt retains a JSON receipt with source, version, native number, IPA
+digest, run/attempt, transport status and Apple's build/processing identity for
+90 days. It contains no private key or bearer token. A transport failure is
+uncertain: inspect Apple and the receipt before retrying. Reruns never blindly
+resubmit an absent number. An already received build is trusted only with a
+matching earlier accepted-transport receipt from the same run and binary.
+Rejected or corrected binaries need a fresh workflow run and number. Pending
+processing is not successful delivery; check Apple before acting. Download
+receipts needed for longer retention before Actions artifacts expire.
+
+Only GitHub publication is serialized across runs. A store environment waiting
+for approval therefore does not hold subsequent nightly builds in a queue;
+existing older-run guards still prevent stale nightly publication.
+
 ### Remaining store work
 
 The protected CI environment and validated manual profiles are ready, and the
 manual archive/export has passed locally and on a protected GitHub runner
 ([build 75](https://github.com/acheronfail/float-view-mobile/actions/runs/38972744150)).
-Both bundles passed independent verification after downloading the IPA. Protected upload/authentication,
-Apple-consumed build checks and actual TestFlight processing remain open. Local signed archive/export verification has
-passed; it does not establish authenticated upload or Apple processing. Upload credentials are not
-needed for the current sideload jobs or local structural checks. Before external
-beta, finish the baseline-100 storage/startup work. Before any upload, complete
-the Apple distribution-rights check and required privacy-manifest/API audit;
-background-mode/usage-string review, disclosures and review materials also remain
-in the public-distribution plan. Local archive success alone does not complete
-those gates or validate store-delivered behavior on hardware.
+Both bundles passed independent verification after downloading the IPA. Build 75
+predates the new privacy manifests and baseline-100 storage work; it is not the
+next upload candidate. Protected delivery tooling and credentials are prepared,
+but live authentication, Apple-consumed number queries and processing remain
+unverified. The owner recorded permission for official Apple distribution;
+third-party notices and source obligations retain their own terms. The privacy
+audit and Xcode aggregate report are documented in
+[the iOS distribution audit](../../docs/ios-distribution-audit.md).
+Finish its remaining gates, including storage/failure presentation checks,
+corresponding-source/package notices, beta metadata and supported-hardware review
+materials. Local archive success does not establish Apple's acceptance or
+store-delivered behavior on hardware.
 
 ## macOS release app
 

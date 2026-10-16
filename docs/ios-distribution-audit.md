@@ -69,9 +69,13 @@ Sources: Apple's [required-reason API list](https://developer.apple.com/document
 A real unsigned Release archive passed with Xcode 26.0/SDK 26.0; both manifests
 were bundled, host file-stat/disk-space symbols were present and no required-reason
 symbols were found in the extension. The Release executable contains no WebView
-inspection selector. Before upload, generate/review a fresh archive's manifests,
-Xcode Organizer's Privacy Report, and resolve any Apple processing
-findings. A source audit alone does not establish Apple's acceptance.
+inspection selector. Xcode Organizer's aggregate Privacy Report was generated
+and reviewed from the baseline-100 Release archive on 2026-10-17. It lists
+Precise Location and Other Data Types for app functionality, linked to the user,
+with no tracking, matching the reviewed manifest. The report is retained under
+ignored `.local/ios-store/baseline-archive-check-20261017/`.
+The next signed CI export must pass the same packaged-manifest checks; resolve
+any Apple processing findings. Local inspection does not establish Apple's acceptance.
 
 ## Permissions, background execution and encryption
 
@@ -104,10 +108,11 @@ territory-specific questions in App Store Connect. Source:
 - Finish the iOS corresponding-source/package-notice check and document the
   owner's recorded official Apple distribution permission alongside AGPL source
   licensing. Credited dependencies and artwork retain their own terms.
-- Configure protected upload authentication, exact-app lookup, consumed-build
-  queries and upload receipts; signing alone does not provide upload access.
-- Inspect a fresh Release archive/report after these changes, then validate Apple
-  processing and encryption status. Build 75 predates these privacy changes.
+- Run the prepared protected read-only delivery check to verify authentication,
+  exact-app lookup and consumed-build queries. Upload credentials are configured
+  separately from signing; upload readiness remains disabled.
+- Verify a fresh signed CI candidate, then validate Apple processing and
+  encryption status when upload is authorized. Build 75 predates these changes.
 - Fill beta description, feedback email, what-to-test notes and any required beta
   review contact privately in App Store Connect. First tester is the owner;
   invited external users come later and need the applicable external beta review.

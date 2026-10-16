@@ -10,13 +10,14 @@ on:
         description: Build an App Store-signed iOS IPA (no upload)
         type: boolean
         default: false
+      ios-delivery:
+        description: Apple delivery action for the fresh store build (never invites testers)
+        type: choice
+        options: [none, check, upload]
+        default: none
 
 permissions:
   contents: read
-
-concurrency:
-  group: app-distribution
-  cancel-in-progress: false
 
 jobs:
   prepare:
@@ -46,11 +47,13 @@ jobs:
         run: |
           node --strip-types --test .github/scripts/*.test.ts
           python3 -B .github/scripts/ios-store.test.py
+          python3 -B .github/scripts/ios-upload.test.py
       - name: Resolve version and publication channel
         id: version
         env:
           FLOAT_VIEW_BUILD_RECORD: ${{ runner.temp }}/build-record.json
           FLOAT_VIEW_BUILD_IOS_STORE: ${{ inputs.ios-store }}
+          FLOAT_VIEW_UPLOAD_IOS_STORE: ${{ inputs.ios-delivery != 'none' && inputs.ios-delivery != '' }}
         run: node --strip-types .github/scripts/prepare.ts
 
       - name: Retain CI build identity
@@ -131,6 +134,8 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 45
     environment: ios-store-signing
+    outputs:
+      artifact-name: ${{ steps.artifact-name.outputs.name }}
     permissions:
       contents: read
       actions: read
@@ -182,16 +187,73 @@ jobs:
         run: |
           bash backends/apple/with-apple-signing-identity.sh \
             python3 backends/apple/ios-store.py ci-build "$RUNNER_TEMP/ios-store"
+      - name: Name verified store artifact
+        id: artifact-name
+        run: echo "name=FloatView-ios-store-$FLOAT_VIEW_BUILD_NUMBER-attempt-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - name: Retain verified IPA and exact source/build record
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: FloatView-ios-store-${{ env.FLOAT_VIEW_BUILD_NUMBER }}-attempt-${{ github.run_attempt }}
+          name: ${{ steps.artifact-name.outputs.name }}
           path: |
             ${{ runner.temp }}/ios-store/export/*.ipa
             ${{ runner.temp }}/ios-store/export/export.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  ios-upload:
+    needs: [prepare, ios-store]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.ios-delivery != 'none' && inputs.ios-delivery != '' && needs.ios-store.result == 'success'
+    runs-on: macos-26
+    timeout-minutes: 45
+    environment: ios-store-upload
+    permissions:
+      contents: read
+      actions: read
+    env:
+      FLOAT_VIEW_BUILD_NUMBER: ${{ needs.prepare.outputs.build-number }}
+    steps:
+      - name: Check out approved source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Download exact signed artifact and previous receipts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORE_ARTIFACT: ${{ needs.ios-store.outputs.artifact-name }}
+          RECEIPT_PREFIX: ios-store-upload-receipt-${{ env.FLOAT_VIEW_BUILD_NUMBER }}-attempt-
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$STORE_ARTIFACT" --dir "$RUNNER_TEMP/ios-export"
+          mkdir -p "$RUNNER_TEMP/ios-upload-prior"
+          has_receipts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" --jq '.artifacts | any(.name | startswith(env.RECEIPT_PREFIX))')"
+          if [[ "$has_receipts" == true ]]; then
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern "$RECEIPT_PREFIX*" --dir "$RUNNER_TEMP/ios-upload-prior"
+          fi
+      - name: Verify signatures and upload once with Apple receipt checks
+        env:
+          IOS_STORE_UPLOAD_READY: ${{ vars.IOS_STORE_UPLOAD_READY }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          ASC_API_KEY_ID: ${{ vars.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ vars.ASC_API_ISSUER_ID }}
+          ASC_APP_ID: ${{ vars.ASC_APP_ID }}
+          ASC_API_PRIVATE_KEY_BASE64: ${{ secrets.ASC_API_PRIVATE_KEY_BASE64 }}
+          DELIVERY_ACTION: ${{ inputs.ios-delivery }}
+        run: |
+          args=()
+          case "$DELIVERY_ACTION" in
+            check) args+=(--check-only) ;;
+            upload) ;;
+            *) echo "Invalid delivery action" >&2; exit 1 ;;
+          esac
+          python3 backends/apple/ios-upload.py "$RUNNER_TEMP/ios-export" "$RUNNER_TEMP/ios-upload-receipt" --prior-receipts "$RUNNER_TEMP/ios-upload-prior" "${args[@]}"
+      - name: Retain upload attempt and processing receipt
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ios-store-upload-receipt-${{ env.FLOAT_VIEW_BUILD_NUMBER }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-upload-receipt/*.json
+          if-no-files-found: warn
+          retention-days: 90
 
   apk:
     needs: prepare
@@ -375,6 +437,10 @@ jobs:
 
   release:
     needs: [prepare, ipa, apk, macos]
+    # Serialize only publication. A store approval/upload must not hold nightlies.
+    concurrency:
+      group: app-distribution
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

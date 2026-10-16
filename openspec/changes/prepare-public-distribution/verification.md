@@ -411,3 +411,41 @@ Checks completed:
   presentation was not physically validated. Device/container checkpoint and
   Android startup UX remain open; tasks 4.2/4.3/4.5 are partial. Tasks 4.1/4.4
   are complete; overall progress is 7/38. No Apple upload occurred.
+
+## Protected iOS delivery preparation (2026-10-17)
+
+- Added a separate manual `ios-delivery=check|upload` action. Both require the
+  fresh protected store artifact from the same master workflow run. The default
+  remains `none`; sideload jobs and GitHub publication do not depend on delivery.
+- Created `ios-store-upload` with owner review and a master-only deployment
+  policy. The owner configured a Developer-role team API key and numeric app
+  record variables. Only names/readiness metadata were inspected; the private
+  key was not printed or uploaded by the agent. `IOS_STORE_UPLOAD_READY` remains
+  unset. Live API authentication has not yet been exercised.
+- The delivery tool independently validates Release/source/run identity, IPA
+  digest, signatures, profiles, manifests and versions, then queries the exact
+  App Store Connect app record and native number. Read-only mode never invokes
+  transport. Actual delivery makes at most one transport attempt and records
+  processing state without inviting testers or submitting review. Consumed
+  numbers require a matching accepted-transport receipt; uncertain absent
+  numbers on reruns are not resubmitted. Corrected/rejected binaries need a new
+  run. Keys are temporary mode-0600 files and the base64 secret is removed from
+  child environments; JWT/Apple tool output is captured without printing it.
+- Workflow publication concurrency now scopes only the release job. Waiting
+  store approvals cannot occupy the entire nightly workflow queue. Existing
+  source/build guards continue to reject stale nightly publication.
+- Focused checks: 49 release-tooling tests, 16 upload tests and 25 archive/export
+  tests passed; actionlint,
+  `git diff --check` and strict OpenSpec validation passed. Upload tests cover
+  authentication failure, wrong app/source/version/digest, consumed numbers,
+  receipts, uncertain transport, rejected/pending processing, check-only mode,
+  readiness guards and temporary-key cleanup using synthetic data only.
+- Xcode Organizer generated the aggregate Privacy Report from the baseline-100
+  unsigned Release archive. The one-page PDF was extracted and visually
+  reviewed: Precise Location and Other Data Types, app functionality, linked to
+  user, no tracking, matching the source manifest. Local ignored evidence:
+  `.local/ios-store/baseline-archive-check-20261017/FloatView-PrivacyReport.pdf`.
+  This is local report inspection, not Apple processing acceptance. Build 75
+  predates these changes and cannot substitute for a fresh signed candidate.
+- No Apple upload, beta invitation or review submission occurred. Tasks 5.2,
+  5.3, 5.6 and 6.2 remain partial; overall progress remains 7/38.

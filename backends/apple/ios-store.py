@@ -171,7 +171,7 @@ def archive(args):
         require(run("git", "rev-parse", "HEAD", capture=True).decode().strip() == commit
                 and not run("git", "status", "--porcelain", capture=True).strip(),
                 "Source changed during archiving; make a fresh archive from a clean revision")
-    record = {"schema": 1, "purpose": "store" if store else "unsigned-check",
+    record = {"schema": 1, "purpose": "store" if store else "unsigned-check", "configuration": "Release",
               "commit": commit, "dirty": dirty, "version": version[1:], "buildNumber": number,
               "team": team, "toolchain": tools, "appSHA256": tree_digest(app)}
     if ci:

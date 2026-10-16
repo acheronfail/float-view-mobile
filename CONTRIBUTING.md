@@ -142,7 +142,7 @@ and its counter/offset through version and tag cleanup. Changing its display nam
 is safe; moving its path requires an explicit continuity migration. Reruns keep
 the original number, while corrected submissions require a fresh workflow run.
 Canceled, skipped or failed runs may leave gaps; numbers are never recycled.
-A future upload path must query Apple before retrying an already received number.
+The protected iOS delivery path queries Apple before considering an upload retry.
 Release notes list non-merge commit titles, grouped by `app:`, `apple:`, `android:`,
 `windows:` and `linux:` under App, Apple, Android, Windows and Linux.
 `repo:` commits are excluded because they do not describe changes to the released apps.
@@ -158,11 +158,17 @@ Stable tags select Release configuration, while nightlies use Debug for mobile.
 Current downloads remain AltStore IPAs, signed APKs and notarized Developer ID
 Mac ZIPs. Local iOS Release archive/export preparation is documented in the
 [Apple host guide](backends/apple/README.md#ios-app-store-preparation); it neither
-uploads to a store nor changes the GitHub packages. Protected store uploads
-and Android App Bundles remain planned work. The optional `ios-store` manual
+uploads to a store nor changes the GitHub packages. Android App Bundles remain
+planned work. The optional `ios-store` manual
 input builds an App Store-signed artifact in its own protected environment, using
 the same run counter; it does not upload or gate the three-platform GitHub release.
+The separate manual `ios-delivery=check` action verifies Apple authentication,
+the exact app and consumed number without uploading. `ios-delivery=upload`
+additionally requires a protected environment's explicit readiness setting and
+owner review; it uploads once and retains a processing receipt. Neither action
+invites testers or submits review. See the Apple host guide for gates and retries.
 
 Run the focused release-tooling checks with
 `node --strip-types --test .github/scripts/*.test.ts` and
-`python3 -B .github/scripts/ios-store.test.py`.
+`python3 -B .github/scripts/ios-store.test.py` and
+`python3 -B .github/scripts/ios-upload.test.py`.

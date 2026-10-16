@@ -389,6 +389,7 @@ test('an explicit store run rebuilds all routes with a shared new number, withou
   const f = fixture();
   assert.equal(f.run('publish').status, 0);
   const request = { FLOAT_VIEW_BUILD_IOS_STORE: 'true', GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_RUN_NUMBER: '61' };
+  assert.notEqual(f.run('prepare', { FLOAT_VIEW_UPLOAD_IOS_STORE: 'true' }).status, 0);
   assert.equal(f.run('prepare', request).status, 0);
   assert.match(f.output(), /buildNumber=121/);
   assert.ok(f.output().endsWith('skip=false\n'));
