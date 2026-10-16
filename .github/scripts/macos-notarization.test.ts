@@ -41,6 +41,10 @@ if (tool === 'xcrun') {
   }
   if (op === 'stapler staple') {
     if (process.env.FAKE_STAPLE_FAILURE) process.exit(1);
+    const counter = path.join(process.env.RUNNER_TEMP, 'staple-attempts');
+    const attempt = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) + 1 : 1;
+    fs.writeFileSync(counter, String(attempt));
+    if (attempt <= Number(process.env.FAKE_STAPLE_LOOKUP_FAILURES || 0)) process.exit(68);
     fs.writeFileSync(path.join(args[2], '.ticket'), 'ticket');
     process.exit(0);
   }
@@ -53,6 +57,7 @@ if (tool === 'ditto') {
 }
 if (tool === 'spctl') process.exit(process.env.FAKE_GATEKEEPER_FAILURE ? 1 : 0);
 if (tool === 'unzip') process.exit(0);
+if (tool === 'sleep') process.exit(0);
 if (tool === 'security') {
   if (args[0] === 'import' && fs.readFileSync(args[1], 'utf8') !== 'test') process.exit(1);
   if (args[0] === 'list-keychains' && args.length === 3) console.log('  "/tmp/original.keychain-db"');
@@ -79,6 +84,7 @@ function fixture() {
     "unzip",
     "security",
     "probe",
+    "sleep",
   ]) {
     const file = join(bin, name);
     writeFileSync(file, fakeTool);
@@ -163,6 +169,30 @@ test("stapling failure does not replace the previous download", () => {
     readFileSync(item.output, "utf8"),
     "previous-successful-download",
   );
+  assert.equal(item.operations().filter(x => x.operation === "stapler staple").length, 1);
+  assert.equal(item.operations().some(x => x.tool === "sleep"), false);
+});
+test("transient ticket lookup failures retry stapling without resubmitting", () => {
+  const item = fixture();
+  const result = runNotary(item, { FAKE_STAPLE_LOOKUP_FAILURES: "2" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(item.output, "utf8"), "archive-with-ticket");
+  const calls = item.operations();
+  assert.equal(calls.filter(x => x.operation === "stapler staple").length, 3);
+  assert.equal(calls.filter(x => x.operation === "notarytool submit").length, 1);
+  assert.deepEqual(calls.filter(x => x.tool === "sleep").map(x => x.operation), ["5", "10"]);
+});
+test("persistent ticket lookup failure stops after four attempts and preserves the download", () => {
+  const item = fixture();
+  const result = runNotary(item, { FAKE_STAPLE_LOOKUP_FAILURES: "4" });
+  assert.equal(result.status, 68, result.stderr);
+  assert.equal(readFileSync(item.output, "utf8"), "previous-successful-download");
+  const calls = item.operations();
+  assert.equal(calls.filter(x => x.operation === "stapler staple").length, 4);
+  assert.deepEqual(calls.filter(x => x.tool === "sleep").map(x => x.operation), ["5", "10", "15"]);
+  assert.equal(calls.some(x => x.operation === "stapler validate"), false);
+  assert.equal(calls.some(x => x.tool === "spctl"), false);
+  assert.equal(calls.filter(x => x.tool === "ditto").length, 1);
 });
 test("invalid signing identity fails before submission", () => {
   const item = fixture();
