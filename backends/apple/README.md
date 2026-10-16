@@ -59,12 +59,125 @@ failures, with settings/retry actions where appropriate. Validate the first-use
 prompt, denial/recovery and quit-without-requesting behavior on macOS; mocked
 permission tests cannot establish actual OS prompt presentation.
 
+## iOS App Store preparation
+
+The GitHub `just ipa` route remains unsigned for AltStore to re-sign. Store
+preparation is separate and always uses Release for the app and its embedded
+Live Activity extension. No current command uploads a build or creates a tag.
+
+### Account and signing setup
+
+Apple Developer membership is confirmed; on 2026-10-17 the owner confirmed that
+app identifiers, an App Store Connect app record and Apple Distribution signing
+had not yet been set up. Their availability is not established by source names.
+
+1. Install a supported [Xcode release](https://developer.apple.com/xcode/resources/).
+   [Apple currently requires Xcode 26+ and the iOS 26+ SDK](https://developer.apple.com/news/upcoming-requirements/?id=04282026a)
+   for uploads. The deployment target remains iOS/iPadOS 17; building with a newer
+   SDK does not require raising that target. Set `DEVELOPER_DIR` for individual
+   commands if keeping multiple Xcode installations.
+2. In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list),
+   select the publishing team and register two **explicit App IDs**, after checking
+   availability: `fail.acheron.float-view` and
+   `fail.acheron.float-view.live-activity`. The second belongs to the WidgetKit
+   Live Activity extension. The current implementation does not use push-token
+   Live Activity updates, App Groups or iCloud; do not enable those speculatively.
+   If an identifier belongs to another team, resolve it before creating the app
+   record or changing source identifiers.
+3. Sign into that team in Xcode Settings → Accounts. Use Manage Certificates to
+   create an **Apple Distribution** identity and retain a secure private-key backup.
+   Automatic archive signing may also need an Apple Development identity. The
+   Developer ID Application identity for Mac downloads cannot replace either.
+   [Apple explains distribution signing and profiles](https://developer.apple.com/help/account/provisioning-profiles/create-an-app-store-provisioning-profile/).
+   Both bundles need profiles for the same team; automatic signing manages these.
+4. In [App Store Connect → Apps](https://appstoreconnect.apple.com/apps), create
+   the iOS app record using the main identifier. Choose the public name, primary
+   language and a stable internal SKU (for example `float-view-ios`); the extension
+   has no separate store listing. Complete any pending account agreements.
+   [Apple's app-record instructions](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app/)
+   explain which fields can change later. Price, territories, privacy/support
+   URLs and payment/tax details remain owner decisions before publication.
+
+Keep team identifiers and private signing material out of source. Set
+`APPLE_TEAM_ID` in the local environment; the tooling passes it to **both** targets
+with one `DEVELOPMENT_TEAM` override. The shared scheme makes archive settings
+reproducible on a fresh checkout and keeps lifecycle tests in its Test action.
+
+### Local archive and export
+
+Install the frontend dependencies (`cd frontend && npm ci`), the pinned Rust
+toolchain and its `aarch64-apple-ios` target. Fetch the locked iOS Rust dependencies
+before archiving (`cd backends/core && cargo fetch --locked --target aarch64-apple-ios`).
+The commands rebuild and embed the shared frontend automatically.
+
+An unsigned structural check works with the existing Xcode 16.4 toolchain and
+needs no developer account. The number below is an unused local test value:
+
+```sh
+FLOAT_VIEW_VERSION=v1.0.0 FLOAT_VIEW_BUILD_NUMBER=1 \
+  just ios-archive-check /tmp/float-view-ios-archive-check
+```
+
+This checks a real arm64 Release archive, matching app/extension identifiers and
+versions, extension embedding and the shared HTML resource. It records source
+revision, dirty state, toolchain and app-tree SHA-256 in `archive.json`. This output
+cannot be exported as a store build by the tooling.
+
+After account setup and Xcode upgrade, commit source changes and choose a fresh
+output directory under the ignored `.local/ios-store/`:
+
+```sh
+# Set APPLE_TEAM_ID to the publishing team; keep its value outside Git.
+# Set FLOAT_VIEW_BUILD_NUMBER to an allocated, unused native build number.
+export FLOAT_VIEW_VERSION=v1.0.0
+just ios-store-archive .local/ios-store/candidate-archive
+just ios-store-export .local/ios-store/candidate-archive .local/ios-store/candidate-export
+```
+
+The build number must be explicit. These commands **do not allocate or reserve
+one**: the shared monotonic allocator in plan task 5.1 is still required before
+upload automation. Never reuse an Apple-consumed number for a corrected binary.
+The version input reserves no Git tag; stable v1.0.0 still waits for acceptance.
+
+Normal commands use installed signing assets. To let Xcode create/update profiles
+using its signed-in account, explicitly invoke the relevant command with:
+
+```sh
+python3 backends/apple/ios-store.py archive .local/ios-store/candidate-archive \
+  --allow-provisioning-updates
+python3 backends/apple/ios-store.py export .local/ios-store/candidate-archive \
+  .local/ios-store/candidate-export --allow-provisioning-updates
+```
+
+Archive and export refuse existing output directories. Store archives require
+clean source and the currently required SDK; export refuses an unsigned check or
+an archive changed since recording. Export uses `app-store-connect` with
+`destination=export`, automatic signing and automatic version changes disabled.
+Successful verification requires both bundles to have Apple distribution
+signatures, the expected team/application identifiers, unexpired App Store
+profiles, device arm64 binaries and no debugger entitlement. A successful export
+writes `export.json` with source/version and the IPA hash; a partial directory
+without that record is not a verified export. It remains local until explicitly
+uploaded later.
+
+### Remaining store work
+
+Protected CI key import/upload, monotonic build-number allocation and actual
+signed export/TestFlight processing remain open. Upload credentials are not
+needed for the current sideload jobs or local structural checks. Before external
+beta, finish the baseline-100 storage/startup work. Before any upload, complete
+the Apple distribution-rights check and required privacy-manifest/API audit;
+background-mode/usage-string review, disclosures and review materials also remain
+in the public-distribution plan. Local archive success alone does not complete
+those gates or validate store-delivered behavior on hardware.
+
 ## macOS release app
 
 The **Build apps** workflow builds a Release app for Apple Silicon (`arm64`) and
 Intel (`x86_64`), requiring macOS 14 or later and embedding the shared frontend.
 Stable/nightly GitHub releases retain the universal ZIP alongside the IPA/APK.
-Manual runs provide artifacts without publishing a release.
+Master pushes and manual master runs publish the rolling Nightly after all three
+sideload builds succeed.
 
 The app keeps bundle identifier `fail.acheron.float-view.macos`. Release packages
 use a **Developer ID Application** identity, hardened runtime and a secure timestamp.

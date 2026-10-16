@@ -147,9 +147,12 @@ reachable non-merge commits except `repo:` entries. Ranges with no included chan
 Nightly descriptions begin with a UTC date and time refreshed on each successful publication.
 Hidden source/version comments support nightly skip and asset verification.
 Stable tags select Release configuration, while nightlies use Debug for mobile.
-Current downloads remain AltStore/sideload/self-signed packages, not store
-submissions. Store signing, Android App Bundles and protected upload jobs can
-be added to the stable path later.
+Current downloads remain AltStore IPAs, signed APKs and notarized Developer ID
+Mac ZIPs. Local iOS Release archive/export preparation is documented in the
+[Apple host guide](backends/apple/README.md#ios-app-store-preparation); it neither
+uploads to a store nor changes the GitHub packages. Protected store uploads,
+shared build-number allocation and Android App Bundles remain planned work.
 
 Run the focused release-tooling checks with
-`node --strip-types --test .github/scripts/*.test.ts`.
+`node --strip-types --test .github/scripts/*.test.ts` and
+`python3 -B .github/scripts/ios-store.test.py`.

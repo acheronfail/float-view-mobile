@@ -72,3 +72,58 @@ Outstanding:
 
 - Mac App Store sandbox/provisioning, privacy requirements and submission remain
   separate subsequent work. Existing self-signed assets were not replaced.
+
+
+## iOS archive/signing preparation — 2026-10-17
+
+Scope: tasks 1.1/1.4 (readiness inventory), 5.3 (local archive/export scaffolding)
+and 5.6 (documentation). Overall implementation remains 4/38 tasks complete;
+actual signed export and upload have not been performed.
+
+- Owner confirmed Apple membership earlier, and confirmed today that iOS app IDs,
+  App Store Connect record and Apple Distribution identity have not been created.
+  No account resources or credentials were created, imported or uploaded here.
+- Existing IDs are `fail.acheron.float-view` and
+  `fail.acheron.float-view.live-activity`; both have deployment target iOS 17.
+  Availability/ownership must be checked in the publishing team before creating
+  the App Store Connect record. Team is supplied to both targets by one override;
+  no personal team identifier is committed.
+- Added a shared scheme with a Release Archive action and retained lifecycle
+  Test action. Added independent local unsigned-check, signed-archive and
+  App Store Connect export commands; none uploads or tags a release.
+- A real unsigned arm64 Release archive succeeded with Xcode 16.4 / SDK 18.5
+  after rerunning outside the Codex sandbox (the first run could not launch
+  Xcode's build-script sandbox). App and Live Activity extension were embedded,
+  used matching marketing/build versions `1.0.0`/`1`, retained iOS 17 deployment,
+  and contained the shared frontend. This local test value is not an allocated
+  or uploaded store build number. The archive records its source revision,
+  dirty state, toolchain and app-tree hash; it is explicitly an unsigned check.
+- Store paths require Xcode 26+ / SDK 26+, explicit version/build metadata,
+  a clean checkout for signed archiving and a publishing team. Profile updates
+  are opt-in. Export stays local, disables automatic version changes, refuses
+  unsigned/modified archives and verifies distribution signatures plus each
+  bundle's profile/team/application/debugger facts before recording IPA evidence.
+- The local Xcode 16.4 toolchain cannot produce a currently uploadable store
+  build. Upgrade Xcode, register the two explicit IDs, create the distribution
+  identity/profiles and app record before actual signed verification. Apple
+  privacy/API, licensing/distribution-rights and production-entry-point audits
+  remain open. Baseline-100/storage/startup work remains required before external
+  beta; no external testers or public release are enabled by these commands.
+
+Checks completed:
+
+- All 18 Python store-tool boundary tests passed, including rejected development,
+  enterprise, expired and wrong-team profiles; signature/debugger/application-ID
+  failure; missing or mismatched extension; unsupported SDK; missing version/build;
+  dirty source; changed/unsigned archive; local-only export and IPA digest recording.
+  Signed tests use mocked OS tools and fixture profiles, not real Apple signing.
+- All 39 existing Node release-tooling tests passed. The Python tests now run
+  alongside them in GitHub preparation without accessing Apple credentials.
+- The existing `just ipa` command passed in Release with the shared scheme and
+  produced an unsigned AltStore IPA. ZIP integrity and app/extension version/ID
+  inspection passed. No store credential is required by that route.
+- A direct signed-archive invocation with the installed SDK refused before signing
+  with the expected Xcode 26+/SDK 26+ message. This Mac runs macOS 15.6; no Xcode
+  installation or global toolchain selection was changed.
+- Shared scheme XML, workflow YAML, whitespace and strict OpenSpec validation
+  passed. No Swift/Rust/product behavior changed; no new device behavior is claimed.

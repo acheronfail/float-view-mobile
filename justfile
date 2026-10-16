@@ -117,6 +117,17 @@ build:
     cd frontend && npm run build
     cp frontend/build/index.html backends/apple/macos/Resources/index.html
 
+# Unsigned Release archive structure check; no Apple account required.
+ios-archive-check output:
+    python3 backends/apple/ios-store.py archive-check {{ quote(output) }}
+
+# Local signed store preparation; never uploads or creates a stable tag.
+ios-store-archive output:
+    python3 backends/apple/ios-store.py archive {{ quote(output) }}
+
+ios-store-export archive output:
+    python3 backends/apple/ios-store.py export {{ quote(archive) }} {{ quote(output) }}
+
 # Build a device IPA for AltStore to sign and install; no connected device required.
 ipa: build
     #!/usr/bin/env bash

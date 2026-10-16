@@ -36,7 +36,9 @@ jobs:
         with:
           node-version: "24"
       - name: Test release tooling
-        run: node --strip-types --test .github/scripts/*.test.ts
+        run: |
+          node --strip-types --test .github/scripts/*.test.ts
+          python3 -B .github/scripts/ios-store.test.py
       - name: Resolve version and publication channel
         id: version
         run: node --strip-types .github/scripts/prepare.ts
