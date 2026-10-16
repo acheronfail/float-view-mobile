@@ -61,7 +61,7 @@ if (tool === 'security') {
 }
 if (tool === 'probe') {
   console.log(JSON.stringify({ identity: process.env.CODE_SIGN_IDENTITY, hasKeychain: !!process.env.CODE_SIGN_KEYCHAIN,
-    leakedCertificateSecret: !!process.env.MACOS_CODE_SIGN_P12_BASE64 || !!process.env.MACOS_CODE_SIGN_P12_PASSWORD }));
+    leakedCertificateSecret: !!process.env.APPLE_CODE_SIGN_P12_BASE64 || !!process.env.APPLE_CODE_SIGN_P12_PASSWORD }));
   process.exit(0);
 }
 throw new Error('Unexpected fake tool invocation: ' + tool + ' ' + op);
@@ -212,15 +212,15 @@ for (const [identity, accepted] of [
     const item = fixture();
     const result = spawnSync(
       "bash",
-      [join(root, "backends/apple/with-macos-signing-identity.sh"), "probe"],
+      [join(root, "backends/apple/with-apple-signing-identity.sh"), "probe"],
       {
         env: {
           ...item.env,
           GITHUB_ACTIONS: "true",
           RUNNER_ENVIRONMENT: "github-hosted",
           RUNNER_OS: "macOS",
-          MACOS_CODE_SIGN_P12_BASE64: "dGVzdA==",
-          MACOS_CODE_SIGN_P12_PASSWORD: "certificate-secret",
+          APPLE_CODE_SIGN_P12_BASE64: "dGVzdA==",
+          APPLE_CODE_SIGN_P12_PASSWORD: "certificate-secret",
           FAKE_IDENTITY: identity,
         },
         encoding: "utf8",
@@ -248,7 +248,7 @@ test("CI import refuses a developer workstation", () => {
   const item = fixture();
   const result = spawnSync(
     "bash",
-    [join(root, "backends/apple/with-macos-signing-identity.sh"), "probe"],
+    [join(root, "backends/apple/with-apple-signing-identity.sh"), "probe"],
     {
       env: item.env,
       encoding: "utf8",
@@ -263,15 +263,15 @@ test("CI import rejects malformed base64 before importing a certificate", () => 
   const item = fixture();
   const result = spawnSync(
     "bash",
-    [join(root, "backends/apple/with-macos-signing-identity.sh"), "probe"],
+    [join(root, "backends/apple/with-apple-signing-identity.sh"), "probe"],
     {
       env: {
         ...item.env,
         GITHUB_ACTIONS: "true",
         RUNNER_ENVIRONMENT: "github-hosted",
         RUNNER_OS: "macOS",
-        MACOS_CODE_SIGN_P12_BASE64: "!!!!",
-        MACOS_CODE_SIGN_P12_PASSWORD: "certificate-secret",
+        APPLE_CODE_SIGN_P12_BASE64: "!!!!",
+        APPLE_CODE_SIGN_P12_PASSWORD: "certificate-secret",
       },
       encoding: "utf8",
       timeout: 10_000,
@@ -280,3 +280,22 @@ test("CI import rejects malformed base64 before importing a certificate", () => 
   assert.notEqual(result.status, 0);
   assert.equal(item.operations().some((x) => x.operation === "import"), false);
 });
+
+for (const [identity, accepted] of [
+  ["Apple Distribution: Example Person (TESTTEAM01)", true],
+  ["Apple Distribution: Other Person (OTHERTEAM1)", false],
+  ["Developer ID Application: Example Person (TESTTEAM01)", false],
+] as const) {
+  test(`iOS CI selects only the publishing distribution identity: ${identity}`, () => {
+    const item = fixture();
+    const result = spawnSync("bash", [join(root, "backends/apple/with-apple-signing-identity.sh"), "probe"], {
+      env: { ...item.env, GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: "github-hosted", RUNNER_OS: "macOS",
+        APPLE_SIGNING_CERTIFICATE_KIND: "Apple Distribution", APPLE_CODE_SIGN_P12_BASE64: "dGVzdA==",
+        APPLE_CODE_SIGN_P12_PASSWORD: "certificate-secret", FAKE_IDENTITY: identity },
+      encoding: "utf8", timeout: 10_000,
+    });
+    assert.equal(result.status === 0, accepted, result.stderr);
+    assert.ok(item.operations().some(x => x.operation === "delete-keychain"));
+    if (accepted) assert.equal(JSON.parse(result.stdout).leakedCertificateSecret, false);
+  });
+}

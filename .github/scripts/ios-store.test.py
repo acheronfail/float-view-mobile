@@ -1,5 +1,7 @@
 """Store-package boundary checks, with no Apple account or signing keys."""
 import argparse
+import base64
+import hashlib
 import datetime
 import importlib.util
 import json
@@ -187,13 +189,19 @@ class StoreTests(unittest.TestCase):
                 shutil.copytree(self.app, target)
                 return b""
             return original(*args, **kwargs)
-        environment = {"FLOAT_VIEW_VERSION": "v1.0.0", "FLOAT_VIEW_BUILD_NUMBER": "101", "APPLE_TEAM_ID": TEAM}
+        environment = {"FLOAT_VIEW_VERSION": "v1.0.0", "FLOAT_VIEW_BUILD_NUMBER": "101", "APPLE_TEAM_ID": TEAM,
+                       "CODE_SIGN_IDENTITY": "A" * 40, "FLOAT_VIEW_IOS_APP_PROFILE": "app-profile",
+                       "FLOAT_VIEW_IOS_EXTENSION_PROFILE": "extension-profile"}
         with patch.dict(os.environ, environment), patch.object(store, "run", side_effect=build):
-            store.archive(argparse.Namespace(command="archive", output=output, allow_provisioning_updates=False))
+            store.archive(argparse.Namespace(command="archive", output=output, allow_provisioning_updates=False,
+                                             manual_signing=True))
         command = next(x for x in self.operations if x[0] == "xcodebuild" and "archive" in x)
         self.assertEqual(command[command.index("-configuration") + 1], "Release")
         self.assertIn("DEVELOPMENT_TEAM=" + TEAM, command)
         self.assertIn("CODE_SIGNING_REQUIRED=YES", command)
+        self.assertIn("CODE_SIGN_STYLE=Manual", command)
+        self.assertIn("FLOAT_VIEW_IOS_APP_PROFILE=app-profile", command)
+        self.assertIn("FLOAT_VIEW_IOS_EXTENSION_PROFILE=extension-profile", command)
         self.assertNotIn("-allowProvisioningUpdates", command)
         record = json.loads((output / "archive.json").read_text())
         self.assertEqual(record["commit"], "a" * 40)
@@ -206,6 +214,9 @@ class StoreTests(unittest.TestCase):
         record = {"schema": 1, "purpose": "store", "dirty": False, "team": TEAM,
                   "version": "1.0.0", "buildNumber": "101", "appSHA256": store.tree_digest(target)}
         (archive / "archive.json").write_text(json.dumps(record))
+        record["profiles"] = {store.APP_ID: "app-profile", store.EXTENSION_ID: "extension-profile"}
+        record["signingIdentity"] = "A" * 40
+        (archive / "archive.json").write_text(json.dumps(record))
         output = self.root / "export"
         original = self.run_tool
         def export(*args, **kwargs):
@@ -214,6 +225,13 @@ class StoreTests(unittest.TestCase):
                 self.assertEqual(options["destination"], "export")
                 self.assertEqual(options["method"], "app-store-connect")
                 self.assertFalse(options["manageAppVersionAndBuildNumber"])
+                if "profiles" in record:
+                    self.assertEqual(options["signingStyle"], "manual")
+                    self.assertEqual(options["provisioningProfiles"], record["profiles"])
+                    self.assertEqual(options["signingCertificate"], record["signingIdentity"])
+                else:
+                    self.assertEqual(options["signingStyle"], "automatic")
+                    self.assertNotIn("provisioningProfiles", options)
                 (output / "float-view.ipa").write_bytes(b"export-fixture")
                 return b""
             if args[0] == "ditto":
@@ -224,6 +242,104 @@ class StoreTests(unittest.TestCase):
             store.export(argparse.Namespace(archive=archive, output=output, allow_provisioning_updates=False))
         result = json.loads((output / "export.json").read_text())
         self.assertEqual(result["ipaSHA256"], store.digest(output / "float-view.ipa"))
+        del record["profiles"], record["signingIdentity"]
+        (archive / "archive.json").write_text(json.dumps(record))
+        output = self.root / "automatic-export"
+        with patch.object(store, "run", side_effect=export):
+            store.export(argparse.Namespace(archive=archive, output=output, allow_provisioning_updates=False))
+        self.assertTrue((output / "export.json").exists())
+
+
+    def test_ci_profile_import_refuses_workstation(self):
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "false"}):
+            with self.assertRaisesRegex(ValueError, "hosted macOS"):
+                store.ci_build(argparse.Namespace(output=self.root / "output"))
+        self.assertEqual(self.operations, [])
+
+    def ci_environment(self, changes=None):
+        profiles = []
+        certificate = b"test-distribution-certificate"
+        for index, identifier in enumerate([store.APP_ID, store.EXTENSION_ID]):
+            profile = {"UUID": f"00000000-0000-0000-0000-{index:012d}",
+                       "TeamIdentifier": [TEAM], "ApplicationIdentifierPrefix": [TEAM],
+                       "ExpirationDate": datetime.datetime(2099, 1, 1),
+                       "DeveloperCertificates": [certificate],
+                       "Entitlements": {"application-identifier": TEAM + "." + identifier,
+                                        "get-task-allow": False}}
+            if index == 0 and changes:
+                changes(profile)
+            profiles.append(base64.b64encode(plistlib.dumps(profile)).decode())
+        return {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_OS": "macOS",
+                "APPLE_TEAM_ID": TEAM, "CODE_SIGN_IDENTITY": hashlib.sha1(certificate).hexdigest().upper(),
+                "FLOAT_VIEW_BUILD_RECORD": str(self.root / "ci-record.json"),
+                "IOS_APP_PROFILE_BASE64": profiles[0], "IOS_EXTENSION_PROFILE_BASE64": profiles[1]}
+
+    def ci_decode(self, *args, **kwargs):
+        self.assertNotIn("IOS_APP_PROFILE_BASE64", os.environ)
+        self.assertNotIn("IOS_EXTENSION_PROFILE_BASE64", os.environ)
+        self.assertEqual(args[:3], ("security", "cms", "-D"))
+        return Path(args[-1]).read_bytes()
+
+    def test_ci_profiles_cleared_before_tools_and_removed_on_success_or_build_failure(self):
+        for fail in [False, True]:
+            home = self.root / str(fail)
+            def build(args):
+                self.assertTrue(args.manual_signing)
+                self.assertFalse(args.allow_provisioning_updates)
+                self.assertEqual(len(list(home.rglob("*.mobileprovision"))), 2)
+                self.assertNotIn("IOS_APP_PROFILE_BASE64", os.environ)
+                if fail:
+                    raise ValueError("build failed")
+            with patch.dict(os.environ, self.ci_environment()), patch.object(Path, "home", return_value=home), \
+                 patch.object(store, "run", side_effect=self.ci_decode), \
+                 patch.object(store, "archive", side_effect=build), patch.object(store, "export") as export:
+                args = argparse.Namespace(output=self.root / ("output-" + str(fail)))
+                if fail:
+                    with self.assertRaisesRegex(ValueError, "build failed"):
+                        store.ci_build(args)
+                    export.assert_not_called()
+                else:
+                    store.ci_build(args)
+                    export.assert_called_once()
+                self.assertEqual(list(home.rglob("*.mobileprovision")), [])
+                self.assertNotIn("FLOAT_VIEW_IOS_APP_PROFILE", os.environ)
+
+    def test_ci_rejects_wrong_team_identity_or_development_profiles(self):
+        changes = [
+            lambda p: p.update(TeamIdentifier=["OTHERTEAM1"]),
+            lambda p: p.update(DeveloperCertificates=[b"wrong certificate"]),
+            lambda p: p.update(ProvisionedDevices=["test-device"]),
+            lambda p: p.update(ExpirationDate=datetime.datetime(2000, 1, 1)),
+            lambda p: p["Entitlements"].update({"application-identifier": TEAM + ".wrong"}),
+        ]
+        for change in changes:
+            home = self.root / "rejected-home"
+            with patch.dict(os.environ, self.ci_environment(change)), patch.object(Path, "home", return_value=home), \
+                 patch.object(store, "run", side_effect=self.ci_decode), patch.object(store, "archive") as archive:
+                with self.assertRaises(ValueError):
+                    store.ci_build(argparse.Namespace(output=self.root / "rejected-output"))
+                archive.assert_not_called()
+                self.assertEqual(list(home.rglob("*.mobileprovision")), [])
+
+    def test_ci_missing_profile_secret_fails_without_building(self):
+        environment = self.ci_environment()
+        environment["IOS_APP_PROFILE_BASE64"] = ""
+        with patch.dict(os.environ, environment), patch.object(store, "archive") as archive:
+            with self.assertRaisesRegex(ValueError, "Missing iOS"):
+                store.ci_build(argparse.Namespace(output=self.root / "missing-output"))
+            archive.assert_not_called()
+
+    def test_archive_refuses_ci_record_for_another_build(self):
+        record = self.root / "build-record.json"
+        record.write_text(json.dumps({"schema": 1, "commit": "a" * 40, "appVersion": "1.0.0",
+                                      "buildNumber": "999", "runId": "77",
+                                      "workflowPath": ".github/workflows/build-apps.yml"}))
+        environment = {"FLOAT_VIEW_VERSION": "v1.0.0", "FLOAT_VIEW_BUILD_NUMBER": "101",
+                       "FLOAT_VIEW_BUILD_RECORD": str(record), "GITHUB_RUN_ID": "77", "APPLE_TEAM_ID": TEAM}
+        with patch.dict(os.environ, environment):
+            with self.assertRaisesRegex(ValueError, "CI build record"):
+                store.archive(argparse.Namespace(command="archive", output=self.root / "wrong-ci"))
+
 
 
 if __name__ == "__main__":

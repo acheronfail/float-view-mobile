@@ -6,8 +6,10 @@ if [[ "${GITHUB_ACTIONS:-}" != true || "${RUNNER_ENVIRONMENT:-}" != github-hoste
     echo 'Signing identities may only be imported on a GitHub-hosted macOS runner.' >&2
     exit 1
 fi
-: "${MACOS_CODE_SIGN_P12_BASE64:?Add the Developer ID Application PKCS12 to GitHub Actions secrets}"
-: "${MACOS_CODE_SIGN_P12_PASSWORD:?Add the PKCS12 password to GitHub Actions secrets}"
+: "${APPLE_CODE_SIGN_P12_BASE64:?Add the signing PKCS12 to the protected Actions secrets}"
+certificate_kind="${APPLE_SIGNING_CERTIFICATE_KIND:-Developer ID Application}"
+[[ "$certificate_kind" == "Developer ID Application" || "$certificate_kind" == "Apple Distribution" ]] || { echo "Unsupported signing certificate kind" >&2; exit 2; }
+: "${APPLE_CODE_SIGN_P12_PASSWORD:?Add the PKCS12 password to GitHub Actions secrets}"
 : "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID to the publishing team}"
 [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo 'Invalid Apple Team ID.' >&2; exit 2; }
 [[ "$#" -gt 0 ]] || { echo "Usage: $0 command [arguments...]" >&2; exit 2; }
@@ -53,14 +55,14 @@ import base64
 import os
 import pathlib
 import sys
-encoded = ''.join(os.environ['MACOS_CODE_SIGN_P12_BASE64'].split())
+encoded = ''.join(os.environ['APPLE_CODE_SIGN_P12_BASE64'].split())
 pathlib.Path(sys.argv[1]).write_bytes(base64.b64decode(encoded, validate=True))
 PYTHON
 security create-keychain -p "$keychain_password" "$keychain_path"
 security set-keychain-settings -lut 21600 "$keychain_path"
 security unlock-keychain -p "$keychain_password" "$keychain_path"
 security import "$identity_path" -k "$keychain_path" -f pkcs12 \
-    -P "$MACOS_CODE_SIGN_P12_PASSWORD" -T /usr/bin/codesign >/dev/null
+    -P "$APPLE_CODE_SIGN_P12_PASSWORD" -T /usr/bin/codesign >/dev/null
 security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path" >/dev/null
 if [[ "${#original_keychains[@]}" -gt 0 ]]; then
     security list-keychains -d user -s "$keychain_path" "${original_keychains[@]}"
@@ -70,16 +72,16 @@ fi
 identities="$(security find-identity -v -p codesigning "$keychain_path")"
 # Match the selected team rather than a developer's personal name or an arbitrary
 # self-signed certificate. The signed app is also checked against Apple's chain.
-matching="$(printf '%s\n' "$identities" | awk -v team="$APPLE_TEAM_ID" \
-    '/"Developer ID Application: / && index($0, "(" team ")\"") {print $2}')"
+matching="$(printf '%s\n' "$identities" | awk -v team="$APPLE_TEAM_ID" -v kind="$certificate_kind" \
+    'index($0, "\"" kind ": ") && index($0, "(" team ")\"") {print $2}')"
 identity_count="$(printf '%s\n' "$matching" | awk 'NF {count++} END {print count+0}')"
 if [[ "$identity_count" != 1 ]]; then
-    echo "Expected exactly one valid Developer ID Application identity for the selected team, found $identity_count." >&2
+    echo "Expected exactly one valid $certificate_kind identity for the selected team, found $identity_count." >&2
     exit 1
 fi
 CODE_SIGN_IDENTITY="$matching"
 [[ "$CODE_SIGN_IDENTITY" =~ ^[A-F0-9]{40}$ ]]
 CODE_SIGN_KEYCHAIN="$keychain_path"
 export CODE_SIGN_IDENTITY CODE_SIGN_KEYCHAIN
-unset MACOS_CODE_SIGN_P12_BASE64 MACOS_CODE_SIGN_P12_PASSWORD
+unset APPLE_CODE_SIGN_P12_BASE64 APPLE_CODE_SIGN_P12_PASSWORD
 "$@"

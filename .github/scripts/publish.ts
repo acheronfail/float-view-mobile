@@ -11,9 +11,11 @@ import {
 } from './github.ts';
 import { releaseNotes } from './notes.ts';
 import { assetNames, git, latestStable, parseVersion, resolveVersion } from './version.ts';
+import { ciBuildIdentity } from './build-record.ts';
 
 const commit = process.env.GITHUB_SHA!;
 const version = process.env.FLOAT_VIEW_VERSION!;
+const identity = ciBuildIdentity();
 parseVersion(version);
 const stableTag = process.env.GITHUB_REF?.startsWith('refs/tags/') ? process.env.GITHUB_REF.slice(10) : null;
 const channel = stableTag ? 'stable' : 'nightly';
@@ -29,7 +31,10 @@ const stable = channel === 'stable';
 const files = assetNames(version);
 for (const file of files) if (!existsSync(file)) throw new Error(`Missing release asset ${file}`);
 let release = stable ? getRelease(tag) : getNightlyRelease();
-if (stable && release && !release.draft) {
+const publishedBuild = release?.body?.match(/<!-- float-view-build-number:([1-9][0-9]*) -->/)?.[1];
+if (!stable && publishedBuild && Number(publishedBuild) > Number(identity.buildNumber)) {
+  console.log('Preserving a Nightly built by a newer CI run.');
+} else if (stable && release && !release.draft) {
   console.log(`${tag} is already published; preserving its assets.`);
 } else {
   const previousTag = latestStable(commit, process.cwd(), stable ? tag : undefined);
@@ -56,7 +61,7 @@ if (stable && release && !release.draft) {
   // Upload the replacement set first. Previous nightly assets survive any failed upload.
   execFileSync('gh', ['release', 'upload', release.tag_name, ...files, '--clobber'], { stdio: 'inherit' });
   const updated = stable ? '' : `**Last updated:** ${new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')}\n\n`;
-  const body = `${updated}${notes}\n\n${sourceMarker(commit)}\n${versionMarker(version)}`;
+  const body = `${updated}${notes}\n\nBuild ${identity.buildNumber} · [GitHub Actions](${identity.runURL})\n\n${sourceMarker(commit)}\n${versionMarker(version)}\n<!-- float-view-build-number:${identity.buildNumber} -->`;
   api(`releases/${release.id}`, 'PATCH', {
     tag_name: tag,
     // The existing tag owns source identity. Reset API target metadata so rolling

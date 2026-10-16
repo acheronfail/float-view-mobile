@@ -213,3 +213,48 @@ Checks completed:
 - Group 4's public-data baseline/startup work and the licensing/privacy/API/package
   audits remain required before their planned distribution gates. Store-delivered
   device behavior remains untested by this local export.
+
+
+## Shared CI numbering and protected iOS build preparation — 2026-10-17
+
+- Owner requested a native build number tied to the CI run and shared across
+  platforms. Kept the existing sole counter (`Build apps` run number + 60), with
+  an explicit workflow-path guard and source/run ID/attempt/URL build records.
+  Display-name changes do not reset identity; corrected binaries require new
+  runs, while reruns retain the native number. No second workflow counter or
+  persistent allocation service was introduced. Failed/skipped runs may leave gaps.
+- Every produced platform package receives the same preparation number. Release
+  notes now link it to its GitHub Actions run and retain a build-number marker;
+  old retries cannot replace a higher-numbered Nightly. Build records are retained
+  per preparation attempt; a store export also records its actual build job/attempt.
+- Preparation nightlies explicitly target v1.0.0 and count all reachable commits
+  until the first stable v1.0.0 ancestor. Old tag removal cannot change that count;
+  after launch normal next-patch/count-since-stable behavior resumes. No stable
+  tag or historical release cleanup occurred.
+- Added a manual-master-only `ios-store` input and protected `ios-store-signing`
+  build job in the same workflow. The three-package GitHub release dependency
+  remains unchanged. An explicit store run requests fresh builds of all routes
+  for the same native number, including unchanged source, while retaining older-run
+  guards; normal unchanged master runs still skip. No App Store upload command, upload credential or automatic
+  store submission was added. Owner must configure environment restrictions,
+  reviewer, signing secrets and the readiness variable before activation.
+- Reused the existing disposable hosted-runner keychain importer under the general
+  `with-apple-signing-identity.sh` name, retaining existing Mac secret names and
+  Developer ID behavior. The new certificate-family option selects exactly one
+  publishing-team Apple Distribution identity. No workstation imports/custom
+  trust roots are permitted. Mac and iOS selection/cleanup cases pass fixtures.
+- CI profiles must match the exact app/extension, publishing team and selected
+  certificate, be unexpired App Store profiles, and have no device/enterprise or
+  debugger scope. Profile secret values are removed before child tools; installed
+  profiles and the temporary keychain are cleaned before artifact upload. Manual
+  Xcode profiles avoid needing an interactive account/API key in the build job.
+- All 49 Node release-tool tests and 23 Python store-tool tests passed. Coverage
+  includes shared identity, reruns/new runs, workflow rename guard, overflow,
+  source/run mismatch, pre-v1 tag cleanup and launch transition, wrong profile
+  facts/certificate, missing secrets and cleanup after success/failure. Actionlint
+  and strict OpenSpec/whitespace checks passed. Actual hosted iOS store execution
+  and its environment protection remain unverified; upload receipt/consumed-build
+  checks remain required in the future upload path (tasks 5.2/5.3).
+- Next focused packaging check: exercise manual signing/export locally with the
+  already provisioned App Store profiles and Distribution identity, without
+  simulating a hosted runner or importing a private key on the workstation.

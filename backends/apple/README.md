@@ -148,8 +148,9 @@ just ios-store-export .local/ios-store/candidate-archive .local/ios-store/candid
 ```
 
 The build number must be explicit. These commands **do not allocate or reserve
-one**: the shared monotonic allocator in plan task 5.1 is still required before
-upload automation. Never reuse an Apple-consumed number for a corrected binary.
+one**: official CI builds use the single Build apps workflow counter plus 60,
+shared across all platforms and the optional store job. Local test numbers are
+not upload allocations. Never reuse an Apple-consumed number for a corrected binary.
 The version input reserves no Git tag; stable v1.0.0 still waits for acceptance.
 
 Normal commands use installed signing assets. To let Xcode create/update profiles
@@ -175,10 +176,75 @@ writes `export.json` with source/version and the IPA hash; a partial directory
 without that record is not a verified export. It remains local until explicitly
 uploaded later.
 
+### Protected CI store builds
+
+The existing **Build apps** workflow owns one native number (`run_number + 60`)
+for all platforms. A manual master run with the `ios-store` input also builds a
+Release App Store IPA. It requests fresh builds of all four routes even for an unchanged commit, so
+the IPA/APK/ZIP and store IPA share the new run number. The normal three-package
+GitHub gate can publish a refreshed rolling Nightly; older-run guards still apply. The store job is independent of the three-platform
+GitHub publication dependency. It has no upload credential or upload command.
+
+Each run retains a `build-record-<attempt>` artifact with source, semantic/native
+version, run number, run ID, attempt and CI URL. Store `export.json` embeds that
+record plus the actual build job/attempt and IPA hash. The store artifact name
+includes its build number and attempt. These records link native build `N` back
+to workflow run number `N - 60`; release notes also link the build to its CI run.
+A rerun keeps its native number. Use a new workflow run for corrected binaries;
+a future upload retry must check whether Apple already received that number.
+
+Configure [the repository's environments](https://github.com/acheronfail/float-view-mobile/settings/environments)
+before enabling this job. Create `ios-store-signing`, restrict deployment to
+`master`, and require a trusted reviewer. Keep its secrets scoped to that
+environment. The job refuses to proceed until environment variable
+`IOS_STORE_SIGNING_READY` is `true`; set it only after protection and secrets
+are configured. The existing repository `APPLE_TEAM_ID` variable is reused.
+
+Export **only** the selected Apple Distribution identity and private key as an
+encrypted PKCS12 in Keychain Access. Create/download two **App Store Connect**
+distribution profiles in the [Apple developer portal](https://developer.apple.com/account/resources/profiles/list),
+selecting that certificate and the registered app/extension IDs. These profiles
+contain no device list; development/ad-hoc profiles are rejected. Place these
+files under ignored `.local/ios-store/ci-signing/` and set the secrets yourself:
+
+```sh
+base64 < .local/ios-store/ci-signing/distribution.p12 | \
+  gh secret set IOS_CODE_SIGN_P12_BASE64 --env ios-store-signing --repo acheronfail/float-view-mobile
+gh secret set IOS_CODE_SIGN_P12_PASSWORD --env ios-store-signing --repo acheronfail/float-view-mobile
+base64 < .local/ios-store/ci-signing/app.mobileprovision | \
+  gh secret set IOS_APP_PROFILE_BASE64 --env ios-store-signing --repo acheronfail/float-view-mobile
+base64 < .local/ios-store/ci-signing/live-activity.mobileprovision | \
+  gh secret set IOS_EXTENSION_PROFILE_BASE64 --env ios-store-signing --repo acheronfail/float-view-mobile
+gh variable set IOS_STORE_SIGNING_READY --body true --env ios-store-signing --repo acheronfail/float-view-mobile
+```
+
+The password command prompts interactively; supply the password used for that
+PKCS12 export. No private keys are uploaded by the agent. Keep a secure backup.
+Only the explicitly selected protected job receives these secrets; normal
+GitHub releases and local builds continue without them. No App Store Connect
+API key is needed for this manual-profile build route.
+
+After the code is pushed and protection/secrets are configured, invoke:
+
+```sh
+gh workflow run build-apps.yml --ref master -f ios-store=true --repo acheronfail/float-view-mobile
+```
+
+CI imports the distribution identity into a temporary keychain on a disposable
+hosted Mac. It verifies each profile's app/team, expiry, distribution type and
+authorized certificate before installing it. Secret environment values are
+removed before Xcode runs. Both profiles and the temporary keychain are cleaned
+up before artifact upload. The build uses manual profiles and exports with
+automatic version changes disabled; no interactive account or cloud provisioning
+is needed. Renewal means replacing the matching certificate/profiles together.
+The same importer still handles the Mac Developer ID route with its existing
+secret names; there is no change to the Mac signer or trust policy.
+
 ### Remaining store work
 
-Protected CI key import/upload, monotonic build-number allocation and actual
-TestFlight processing remain open. Local signed archive/export verification has
+Owner provisioning of the protected CI environment and an actual hosted store
+build remain unverified. Protected upload/authentication, Apple-consumed build
+checks and actual TestFlight processing remain open. Local signed archive/export verification has
 passed; it does not establish authenticated upload or Apple processing. Upload credentials are not
 needed for the current sideload jobs or local structural checks. Before external
 beta, finish the baseline-100 storage/startup work. Before any upload, complete
@@ -278,8 +344,9 @@ macOS metadata files that can confuse AltStore's app detection.
 
 GitHub Actions builds master pushes and manual master runs as a
 rolling [Nightly prerelease](https://github.com/acheronfail/float-view-mobile/releases?q=prerelease%3Atrue).
-A nightly such as `v0.1.50-nightly.12.gabcdef012345` uses the next patch after the
-greatest stable ancestor, the commit count since that tag and the source hash.
+Before v1.0.0, a nightly uses `v1.0.0-nightly.<count>.g<hash>` with the count
+of all reachable repository commits. After v1.0.0, it uses the next patch after
+the greatest stable ancestor and counts commits since that tag.
 Unchanged successful commits are skipped. Only the current Nightly asset set is
 retained. Its release tag is the full SemVer nightly version, allowing GitHub to
 sort it above older stable releases. Source tags are immutable, while the same
@@ -300,7 +367,8 @@ Package names include the full display version, for example
 corresponding APK and universal macOS ZIP names. Settings displays the same version
 and commit revision. Native Apple marketing versions omit the nightly suffix;
 app and extension build numbers use the independent workflow counter. These
-outputs remain AltStore/sideload/self-signed packages, not app-store submissions.
+downloads remain AltStore IPAs, signed APKs and notarized Developer ID Mac ZIPs;
+the optional store job produces a separate signed IPA without uploading it.
 
 Locally, `FLOAT_VIEW_VERSION=v0.2.0 FLOAT_VIEW_BUILD_NUMBER=60 just ipa` produces
 a versioned package with marketing version `0.2.0` and build `60`; add

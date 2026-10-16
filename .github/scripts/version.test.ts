@@ -190,3 +190,16 @@ test('release preview CLI prints Markdown and supports the first release', () =>
   assert.match(result.stdout, /https:\/\/github.com\/test\/repo\/commits\/v0.0.1/);
   assert.equal(git(['tag', '--list'], dir), '');
 });
+
+test('launch nightlies target v1.0.0 and keep their count through pre-v1 tag cleanup', () => {
+  const dir = repository();
+  git(['tag', 'v0.3.0'], dir);
+  const sha = commit(dir);
+  const before = resolveVersion(sha, null, dir, 'v1.0.0');
+  assert.equal(before.version, `v1.0.0-nightly.2.g${sha.slice(0, 12)}`);
+  git(['tag', '-d', 'v0.3.0'], dir);
+  assert.equal(resolveVersion(sha, null, dir, 'v1.0.0').version, before.version);
+  git(['tag', 'v1.0.0'], dir);
+  const after = commit(dir);
+  assert.equal(resolveVersion(after, null, dir, 'v1.0.0').version, `v1.0.1-nightly.1.g${after.slice(0, 12)}`);
+});

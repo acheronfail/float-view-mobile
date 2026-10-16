@@ -70,7 +70,7 @@ export function latestStable(commit: string, cwd = process.cwd(), before?: strin
   return candidates.find((tag) => isAncestor(tag, commit, cwd)) ?? null;
 }
 
-export function resolveVersion(commit: string, tag: string | null, cwd = process.cwd()) {
+export function resolveVersion(commit: string, tag: string | null, cwd = process.cwd(), launchTarget?: string) {
   if (tag !== null) {
     if (!stablePattern.test(tag)) throw new Error('Stable release tags must match vX.Y.Z exactly');
     parseVersion(tag);
@@ -80,9 +80,13 @@ export function resolveVersion(commit: string, tag: string | null, cwd = process
     return { version: tag, appVersion: parseVersion(tag).appVersion, channel: 'stable', tag, configuration: 'Release' };
   }
   const base = latestStable(commit, cwd);
-  const count = git(['rev-list', '--count', ...(base ? [`${base}..${commit}`] : [commit])], cwd);
+  if (launchTarget && !stablePattern.test(launchTarget)) throw new Error('Launch target must be a stable version');
+  const preparingLaunch = launchTarget && (!base || compareStable(base, launchTarget) < 0);
+  // Count all reachable commits before launch, so removing old v0.x tags cannot
+  // renumber the preparation channel. After launch use the stable ancestor.
+  const count = git(['rev-list', '--count', ...(base && !preparingLaunch ? [`${base}..${commit}`] : [commit])], cwd);
   const sha = git(['rev-parse', '--short=12', commit], cwd);
-  const next = bumpVersion(base ?? 'v0.0.0', 'patch');
+  const next = preparingLaunch ? launchTarget : bumpVersion(base ?? 'v0.0.0', 'patch');
   const version = `${next}-nightly.${count}.g${sha}`;
   return {
     version,

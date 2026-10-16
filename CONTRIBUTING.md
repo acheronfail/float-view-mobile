@@ -122,8 +122,10 @@ If a helper push fails, its local tag remains for inspection and an explicit
 `git push origin <tag>` retry. Tagging does not modify app source or package manifests.
 
 Master pushes and manual master builds produce Nightly
-prereleases such as `v0.1.50-nightly.12.gabcdef012345`: the next patch, commit count
-since the greatest stable ancestor, and source hash. Nightlies update one rolling
+prereleases targeting `v1.0.0-nightly.<count>.g<hash>` before the first stable
+v1.0.0 ancestor. The count includes all reachable repository commits, so deleting
+v0.x tags cannot renumber it. After v1.0.0, use the next patch and commit count
+since the greatest stable ancestor, plus the source hash. Nightlies update one rolling
 Nightly prerelease, attaching it to the full SemVer version tag so GitHub sorts it
 above older stable versions. After successful nightly publication, superseded nightly
 version tags are deleted; the current Nightly tag, release and asset set are retained.
@@ -132,9 +134,15 @@ nightlies and reruns of older commits are skipped. Failed builds remain retryabl
 
 The retained Build apps workflow counter plus its fixed offset of 60 supplies an independent numeric native
 build identifier across both channels. The offset preserves the sequence from the former `ipa.yml` workflow.
-Keep the same workflow path, counter and offset; native
-build numbers must not reset on a minor/major bump. Reruns reuse the original
-identity; a future store upload needing a new build identifier needs a fresh run.
+The same preparation output feeds the IPA, APK, Mac ZIP and optional iOS store
+job. Build records retain source, run ID, attempt and CI URL; GitHub release notes
+link the number to that run. Build `N` maps to workflow run number `N - 60`.
+The allocator rejects other workflow paths; keep `.github/workflows/build-apps.yml`
+and its counter/offset through version and tag cleanup. Changing its display name
+is safe; moving its path requires an explicit continuity migration. Reruns keep
+the original number, while corrected submissions require a fresh workflow run.
+Canceled, skipped or failed runs may leave gaps; numbers are never recycled.
+A future upload path must query Apple before retrying an already received number.
 Release notes list non-merge commit titles, grouped by `app:`, `apple:`, `android:`,
 `windows:` and `linux:` under App, Apple, Android, Windows and Linux.
 `repo:` commits are excluded because they do not describe changes to the released apps.
@@ -150,8 +158,10 @@ Stable tags select Release configuration, while nightlies use Debug for mobile.
 Current downloads remain AltStore IPAs, signed APKs and notarized Developer ID
 Mac ZIPs. Local iOS Release archive/export preparation is documented in the
 [Apple host guide](backends/apple/README.md#ios-app-store-preparation); it neither
-uploads to a store nor changes the GitHub packages. Protected store uploads,
-shared build-number allocation and Android App Bundles remain planned work.
+uploads to a store nor changes the GitHub packages. Protected store uploads
+and Android App Bundles remain planned work. The optional `ios-store` manual
+input builds an App Store-signed artifact in its own protected environment, using
+the same run counter; it does not upload or gate the three-platform GitHub release.
 
 Run the focused release-tooling checks with
 `node --strip-types --test .github/scripts/*.test.ts` and

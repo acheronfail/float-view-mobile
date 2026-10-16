@@ -2,6 +2,7 @@
 """Local iOS archive/export preparation. This tool never uploads a build."""
 
 import argparse
+import base64
 import datetime
 import hashlib
 import json
@@ -116,6 +117,14 @@ def archive(args):
     commit = run("git", "rev-parse", "HEAD", capture=True).decode().strip()
     dirty = bool(run("git", "status", "--porcelain", capture=True).strip())
     require(not store or not dirty, "Commit source changes before making a signed store archive")
+    ci = None
+    if os.environ.get("FLOAT_VIEW_BUILD_RECORD"):
+        ci = json.loads(Path(os.environ["FLOAT_VIEW_BUILD_RECORD"]).read_text())
+        require(ci.get("schema") == 1 and ci.get("commit") == commit
+                and ci.get("appVersion") == version[1:] and ci.get("buildNumber") == number
+                and ci.get("runId") == os.environ.get("GITHUB_RUN_ID")
+                and ci.get("workflowPath") == ".github/workflows/build-apps.yml",
+                "CI build record does not match the source/version/run")
     # A clean check applies before generating the ignored embedded frontend.
     run("just", "build")
     args.output.mkdir(parents=True)
@@ -127,8 +136,16 @@ def archive(args):
                "-archivePath", str(archive_path), "MARKETING_VERSION=" + version[1:],
                "CURRENT_PROJECT_VERSION=" + number]
     if store:
-        command += ["DEVELOPMENT_TEAM=" + team, "CODE_SIGN_STYLE=Automatic",
+        manual = getattr(args, "manual_signing", False)
+        command += ["DEVELOPMENT_TEAM=" + team, "CODE_SIGN_STYLE=" + ("Manual" if manual else "Automatic"),
                     "CODE_SIGNING_ALLOWED=YES", "CODE_SIGNING_REQUIRED=YES"]
+        if manual:
+            identity = os.environ.get("CODE_SIGN_IDENTITY", "")
+            require(re.fullmatch(r"[A-F0-9]{40}", identity), "Missing selected distribution identity")
+            for setting in ["FLOAT_VIEW_IOS_APP_PROFILE", "FLOAT_VIEW_IOS_EXTENSION_PROFILE"]:
+                require(os.environ.get(setting), "Missing " + setting)
+                command += [setting + "=" + os.environ[setting]]
+            command += ["CODE_SIGN_IDENTITY=" + identity]
         if args.allow_provisioning_updates:
             command += ["-allowProvisioningUpdates"]
     else:
@@ -149,6 +166,14 @@ def archive(args):
     record = {"schema": 1, "purpose": "store" if store else "unsigned-check",
               "commit": commit, "dirty": dirty, "version": version[1:], "buildNumber": number,
               "team": team, "toolchain": tools, "appSHA256": tree_digest(app)}
+    if ci:
+        ci["buildAttempt"] = os.environ.get("GITHUB_RUN_ATTEMPT")
+        ci["buildJob"] = os.environ.get("GITHUB_JOB")
+        record["ci"] = ci
+    if store and getattr(args, "manual_signing", False):
+        record["signingIdentity"] = os.environ["CODE_SIGN_IDENTITY"]
+        record["profiles"] = {APP_ID: os.environ["FLOAT_VIEW_IOS_APP_PROFILE"],
+                              EXTENSION_ID: os.environ["FLOAT_VIEW_IOS_EXTENSION_PROFILE"]}
     (args.output / "archive.json").write_text(json.dumps(record, indent=2) + "\n")
     print("Archive prepared: " + str(args.output))
 
@@ -166,6 +191,9 @@ def export(args):
     options = {"method": "app-store-connect", "destination": "export", "teamID": record["team"],
                "signingStyle": "automatic", "manageAppVersionAndBuildNumber": False,
                "uploadSymbols": True}
+    if "profiles" in record:
+        options.update(signingStyle="manual", provisioningProfiles=record["profiles"],
+                       signingCertificate=record["signingIdentity"])
     with tempfile.TemporaryDirectory(prefix="float-view-ios-export-") as temporary:
         options_path = Path(temporary) / "ExportOptions.plist"
         options_path.write_bytes(plistlib.dumps(options))
@@ -187,6 +215,59 @@ def export(args):
     print("Verified store export (not uploaded): " + str(args.output))
 
 
+def ci_build(args):
+    require(os.environ.get("GITHUB_ACTIONS") == "true"
+            and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted"
+            and os.environ.get("RUNNER_OS") == "macOS", "CI profile import requires a hosted macOS runner")
+    require(os.environ.get("FLOAT_VIEW_BUILD_RECORD"), "CI requires the shared build record")
+    require(not args.output.exists(), "Output already exists")
+    # Clear both profile secrets before invoking any child tool or Xcode build.
+    encoded = {name: os.environ.pop(name, "") for name in
+               ["IOS_APP_PROFILE_BASE64", "IOS_EXTENSION_PROFILE_BASE64"]}
+    require(all(encoded.values()), "Missing iOS App Store provisioning profile secrets")
+    installed = []
+    try:
+        with tempfile.TemporaryDirectory(prefix="float-view-ios-profiles-") as temporary:
+            for index, (name, identifier, setting) in enumerate([
+                    ("IOS_APP_PROFILE_BASE64", APP_ID, "FLOAT_VIEW_IOS_APP_PROFILE"),
+                    ("IOS_EXTENSION_PROFILE_BASE64", EXTENSION_ID, "FLOAT_VIEW_IOS_EXTENSION_PROFILE")]):
+                path = Path(temporary) / (str(index) + ".mobileprovision")
+                path.write_bytes(base64.b64decode("".join(encoded.pop(name).split()), validate=True))
+                path.chmod(0o600)
+                profile = plistlib.loads(run("security", "cms", "-D", "-i", str(path), capture=True))
+                team = os.environ.get("APPLE_TEAM_ID")
+                require(profile.get("TeamIdentifier") == [team], "Profile belongs to another team")
+                require(profile["Entitlements"].get("application-identifier") ==
+                        profile["ApplicationIdentifierPrefix"][0] + "." + identifier,
+                        "Wrong app/extension provisioning profile")
+                require(profile["ExpirationDate"] > datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+                        and not profile.get("ProvisionedDevices") and not profile.get("ProvisionsAllDevices")
+                        and profile["Entitlements"].get("get-task-allow", False) is False,
+                        "Expected an unexpired App Store distribution profile")
+                require(os.environ.get("CODE_SIGN_IDENTITY") in
+                        [hashlib.sha1(certificate).hexdigest().upper() for certificate in profile["DeveloperCertificates"]],
+                        "Profile does not authorize the selected distribution certificate")
+                uuid = profile["UUID"]
+                require(re.fullmatch(r"[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}", uuid),
+                        "Invalid profile UUID")
+                destination = Path.home() / "Library/Developer/Xcode/UserData/Provisioning Profiles" / (uuid + ".mobileprovision")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                require(not destination.exists(), "Refusing to replace an installed profile")
+                destination.write_bytes(path.read_bytes())
+                destination.chmod(0o600)
+                installed.append(destination)
+                os.environ[setting] = uuid
+            archive(argparse.Namespace(command="archive", output=args.output / "archive",
+                                       manual_signing=True, allow_provisioning_updates=False))
+            export(argparse.Namespace(archive=args.output / "archive", output=args.output / "export",
+                                      allow_provisioning_updates=False))
+    finally:
+        for path in installed:
+            path.unlink(missing_ok=True)
+        for setting in ["FLOAT_VIEW_IOS_APP_PROFILE", "FLOAT_VIEW_IOS_EXTENSION_PROFILE"]:
+            os.environ.pop(setting, None)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -198,9 +279,14 @@ def main():
         if name != "archive-check":
             command.add_argument("--allow-provisioning-updates", action="store_true",
                                  help="Allow Xcode to create/update profiles using its signed-in account")
+    command = commands.add_parser("ci-build", help="Hosted-runner manual signing; no upload")
+    command.add_argument("output", type=lambda value: Path(value).resolve())
     args = parser.parse_args()
     try:
-        export(args) if args.command == "export" else archive(args)
+        if args.command == "ci-build":
+            ci_build(args)
+        else:
+            export(args) if args.command == "export" else archive(args)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, str(error) + "\n")
 

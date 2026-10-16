@@ -4,7 +4,7 @@
 
 ### Requirement: Nightlies identify development commits
 
-Master pushes and manual master runs SHALL resolve commit-identified rolling nightly prereleases without marking them latest. Before the first stable v1.0.0 tag, nightlies SHALL target v1.0.0; afterward they SHALL use the next patch after the greatest stable ancestor. Unchanged successful commits SHALL skip rebuilding; failed publication SHALL remain retryable.
+Master pushes and manual master runs SHALL resolve commit-identified rolling nightly prereleases without marking them latest. Before the first stable v1.0.0 tag, nightlies SHALL target v1.0.0; afterward they SHALL use the next patch after the greatest stable ancestor. Unchanged successful commits SHALL skip ordinary nightly rebuilding; an explicit store-preparation run MAY request fresh packages for all routes with one shared native number. Failed publication SHALL remain retryable.
 
 #### Scenario: Development after a minor release
 
@@ -14,7 +14,7 @@ Master pushes and manual master runs SHALL resolve commit-identified rolling nig
 #### Scenario: Unchanged source or failed build
 
 - **WHEN** the current commit already has a successfully published Nightly, or a platform build fails
-- **THEN** unchanged builds are skipped and failures do not replace the last successful Nightly
+- **THEN** ordinary unchanged builds are skipped unless store preparation explicitly requests a shared new run, and failures do not replace the last successful Nightly
 
 #### Scenario: Launch preparation after old tags are removed
 
@@ -86,6 +86,11 @@ Store submissions SHALL use Release packages with recorded source revision, disp
 
 - **WHEN** a corrected binary is needed after its previous build identifier was consumed
 - **THEN** the new upload retains the intended marketing version, uses a newer native identifier and records its exact source
+
+#### Scenario: One CI run builds several platforms
+
+- **WHEN** a Build apps workflow run produces sideload and selected store packages
+- **THEN** all packages use the same native build identifier, derived from the retained workflow run counter, and build records identify the source revision and exact CI run URL
 
 #### Scenario: Missing upload credentials
 

@@ -413,6 +413,7 @@ FA110000000000000000000D = {isa = PBXTargetDependency; target = FA11000000000000
 					"-lfloat_view_application_runtime_apple_ffi",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.floatview";
+				PROVISIONING_PROFILE_SPECIFIER = "$(FLOAT_VIEW_IOS_APP_PROFILE)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INCLUDE_PATHS = "$(PROJECT_DIR)/../Sources/CFloatViewApplicationRuntime";
@@ -446,6 +447,7 @@ FA110000000000000000000D = {isa = PBXTargetDependency; target = FA11000000000000
 					"-lfloat_view_application_runtime_apple_ffi",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.floatview";
+				PROVISIONING_PROFILE_SPECIFIER = "$(FLOAT_VIEW_IOS_APP_PROFILE)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INCLUDE_PATHS = "$(PROJECT_DIR)/../Sources/CFloatViewApplicationRuntime";
@@ -496,6 +498,7 @@ FA1100000000000000000009 = {isa = XCBuildConfiguration; buildSettings = {
  IPHONEOS_DEPLOYMENT_TARGET = 17.0;
  MARKETING_VERSION = 1.0;
  PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.floatview.live-activity";
+ PROVISIONING_PROFILE_SPECIFIER = "$(FLOAT_VIEW_IOS_EXTENSION_PROFILE)";
  PRODUCT_NAME = "$(TARGET_NAME)";
  SKIP_INSTALL = YES;
  SWIFT_VERSION = 5.0;
@@ -512,6 +515,7 @@ FA110000000000000000000A = {isa = XCBuildConfiguration; buildSettings = {
  IPHONEOS_DEPLOYMENT_TARGET = 17.0;
  MARKETING_VERSION = 1.0;
  PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.floatview.live-activity";
+ PROVISIONING_PROFILE_SPECIFIER = "$(FLOAT_VIEW_IOS_EXTENSION_PROFILE)";
  PRODUCT_NAME = "$(TARGET_NAME)";
  SKIP_INSTALL = YES;
  SWIFT_VERSION = 5.0;

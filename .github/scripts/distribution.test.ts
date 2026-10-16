@@ -88,7 +88,7 @@ function fixture() {
   git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'app: Show live telemetry'], cwd);
   const sha = git(['rev-parse', 'HEAD'], cwd);
   git(['update-ref', 'refs/remotes/origin/master', sha], cwd);
-  const metadata = resolveVersion(sha, null, cwd);
+  const metadata = resolveVersion(sha, null, cwd, 'v1.0.0');
   const statePath = join(cwd, 'state.json');
   const executable = join(cwd, 'gh');
   writeFileSync(executable, fakeGh);
@@ -109,6 +109,12 @@ function fixture() {
     GITHUB_SHA: sha,
     GITHUB_REF: 'refs/heads/master',
     GITHUB_RUN_NUMBER: '60',
+    GITHUB_RUN_ID: '38863449266',
+    GITHUB_RUN_ATTEMPT: '1',
+    GITHUB_REPOSITORY: 'test/repo',
+    GITHUB_WORKFLOW_REF: 'test/repo/.github/workflows/build-apps.yml@refs/heads/master',
+    GITHUB_SERVER_URL: 'https://github.com',
+    FLOAT_VIEW_BUILD_RECORD: join(cwd, 'build-record.json'),
     FLOAT_VIEW_VERSION: metadata.version,
     GITHUB_OUTPUT: join(cwd, 'outputs'),
   };
@@ -301,7 +307,7 @@ test('a newer nightly retains release identity while advancing its version tag a
   git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'next nightly'], f.cwd);
   const commit = git(['rev-parse', 'HEAD'], f.cwd);
   git(['update-ref', 'refs/remotes/origin/master', commit], f.cwd);
-  const next = resolveVersion(commit, null, f.cwd);
+  const next = resolveVersion(commit, null, f.cwd, 'v1.0.0');
   for (const file of assetNames(next.version)) writeFileSync(join(f.cwd, file), 'next package');
   const overrides = { GITHUB_SHA: commit, FLOAT_VIEW_VERSION: next.version };
   assert.equal(f.run('prepare', overrides).status, 0);
@@ -358,4 +364,38 @@ test('failed nightly publication leaves previous version tags intact', () => {
   f.save(state);
   assert.equal(f.run('publish').status, 0);
   assert.equal(f.state().refs?.[oldTag], undefined);
+});
+
+test('CI build record and release link use the shared number; older retries cannot downgrade Nightly', () => {
+  const f = fixture();
+  assert.equal(f.run('prepare').status, 0);
+  const record = JSON.parse(readFileSync(join(f.cwd, 'build-record.json'), 'utf8'));
+  assert.equal(record.buildNumber, '120');
+  assert.equal(record.commit, f.sha);
+  assert.equal(record.runId, '38863449266');
+  assert.equal(f.run('publish').status, 0);
+  const state = f.state();
+  assert.match(state.releases[0]!.body!, /Build 120.*actions\/runs\/38863449266/);
+  state.releases[0]!.body = state.releases[0]!.body!.replace('float-view-build-number:120', 'float-view-build-number:121');
+  f.save(state);
+  const uploads = state.actions.filter(x => x.startsWith('upload')).length;
+  assert.equal(f.run('prepare').status, 0);
+  assert.ok(f.output().endsWith('skip=true\n'));
+  assert.equal(f.run('publish').status, 0);
+  assert.equal(f.state().actions.filter(x => x.startsWith('upload')).length, uploads);
+});
+
+test('an explicit store run rebuilds all routes with a shared new number, without bypassing stale-run guards', () => {
+  const f = fixture();
+  assert.equal(f.run('publish').status, 0);
+  const request = { FLOAT_VIEW_BUILD_IOS_STORE: 'true', GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_RUN_NUMBER: '61' };
+  assert.equal(f.run('prepare', request).status, 0);
+  assert.match(f.output(), /buildNumber=121/);
+  assert.ok(f.output().endsWith('skip=false\n'));
+  assert.notEqual(f.run('prepare', { ...request, GITHUB_EVENT_NAME: 'push' }).status, 0);
+  const state = f.state();
+  state.releases[0]!.body = state.releases[0]!.body!.replace('float-view-build-number:120', 'float-view-build-number:122');
+  f.save(state);
+  assert.equal(f.run('prepare', request).status, 0);
+  assert.ok(f.output().endsWith('skip=true\n'));
 });
