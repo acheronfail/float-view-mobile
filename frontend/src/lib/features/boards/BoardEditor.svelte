@@ -208,7 +208,7 @@
           </button>
           <p id="auto-connect-help" class="text-xs text-muted">
             {#if device.bluetoothIdentifier}
-              Look for this board briefly when opening the app. Enabling it replaces the previously selected board.
+              Connect to this board when you open the app. Only one board can auto-connect at a time.
             {:else}
               Connect to this board locally before enabling auto-connect.
             {/if}
