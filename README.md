@@ -73,13 +73,18 @@ Allow installation from this source if Android asks.
 Requires macOS 14 or later. Supports Apple Silicon and Intel.
 
 1. Download the macOS `.zip`, extract it, and move `FloatView.app` to Applications.
-2. The app isn't notarised. Run this once in Terminal to allow it through Gatekeeper:
+2. Open FloatView. Builds produced by the Developer ID notarization pipeline have
+   Apple's notarization ticket attached and do not need a Terminal workaround.
 
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/FloatView.app
-   ```
+Older self-signed downloads are still unnotarized. For those builds only, run
+this once in Terminal before opening the app:
 
-3. Open FloatView.
+```sh
+xattr -dr com.apple.quarantine /Applications/FloatView.app
+```
+
+See [macOS release verification](backends/apple/README.md#macos-release-app) for
+signing/notarization details. Local source builds retain development signing.
 
 ## Contributing
 

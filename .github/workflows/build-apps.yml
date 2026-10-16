@@ -215,7 +215,7 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.skip == 'false'
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 65
     env:
       FLOAT_VIEW_VERSION: ${{ needs.prepare.outputs.version }}
       FLOAT_VIEW_BUILD_NUMBER: ${{ needs.prepare.outputs.build-number }}
@@ -236,7 +236,7 @@ jobs:
       - name: Install build tools
         id: tools
         run: |
-          brew install ripgrep openssl@3
+          brew install ripgrep
           toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
           rustup toolchain install "$toolchain" --profile minimal
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -263,11 +263,18 @@ jobs:
         working-directory: backends/core
         run: cargo fetch --locked --target aarch64-apple-darwin --target x86_64-apple-darwin
 
-      - name: Build and sign universal macOS app
+      - name: Build, sign and notarize universal macOS app
         env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
           MACOS_CODE_SIGN_P12_BASE64: ${{ secrets.MACOS_CODE_SIGN_P12_BASE64 }}
           MACOS_CODE_SIGN_P12_PASSWORD: ${{ secrets.MACOS_CODE_SIGN_P12_PASSWORD }}
-        run: bash backends/apple/with-macos-signing-identity.sh bash backends/apple/build-macos-release.sh
+          APPLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+        run: |
+          : "${APPLE_TEAM_ID:?Missing Apple Team ID variable}"
+          : "${APPLE_NOTARY_APPLE_ID:?Missing notarization Apple Account secret}"
+          : "${APPLE_NOTARY_PASSWORD:?Missing notarization app-specific password secret}"
+          bash backends/apple/with-macos-signing-identity.sh bash backends/apple/build-macos-release.sh
 
       - name: Upload macOS app
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
