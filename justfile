@@ -185,7 +185,7 @@ run platform target="": build
           xcodebuild -project "$project" -scheme float-view -sdk iphonesimulator \
             -destination "id=$target" -derivedDataPath /tmp/float-view-ios CODE_SIGNING_ALLOWED=NO build
           xcrun simctl install "$target" /tmp/float-view-ios/Build/Products/Debug-iphonesimulator/float-view.app
-          xcrun simctl launch --terminate-running-process "$target" fail.acheron.float-view
+          xcrun simctl launch --terminate-running-process "$target" fail.acheron.floatview
         else
           xcodebuild -project "$project" -scheme float-view -configuration Debug \
             -destination "platform=iOS,id=$target" -destination-timeout 30 \
@@ -193,7 +193,7 @@ run platform target="": build
           xcrun devicectl device install app --device "$target" \
             /tmp/float-view-ios-physical/Build/Products/Debug-iphoneos/float-view.app
           xcrun devicectl device process launch --device "$target" \
-            --terminate-existing --console fail.acheron.float-view
+            --terminate-existing --console fail.acheron.floatview
         fi
         ;;
       macos)

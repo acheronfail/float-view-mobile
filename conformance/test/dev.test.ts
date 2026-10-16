@@ -96,7 +96,7 @@ test('iOS development prefers a booted simulator, forwards logs, and uses same-n
     '--terminate-running-process',
     '--console',
     'booted',
-    'fail.acheron.float-view',
+    'fail.acheron.floatview',
   ]);
   assert.deepEqual(iosPhysicalConsoleLaunchArguments('physical'), [
     'devicectl',
@@ -107,7 +107,7 @@ test('iOS development prefers a booted simulator, forwards logs, and uses same-n
     'physical',
     '--terminate-existing',
     '--console',
-    'fail.acheron.float-view',
+    'fail.acheron.floatview',
   ]);
 });
 

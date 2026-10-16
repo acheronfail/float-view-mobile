@@ -6,7 +6,7 @@ import UIKit
 /// One latest-value mailbox and one serial ActivityKit worker; telemetry never
 /// creates an unbounded queue of tasks. The OS still controls rendering cadence.
 final class RideActivityController: @unchecked Sendable {
-  private static let logger = Logger(subsystem: "fail.acheron.float-view", category: "LiveActivity")
+  private static let logger = Logger(subsystem: "fail.acheron.floatview", category: "LiveActivity")
   private let lock = NSLock()
   private var latest: LiveActivityState?
   private var worker: Task<Void, Never>?

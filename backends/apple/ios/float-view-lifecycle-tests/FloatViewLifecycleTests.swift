@@ -1,7 +1,7 @@
 import XCTest
 
 final class FloatViewLifecycleTests: XCTestCase {
-  private let application = XCUIApplication(bundleIdentifier: "fail.acheron.float-view")
+  private let application = XCUIApplication(bundleIdentifier: "fail.acheron.floatview")
 
   private func acceptSafetyIfNeeded() {
     let agreement = application.buttons["I agree"]

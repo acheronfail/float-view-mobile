@@ -14,7 +14,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
-APP_ID = "fail.acheron.float-view"
+APP_ID = "fail.acheron.floatview"
 EXTENSION_ID = APP_ID + ".live-activity"
 
 

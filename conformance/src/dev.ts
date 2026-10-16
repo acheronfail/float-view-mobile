@@ -11,7 +11,7 @@ export const IOS_PORT = 11011;
 export const ANDROID_PORT = 11012;
 const ANDROID_APPLICATION = 'fail.acheron.floatview';
 const ANDROID_ACTIVITY = `${ANDROID_APPLICATION}/${ANDROID_APPLICATION}.ui.MainActivity`;
-const IOS_BUNDLE = 'fail.acheron.float-view';
+const IOS_BUNDLE = 'fail.acheron.floatview';
 const READY_TIMEOUT_MS = 30_000;
 
 type TargetPlatform = 'mock' | 'macos' | 'ios' | 'android';

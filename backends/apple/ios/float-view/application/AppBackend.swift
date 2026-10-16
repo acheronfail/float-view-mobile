@@ -27,7 +27,7 @@ final class AppBackend: ObservableObject {
             print("[FloatViewState] adapter \(diagnostic)")
           #endif
         },
-        restorationIdentifier: "fail.acheron.float-view.bluetooth-central"
+        restorationIdentifier: "fail.acheron.floatview.bluetooth-central"
       )
     #endif
     let applicationSupport = try! FileManager.default.url(

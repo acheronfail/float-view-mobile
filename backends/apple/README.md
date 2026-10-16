@@ -67,19 +67,22 @@ Live Activity extension. No current command uploads a build or creates a tag.
 
 ### Account and signing setup
 
-Apple Developer membership is confirmed; on 2026-10-17 the owner confirmed that
-app identifiers, an App Store Connect app record and Apple Distribution signing
-had not yet been set up. Their availability is not established by source names.
+Apple Developer membership is confirmed. On 2026-10-17 the owner installed Xcode
+26.0, registered the two identifiers below and created an Apple Distribution
+certificate. App Store Connect record creation is in progress; actual profile
+provisioning and signed-export verification remain pending.
 
 1. Install a supported [Xcode release](https://developer.apple.com/xcode/resources/).
    [Apple currently requires Xcode 26+ and the iOS 26+ SDK](https://developer.apple.com/news/upcoming-requirements/?id=04282026a)
    for uploads. The deployment target remains iOS/iPadOS 17; building with a newer
    SDK does not require raising that target. Set `DEVELOPER_DIR` for individual
-   commands if keeping multiple Xcode installations.
+   commands if keeping multiple Xcode installations; the owner installed 26.0 at
+   `/Applications/Xcode-26.0.0.app`, so use
+   `export DEVELOPER_DIR=/Applications/Xcode-26.0.0.app/Contents/Developer`.
 2. In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list),
    select the publishing team and register two **explicit App IDs**, after checking
-   availability: `fail.acheron.float-view` and
-   `fail.acheron.float-view.live-activity`. The second belongs to the WidgetKit
+   availability: `fail.acheron.floatview` and
+   `fail.acheron.floatview.live-activity`. The second belongs to the WidgetKit
    Live Activity extension. The current implementation does not use push-token
    Live Activity updates, App Groups or iCloud; do not enable those speculatively.
    If an identifier belongs to another team, resolve it before creating the app
@@ -91,16 +94,24 @@ had not yet been set up. Their availability is not established by source names.
    [Apple explains distribution signing and profiles](https://developer.apple.com/help/account/provisioning-profiles/create-an-app-store-provisioning-profile/).
    Both bundles need profiles for the same team; automatic signing manages these.
 4. In [App Store Connect → Apps](https://appstoreconnect.apple.com/apps), create
-   the iOS app record using the main identifier. Choose the public name, primary
-   language and a stable internal SKU (for example `float-view-ios`); the extension
-   has no separate store listing. Complete any pending account agreements.
+   the iOS app record using the main identifier. Select **iOS** for the current
+   setup, choose the public name and primary language, and use a stable internal
+   SKU (suggested `float-view-ios`). **Full Access** is suitable for the solo
+   account: this setting controls invited App Store Connect users, not customers.
+   The extension has no separate store listing. Adding macOS to this record later
+   requires the same bundle ID and creates a
+   [universal purchase](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-platforms/);
+   the current direct Mac app retains its separate identifier. Complete any pending
+   account agreements.
    [Apple's app-record instructions](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app/)
    explain which fields can change later. Price, territories, privacy/support
    URLs and payment/tax details remain owner decisions before publication.
 
 Keep team identifiers and private signing material out of source. Set
 `APPLE_TEAM_ID` in the local environment; the tooling passes it to **both** targets
-with one `DEVELOPMENT_TEAM` override. The shared scheme makes archive settings
+with one `DEVELOPMENT_TEAM` override. Changing the former development bundle
+identifier creates a separate iOS installation/container; no old-container
+migration or identity alias is provided. The shared scheme makes archive settings
 reproducible on a fresh checkout and keeps lifecycle tests in its Test action.
 
 ### Local archive and export
@@ -110,7 +121,7 @@ toolchain and its `aarch64-apple-ios` target. Fetch the locked iOS Rust dependen
 before archiving (`cd backends/core && cargo fetch --locked --target aarch64-apple-ios`).
 The commands rebuild and embed the shared frontend automatically.
 
-An unsigned structural check works with the existing Xcode 16.4 toolchain and
+An unsigned structural check also works with the older Xcode 16.4 toolchain and
 needs no developer account. The number below is an unused local test value:
 
 ```sh
@@ -356,7 +367,7 @@ ActivityKit content model, and `ios/float-view/live-activity/` the OS lifecycle.
 The extension is embedded in both simulator and device app packages.
 
 ActivityKit submission diagnostics use unified logging with subsystem
-`fail.acheron.float-view`, category `LiveActivity`. `update_begin` records the
+`fail.acheron.floatview`, category `LiveActivity`. `update_begin` records the
 reason and source age; `update_end` records the await duration and source age at
 completion. Log timestamps supply submission start/completion times. A source
 age of `-1` means unavailable; ages are capped at one day. Logs contain no

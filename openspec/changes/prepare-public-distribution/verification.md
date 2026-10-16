@@ -127,3 +127,31 @@ Checks completed:
   installation or global toolchain selection was changed.
 - Shared scheme XML, workflow YAML, whitespace and strict OpenSpec validation
   passed. No Swift/Rust/product behavior changed; no new device behavior is claimed.
+
+
+## Registered iOS identifiers and Xcode 26 — 2026-10-17
+
+- Owner reported installing Xcode 26.0, registering explicit IDs
+  `fail.acheron.floatview` / `fail.acheron.floatview.live-activity` and creating
+  an Apple Distribution certificate. App Store Connect record creation is in
+  progress; certificate/private-key usability and profiles have not yet been
+  exercised by a signed export.
+- Updated app/extension and lifecycle-test target identifiers, launch/development
+  and conformance tooling, iOS Bluetooth restoration namespace, Live Activity
+  logging subsystem and archive validation to the registered IDs. The former
+  development iOS bundle identity is not retained as an alias or migration path;
+  installation under the new ID has its own private container. Direct macOS
+  bundle identity and Developer ID/notarization requirements are unchanged.
+- Explicit `DEVELOPER_DIR` selected the installed Xcode 26.0 (build 17A324) with
+  iOS SDK 26.0, without changing global Xcode selection. A real unsigned Release
+  archive passed with both registered bundle IDs, embedded extension, matching
+  `1.0.0`/`1` versions, arm64 binaries and iOS 17 deployment. This remains an
+  unsigned structural check using an unallocated local build number.
+- All 18 store-tool tests and 14 focused conformance development/target tests
+  passed. Conformance TypeScript checking, whitespace and strict OpenSpec
+  validation passed. Lifecycle/BLE behavior on a device and an actual signed
+  export remain for the affected iOS distribution checks.
+- App-record guidance: iOS only for the current setup; suggested internal SKU
+  `float-view-ios`; Full Access for the solo App Store Connect account. Adding
+  macOS to the same record would use the same bundle ID and universal purchase;
+  this remains a later store-distribution choice, not a change to direct Mac IDs.
