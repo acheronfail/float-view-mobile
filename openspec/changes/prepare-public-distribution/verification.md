@@ -58,10 +58,17 @@ Hosted workflow and published download:
   Gatekeeper assessment (`source=Notarized Developer ID`). These checks ran on
   the existing development Mac, not a clean-machine permission-transition test.
 
+Owner-reported installation and permissions checkpoint — 2026-10-16:
+
+- In response to the outstanding installation/permission-transition checkpoint,
+  the owner reported: “I tested, gatekeeper passed, the permissions all worked
+  as well”. This closes the direct-distribution notarization checkpoint (3.4).
+- Device model, macOS version, clean-install conditions and whether permissions
+  were retained or requested again were not specified. Recording/export results
+  were not separately reported; this confirmation does not establish those checks
+  or Mac App Store sandbox acceptance.
+
 Outstanding:
 
-- Verify a published download on a clean supported Mac, and the affected signing
-  transition's Bluetooth/location permission retention or regrant, recording and
-  export. Local signing/Gatekeeper checks are not this OS/device checkpoint.
 - Mac App Store sandbox/provisioning, privacy requirements and submission remain
   separate subsequent work. Existing self-signed assets were not replaced.
