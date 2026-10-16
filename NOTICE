@@ -1,0 +1,31 @@
+Float View
+Copyright © 2026 acheronfail
+
+Except where another licence or attribution is identified, project-owned code
+is licensed under the GNU Affero General Public License, version 3 or (at your
+option) any later version (SPDX: AGPL-3.0-or-later). See LICENSE for the full
+terms, including the warranty disclaimer. Preserve existing third-party notices.
+
+Source and build instructions:
+https://github.com/acheronfail/float-view-mobile
+See CONTRIBUTING.md for building from source. Published builds identify their
+source revision in Settings. Use that revision, rather than the latest branch,
+when obtaining the corresponding source for a particular build.
+
+Artwork
+-------
+The rider artwork is adapted from “onewheel” by Luis Prado, Noun Project,
+image 4260841, under Creative Commons Attribution 3.0 Unported (CC BY 3.0).
+Source: https://thenounproject.com/icon/onewheel-4260841/
+Licence: https://creativecommons.org/licenses/by/3.0/
+Full licence: LICENSES/CC-BY-3.0.txt
+
+Float View adaptations include colours, backgrounds, cropping, silhouettes and
+platform-specific raster/vector formats. This credit covers tools/icon/icon.svg
+and the generated app icons, loading symbols and map rider symbol. The artwork
+retains its own licence; it is not relicensed as AGPL. No endorsement is implied.
+
+Third-party software and generated Lucide/Feather icons retain their respective
+licences. See THIRD_PARTY_NOTICES.txt and LICENSES/Lucide.txt. Vendor submodules
+and source-derived test fixtures retain their upstream terms and provenance;
+the project licence does not replace those terms.

@@ -1,8 +1,15 @@
 # Float View
 
 > [!WARNING]
-> The app is under active development and has not been released to app stores!
-> Features and stored data formats may change without notice until we reach version v1.0.0!
+> Store releases are being prepared. Current downloads are development builds.
+> The first v1.0.0 candidate will reset earlier development data to a fresh
+> baseline. Do not use these builds as the only copy of recordings you want to keep.
+
+Float View is open source under [AGPL-3.0-or-later](LICENSE).
+Buying the app through an app store supports ongoing development and helps cover
+developer memberships and distribution fees. You can also install through the
+alternative routes below or [build it yourself](CONTRIBUTING.md).
+Store links will be added here as each listing becomes available.
 
 - 📡 Connect to your VESC board over Bluetooth.
 - 📊 Watch live telemetry.
@@ -77,3 +84,12 @@ Requires macOS 14 or later. Supports Apple Silicon and Intel.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and verification instructions.
+
+## Licence and credits
+
+Copyright © 2026 acheronfail. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+The rider artwork is adapted from [“onewheel” by Luis Prado, Noun Project](https://thenounproject.com/icon/onewheel-4260841/),
+under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
+Third-party software and artwork retain their own terms; see
+[third-party notices](THIRD_PARTY_NOTICES.txt) and [licensing details](docs/licensing.md).
+Licences and notices are also available offline in the app's Settings.

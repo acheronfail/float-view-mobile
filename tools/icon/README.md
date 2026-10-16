@@ -7,6 +7,12 @@ all platform assets from the repository root with:
 tools/icon/generate.sh
 ```
 
+The rider artwork is adapted from [“onewheel” by Luis Prado, Noun Project](https://thenounproject.com/icon/onewheel-4260841/),
+image 4260841, under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
+Colours, background, silhouettes and formats have been adapted. Preserve the
+credit and separate artwork licence when regenerating app/loading/map assets;
+see [NOTICE](../../NOTICE) and [licensing details](../../docs/licensing.md).
+
 The generator requires `rsvg-convert`, ImageMagick's `magick`, and Apple's
 `sips` (supplied by macOS), plus Python 3. When a working `iconutil` is available, it is used
 for the macOS ICNS; otherwise the generator falls back to a valid 512px ICNS

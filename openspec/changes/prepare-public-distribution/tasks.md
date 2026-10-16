@@ -5,9 +5,10 @@ Implementation order: 1–2 establish repository readiness; 3 proves the largest
 ## 1. Publisher and open-source prerequisites
 
 - [ ] 1.1 Confirm Apple Developer Program and Google Play Console enrollment, record only non-sensitive readiness status, and recruit closed testers if applicable. Keep identity documents and credentials out of Git.
-- [ ] 1.2 Complete the recorded dependency/provenance audit: inventory redistributed code/assets, preserve upstream terms, add AGPL-3.0-or-later for project-owned work and Copyright © 2026 acheronfail, plus exact corresponding-source access and bundled acknowledgements. Include Luis Prado/Noun Project rider artwork attribution and modification notes under its verified licence; do not relicense it as AGPL. Resolve Apple distribution rights without silently adding an exception. Verify notices against actual package contents.
+- [x] 1.2 Add AGPL-3.0-or-later for project-owned work and Copyright © 2026 acheronfail, project/package licence metadata, Luis Prado/Noun Project artwork credit and modification notes, collected dependency notices and an offline shared Settings acknowledgement surface. Document reproducible collection and remaining source/rights checks; verify frontend build/types and Chromium/WebKit touch/keyboard behavior.
 - [ ] 1.3 Record reserved launch version v1.0.0, price, countries, support contact and public support/privacy URL destinations. Complete applicable agreements, public-contact/trader declarations and payment/tax setup where required; do not assume Australian execution means Australia-only availability.
 - [ ] 1.4 Document current official certificate fingerprints, app/extension identifiers and minimum OS support without exposing secrets; verify identifier availability before creating store records.
+- [ ] 1.5 Complete exact corresponding-source delivery and final-package notice verification, including any additional Android upstream copyright/NOTICE material and asset-specific licence evidence. Resolve Apple distribution rights without silently adding an exception; root/package licence metadata and the conservative notice inventory alone do not complete this gate.
 
 ## 2. Repository cleanup and production entry points
 

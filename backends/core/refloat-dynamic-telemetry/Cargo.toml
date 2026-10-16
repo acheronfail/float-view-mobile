@@ -1,4 +1,5 @@
 [package]
+license.workspace = true
 name = "float-view-refloat-dynamic-telemetry"
 version = "0.1.0"
 edition.workspace = true
