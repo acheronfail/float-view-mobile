@@ -54,6 +54,7 @@ if (tool === 'ditto') {
 if (tool === 'spctl') process.exit(process.env.FAKE_GATEKEEPER_FAILURE ? 1 : 0);
 if (tool === 'unzip') process.exit(0);
 if (tool === 'security') {
+  if (args[0] === 'import' && fs.readFileSync(args[1], 'utf8') !== 'test') process.exit(1);
   if (args[0] === 'list-keychains' && args.length === 3) console.log('  "/tmp/original.keychain-db"');
   if (args[0] === 'find-identity') console.log('  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "' + process.env.FAKE_IDENTITY + '"');
   process.exit(0);
@@ -256,4 +257,26 @@ test("CI import refuses a developer workstation", () => {
   );
   assert.notEqual(result.status, 0);
   assert.deepEqual(item.operations(), []);
+});
+
+test("CI import rejects malformed base64 before importing a certificate", () => {
+  const item = fixture();
+  const result = spawnSync(
+    "bash",
+    [join(root, "backends/apple/with-macos-signing-identity.sh"), "probe"],
+    {
+      env: {
+        ...item.env,
+        GITHUB_ACTIONS: "true",
+        RUNNER_ENVIRONMENT: "github-hosted",
+        RUNNER_OS: "macOS",
+        MACOS_CODE_SIGN_P12_BASE64: "!!!!",
+        MACOS_CODE_SIGN_P12_PASSWORD: "certificate-secret",
+      },
+      encoding: "utf8",
+      timeout: 10_000,
+    },
+  );
+  assert.notEqual(result.status, 0);
+  assert.equal(item.operations().some((x) => x.operation === "import"), false);
 });

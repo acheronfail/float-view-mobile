@@ -18,6 +18,11 @@ Software checks:
   selected-team certificate filtering; workstation-import refusal; disposable
   keychain cleanup; credential removal before submitting.
 - Shell syntax checks passed for build, import and notarization scripts.
+- The first hosted preparation run found a macOS-only base64 decoding flag in the
+  Linux-executed wrapper tests; replaced that operation with strict portable
+  Python decoding rather than skipping the certificate-selection tests. The
+  expanded 38-test release suite passes locally, including malformed certificate
+  input rejection and validation of decoded bytes before the mock import.
 - Workflow YAML parsed successfully. Whitespace and strict OpenSpec checks passed.
 - The frontend production build passed before embedding its HTML.
 

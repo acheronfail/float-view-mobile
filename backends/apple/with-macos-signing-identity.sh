@@ -48,7 +48,14 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-printf '%s' "$MACOS_CODE_SIGN_P12_BASE64" | /usr/bin/base64 -D > "$identity_path"
+python3 - "$identity_path" <<'PYTHON'
+import base64
+import os
+import pathlib
+import sys
+encoded = ''.join(os.environ['MACOS_CODE_SIGN_P12_BASE64'].split())
+pathlib.Path(sys.argv[1]).write_bytes(base64.b64decode(encoded, validate=True))
+PYTHON
 security create-keychain -p "$keychain_password" "$keychain_path"
 security set-keychain-settings -lut 21600 "$keychain_path"
 security unlock-keychain -p "$keychain_password" "$keychain_path"
