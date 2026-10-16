@@ -7,15 +7,11 @@
   let {
     busy,
     error,
-    declined,
     onaccept,
-    ondecline,
   }: {
     busy: boolean;
     error: string;
-    declined: boolean;
     onaccept: () => Promise<void>;
-    ondecline: () => Promise<void>;
   } = $props();
   let dialog = $state<HTMLElement>();
   let acceptButton = $state<HTMLButtonElement>();
@@ -71,18 +67,7 @@
       </p>
     </div>
     {#if error}<p role="alert" class="mt-3 text-sm text-danger">{error}</p>{/if}
-    {#if declined}<p role="status" class="mt-3 text-sm text-muted">
-        Agreement declined. Float View remains locked. You can close this window.
-      </p>{/if}
     <div class="mt-5 flex flex-wrap justify-end gap-3">
-      <button
-        type="button"
-        class="touch-manipulation rounded-lg border border-outline px-4 py-2"
-        disabled={busy}
-        onpointerdown={(event) => activateFromPointer(event, ondecline)}
-        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, ondecline)}
-        >{declined ? 'Close app' : 'Decline & exit'}</button
-      >
       <button
         bind:this={acceptButton}
         type="button"

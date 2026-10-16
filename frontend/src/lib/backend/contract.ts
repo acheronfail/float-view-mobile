@@ -1033,8 +1033,6 @@ export interface BackendMethods {
     result: SavedDevice;
   };
   'savedDevice.delete': { params: { savedDeviceId: string }; result: Accepted };
-  /** Close the native app after declining the first-launch disclaimer. Only valid before acceptance. */
-  'app.exit': { params: EmptyParams; result: { accepted: true } };
   'announcements.openVoiceSettings': { params: Record<string, never>; result: { accepted: true } };
   /** Manual preview: requires a free speech slot, independent of the automatic repeat interval. */
   'announcements.test': {

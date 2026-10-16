@@ -370,10 +370,8 @@ The app shell requires an explicit riding-safety agreement before mounting route
 or restoring a screen. Acceptance is saved in native/shared settings before access
 is granted and survives WebView and process recreation. Escape, native Back and
 the backdrop cannot dismiss the gate. Failed saves keep it locked and allow retry.
-Declining sends authenticated `app.exit`; native hosts close the app. The browser
-mock leaves a locked notice because browsers cannot close ordinary user-opened
-tabs. Exit is only available before acceptance, in the foreground and without an
-active connection. The disclaimer covers riding risk, safe app use and the author's
+The only action is “I agree”; users who do not agree can close the app themselves.
+The disclaimer covers riding risk, safe app use and the author's
 responsibility for injury or damage, to the extent permitted by law.
 
 The full saved-board editor exposes Connect automatically through the single

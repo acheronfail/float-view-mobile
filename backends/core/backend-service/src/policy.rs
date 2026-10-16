@@ -3515,42 +3515,6 @@ mod tests {
         ));
     }
     #[test]
-    fn safety_exit_requires_pending_agreement_and_foreground_without_connection() {
-        use crate::{dispatch::Dispatch, operations::Operation};
-        let mut t = Test::new();
-        t.fact(Fact::Foreground { foreground: false }, 1).unwrap();
-        assert!(matches!(
-            t.service.dispatch(1, Operation::ExitApp),
-            Err(Failure::InvalidState)
-        ));
-        t.fact(Fact::Foreground { foreground: true }, 2).unwrap();
-        t.drain();
-        assert!(matches!(
-            t.service.dispatch(1, Operation::ExitApp),
-            Ok(Dispatch::Complete(_))
-        ));
-        assert!(
-            t.service
-                .drain_os()
-                .effects
-                .iter()
-                .any(|e| matches!(e, Effect::ExitApp))
-        );
-        t.service.policy.settings.safety_disclaimer_accepted = true;
-        assert!(matches!(
-            t.service.dispatch(1, Operation::ExitApp),
-            Err(Failure::InvalidState)
-        ));
-        assert!(
-            !t.service
-                .drain_os()
-                .effects
-                .iter()
-                .any(|e| matches!(e, Effect::ExitApp))
-        );
-    }
-
-    #[test]
     fn voice_settings_launch_is_foreground_bounded_and_ignores_stale_completion() {
         use crate::{dispatch::Dispatch, operations::Operation};
         let mut t = Test::new();

@@ -153,7 +153,6 @@ pub struct Envelope {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Effect {
-    ExitApp,
     Speak {
         speech: crate::announcements::Speech,
     },

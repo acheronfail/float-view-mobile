@@ -458,10 +458,6 @@ impl Backend {
                     id: p.text("savedDeviceId")?,
                 }
             }
-            "app.exit" => {
-                p.only(&[])?;
-                Operation::ExitApp
-            }
             "announcements.openVoiceSettings" => {
                 p.only(&[])?;
                 Operation::OpenVoiceSettings

@@ -33,7 +33,6 @@
   let safetyCleared = $state(false);
   let safetyBusy = $state(false);
   let safetyError = $state('');
-  let safetyDeclined = $state(false);
 
   async function acceptSafety() {
     if (safetyBusy) return;
@@ -50,19 +49,6 @@
     }
   }
 
-  async function declineSafety() {
-    if (safetyBusy) return;
-    safetyBusy = true;
-    safetyError = '';
-    try {
-      await backendState.exitApp();
-      safetyDeclined = true;
-    } catch {
-      safetyError = 'Could not close the app. Please close it or try again.';
-    } finally {
-      safetyBusy = false;
-    }
-  }
   $effect(() => {
     // The early HTML placeholder also covers backend connection and screen restoration.
     const loading = document.getElementById('app-loading');
@@ -379,11 +365,5 @@
 </main>
 
 {#if safetyGateOpen}
-  <SafetyDisclaimer
-    busy={safetyBusy}
-    error={safetyError}
-    declined={safetyDeclined}
-    onaccept={acceptSafety}
-    ondecline={declineSafety}
-  />
+  <SafetyDisclaimer busy={safetyBusy} error={safetyError} onaccept={acceptSafety} />
 {/if}

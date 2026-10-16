@@ -86,7 +86,6 @@ export async function runConformance(target: Target) {
       })
     );
     assertState(initial);
-    await expectError(client.request('app.exit', { unexpected: true } as never), 'invalid_request');
     await expectError(
       client.request('settings.update', {
         expectedRevision: initial.settings.revision,
@@ -101,7 +100,6 @@ export async function runConformance(target: Target) {
     assert.equal(agreed.safetyDisclaimerAccepted, true);
     initial = await client.request('state.get', {});
     assert.equal(initial.settings.safetyDisclaimerAccepted, true);
-    await expectError(client.request('app.exit', {}), 'invalid_state');
     await exerciseAnnouncements(client, initial);
     initial = await client.request('state.get', {});
     const checkpoint = { version: 1 as const, route: { kind: 'settings' as const }, live: null, surface: null };
@@ -1601,7 +1599,6 @@ export const mandatoryMethods: BackendMethod[] = [
   'savedDevice.update',
   'savedDevice.delete',
   'settings.update',
-  'app.exit',
   'announcements.test',
   'announcements.openVoiceSettings',
   'boardProfile.get',

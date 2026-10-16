@@ -842,12 +842,6 @@ export class MockBackend {
           values: { ...this.refloatCurrentValues, ...tune.values },
         });
       }
-      case 'app.exit': {
-        if (Object.keys(params).length) return failure(id, 'invalid_request', 'Unexpected parameters');
-        if (this.state.settings.safetyDisclaimerAccepted || this.state.activeConnection)
-          return failure(id, 'invalid_state', 'Safety disclaimer is no longer pending');
-        return success(id, { accepted: true });
-      }
       case 'announcements.openVoiceSettings': {
         if (Object.keys(params).length) return failure(id, 'invalid_request', 'Unexpected parameters');
         return this.state.announcementAudio.voiceSettingsAvailable
