@@ -1,7 +1,43 @@
-import type { BluetoothState } from '$lib/backend/contract';
+import type { BluetoothState, PermissionRow } from '$lib/backend/contract';
 
-export function discoveryNotice(bluetooth: BluetoothState | undefined, permissionPending = false) {
+export function discoveryLocationPermission(rows: PermissionRow[] = []) {
+  return rows.find(
+    (row) =>
+      row.permission === 'location' &&
+      !row.optional &&
+      (row.status !== 'granted' || row.accuracy !== 'precise' || row.servicesEnabled !== true)
+  );
+}
+
+export function discoveryNotice(
+  bluetooth: BluetoothState | undefined,
+  permissionPending = false,
+  location?: PermissionRow
+) {
   if (!bluetooth) return null;
+  if (location && (bluetooth.scanPermission !== 'not_determined' || bluetooth.connectPermission === 'not_required')) {
+    if (location.pending || permissionPending)
+      return {
+        title: 'Waiting for location access',
+        detail:
+          'Respond to your device’s permission prompt. Choose precise location and allow access while using Float View to find nearby boards.',
+      };
+    if (location.servicesEnabled === false && ['granted', 'limited'].includes(location.status))
+      return {
+        title: 'Location is off',
+        detail:
+          'Android needs Location turned on to find nearby Bluetooth boards. Open settings and turn on Location. Scanning will resume automatically.',
+      };
+    return {
+      title: 'Location access is needed to find boards',
+      detail:
+        location.status === 'restricted'
+          ? 'Location access is restricted by your device. Check your device’s restrictions to allow board discovery.'
+          : location.status === 'unavailable'
+            ? 'Waiting for your device to report location access before scanning for boards.'
+            : 'Android needs precise location access to find nearby Bluetooth boards. Allow access while using Float View and enable Precise location. Ride route recording stays optional.',
+    };
+  }
   if (permissionPending) {
     return {
       title: 'Waiting for Bluetooth access',

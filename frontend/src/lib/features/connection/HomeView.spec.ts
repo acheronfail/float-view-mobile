@@ -113,3 +113,48 @@ it('puts saved boards first while preserving discovery order within each group',
     state.discoveredDevices = original;
   }
 });
+
+it('explains Android location blockers with the correct recovery action', () => {
+  const location: PermissionRow = {
+    permission: 'location',
+    status: 'notDetermined',
+    action: 'requestPermission',
+    guidance: 'fineLocationForScan',
+    optional: false,
+    pending: false,
+    servicesEnabled: true,
+    scan: null,
+    connect: null,
+    accuracy: 'unknown',
+    scope: 'unknown',
+    optionLabel: null,
+  };
+  state.snapshot.permissions = [location];
+  try {
+    const body = renderDiscovery();
+    expect(body).toContain('Location access is needed to find boards');
+    expect(body).toContain('Allow location');
+    expect(body).toContain('Ride route recording stays optional');
+    expect(body).not.toContain('Another board');
+    location.pending = true;
+    expect(renderDiscovery()).toContain('Waiting for location access');
+    location.pending = false;
+    location.status = 'denied';
+    location.action = 'openSettings';
+    expect(renderDiscovery()).toContain('Open settings');
+    location.status = 'limited';
+    location.accuracy = 'approximate';
+    expect(renderDiscovery()).toContain('enable Precise location');
+    location.status = 'granted';
+    location.accuracy = 'precise';
+    location.servicesEnabled = false;
+    expect(renderDiscovery()).toContain('Location is off');
+    location.servicesEnabled = true;
+    expect(renderDiscovery()).toContain('Another board');
+    location.optional = true;
+    location.status = 'notDetermined';
+    expect(renderDiscovery()).toContain('Another board');
+  } finally {
+    state.snapshot.permissions = [];
+  }
+});

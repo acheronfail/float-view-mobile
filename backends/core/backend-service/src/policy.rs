@@ -355,6 +355,9 @@ impl BackendService {
                     self.policy.location_authorization,
                     self.policy.location_background,
                 ) = observation.location_capability();
+                if !observation.scan_location_ready() {
+                    self.stop_scan();
+                }
                 self.policy.permissions = Some(observation);
             }
             Fact::NativeDiagnostics {
@@ -678,7 +681,13 @@ impl BackendService {
         if !(1..=60_000).contains(&timeout_ms) {
             return Err(Failure::InvalidRequest);
         }
-        if !allowed(self.policy.scan_permission) {
+        if !allowed(self.policy.scan_permission)
+            || self
+                .policy
+                .permissions
+                .as_ref()
+                .is_some_and(|p| !p.scan_location_ready())
+        {
             return Err(Failure::PermissionRequired);
         }
         // Apple cannot report radio readiness until the permission-triggering

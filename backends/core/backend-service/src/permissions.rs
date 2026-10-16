@@ -150,6 +150,16 @@ impl Observation {
             background_option_label: None,
         }
     }
+    /// The Android host scans without neverForLocation, so discovery needs precise
+    /// foreground location and the device Location switch, independently of recording.
+    pub fn scan_location_ready(&self) -> bool {
+        !matches!(
+            self.platform,
+            Platform::Android29 | Platform::Android30 | Platform::Android31
+        ) || (granted(self.location.access)
+            && self.accuracy == Accuracy::Precise
+            && self.location_services == Some(true))
+    }
     pub fn location_capability(&self) -> (crate::os::LocationAuthorization, bool) {
         use crate::os::LocationAuthorization as L;
         if self.location_services != Some(true) {
@@ -241,9 +251,7 @@ impl Observation {
                     action: action(grant),
                     guidance: Guidance::None,
                     pending: pending == Some(id),
-                    optional: id != Id::Bluetooth
-                        && !(id == Id::Location
-                            && matches!(self.platform, Platform::Android29 | Platform::Android30)),
+                    optional: id != Id::Bluetooth && !(id == Id::Location && android),
                     services_enabled: if notification {
                         None
                     } else if id == Id::Bluetooth {
@@ -355,21 +363,24 @@ impl Observation {
                         Guidance::UnsupportedHardware
                     } else if row.services_enabled == Some(false) {
                         Guidance::ServicesDisabled
-                    } else if id == Id::Location
-                        && matches!(self.platform, Platform::Android29 | Platform::Android30)
-                        && self.accuracy != Accuracy::Precise
-                    {
+                    } else if id == Id::Location && android && self.accuracy != Accuracy::Precise {
                         Guidance::FineLocationForScan
                     } else {
                         Guidance::None
                     };
                 }
-                if id == Id::Location
-                    && matches!(self.platform, Platform::Android29 | Platform::Android30)
-                    && granted(grant.access)
-                    && self.accuracy == Accuracy::Approximate
-                {
-                    row.action = action(&self.bluetooth_scan);
+                if id == Id::Location && android {
+                    if granted(grant.access) && self.accuracy == Accuracy::Approximate {
+                        row.action = Some(if grant.requestable {
+                            Action::RequestPermission
+                        } else {
+                            Action::OpenSettings
+                        });
+                        row.guidance = Guidance::FineLocationForScan;
+                    } else if granted(grant.access) && self.location_services == Some(false) {
+                        row.action = Some(Action::OpenSettings);
+                        row.guidance = Guidance::ServicesDisabled;
+                    }
                 }
                 row
             })
@@ -429,6 +440,83 @@ mod tests {
             background_option_label: None,
         }
     }
+    #[test]
+    fn android_discovery_requires_precise_foreground_location_and_services() {
+        for platform in [
+            Platform::Android29,
+            Platform::Android30,
+            Platform::Android31,
+        ] {
+            let mut o = observation(platform);
+            assert!(!o.scan_location_ready());
+            let location = |o: &Observation| {
+                o.rows(None)
+                    .into_iter()
+                    .find(|r| r.permission == Id::Location)
+                    .unwrap()
+            };
+            assert!(!location(&o).optional);
+            assert_eq!(location(&o).action, Some(Action::RequestPermission));
+            o.location = grant(Permission::Granted, true);
+            o.accuracy = Accuracy::Approximate;
+            assert_eq!(location(&o).action, Some(Action::RequestPermission));
+            assert_eq!(location(&o).guidance, Guidance::FineLocationForScan);
+            assert!(!o.scan_location_ready());
+            o.location.requestable = false;
+            assert_eq!(location(&o).action, Some(Action::OpenSettings));
+            o.accuracy = Accuracy::Precise;
+            o.scope = Scope::WhileInUse;
+            assert!(o.scan_location_ready());
+            o.location_services = Some(false);
+            assert!(!o.scan_location_ready());
+            assert_eq!(location(&o).action, Some(Action::OpenSettings));
+            assert_eq!(location(&o).guidance, Guidance::ServicesDisabled);
+        }
+        for platform in [Platform::Ios, Platform::Macos] {
+            assert!(observation(platform).scan_location_ready());
+        }
+    }
+
+    #[test]
+    fn scan_admission_and_revocation_follow_android_location_facts() {
+        let root = std::env::temp_dir().join(format!("scan-location-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut service = BackendService::open(&root).unwrap();
+        service.policy.scan_permission = Permission::Granted;
+        service.policy.radio = crate::os::Radio::PoweredOn;
+        let mut o = observation(Platform::Android31);
+        service.policy.permissions = Some(o.clone());
+        assert!(matches!(
+            service.start_scan(5000),
+            Err(Failure::PermissionRequired)
+        ));
+        assert!(service.policy.scan.is_none());
+        o.location = grant(Permission::Granted, false);
+        o.accuracy = Accuracy::Precise;
+        o.scope = Scope::WhileInUse;
+        service.policy.permissions = Some(o.clone());
+        assert!(service.start_scan(5000).is_ok());
+        assert!(service.policy.scan.is_some());
+        o.location_services = Some(false);
+        let exchange = &service.policy.exchange;
+        service
+            .apply_os(Envelope {
+                lifetime: exchange.lifetime,
+                sequence: exchange.sequence + 1,
+                monotonic_ms: 1,
+                epoch_ms: 1,
+                fact: Fact::Permissions { observation: o },
+            })
+            .unwrap();
+        assert!(service.policy.scan.is_none());
+        assert!(matches!(
+            service.start_scan(5000),
+            Err(Failure::PermissionRequired)
+        ));
+        drop(service);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn notification_inventory_tracks_requests_denial_settings_and_promotion() {
         let mut o = observation(Platform::Android31);

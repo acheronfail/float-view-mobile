@@ -11,16 +11,22 @@
   import NewBoardDialog from '$lib/ui/NewBoardDialog.svelte';
   import SectionTitle from '../../ui/SectionTitle.svelte';
   import Spinner from '../../ui/Spinner.svelte';
-  import { discoveryNotice } from './discovery-status';
+  import { discoveryNotice, discoveryLocationPermission } from './discovery-status';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
 
   const { discover: discoverRow } = createMotion();
 
+  const locationPermission = $derived(discoveryLocationPermission(backendState.snapshot?.permissions));
   const bluetoothPermission = $derived(
     backendState.snapshot?.permissions.find((row) => row.permission === 'bluetooth')
   );
-  const permissionPending = $derived(backendState.scanPermissionPending || bluetoothPermission?.pending === true);
-  const notice = $derived(discoveryNotice(backendState.snapshot?.bluetooth, permissionPending));
+  const recoveryPermission = $derived(
+    locationPermission && (backendState.snapshot?.bluetooth.scanPermission !== 'not_determined' || !bluetoothPermission)
+      ? locationPermission
+      : bluetoothPermission
+  );
+  const permissionPending = $derived(backendState.scanPermissionPending || recoveryPermission?.pending === true);
+  const notice = $derived(discoveryNotice(backendState.snapshot?.bluetooth, permissionPending, locationPermission));
 
   const discoveredDevices = $derived(
     [...backendState.discoveredDevices].sort((a, b) => Number(!!b.savedDeviceId) - Number(!!a.savedDeviceId))
@@ -32,6 +38,7 @@
 
   onMount(() => {
     let active = true;
+    let requestedLocation = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const wait = (delayMs: number) =>
@@ -41,6 +48,20 @@
 
     async function scanWhileActive() {
       while (active) {
+        if (
+          backendState.status === 'connected' &&
+          recoveryPermission === locationPermission &&
+          locationPermission?.status === 'notDetermined' &&
+          locationPermission.action === 'requestPermission' &&
+          !requestedLocation &&
+          !permissionPending &&
+          !backendState.permissionBusy &&
+          !backendState.busy
+        ) {
+          requestedLocation = true;
+          await backendState.recoverPermission(locationPermission);
+          if (!active) return;
+        }
         const needsPermission = backendState.snapshot?.bluetooth.scanPermission === 'not_determined';
         if (
           backendState.status === 'connected' &&
@@ -139,20 +160,27 @@
     {#if notice}
       <div role="status" class="rounded-lg border border-outline bg-elevated p-4">
         <div class="flex items-center gap-3">
-          <Icon name="bluetooth-off" class="text-3xl text-warning" />
+          <Icon
+            name={recoveryPermission === locationPermission && locationPermission ? 'map-pin-off' : 'bluetooth-off'}
+            class="text-3xl text-warning"
+          />
           <h2 class="text-lg font-medium">{notice.title}</h2>
         </div>
         <p class="mt-3 text-muted">{notice.detail}</p>
-        {#if bluetoothPermission?.action && !permissionPending}
+        {#if recoveryPermission?.action && !permissionPending}
           <button
             type="button"
             class="mt-3 touch-manipulation rounded-lg bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
             disabled={backendState.busy || backendState.permissionBusy}
             onpointerdown={(event) =>
-              activateFromPointer(event, () => backendState.recoverPermission(bluetoothPermission!))}
+              activateFromPointer(event, () => backendState.recoverPermission(recoveryPermission!))}
             onclick={(event) =>
-              activateFromKeyboardOrAssistiveClick(event, () => backendState.recoverPermission(bluetoothPermission!))}
-            >{bluetoothPermission.action === 'requestPermission' ? 'Allow Bluetooth' : 'Open settings'}</button
+              activateFromKeyboardOrAssistiveClick(event, () => backendState.recoverPermission(recoveryPermission!))}
+            >{recoveryPermission.action === 'requestPermission'
+              ? recoveryPermission.permission === 'location'
+                ? 'Allow location'
+                : 'Allow Bluetooth'
+              : 'Open settings'}</button
           >
         {/if}
         {#if backendState.permissionError}<p role="alert" class="mt-3 text-warning">

@@ -443,6 +443,19 @@ export class MockBackend {
           return failure(id, 'invalid_state', 'Permission action changed');
         return success(id, this.state.location);
       case 'bluetooth.scan':
+        if (
+          this.state.permissions.some(
+            (row) =>
+              row.permission === 'location' &&
+              !row.optional &&
+              (row.status !== 'granted' || row.accuracy !== 'precise' || row.servicesEnabled !== true)
+          )
+        )
+          return failure(
+            id,
+            'permission_required',
+            'Precise location and Location services are required for discovery'
+          );
         this.change({
           ...this.state,
           bluetooth: { ...this.state.bluetooth, scanning: false },

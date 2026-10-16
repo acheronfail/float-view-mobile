@@ -46,7 +46,11 @@ class PermissionBroker(private val application: FloatViewApplication) : Bluetoot
     private fun readObservation(bluetoothService: Boolean?, bluetoothSupported: Boolean?): JSONObject {
         val coarse = grant(Manifest.permission.ACCESS_COARSE_LOCATION)
         val fine = grant(Manifest.permission.ACCESS_FINE_LOCATION)
-        val foreground = if (fine.getString("access") == "granted") fine else coarse
+        val foreground = if (fine.getString("access") == "granted") fine else coarse.also {
+            // Approximate access remains visible, while recovery requests precise access.
+            it.put("requestable", fine.getBoolean("requestable"))
+            it.put("rationale", fine.getBoolean("rationale"))
+        }
         val background = grant(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         val hasForeground = foreground.getString("access") == "granted"
         val services = runCatching { application.getSystemService(LocationManager::class.java).isLocationEnabled }.getOrNull()
@@ -89,6 +93,8 @@ class PermissionBroker(private val application: FloatViewApplication) : Bluetoot
     private fun settingsIntent(permission: String): Intent {
         val manager = application.getSystemService(NotificationManager::class.java)
         return when {
+            permission == "location" && !application.getSystemService(LocationManager::class.java).isLocationEnabled ->
+                Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
             permission == "liveUpdates" && Build.VERSION.SDK_INT >= 36 ->
                 Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, application.packageName)
             permission == "notifications" && manager.getNotificationChannel("active_logging")?.importance == NotificationManager.IMPORTANCE_NONE ->
@@ -142,7 +148,7 @@ class PermissionBroker(private val application: FloatViewApplication) : Bluetoot
                     "Background location is optional. To record rides while locked, open Permissions, then Location, and choose $label."
                 } else if (permission == "notifications") "Notifications show live ride readings while Float View is in the background. Bluetooth and recording work without them."
                 else if (permission == "bluetooth") "Nearby device access lets Float View discover and connect to your board."
-                else "Location records optional ride routes. On older Android versions precise location also permits Bluetooth scanning."
+                else "Location records optional ride routes. Precise location also permits Bluetooth board discovery. Ride route recording is a separate optional setting."
                 dialog = runCatching { AlertDialog.Builder(current).setTitle("Permission access").setMessage(message)
                     .setPositiveButton(if (action == "openSettings") "Open settings" else "Continue") { _, _ -> present() }
                     .setNegativeButton("Cancel") { _, _ -> finish(false) }.setOnCancelListener { finish(false) }.show() }.getOrElse { finish(false); null }

@@ -17,13 +17,14 @@ export function permissionInventory(
     scope: 'unknown',
     optionLabel: null,
   };
-  if (platform === 'android29' || platform === 'android30') {
+  if (platform.startsWith('android')) {
     location.optional = false;
     location.guidance = 'fineLocationForScan';
   }
   const bluetooth: PermissionRow = {
     ...location,
     permission: 'bluetooth',
+    guidance: 'none',
     optional: false,
     status: 'granted',
     action: null,

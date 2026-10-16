@@ -418,7 +418,7 @@ export class BackendState {
     this.permissionError = null;
     try {
       await this.client.request('permissions.recover', { permission: row.permission, action: row.action }, 35_000);
-      if (row.permission === 'bluetooth') this.scanError = null;
+      if (row.permission === 'bluetooth' || row.permission === 'location') this.scanError = null;
     } catch (error) {
       this.permissionError = error instanceof Error ? error.message : 'Permission recovery failed. Try again.';
     } finally {
