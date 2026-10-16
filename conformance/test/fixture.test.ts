@@ -187,8 +187,8 @@ test('physical scenario matrix excludes desktop backgrounding', () => {
     'unexpected-disconnect',
   ];
   assert.deepEqual(physicalScenarioMatrix.macos, connectionScenarios);
-  assert.deepEqual(physicalScenarioMatrix.ios, [...connectionScenarios, 'background']);
-  assert.deepEqual(physicalScenarioMatrix.android, [...connectionScenarios, 'background']);
+  assert.deepEqual(physicalScenarioMatrix.ios, [...connectionScenarios, 'background', 'auto-connect']);
+  assert.deepEqual(physicalScenarioMatrix.android, [...connectionScenarios, 'background', 'auto-connect']);
   assert.ok(physicalScenarioMatrix.android.includes('background'));
   assert.ok(physicalScenarioMatrix.ios.includes('background'));
 });

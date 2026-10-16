@@ -7,6 +7,7 @@
   import BatteryFields from './BatteryFields.svelte';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import Icon from '$lib/ui/Icon.svelte';
+  import ToggleIndicator from '$lib/ui/ToggleIndicator.svelte';
   import { normalizedCustomName, SerialSaveQueue, validPreferredCanId } from './autosave';
   import { motorOptions } from './motor-options';
 
@@ -33,6 +34,8 @@
   const saveQueue = new SerialSaveQueue();
   let active = false;
   let loaded = $state(false);
+  let autoConnectBusy = $state(false);
+  let autoConnectError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
   let failedPatch: Record<string, unknown> = {};
   let discardDrafts = false;
@@ -100,6 +103,17 @@
         return;
       await action();
     });
+  }
+
+  async function toggleAutoConnect() {
+    if (autoConnectBusy || backendState.busy || !device?.bluetoothIdentifier) return;
+    autoConnectBusy = true;
+    const selected = backendState.settings?.autoConnectSavedDeviceId === savedDeviceId;
+    const saved = await backendState.updateSessionSettings({
+      autoConnectSavedDeviceId: selected ? null : savedDeviceId,
+    });
+    autoConnectBusy = false;
+    autoConnectError = saved ? null : (backendState.error ?? 'Auto-connect could not be saved. Try again.');
   }
 
   function saveName() {
@@ -178,6 +192,29 @@
     {/if}
     <div class="mt-4 grid gap-3 sm:grid-cols-2">
       {#if !batteryOnly}
+        <div class="text-sm sm:col-span-2">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={backendState.settings?.autoConnectSavedDeviceId === savedDeviceId}
+            aria-describedby="auto-connect-help"
+            disabled={!device.bluetoothIdentifier || autoConnectBusy || backendState.busy}
+            class="flex w-full touch-pan-y items-center justify-between gap-3 rounded-md py-2 text-left disabled:opacity-50"
+            onpointerdown={(event) => activateFromPointer(event, toggleAutoConnect, { scrollable: true })}
+            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, toggleAutoConnect)}
+          >
+            <span>Connect automatically</span>
+            <ToggleIndicator checked={backendState.settings?.autoConnectSavedDeviceId === savedDeviceId} />
+          </button>
+          <p id="auto-connect-help" class="text-xs text-muted">
+            {#if device.bluetoothIdentifier}
+              Look for this board briefly when opening the app. Enabling it replaces the previously selected board.
+            {:else}
+              Connect to this board locally before enabling auto-connect.
+            {/if}
+          </p>
+          {#if autoConnectError}<p role="alert" class="mt-1 text-warning">{autoConnectError}</p>{/if}
+        </div>
         <label class="text-sm sm:col-span-2">
           <span class="mb-1 block text-muted">Display name</span>
           <input
@@ -290,7 +327,7 @@
         Close without saving failed changes
       </button>
     {/if}
-  {:else if backendState.error}
+  {:else if backendState.error && !autoConnectError}
     <p role="alert" class="mt-3 text-warning">{backendState.error}</p>
     <button
       type="button"

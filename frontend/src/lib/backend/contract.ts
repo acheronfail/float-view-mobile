@@ -849,6 +849,8 @@ export interface SessionDisplayOptions {
 }
 
 export interface Settings {
+  /** Installation-local preferred saved board; null disables automatic connection. */
+  autoConnectSavedDeviceId: string | null;
   /** Explicit acceptance of the first-launch riding safety disclaimer. */
   safetyDisclaimerAccepted: boolean;
   announcements: AnnouncementSettings;

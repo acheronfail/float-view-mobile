@@ -177,3 +177,10 @@ The adapter delegates its main-looper lifecycle to one `SpeechExecutor`, using
 closed engine/focus/clock ports for deterministic failure tests. Engine and focus
 cleanup remain native effects; Rust still owns telemetry eligibility, cooldown
 and admission. No second speech policy or playback queue is introduced.
+
+Foreground auto-connect uses the existing MainActivity onStart/onStop facts and
+the process-owned shared service. Initial start and each return can search for
+the selected local board for 15 seconds once readiness is satisfied; permission
+prompts are not triggered by this policy. Configuration-driven Activity
+replacement, duplicate foreground observations and WebView/listener replacement
+do not rearm; normal BLE execution remains in the adapter.

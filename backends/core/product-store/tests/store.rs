@@ -998,3 +998,87 @@ fn announcement_preferences_validate_atomically_and_reopen() {
         Err(Error::InvalidInput)
     );
 }
+
+#[test]
+fn auto_connect_selection_is_local_validated_atomic_and_durable() {
+    let root = Root::new();
+    let mut store = root.open();
+    let a = store.ensure_board("local-a", Some("A"), None, 100).unwrap();
+    let b = store.ensure_board("local-b", Some("B"), None, 101).unwrap();
+    assert_eq!(store.settings().unwrap().auto_connect_saved_device_id, None);
+    for id in [&a.saved_device_id, &b.saved_device_id] {
+        let revision = store.settings().unwrap().revision;
+        let patch = serde_json::json!({"autoConnectSavedDeviceId":id}).to_string();
+        let selected = store.update_settings(revision, &patch).unwrap();
+        assert_eq!(selected.auto_connect_saved_device_id.as_ref(), Some(id));
+        drop(store);
+        store = root.open();
+        assert_eq!(store.settings().unwrap(), selected);
+    }
+    let before = store.settings().unwrap();
+    assert_eq!(
+        store.update_settings(
+            before.revision,
+            r#"{"autoConnectSavedDeviceId":"missing","unitPreference":"imperial"}"#
+        ),
+        Err(Error::NotFound)
+    );
+    assert_eq!(
+        store.update_settings(
+            before.revision,
+            r#"{"autoConnectSavedDeviceId":42,"unitPreference":"imperial"}"#
+        ),
+        Err(Error::InvalidInput)
+    );
+    assert!(matches!(
+        store.update_settings(0, r#"{"autoConnectSavedDeviceId":null}"#),
+        Err(Error::Conflict { .. })
+    ));
+    assert_eq!(store.settings().unwrap(), before);
+    let db = Connection::open(root.0.join("catalog.sqlite")).unwrap();
+    db.execute(
+        "UPDATE saved_device SET opaque_platform_id=NULL WHERE saved_device_id=?",
+        [&a.saved_device_id],
+    )
+    .unwrap();
+    assert_eq!(store.update_settings(before.revision,
+        &serde_json::json!({"autoConnectSavedDeviceId":a.saved_device_id,"unitPreference":"imperial"}).to_string()), Err(Error::UnassociatedBoard));
+    db.execute_batch("CREATE TRIGGER reject_settings BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT,'test'); END;").unwrap();
+    assert!(
+        store
+            .update_settings(before.revision, r#"{"autoConnectSavedDeviceId":null}"#)
+            .is_err()
+    );
+    assert_eq!(store.settings().unwrap(), before);
+    db.execute_batch("DROP TRIGGER reject_settings;").unwrap();
+    assert_eq!(
+        store
+            .update_settings(before.revision, r#"{"autoConnectSavedDeviceId":null}"#)
+            .unwrap()
+            .auto_connect_saved_device_id,
+        None
+    );
+}
+
+#[test]
+fn forgetting_selected_board_clears_selection_in_the_same_transaction() {
+    let root = Root::new();
+    let mut store = root.open();
+    let board = store.ensure_board("local", None, None, 1).unwrap();
+    let selected = store
+        .update_settings(
+            0,
+            &serde_json::json!({"autoConnectSavedDeviceId":board.saved_device_id}).to_string(),
+        )
+        .unwrap();
+    let db = Connection::open(root.0.join("catalog.sqlite")).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_delete BEFORE DELETE ON saved_device BEGIN SELECT RAISE(ABORT,'test'); END;").unwrap();
+    assert!(store.forget_board(&board.saved_device_id).is_err());
+    assert_eq!(store.settings().unwrap(), selected);
+    assert!(store.board(&board.saved_device_id).is_ok());
+    db.execute_batch("DROP TRIGGER reject_delete;").unwrap();
+    store.forget_board(&board.saved_device_id).unwrap();
+    let settings = store.settings().unwrap();
+    assert_eq!(settings.revision, selected.revision + 1);
+    assert_eq!(settings.auto_connect_saved_device_id, None);
+}

@@ -337,6 +337,7 @@ impl BackendService {
 
 pub(crate) fn settings(v: &store::Settings) -> f::Settings {
     f::Settings {
+        auto_connect_saved_device_id: v.auto_connect_saved_device_id.clone(),
         safety_disclaimer_accepted: v.safety_disclaimer_accepted,
         announcements: v.announcements.clone(),
         revision: v.revision,

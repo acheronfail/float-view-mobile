@@ -72,6 +72,7 @@ const initial: AppState = {
     liveWidgetSlots: ['fieldWeakeningCurrentA', 'motorCurrentA', 'batteryCurrentA', 'powerW', 'distanceM'],
     historyGapThresholdSeconds: null,
     locationRecordingEnabled: false,
+    autoConnectSavedDeviceId: null,
     safetyDisclaimerAccepted: false,
     includeGpsLocationWhenExporting: false,
   },

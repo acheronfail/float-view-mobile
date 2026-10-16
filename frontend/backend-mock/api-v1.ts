@@ -19,6 +19,7 @@ import {
   MAX_SESSION_LIST_CURSOR_BYTES,
   MAX_SESSION_LIST_PAGE,
   type AppState,
+  type DiscoveredDevice,
   type ActiveConnection,
   type LiveWidgetSlots,
   type BoardHistorySummary,
@@ -293,6 +294,10 @@ export class MockBackend {
   private sessionCatalog: SessionSummary[] = [secondSession, session];
   private activeSessionId?: string;
   private pendingCandidates: ControllerCandidate[] = [];
+  private advertising = true;
+  private foreground = true;
+  private autoConnect: 'waiting' | 'closed' | number = 'waiting';
+  private autoConnectTimer?: ReturnType<typeof setTimeout>;
   private discoveryExpiryTimer?: ReturnType<typeof setTimeout>;
   private refloatTimeoutOnce = false;
   private shutdownOutcome: 'no-op' | 'disconnect' = 'no-op';
@@ -335,6 +340,7 @@ export class MockBackend {
       liveWidgetSlots: [...defaultLiveWidgetSlots],
       historyGapThresholdSeconds: null,
       locationRecordingEnabled: false,
+      autoConnectSavedDeviceId: null,
       safetyDisclaimerAccepted: false,
       includeGpsLocationWhenExporting: false,
     },
@@ -351,9 +357,19 @@ export class MockBackend {
   private operation?: SessionOperationState;
   private operationTimer?: ReturnType<typeof setTimeout>;
 
-  constructor(publish: (event: StateChanged) => void = () => {}, options: { safetyDisclaimerAccepted?: boolean } = {}) {
+  constructor(
+    publish: (event: StateChanged) => void = () => {},
+    options: {
+      safetyDisclaimerAccepted?: boolean;
+      autoConnectSavedDeviceId?: string | null;
+      advertising?: boolean;
+    } = {}
+  ) {
     this.publish = publish;
     this.state.settings.safetyDisclaimerAccepted = options.safetyDisclaimerAccepted ?? false;
+    this.state.settings.autoConnectSavedDeviceId = options.autoConnectSavedDeviceId ?? null;
+    this.advertising = options.advertising ?? true;
+    this.stepAutoConnect();
   }
 
   handlePayload(payload: string): Response {
@@ -462,6 +478,7 @@ export class MockBackend {
           discoveredDevices: [discoveredBoard],
         });
         this.scheduleDiscoveryExpiry();
+        this.observeAutoConnect(discoveredBoard);
         return accepted(id);
       case 'device.connect': {
         const deviceId = string(params.deviceId);
@@ -470,6 +487,7 @@ export class MockBackend {
         if (trackingMode !== 'saved' && trackingMode !== 'guest') {
           return failure(id, 'invalid_request', 'trackingMode must be saved or guest');
         }
+        this.cancelAutoConnect();
         const active = this.state.activeConnection;
         if (active && (active.deviceId !== deviceId || active.state !== 'failed')) {
           return failure(id, 'invalid_state', 'A board is already active');
@@ -653,12 +671,17 @@ export class MockBackend {
           {
             ...this.state,
             savedDevices: this.state.savedDevices.filter((device) => device.savedDeviceId !== savedDeviceId),
+            settings:
+              this.state.settings.autoConnectSavedDeviceId === savedDeviceId
+                ? { ...this.state.settings, autoConnectSavedDeviceId: null, revision: this.state.settings.revision + 1 }
+                : this.state.settings,
           },
           true
         );
         return accepted(id);
       }
       case 'device.disconnect': {
+        this.cancelAutoConnect();
         const deviceId = this.state.activeConnection?.deviceId;
         if (deviceId) this.refloatDrafts.delete(deviceId);
         if (deviceId && this.uiCheckpoint?.live?.deviceId === deviceId) this.uiCheckpoint = null;
@@ -851,6 +874,7 @@ export class MockBackend {
           return failure(id, 'conflict', 'Settings revision changed');
         }
         const allowed = new Set([
+          'autoConnectSavedDeviceId',
           'announcements',
           'idleProbeIntervalMs',
           'idlePersistIntervalMs',
@@ -868,6 +892,14 @@ export class MockBackend {
           'safetyDisclaimerAccepted',
           'includeGpsLocationWhenExporting',
         ]);
+        if ('autoConnectSavedDeviceId' in patch && patch.autoConnectSavedDeviceId !== null) {
+          const target = patch.autoConnectSavedDeviceId;
+          if (typeof target !== 'string' || !target.length || Buffer.byteLength(target, 'utf8') > 128 || target.includes('\0'))
+            return failure(id, 'invalid_request', 'Invalid auto-connect board');
+          const board = this.state.savedDevices.find((board) => board.savedDeviceId === target);
+          if (!board) return failure(id, 'not_found', 'Saved board was not found');
+          if (!board.bluetoothIdentifier) return failure(id, 'invalid_state', 'Connect to the board locally first');
+        }
         if ('announcements' in patch) {
           const a = patch.announcements as import('../src/lib/backend/contract.ts').AnnouncementSettings;
           if (
@@ -927,6 +959,8 @@ export class MockBackend {
         };
         const location = locationSummary(this.state.permissions, settings.locationRecordingEnabled);
         this.change({ ...this.state, settings, location });
+        if ('autoConnectSavedDeviceId' in patch && patch.autoConnectSavedDeviceId === null) this.cancelAutoConnect();
+        this.stepAutoConnect();
         return success(id, settings);
       }
       case 'boardProfile.get': {
@@ -1230,6 +1264,7 @@ export class MockBackend {
       permissions,
       location: locationSummary(permissions, this.state.settings.locationRecordingEnabled),
     });
+    this.stepAutoConnect();
   }
 
   simulateConnectionState(state: 'ready' | 'reconnecting', foreground = true): void {
@@ -1926,6 +1961,97 @@ export class MockBackend {
     this.operation = cancelled;
     this.change({ ...this.state, sessionOperation: cancelled });
     return cancelled;
+  }
+
+  simulateAdvertising(advertising: boolean): void {
+    this.advertising = advertising;
+    if (advertising) this.simulateDiscovery(discoveredBoard);
+  }
+
+  simulateForeground(foreground: boolean): void {
+    if (foreground === this.foreground) return;
+    this.foreground = foreground;
+    if (!foreground) this.cancelAutoConnect();
+    else {
+      this.autoConnect = this.state.activeConnection ? 'closed' : 'waiting';
+      this.stepAutoConnect();
+    }
+  }
+
+  /** Fresh scan input; a state read or socket recreation never replays it. */
+  simulateDiscovery(device: DiscoveredDevice): void {
+    this.change({ ...this.state, discoveredDevices: [device] });
+    this.observeAutoConnect(device);
+  }
+
+  private cancelAutoConnect(): void {
+    this.autoConnect = 'closed';
+    if (this.autoConnectTimer) clearTimeout(this.autoConnectTimer);
+    this.autoConnectTimer = undefined;
+    if (this.state.bluetooth.scanning)
+      this.change({ ...this.state, bluetooth: { ...this.state.bluetooth, scanning: false } });
+  }
+
+  simulateBluetooth(bluetooth: Partial<AppState['bluetooth']>): void {
+    this.change({ ...this.state, bluetooth: { ...this.state.bluetooth, ...bluetooth } });
+    this.stepAutoConnect();
+  }
+
+  private autoConnectReady(): boolean {
+    const bt = this.state.bluetooth;
+    return (
+      this.state.settings.safetyDisclaimerAccepted &&
+      bt.radio === 'powered_on' &&
+      ['granted', 'not_required'].includes(bt.scanPermission) &&
+      ['granted', 'not_required'].includes(bt.connectPermission) &&
+      !this.state.permissions.some(
+        (p) =>
+          p.permission === 'location' &&
+          !p.optional &&
+          (p.status !== 'granted' || p.accuracy !== 'precise' || p.servicesEnabled !== true)
+      )
+    );
+  }
+
+  private stepAutoConnect(): void {
+    if (!this.foreground || this.state.activeConnection) return;
+    if (typeof this.autoConnect === 'number' && Date.now() >= this.autoConnect) {
+      this.cancelAutoConnect();
+      return;
+    }
+    if (!this.autoConnectReady()) {
+      if (typeof this.autoConnect === 'number' && this.state.bluetooth.scanning)
+        this.change({ ...this.state, bluetooth: { ...this.state.bluetooth, scanning: false } });
+      return;
+    }
+    if (!this.state.settings.autoConnectSavedDeviceId || this.autoConnect === 'closed') return;
+    if (this.autoConnect === 'waiting') {
+      this.autoConnect = Date.now() + 15_000;
+      this.autoConnectTimer = setTimeout(() => this.cancelAutoConnect(), 15_000);
+      this.autoConnectTimer.unref?.();
+    }
+    this.change({ ...this.state, bluetooth: { ...this.state.bluetooth, scanning: true } });
+    if (this.advertising) this.simulateDiscovery(discoveredBoard);
+  }
+
+  private observeAutoConnect(device: DiscoveredDevice): void {
+    if (
+      typeof this.autoConnect !== 'number' ||
+      Date.now() >= this.autoConnect ||
+      !this.foreground ||
+      !this.autoConnectReady() ||
+      this.state.activeConnection
+    )
+      return;
+    const board = this.state.savedDevices.find((b) => b.savedDeviceId === this.state.settings.autoConnectSavedDeviceId);
+    if (
+      !board?.bluetoothIdentifier ||
+      device.savedDeviceId !== board.savedDeviceId ||
+      device.deviceId !== discoveredBoard.deviceId
+    )
+      return;
+    this.cancelAutoConnect();
+    this.handle({ id: 0, method: 'device.connect', params: { deviceId: device.deviceId, trackingMode: 'saved' } });
   }
 
   private scheduleDiscoveryExpiry() {

@@ -19,7 +19,7 @@ development. The shared product store keeps its canonical marker (defined in
 pre-release policy, missing or incompatible markers reset only validated, app-owned files.
 Corruption, protected storage and ordinary operational failures never reset data.
 Update the shared store marker whenever either SQL schema or a persisted JSON
-record changes incompatibly. Marker `25` adds mandatory first-launch safety acceptance to settings.
+record changes incompatibly. Marker `26` adds the installation-local preferred auto-connect board setting. Incompatible development storage is reset by its marker; ordinary corruption and operational failure never trigger that reset.
 
 `refloat_configuration` stores bounded, complete application-wide Tunes. Exact
 package version, schema fingerprint, and wire signature are part of the record

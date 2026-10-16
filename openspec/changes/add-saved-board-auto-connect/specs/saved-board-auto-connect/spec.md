@@ -25,7 +25,7 @@ Settings SHALL expose nullable `autoConnectSavedDeviceId`, defaulting to null, t
 
 - **WHEN** deletion of the selected inactive board succeeds
 - **THEN** its selection is atomically cleared and the settings revision advances in the published complete state
-- **AND** rejected or failed deletion does not clear the preference
+- **AND** rejected deletion or failure before board-removal commit does not clear the preference; cleanup failure after committed removal retains the cleared preference
 
 #### Scenario: Import isolation
 

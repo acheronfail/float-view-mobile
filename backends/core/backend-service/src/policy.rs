@@ -74,6 +74,9 @@ pub(crate) struct Policy {
     pub devices: BTreeMap<String, Device>,
     pub visible_devices: BTreeMap<String, Device>,
     pub scan: Option<(u64, u64)>,
+    pub normal_scan_until: Option<u64>,
+    pub foreground_observed: bool,
+    pub auto_connect: crate::auto_connect::Opportunity,
     pub active: Option<Connection>,
     pub timers: BTreeMap<u64, TimerEntry>,
     pub location_authorization: os::LocationAuthorization,
@@ -103,6 +106,9 @@ impl Policy {
             devices: BTreeMap::new(),
             visible_devices: BTreeMap::new(),
             scan: None,
+            normal_scan_until: None,
+            foreground_observed: false,
+            auto_connect: crate::auto_connect::Opportunity::Closed,
             active: None,
             timers: BTreeMap::new(),
             location_authorization: os::LocationAuthorization::Unavailable,
@@ -124,7 +130,7 @@ impl Policy {
 fn allowed(p: Permission) -> bool {
     matches!(p, Permission::Granted | Permission::NotRequired)
 }
-fn checked_device(id: &str, name: Option<&str>) -> Result<(), Failure> {
+pub(crate) fn checked_device(id: &str, name: Option<&str>) -> Result<(), Failure> {
     if id.is_empty()
         || id.len() > 128
         || id.contains('\0')
@@ -271,6 +277,7 @@ impl BackendService {
             _ => {}
         }
         self.diagnostics.tick(now, epoch);
+        let scan_before = self.policy.scan;
         let connection_before = self.policy.active.as_ref().map(|a| (a.generation, a.state));
         // Expire before accepting a delayed OS result, even when its timer fact is queued behind it.
         let deadline_expired = self.policy.timers.values().any(|t| {
@@ -316,7 +323,9 @@ impl BackendService {
                     && *scan == self.policy.scan_permission
                     && *connect == self.policy.connect_permission
             }
-            Fact::Foreground { foreground } => *foreground == self.policy.foreground,
+            Fact::Foreground { foreground } => {
+                self.policy.foreground_observed && *foreground == self.policy.foreground
+            }
             _ => false,
         };
         if unchanged_capability && !deadline_expired {
@@ -344,6 +353,7 @@ impl BackendService {
                     | Fact::Storage { .. }
                     | Fact::NativeDiagnostics { .. }
             );
+        let same_foreground = matches!(envelope.fact, Fact::Foreground { foreground } if foreground == self.policy.foreground);
         let first_discovery = matches!(envelope.fact, Fact::Discovered { .. })
             && self.policy.visible_devices.is_empty();
         match envelope.fact {
@@ -379,7 +389,10 @@ impl BackendService {
                 self.apply_speech_fact(fact)
             }
             Fact::Clock {} => {}
-            Fact::StopRequested {} => self.disconnect("native_stop_requested")?,
+            Fact::StopRequested {} => {
+                self.cancel_auto_connect();
+                self.disconnect("native_stop_requested")?;
+            }
             Fact::Bluetooth {
                 radio,
                 scan,
@@ -430,13 +443,14 @@ impl BackendService {
                     self.policy.devices.insert(
                         device_id.clone(),
                         Device {
-                            id: device_id,
+                            id: device_id.clone(),
                             name,
                             rssi,
                             seen: envelope.monotonic_ms,
                             epoch: envelope.epoch_ms,
                         },
                     );
+                    self.auto_connect_discovered(&device_id)?;
                 }
             }
             Fact::Link { generation, state } => {
@@ -556,7 +570,24 @@ impl BackendService {
             }
             Fact::Timer { id } => self.fire_timer(id)?,
             Fact::Foreground { foreground } => {
+                let entering =
+                    foreground && (!self.policy.foreground_observed || !self.policy.foreground);
+                if entering && self.policy.foreground_observed && self.policy.scan.take().is_some()
+                {
+                    // Fence queued observations from the previous visit while preserving normal demand.
+                    self.policy.exchange.request_stop_scan();
+                }
+                self.policy.foreground_observed = true;
                 self.policy.foreground = foreground;
+                if entering {
+                    self.policy.auto_connect = if self.policy.active.is_none() {
+                        crate::auto_connect::Opportunity::Waiting
+                    } else {
+                        crate::auto_connect::Opportunity::Closed
+                    };
+                } else if !foreground {
+                    self.cancel_auto_connect();
+                }
                 if !foreground
                     && self
                         .policy
@@ -603,6 +634,7 @@ impl BackendService {
             Fact::UiCompleted { id, success } => self.complete_ui(id, success),
             Fact::VoiceSettingsOpened { id, success } => self.complete_voice_settings(id, success),
         }
+        self.step_auto_connect()?;
         self.location_eligibility()?;
         self.step_announcements()?;
         if first_discovery {
@@ -611,8 +643,13 @@ impl BackendService {
         let unchanged_discovery = discovery_before.is_some_and(|(scan, devices)| {
             scan == self.policy.scan && devices == self.policy.visible_devices
         });
-        if (!discovery_only && !private_completion && !inactive_timer && !unchanged_discovery)
+        if (!discovery_only
+            && !private_completion
+            && !inactive_timer
+            && !unchanged_discovery
+            && !same_foreground)
             || first_discovery
+            || scan_before != self.policy.scan
             || connection_before != self.policy.active.as_ref().map(|a| (a.generation, a.state))
         {
             self.changed()?;
@@ -695,18 +732,19 @@ impl BackendService {
         if self.policy.radio != Radio::PoweredOn {
             return Err(Failure::Unavailable);
         }
-        if let Some((id, _)) = self.policy.scan {
-            return Ok(id);
+        if self
+            .policy
+            .normal_scan_until
+            .is_none_or(|until| until <= self.policy.exchange.now)
+        {
+            self.policy.normal_scan_until = Some(self.policy.exchange.now + u64::from(timeout_ms));
         }
-        self.policy.exchange.admit()?;
-        let id = self.policy.exchange.id()?;
-        self.policy.scan = Some((id, self.policy.exchange.now + u64::from(timeout_ms)));
-        self.policy.exchange.push(Effect::Scan { scan_id: id })?;
-        self.arm_timer(Timer::Discovery, 250, Some(250))?;
+        self.step_auto_connect()?;
         self.changed()?;
-        Ok(id)
+        self.policy.scan.map(|s| s.0).ok_or(Failure::Unavailable)
     }
-    fn stop_scan(&mut self) {
+    pub(crate) fn stop_scan(&mut self) {
+        self.policy.normal_scan_until = None;
         if self.policy.scan.take().is_some() {
             self.policy.exchange.request_stop_scan();
         }
@@ -980,13 +1018,7 @@ impl BackendService {
             Timer::Discovery => {
                 self.expire_discovery();
                 self.policy.visible_devices = self.policy.devices.clone();
-                if self
-                    .policy
-                    .scan
-                    .is_some_and(|(_, until)| self.policy.exchange.now >= until)
-                {
-                    self.stop_scan();
-                }
+                self.step_auto_connect()?;
                 if self.policy.scan.is_some() || !self.policy.devices.is_empty() {
                     self.arm_timer(Timer::Discovery, 250, Some(250))?;
                 }
@@ -3641,6 +3673,281 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&t.service.policy.settings).unwrap(),
             settings
+        );
+    }
+    fn automatic_test() -> Test {
+        let mut t = Test::new();
+        let board = t
+            .service
+            .store
+            .ensure_board("preferred", Some("Board"), None, 1)
+            .unwrap();
+        t.service.policy.settings = t.service.store.update_settings(0,
+            &serde_json::json!({"autoConnectSavedDeviceId":board.saved_device_id,"safetyDisclaimerAccepted":true}).to_string()).unwrap();
+        t.service.refresh_boards().unwrap();
+        t.fact(
+            Fact::Bluetooth {
+                radio: Radio::PoweredOn,
+                scan: Permission::Granted,
+                connect: Permission::Granted,
+            },
+            1,
+        )
+        .unwrap();
+        t
+    }
+    fn advertise(t: &mut Test, id: &str, scan: u64, now: u64) {
+        t.fact(
+            Fact::Discovered {
+                scan_id: scan,
+                device_id: id.into(),
+                name: Some("Board".into()),
+                rssi: Some(-40),
+                advertises_uart: false,
+            },
+            now,
+        )
+        .unwrap();
+    }
+    #[test]
+    fn auto_connect_initial_foreground_is_required_and_duplicate_facts_do_not_extend_window() {
+        let mut t = automatic_test();
+        assert!(t.service.policy.scan.is_none());
+        t.fact(Fact::Foreground { foreground: true }, 2).unwrap();
+        let scan = t.service.policy.scan.unwrap();
+        assert_eq!(scan.1, 15002);
+        t.fact(Fact::Foreground { foreground: true }, 100).unwrap();
+        assert_eq!(t.service.policy.scan.unwrap(), scan);
+        advertise(&mut t, "other", scan.0, 101);
+        assert!(t.service.policy.active.is_none());
+        advertise(&mut t, "preferred", scan.0, 102);
+        assert!(t.service.policy.active.as_ref().unwrap().saved);
+        assert_eq!(
+            t.service.policy.auto_connect,
+            crate::auto_connect::Opportunity::Closed
+        );
+        assert!(t.service.policy.scan.is_none());
+    }
+    #[test]
+    fn auto_connect_scans_share_transport_but_not_deadlines() {
+        for home_first in [true, false] {
+            let mut t = automatic_test();
+            if home_first {
+                t.service.start_scan(30000).unwrap();
+            }
+            t.fact(Fact::Foreground { foreground: true }, 2).unwrap();
+            let scan = t.service.policy.scan.unwrap().0;
+            if !home_first {
+                assert_eq!(t.service.start_scan(30000).unwrap(), scan);
+            }
+            t.fact(Fact::Clock {}, 15002).unwrap();
+            assert_eq!(t.service.policy.scan.unwrap().0, scan);
+            advertise(&mut t, "preferred", scan, 15003);
+            assert!(t.service.policy.active.is_none());
+            t.fact(Fact::Clock {}, 30003).unwrap();
+            assert!(t.service.policy.scan.is_none());
+        }
+    }
+    #[test]
+    fn auto_connect_expiry_background_and_stale_results_cannot_admit() {
+        for end in ["expiry", "background"] {
+            let mut t = automatic_test();
+            t.fact(Fact::Foreground { foreground: true }, 2).unwrap();
+            let old = t.service.policy.scan.unwrap().0;
+            if end == "background" {
+                t.fact(Fact::Foreground { foreground: false }, 3).unwrap();
+            }
+            t.fact(Fact::Clock {}, 15002).unwrap();
+            advertise(&mut t, "preferred", old, 15003);
+            assert!(t.service.policy.active.is_none());
+            t.fact(Fact::Foreground { foreground: false }, 15004)
+                .unwrap();
+            t.fact(Fact::Foreground { foreground: true }, 15005)
+                .unwrap();
+            let new = t.service.policy.scan.unwrap().0;
+            assert_ne!(old, new);
+            advertise(&mut t, "preferred", old, 15006);
+            assert!(t.service.policy.active.is_none());
+            advertise(&mut t, "preferred", new, 15007);
+            assert!(t.service.policy.active.is_some());
+        }
+    }
+    #[test]
+    fn auto_connect_manual_failure_suppresses_and_return_rearms() {
+        let mut t = automatic_test();
+        t.fact(Fact::Foreground { foreground: true }, 2).unwrap();
+        assert!(matches!(
+            t.service.dispatch(
+                1,
+                crate::operations::Operation::Connect {
+                    device_id: "absent".into(),
+                    saved: true
+                }
+            ),
+            Err(Failure::NotFound)
+        ));
+        assert!(t.service.policy.scan.is_none());
+        let scan = t.service.start_scan(10000).unwrap();
+        advertise(&mut t, "preferred", scan, 3);
+        assert!(t.service.policy.active.is_none());
+        t.fact(Fact::Foreground { foreground: false }, 4).unwrap();
+        t.fact(Fact::Foreground { foreground: true }, 5).unwrap();
+        let resumed = t.service.policy.scan.unwrap().0;
+        advertise(&mut t, "preferred", scan, 6);
+        assert!(t.service.policy.active.is_none());
+        advertise(&mut t, "preferred", resumed, 6);
+        assert!(t.service.policy.active.is_some());
+        t.service
+            .dispatch(1, crate::operations::Operation::Disconnect)
+            .unwrap();
+        let scan = t.service.start_scan(10000).unwrap();
+        advertise(&mut t, "preferred", scan, 7);
+        assert!(t.service.policy.active.is_none());
+    }
+    #[test]
+    fn auto_connect_permission_recovery_keeps_original_deadline() {
+        let mut t = automatic_test();
+        t.fact(Fact::Foreground { foreground: true }, 2).unwrap();
+        t.fact(
+            Fact::Bluetooth {
+                radio: Radio::PoweredOff,
+                scan: Permission::Granted,
+                connect: Permission::Granted,
+            },
+            3,
+        )
+        .unwrap();
+        assert!(t.service.policy.scan.is_none());
+        t.fact(
+            Fact::Bluetooth {
+                radio: Radio::PoweredOn,
+                scan: Permission::Granted,
+                connect: Permission::Granted,
+            },
+            1000,
+        )
+        .unwrap();
+        assert_eq!(t.service.policy.scan.unwrap().1, 15002);
+        let scan = t.service.policy.scan.unwrap().0;
+        advertise(&mut t, "preferred", scan, 15002);
+        assert!(t.service.policy.active.is_none());
+    }
+    #[test]
+    fn auto_connect_waits_for_readiness_and_requires_fresh_discovery() {
+        let mut t = automatic_test();
+        t.service.policy.settings.safety_disclaimer_accepted = false;
+        let scan = t.service.start_scan(10000).unwrap();
+        advertise(&mut t, "preferred", scan, 2);
+        t.fact(Fact::Foreground { foreground: true }, 3).unwrap();
+        assert!(t.service.policy.active.is_none());
+        t.service
+            .dispatch(
+                1,
+                crate::operations::Operation::UpdateSettings {
+                    revision: t.service.policy.settings.revision,
+                    patch_json: r#"{"safetyDisclaimerAccepted":true}"#.into(),
+                },
+            )
+            .unwrap();
+        assert!(t.service.policy.active.is_none());
+        assert_eq!(t.service.policy.scan.unwrap().1, 15003);
+        t.fact(Fact::Clock {}, 10004).unwrap();
+        assert!(t.service.policy.scan.is_some());
+        advertise(&mut t, "preferred", scan, 10005);
+        assert!(t.service.policy.active.is_some());
+    }
+    #[test]
+    fn auto_connect_malformed_commands_do_not_suppress_and_failed_setup_does_not_rearm() {
+        let mut t = automatic_test();
+        t.fact(Fact::Foreground { foreground: true }, 2).unwrap();
+        let scan = t.service.policy.scan.unwrap().0;
+        assert!(matches!(
+            t.service.dispatch(
+                1,
+                crate::operations::Operation::Connect {
+                    device_id: "".into(),
+                    saved: true
+                }
+            ),
+            Err(Failure::InvalidRequest)
+        ));
+        advertise(&mut t, "preferred", scan, 3);
+        let generation = t.service.policy.active.as_ref().unwrap().generation;
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Failed,
+            },
+            4,
+        )
+        .unwrap();
+        assert_eq!(
+            t.service.policy.auto_connect,
+            crate::auto_connect::Opportunity::Closed
+        );
+        t.service.disconnect("test_cleanup").unwrap();
+        t.fact(Fact::Foreground { foreground: true }, 5).unwrap();
+        let scan = t.service.start_scan(10000).unwrap();
+        advertise(&mut t, "preferred", scan, 6);
+        assert!(t.service.policy.active.is_none());
+    }
+    #[test]
+    fn auto_connect_preference_edits_do_not_extend_or_rearm_the_window() {
+        let mut t = automatic_test();
+        let second = t
+            .service
+            .store
+            .ensure_board("second", None, None, 1)
+            .unwrap();
+        t.service.refresh_boards().unwrap();
+        t.fact(Fact::Foreground { foreground: true }, 2).unwrap();
+        let scan = t.service.policy.scan.unwrap();
+        t.service
+            .dispatch(
+                1,
+                crate::operations::Operation::UpdateSettings {
+                    revision: t.service.policy.settings.revision,
+                    patch_json:
+                        serde_json::json!({"autoConnectSavedDeviceId":second.saved_device_id})
+                            .to_string(),
+                },
+            )
+            .unwrap();
+        assert_eq!(t.service.policy.scan.unwrap(), scan);
+        advertise(&mut t, "preferred", scan.0, 3);
+        assert!(t.service.policy.active.is_none());
+        t.service
+            .dispatch(
+                1,
+                crate::operations::Operation::UpdateSettings {
+                    revision: t.service.policy.settings.revision,
+                    patch_json: r#"{"autoConnectSavedDeviceId":null}"#.into(),
+                },
+            )
+            .unwrap();
+        assert!(t.service.policy.scan.is_none());
+        t.service
+            .dispatch(
+                1,
+                crate::operations::Operation::UpdateSettings {
+                    revision: t.service.policy.settings.revision,
+                    patch_json:
+                        serde_json::json!({"autoConnectSavedDeviceId":second.saved_device_id})
+                            .to_string(),
+                },
+            )
+            .unwrap();
+        assert!(t.service.policy.scan.is_none());
+        t.fact(Fact::Foreground { foreground: false }, 4).unwrap();
+        t.fact(Fact::Foreground { foreground: true }, 5).unwrap();
+        let scan = t.service.policy.scan.unwrap().0;
+        advertise(&mut t, "second", scan, 6);
+        assert!(t.service.policy.active.is_some());
+        t.fact(Fact::Foreground { foreground: false }, 7).unwrap();
+        t.fact(Fact::Foreground { foreground: true }, 8).unwrap();
+        assert_eq!(
+            t.service.policy.auto_connect,
+            crate::auto_connect::Opportunity::Closed
         );
     }
 }

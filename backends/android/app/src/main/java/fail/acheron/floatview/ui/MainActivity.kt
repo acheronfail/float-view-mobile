@@ -119,7 +119,10 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
-        (application as FloatViewApplication).runtime.service.setForeground(false)
+        // Configuration replacement keeps the same foreground visit and service owner.
+        if (!isChangingConfigurations) {
+            (application as FloatViewApplication).runtime.service.setForeground(false)
+        }
         handler.removeCallbacks(delayedTeardown)
         handler.postDelayed(delayedTeardown, FRONTEND_BACKGROUND_GRACE_MS)
         super.onStop()

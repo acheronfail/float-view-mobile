@@ -14,6 +14,13 @@ describe('connection navigation', () => {
     expect(connectionRoute(null)).toBeNull();
   });
 
+  it('keeps non-live destinations when an automatic connection appears', () => {
+    for (const route of ['/settings', '/sessions', '/sessions/boards/[savedDeviceId]', '/sessions/[sessionId]']) {
+      expect(connectionRedirect(route, connection('board'), true)).toBeNull();
+      expect(connectionRedirect(route, connection(null), true)).toBeNull();
+    }
+  });
+
   it('restores and guards connection routes from complete state', () => {
     expect(connectionRedirect('/', connection('bms'), true)).toBe('#/bms');
     expect(connectionRedirect('/', connection('board'), true)).toBe('#/live');

@@ -1,4 +1,9 @@
-import { getMockBootstrap, startMockServer, stopMockServer } from '../../frontend/backend-mock/index.ts';
+import {
+  getMockBootstrap,
+  startMockServer,
+  stopMockServer,
+  simulateMockForeground,
+} from '../../frontend/backend-mock/index.ts';
 import type { Target } from '../src/suite.ts';
 
 export const MOCK_BACKEND_PORT = 11003;
@@ -14,6 +19,12 @@ export const mockTarget: Target = {
   async endpoint() {
     if (!currentEndpoint) throw new Error('Mock backend is not running');
     return currentEndpoint;
+  },
+  async background() {
+    simulateMockForeground(false);
+  },
+  async foreground() {
+    simulateMockForeground(true);
   },
   stop: stopMockServer,
 };

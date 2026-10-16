@@ -175,6 +175,14 @@ test('Android background lifecycle waits for the Activity to stop', () => {
     false
   );
   assert.equal(androidActivityIsStopped('packageName=fail.acheron.floatview\nstate=STOPPED stopped=true'), true);
+  assert.equal(
+    androidActivityIsStopped('packageName=fail.acheron.floatview\nstate=DESTROYED delayedResume=false finishing=true'),
+    true
+  );
+  assert.equal(
+    androidActivityIsStopped('packageName=fail.acheron.floatview\nstate=STOPPED delayedResume=false finishing=false'),
+    true
+  );
   assert.equal(androidActivityIsStopped('no Float View activity'), true);
 });
 

@@ -180,7 +180,7 @@ server.on('upgrade', (request, socket, head) => {
 
 export function startMockServer(
   port = DEFAULT_PORT,
-  options: { safetyDisclaimerAccepted?: boolean } = {}
+  options: { safetyDisclaimerAccepted?: boolean; autoConnectSavedDeviceId?: string | null } = {}
 ): Promise<number> {
   if (mockRunning) return Promise.reject(new Error('Mock server is already running'));
   sessionToken = randomBytes(32).toString('base64url');
@@ -201,7 +201,9 @@ export function startMockServer(
   });
 }
 
-function createWebSocketServer(options: { safetyDisclaimerAccepted?: boolean } = {}) {
+function createWebSocketServer(
+  options: { safetyDisclaimerAccepted?: boolean; autoConnectSavedDeviceId?: string | null } = {}
+) {
   const value = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
   const delivery = new WeakMap<import('ws').WebSocket, { sendingState: boolean; pendingState?: string }>();
   function sendNewestState(client: import('ws').WebSocket, payload: string) {
@@ -449,6 +451,11 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
           })
         : null,
   };
+}
+
+/** Native lifecycle stand-in for deterministic integration tests, independent of sockets. */
+export function simulateMockForeground(foreground: boolean): void {
+  activeMockBackend?.simulateForeground(foreground);
 }
 
 export function getMockBootstrap(port: number) {

@@ -6,6 +6,7 @@ use serde_json::Value;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
+    pub auto_connect_saved_device_id: Option<String>,
     pub safety_disclaimer_accepted: bool,
     pub announcements: AnnouncementSettings,
     pub session_display_options: SessionDisplayOptions,
@@ -70,6 +71,7 @@ pub struct SessionDisplayOptions {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            auto_connect_saved_device_id: None,
             safety_disclaimer_accepted: false,
             announcements: AnnouncementSettings::default(),
             revision: 0,
@@ -118,6 +120,19 @@ impl ProductStore {
         let target = values.as_object_mut().ok_or(Error::Database)?;
         for (key, mut value) in patch {
             match key.as_str() {
+                "autoConnectSavedDeviceId" => {
+                    if !value.is_null() {
+                        let id = value.as_str().ok_or(Error::InvalidInput)?;
+                        crate::boards::validate_id(id)?;
+                        let local: Option<String> = tx.query_row(
+                            "SELECT opaque_platform_id FROM saved_device WHERE saved_device_id=?",
+                            [id], |r| r.get(0),
+                        ).optional()?.ok_or(Error::NotFound)?;
+                        if local.is_none() {
+                            return Err(Error::UnassociatedBoard);
+                        }
+                    }
+                }
                 "announcements"
                     if serde_json::from_value::<AnnouncementSettings>(value.clone())
                         .is_ok_and(|v| v.valid()) => {}
@@ -163,7 +178,7 @@ impl ProductStore {
         Ok(updated)
     }
 }
-fn read(db: &rusqlite::Connection) -> Result<Settings> {
+pub(crate) fn read(db: &rusqlite::Connection) -> Result<Settings> {
     let (revision, text): (u64, String) = db
         .query_row(
             "SELECT revision,json FROM settings WHERE singleton=1",

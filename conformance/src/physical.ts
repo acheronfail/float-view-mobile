@@ -12,7 +12,7 @@ import {
 import { FixtureClient } from '../fixture/serial.ts';
 import { ConformanceClient } from './client.ts';
 import type { AppState, LocationState } from '../../frontend/src/lib/backend/contract.ts';
-import { exerciseRefloatConfiguration, type PhysicalTarget } from './suite.ts';
+import { exerciseRefloatConfiguration, exerciseAutoConnect, type PhysicalTarget } from './suite.ts';
 
 type Progress = (message: string) => void;
 type LocationCheckpoint = {
@@ -142,7 +142,11 @@ async function runPhysicalScenario(
     const initial = await client.request('state.get', {});
     await client.request('settings.update', {
       expectedRevision: initial.settings.revision,
-      patch: { minimumSessionDistance: 0, locationRecordingEnabled: false },
+      patch: {
+        minimumSessionDistance: 0,
+        locationRecordingEnabled: false,
+        ...(name === 'auto-connect' ? { safetyDisclaimerAccepted: true } : {}),
+      },
     });
     const discovered = await discoverFixture(client, scenario.board.advertisedName, initial.revision);
     const device = discovered.discoveredDevices.find((candidate) => candidate.name === scenario.board.advertisedName);
@@ -328,7 +332,19 @@ async function runPhysicalScenario(
     const activeSession = ready.activeConnection?.activeSession;
     assert.ok(activeSession, 'Ready connection did not create an active provisional session');
 
-    if (name === 'control-direct' || name === 'control-can') {
+    if (name === 'auto-connect') {
+      await client.request('device.disconnect', {});
+      client = await exerciseAutoConnect(target, client, ready.activeConnection!.savedDeviceId!, async () => {
+        await fixture.command('ADVERTISE');
+      });
+      assert.ok(
+        !runner.simulator.requests.some((request) =>
+          ['refloat-control', 'refloat-configuration-write', 'controller-shutdown'].includes(request.kind)
+        ),
+        'Auto-connect checkpoint must not issue mutations or actuation commands'
+      );
+      report('  Foreground auto-connect and explicit-disconnect suppression verified');
+    } else if (name === 'control-direct' || name === 'control-can') {
       await exerciseRefloatConfiguration(client, ready, true);
       await runRefloatControlCheckpoint(client, runner, ready, report);
       const beforeDisconnect = await client.request('state.get', {});

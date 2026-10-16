@@ -194,3 +194,19 @@ measurements were found in the repository during the 2026-09-30 implementation.
 These synthetic results establish deterministic stability and accounting, not
 measured absolute SOC accuracy. Initial 30-second smoothing/settling and
 120-second correction constants remain unchanged; no empirical tuning is claimed.
+
+## Auto-connect checkpoint
+
+`FLOAT_VIEW_CONFORMANCE_SCENARIOS=auto-connect npm run direct` (or `mock`,
+`macos`, `ios`, `android`) runs focused preference and connection coverage without
+unrelated location/export prompts. Targets with lifecycle controls also verify
+foreground rearming, preserved Settings checkpoint, and explicit-disconnect
+suppression during ordinary discovery.
+
+For real BLE, use `FLOAT_VIEW_PHYSICAL_SCENARIOS=auto-connect npm run physical --
+android <fixture-port> <adb-serial>` or the equivalent `ios` command. This uses the
+existing direct fixture, saved connection path and RESET/READY cleanup, and
+rejects configuration/control/shutdown mutations. The fixture is readvertised
+before foreground return and before the post-disconnect suppression scan. macOS
+window/activation behavior and first-use OS permission presentation remain
+separate physical observations; headless software targets do not establish them.

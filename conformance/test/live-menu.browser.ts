@@ -428,7 +428,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 await page.screenshot({ path: `${output}/refloat-disabled-${viewport.width}.png` });
               }
             }
-            const beforeEnable = requests.length;
+            const beforeEnable: number = requests.length;
             await enable.click({ button: 'right' });
             await enable.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
             await enable.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });

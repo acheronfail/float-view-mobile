@@ -265,8 +265,10 @@ export function androidActivityIsStopped(activities: string) {
   const marker = `packageName=${applicationId}`;
   let offset = 0;
   while ((offset = activities.indexOf(marker, offset)) >= 0) {
-    const state = /\n\s*state=([A-Z_]+) stopped=(true|false)/.exec(activities.slice(offset));
-    if (state?.[1] !== 'STOPPED' || state[2] !== 'true') return false;
+    const next = activities.indexOf(marker, offset + marker.length);
+    const record = activities.slice(offset, next < 0 ? undefined : next);
+    const state = /\n\s*state=([A-Z_]+)(?: stopped=(true|false))?/.exec(record);
+    if (state?.[1] !== 'DESTROYED' && (state?.[1] !== 'STOPPED' || state[2] === 'false')) return false;
     offset += marker.length;
   }
   return true;

@@ -133,10 +133,13 @@ impl BackendService {
                 f::Completion::Unit
             }
             Operation::Connect { device_id, saved } => {
+                crate::policy::checked_device(&device_id, None)?;
+                self.cancel_manual_auto_connect()?;
                 self.connect(&device_id, saved)?;
                 f::Completion::Unit
             }
             Operation::Disconnect => {
+                self.cancel_manual_auto_connect()?;
                 self.disconnect("explicit_disconnect")?;
                 f::Completion::Unit
             }
@@ -203,6 +206,7 @@ impl BackendService {
                 );
             }
             Operation::ShutdownController => {
+                self.cancel_manual_auto_connect()?;
                 self.runtime_command(Command::Application(c::Command::ShutdownController {
                     generation,
                     now_ms: now,
@@ -390,8 +394,26 @@ impl BackendService {
                 f::Completion::SavedBoard(self.board_facts(&b).map_err(store_failure)?)
             }
             Operation::DeleteSavedBoard { id } => {
-                self.store.forget_board(&id).map_err(store_failure)?;
+                if self
+                    .policy
+                    .active
+                    .as_ref()
+                    .is_some_and(|a| a.board.as_ref().is_some_and(|b| b.saved_device_id == id))
+                {
+                    return Err(Failure::InvalidState);
+                }
+                let removed = self.store.forget_board(&id);
+                self.policy.settings = self.store.settings().map_err(store_failure)?;
                 self.refresh_boards().map_err(store_failure)?;
+                self.step_auto_connect()?;
+                if let Err(error) = removed {
+                    if error != store::Error::NotFound
+                        && !self.policy.boards.iter().any(|b| b.saved_device_id == id)
+                    {
+                        self.changed()?;
+                    }
+                    return Err(store_failure(error));
+                }
                 f::Completion::Unit
             }
             Operation::UpdateSettings {
@@ -418,6 +440,12 @@ impl BackendService {
                     .store
                     .update_settings(revision, &patch_json)
                     .map_err(store_failure)?;
+                if patch
+                    .get("autoConnectSavedDeviceId")
+                    .is_some_and(serde_json::Value::is_null)
+                {
+                    self.cancel_auto_connect();
+                }
                 let mut current = self.policy.settings.announcements.clone();
                 current.volume_percent = previous.volume_percent;
                 current.lower_other_audio = previous.lower_other_audio;
@@ -437,6 +465,7 @@ impl BackendService {
                     }))?;
                 }
                 self.location_eligibility()?;
+                self.step_auto_connect()?;
                 f::Completion::Settings(p::settings(&self.policy.settings))
             }
             Operation::GetProfile { id } => {

@@ -186,6 +186,18 @@ impl ProductStore {
             "UPDATE session_catalog SET pending_delete=1 WHERE device_history_id=?",
             [&board.device_history_id],
         )?;
+        let mut settings = crate::settings::read(&tx)?;
+        if settings.auto_connect_saved_device_id.as_deref() == Some(id) {
+            settings.auto_connect_saved_device_id = None;
+            settings.revision = crate::next_revision(settings.revision)?;
+            tx.execute(
+                "UPDATE settings SET revision=?,json=? WHERE singleton=1",
+                params![
+                    settings.revision,
+                    crate::json(&settings, limits::MAX_SETTINGS_BYTES)?
+                ],
+            )?;
+        }
         tx.execute("DELETE FROM saved_device WHERE saved_device_id=?", [id])?;
         tx.commit()?;
         self.catalog_revision = revision;

@@ -298,3 +298,10 @@ driver retains AVSpeechSynthesizer and iOS audio-session calls. Tests establish
 resource cleanup, not audible behavior on every player or route. Completed phone
 observations and optional user-owned manual checks are retained in conformance
 physical-checkpoint evidence.
+
+Foreground auto-connect uses the existing OS foreground facts: iOS scene
+activation/background and macOS application activation/deactivation. Closing a
+macOS window ends its foreground opportunity; reopening an active window reports
+foreground again. Listener or WebView recreation alone does not rearm. The
+shared Rust service owns the 15-second opportunity and exact saved association
+matching; native adapters execute ordinary discovery effects.

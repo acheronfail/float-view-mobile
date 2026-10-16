@@ -5,6 +5,7 @@ use float_view_application_runtime::ApplicationRuntime;
 use float_view_product_store::{Maintenance, MaintenanceCancellation, ProductStore, Result};
 use std::path::Path;
 pub mod announcements;
+mod auto_connect;
 mod battery;
 pub mod battery_estimator;
 pub mod ble;
@@ -160,7 +161,7 @@ fn store_failure(error: float_view_product_store::Error) -> operations::Failure 
         E::InvalidInput => F::InvalidRequest,
         E::NotFound => F::NotFound,
         E::Conflict { .. } => F::Conflict,
-        E::ActiveSession => F::InvalidState,
+        E::ActiveSession | E::UnassociatedBoard => F::InvalidState,
         E::Capacity | E::Busy | E::Full | E::Cancelled => F::Unavailable,
         _ => F::Internal,
     }

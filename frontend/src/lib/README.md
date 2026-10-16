@@ -369,3 +369,11 @@ mock leaves a locked notice because browsers cannot close ordinary user-opened
 tabs. Exit is only available before acceptance, in the foreground and without an
 active connection. The disclaimer covers riding risk, safe app use and the author's
 responsibility for injury or damage, to the extent permitted by law.
+
+The full saved-board editor exposes Connect automatically through the single
+installation-local Settings.autoConnectSavedDeviceId. It uses revision-checked
+settings updates, not Board Profile values. Foreground discovery and its
+15-second automatic admission window belong to the shared service regardless of
+route; Home keeps ordinary discovery. Existing connection navigation opens Live
+from Home while preserving restored non-live destinations, with no replayed
+connection request.

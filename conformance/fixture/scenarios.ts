@@ -23,6 +23,7 @@ import {
 } from './bms.ts';
 
 export type PhysicalScenarioName =
+  | 'auto-connect'
   | 'identity'
   | 'guest'
   | 'direct'
@@ -157,6 +158,14 @@ const physicalDirectBms: BmsConfiguration = {
 };
 
 export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
+  'auto-connect': {
+    name: 'auto-connect',
+    board: directThor,
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 1,
+    preferredCanId: null,
+    requiresMobileLifecycle: true,
+  },
   identity: {
     name: 'identity',
     board: expressThor,
@@ -358,6 +367,7 @@ export const physicalScenarioMatrix = {
     'ride',
     'unexpected-disconnect',
     'background',
+    'auto-connect',
   ],
   ios: [
     'identity',
@@ -378,6 +388,7 @@ export const physicalScenarioMatrix = {
     'ride',
     'unexpected-disconnect',
     'background',
+    'auto-connect',
   ],
 } as const satisfies Record<string, readonly PhysicalScenarioName[]>;
 

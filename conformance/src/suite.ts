@@ -34,6 +34,34 @@ export interface PhysicalTarget extends Target {
   verifyFilePresentation?(): Promise<void>;
 }
 
+/** Focused contract scenario; avoids unrelated location/export prompts on native hosts. */
+export async function runAutoConnectConformance(target: Target) {
+  let client: ConformanceClient | undefined;
+  try {
+    const endpoint = await target.start();
+    client = await ConformanceClient.open(endpoint.url, endpoint.origin);
+    const initial = await client.request('state.get', {});
+    await client.request('settings.update', {
+      expectedRevision: initial.settings.revision,
+      patch: { safetyDisclaimerAccepted: true },
+    });
+    await client.request('bluetooth.requestPermission', {});
+    await client.request('bluetooth.scan', { timeoutMs: 10000 });
+    const discovered = await client.waitForState((s) => s.discoveredDevices.length > 0);
+    await client.request('device.connect', {
+      deviceId: discovered.discoveredDevices[0]!.deviceId,
+      trackingMode: 'saved',
+    });
+    await client.waitForState((s) => s.activeConnection?.state === 'ready', { timeoutMs: 20000 });
+    await client.request('device.disconnect', {});
+    client = await exerciseAutoConnect(target, client);
+    return { target: target.name, revision: (await client.request('state.get', {})).revision };
+  } finally {
+    client?.close();
+    await target.stop();
+  }
+}
+
 export async function runConformance(target: Target) {
   let client!: ConformanceClient;
   try {
@@ -164,7 +192,8 @@ export async function runConformance(target: Target) {
 
     const permission = await client.request('bluetooth.requestPermission', {});
     assert.equal(typeof permission.radio, 'string');
-    await client.request('bluetooth.scan', { timeoutMs: 100 });
+    // Allow native fixture relay/callback delivery without racing a 100 ms scan expiry.
+    await client.request('bluetooth.scan', { timeoutMs: 1_000 });
     const scanned = await client.waitForState((state) => state.discoveredDevices.length > 0, {
       afterRevision: initial.revision,
     });
@@ -195,6 +224,7 @@ export async function runConformance(target: Target) {
     if (['android', 'ios', 'macos', 'direct'].includes(target.name)) {
       await exerciseTransport(await target.endpoint());
     }
+    client = await exerciseAutoConnect(target, client);
     if (target.loseFixture) {
       await client.request('bluetooth.scan', { timeoutMs: 100 });
       const observed = await client.waitForState((s) => s.discoveredDevices.length > 0, { afterRevision: 0 });
@@ -223,6 +253,74 @@ export async function runConformance(target: Target) {
     client?.close();
     await target.stop();
   }
+}
+
+export async function exerciseAutoConnect(
+  target: Target,
+  current: ConformanceClient,
+  preferredSavedDeviceId?: string,
+  prepareDiscovery?: () => Promise<void>
+) {
+  let state = await current.request('state.get', {});
+  const board = state.savedDevices.find(
+    (b) => b.bluetoothIdentifier && (!preferredSavedDeviceId || b.savedDeviceId === preferredSavedDeviceId)
+  );
+  assert.ok(board, 'saved connection must establish a local association');
+  for (const value of [42, 'missing-auto-connect-board']) {
+    await expectError(
+      current.request('settings.update', {
+        expectedRevision: state.settings.revision,
+        patch: { autoConnectSavedDeviceId: value, unitPreference: 'metric' } as never,
+      }),
+      typeof value === 'string' ? 'not_found' : 'invalid_request'
+    );
+    assert.deepEqual((await current.request('state.get', {})).settings, state.settings);
+  }
+  const selected = await current.request('settings.update', {
+    expectedRevision: state.settings.revision,
+    patch: { autoConnectSavedDeviceId: board.savedDeviceId },
+  });
+  assert.equal(selected.autoConnectSavedDeviceId, board.savedDeviceId);
+  if (target.background && target.foreground) {
+    // No Home/frontend command starts this discovery; a retained non-live checkpoint wins navigation.
+    await current.request('uiState.set', {
+      checkpoint: { version: 1, route: { kind: 'settings' }, live: null, surface: null },
+    });
+    await target.background();
+    current.close();
+    await prepareDiscovery?.();
+    await target.foreground();
+    const endpoint = await target.endpoint();
+    const resumed = await ConformanceClient.open(endpoint.url, endpoint.origin);
+    try {
+      const connected = await resumed.waitForState((s) => s.activeConnection?.state === 'ready', { timeoutMs: 15000 });
+      assert.equal(connected.activeConnection?.savedDeviceId, board.savedDeviceId);
+      assert.equal(connected.activeConnection?.trackingMode, 'saved');
+      const checkpoint = await resumed.request('uiState.get', {});
+      assert.equal(checkpoint?.route.kind, 'settings');
+      await resumed.request('device.disconnect', {});
+      await prepareDiscovery?.();
+      await resumed.request('bluetooth.scan', { timeoutMs: 1000 });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      state = await resumed.request('state.get', {});
+      assert.equal(state.activeConnection, null, 'normal scan must not undo explicit disconnect');
+      await resumed.request('settings.update', {
+        expectedRevision: state.settings.revision,
+        patch: { autoConnectSavedDeviceId: null },
+      });
+      await resumed.request('uiState.set', { checkpoint: null });
+    } finally {
+      resumed.close();
+    }
+    // Reconnect the caller's transport without creating a lifecycle visit.
+    return ConformanceClient.open(endpoint.url, endpoint.origin);
+  } else {
+    await current.request('settings.update', {
+      expectedRevision: selected.revision,
+      patch: { autoConnectSavedDeviceId: null },
+    });
+  }
+  return current;
 }
 
 async function exerciseProductMethods(
@@ -1248,6 +1346,7 @@ export function assertState(state: AppState) {
   assert.deepEqual(Object.keys(state.settings).sort(), [
     'accentPreference',
     'announcements',
+    'autoConnectSavedDeviceId',
     'historyGapThresholdSeconds',
     'idlePersistIntervalMs',
     'idleProbeIntervalMs',

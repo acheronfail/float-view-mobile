@@ -247,6 +247,7 @@ export function makeDirectTarget(): Target {
         },
       });
       await fact({ fact: 'storage', available_bytes: 1_000_000_000 });
+      await fact({ fact: 'foreground', foreground: true });
       polling = setInterval(() => {
         if (busy) return;
         busy = true;
@@ -268,6 +269,12 @@ export function makeDirectTarget(): Target {
           });
       }, 5);
       return endpoint!;
+    },
+    async background() {
+      await fact({ fact: 'foreground', foreground: false });
+    },
+    async foreground() {
+      await fact({ fact: 'foreground', foreground: true });
     },
     async endpoint() {
       if (!endpoint) throw new Error('Direct service not running');

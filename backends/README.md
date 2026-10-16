@@ -246,3 +246,9 @@ owned product-storage marker in `core/product-store/src/lib.rs`. Under the curre
 pre-release policy, incompatible development storage is reset and unsupported
 archive formats are rejected rather than migrated. The public-release plan
 introduces baseline 100 and preservation guarantees before external testing.
+
+Foreground auto-connect is owned by the shared Rust service. Each native
+foreground visit can search for one locally selected saved board for 15 seconds
+after readiness. This demand shares ordinary discovery without extending its
+automatic eligibility. Manual connection/disconnect suppresses the opportunity
+until the next visit; WebView/listener replacement does not rearm it.

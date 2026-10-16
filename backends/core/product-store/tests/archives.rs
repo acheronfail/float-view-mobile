@@ -93,7 +93,14 @@ fn sink(store: &ProductStore, path: &std::path::Path) -> ImportSink {
 }
 #[test]
 fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
-    let (_dir, store, id) = setup();
+    let (_dir, mut store, id) = setup();
+    let preferred = store.boards().unwrap()[0].saved_device_id.clone();
+    store
+        .update_settings(
+            store.settings().unwrap().revision,
+            &serde_json::json!({"autoConnectSavedDeviceId":preferred}).to_string(),
+        )
+        .unwrap();
     let record = r#"{"v":1,"event":"summary","data":{"append_us":[10,100,200,300]}}"#;
     let mut diagnostics =
         float_view_session_sqlite::DiagnosticWriter::open(&store.session_path(&id).unwrap())
@@ -115,11 +122,14 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
         )
         .unwrap();
     assert!(!manifest.contains("PRIVATE-LOCAL-ID"));
+    assert!(!manifest.contains("autoConnectSavedDeviceId"));
     drop(db);
     let target = TestDirectory::new();
     let mut imported = ProductStore::open(target.path()).unwrap();
     let value = sink(&imported, export.path()).validate(&cancel).unwrap();
+    let settings_before = imported.settings().unwrap();
     let session = imported.attach_import(value).unwrap();
+    assert_eq!(imported.settings().unwrap(), settings_before);
     assert_ne!(session.session_id, id);
     let db = Connection::open(imported.session_path(&session.session_id).unwrap()).unwrap();
     assert_eq!(

@@ -337,3 +337,26 @@ fn storage_totals_include_unloaded_sessions_and_follow_deletion() {
         0
     );
 }
+
+#[test]
+fn cleanup_failure_after_board_removal_does_not_leave_auto_connect_selection() {
+    let (_dir, mut store, board) = setup();
+    let selected = store
+        .update_settings(
+            store.settings().unwrap().revision,
+            &serde_json::json!({"autoConnectSavedDeviceId":board}).to_string(),
+        )
+        .unwrap();
+    let session = store.create_session(&board, 1, u64::MAX).unwrap();
+    assert_eq!(store.forget_board(&board), Err(Error::ActiveSession));
+    assert_eq!(store.settings().unwrap(), selected);
+    record(&store, &session.session_id);
+    store.close_session(&session.session_id, 2, "done").unwrap();
+    let path = store.session_path(&session.session_id).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    assert!(store.forget_board(&board).is_err());
+    assert!(matches!(store.board(&board), Err(Error::NotFound)));
+    assert_eq!(store.settings().unwrap().auto_connect_saved_device_id, None);
+    assert_eq!(store.settings().unwrap().revision, selected.revision + 1);
+}

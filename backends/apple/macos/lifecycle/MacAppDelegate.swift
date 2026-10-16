@@ -50,6 +50,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   }
 
   func windowWillClose(_: Notification) {
+    runtime.setForeground(false)
     webView?.navigationDelegate = nil
     webView?.stopLoading()
     server?.stop()
@@ -128,6 +129,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       NSApplication.shared.activate(ignoringOtherApps: true)
       self.webView = webView
       self.window = window
+      runtime.setForeground(NSApplication.shared.isActive)
       trace("[FloatViewState] frontend state=ready generation=\(generation)")
     } catch {
       let message = loopbackStartupFailure(
