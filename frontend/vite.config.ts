@@ -7,11 +7,12 @@ import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
 import { MOCK_BACKEND_PORT, startMockServer, stopMockServer } from './backend-mock';
 import { iconClasses } from './src/lib/ui/icon';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { parseVersion } from '../.github/scripts/version';
 
 let revision: string | null = null;
 try {
-  revision = execFileSync('git', ['describe', '--always', '--dirty', '--exclude=*', '--abbrev=7'], {
+  revision = execFileSync('git', ['describe', '--always', '--dirty', '--exclude=*', '--abbrev=40'], {
     cwd: import.meta.dirname,
     encoding: 'utf8',
   }).trim();
@@ -87,6 +88,41 @@ function mockBackend(target: string): Plugin {
   };
 }
 
+// Check the actual client chunks, not just package.json dependencies: Svelte and
+// other build dependencies can contribute runtime code to the shipped HTML.
+function checkBundledNotices(): Plugin {
+  let ssr = false;
+  return {
+    name: 'float-view-bundled-notices',
+    apply: 'build',
+    configResolved(config) {
+      ssr = Boolean(config.build.ssr);
+    },
+    generateBundle(_options, bundle) {
+      if (ssr) return;
+      const notices = readFileSync(new URL('../THIRD_PARTY_NOTICES.txt', import.meta.url), 'utf8');
+      const packages = new Set<string>();
+      for (const chunk of Object.values(bundle)) {
+        if (chunk.type !== 'chunk') continue;
+        for (const [id, module] of Object.entries(chunk.modules)) {
+          if (!module.renderedLength || !id.includes('/node_modules/')) continue;
+          const relative = id.split('/node_modules/').at(-1)!;
+          const parts = relative.split('/');
+          packages.add(parts.slice(0, relative.startsWith('@') ? 2 : 1).join('/'));
+        }
+      }
+      for (const name of packages) {
+        const { version } = JSON.parse(
+          readFileSync(new URL(`./node_modules/${name}/package.json`, import.meta.url), 'utf8')
+        );
+        if (!notices.includes(`Frontend: ${name} ${version}\n`)) {
+          this.error(`Missing reviewed runtime notices for bundled ${name} ${version}`);
+        }
+      }
+    },
+  };
+}
+
 const backendOrigin = selectedBackendOrigin();
 
 export default defineConfig({
@@ -95,6 +131,7 @@ export default defineConfig({
   },
   plugins: [
     mockBackend(backendOrigin),
+    checkBundledNotices(),
     tailwindcss(),
     UnoCSS({
       safelist: Object.values(iconClasses),

@@ -34,6 +34,16 @@ Preserve one product implementation, both installation routes and independent pu
 
 Retain current stable/nightly GitHub lifecycle and asset names. Add explicitly invoked, protected store package/upload jobs tied to exact source/version metadata. A store failure does not prevent sideload publication. All three sideload builds still succeed before GitHub publication, as today. Select the upload track explicitly and keep public release/manual approval separate from build success.
 
+Owner refinement on 2026-10-17: store jobs run only for stable `vX.Y.Z` releases
+created by `just release ...`. Their tag push selects signing/delivery; master
+commits, manual master runs and nightlies cannot select store jobs. A manual
+retry/check must target an existing stable release tag and receives a fresh run
+number without replacing already published GitHub assets. Corrected source needs
+a new release tag; existing tags stay immutable. Both protected environments allow
+version tags and retain owner review; upload readiness remains a separate gate.
+Complete repository candidate checks before creating the first stable tag;
+TestFlight processing/device acceptance then precede production store release.
+
 Owner decision on 2026-10-17: tie each native build number to the GitHub Actions run that builds it. Keep the existing Build apps workflow as the sole counter owner and preserve `run_number + 60` across sideload and optional protected store jobs. Record run ID, attempt, URL and source revision, reject allocation from another workflow path, and treat a workflow-path migration as an explicit continuity change. Display-name changes are harmless. Reruns keep their number; a corrected/Apple-consumed binary needs a fresh workflow run. Upload retries must query Apple before resubmitting. Do not introduce a second workflow counter or reset native numbers during version/tag cleanup.
 
 The owner explicitly approved removing every existing pre-v1 release (including GitHub “stable” v0.x releases), associated assets, and matching local/remote version tags. This is a one-time exception to immutable release retention; retain commit history and all later releases. Before deletion, enumerate exact release IDs/tags and record the cleanup manifest; pause publication and drain running jobs to avoid recreation races. Remove matching tags even when a GitHub release has already gone, then verify local and remote state. Resume the rolling nightly channel with fresh preparation builds; this exception does not permanently disable prereleases or nightlies.
@@ -63,6 +73,12 @@ Resolve startup failure presentation locally first; if actionable public state/e
 Owner selected AGPL-3.0-or-later and Copyright © 2026 acheronfail for project-owned work. Preserve earlier/third-party notices and accurate dates; Git author metadata alone is not proof of ownership. Add the full licence, appropriate source/package notices and exact corresponding-source access for each distributed binary, including build inputs and scripts required by the licence. Do not imply that branding or every dependency is relicensed. Verify Apple distribution rights against current terms; any additional permission/separate distribution grant for owner-controlled code requires an explicit owner decision and cannot cover third-party rights. Do not silently add a store exception or change the chosen licence.
 
 Owner still supplies contact details, price and countries. Vendor source used as research is not automatically shipped; inventory actual redistribution rather than assume either that every vendor licence applies or none does. Resolve obligations or seek suitable rights/replacements before store packaging; no final legal compatibility conclusion is asserted by this plan.
+
+The iOS package/source audit is recorded in docs/ios-package-source-audit.md.
+Include pinned Rust standard-library/compiler-builtins/math notices in addition
+to Cargo's dependency graph. Check actual bundled frontend runtime packages and
+complete packaged legal texts. Settings links to a dedicated offline scrollable
+licences route with a Settings return path rather than expanding in place.
 
 Audit local data, backups/transfers, logs, exports, tile requests, speech dependencies and any analytics/crash reporting actually present. Write accurate public privacy/support pages and in-app links, then complete App Privacy/Data safety. Evaluate whether Android needs ACCESS_BACKGROUND_LOCATION for intended user-started rides; remove it only if behavior and policy allow, otherwise implement required disclosure/declaration/video. Justify every foreground service type and iOS background mode against actual behavior.
 

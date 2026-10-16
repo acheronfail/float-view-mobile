@@ -20,6 +20,11 @@ dependency inventory (including build tools/macros), client JavaScript, generate
 Lucide/Feather icons, Android Release dependencies and rider attribution. Settings
 bundles the project licence and notices directly into the shared frontend, so all
 native packages and sideload routes can display them without internet access.
+Settings opens the complete documents on a dedicated scrollable licences route.
+The generated inventory also includes pinned Rust standard-library,
+compiler-builtins and math-runtime notices from LICENSES/. The frontend build
+checks actually bundled client package versions; iOS archive/export checks
+require the complete current legal texts in the packaged HTML.
 
 The Android POM inventory identifies licence grants, including inherited licences;
 it is not a substitute for collecting any additional copyright/NOTICE material
@@ -78,3 +83,9 @@ artwork, with no third-party GPL/LGPL/AGPL runtime dependency identified.
 Research vendor submodules and source-derived test fixtures are not copied into
 the Release app. Final package notices and exact source availability must still
 be verified; new copyleft code or outside contributions need a fresh rights review.
+
+The [iOS package/source audit](ios-package-source-audit.md) records build 77's
+actual notices, all 95 iOS Cargo inventory entries and anonymous exact-source
+verification. It found the Rust runtime notice omission, now fixed for the next
+candidate. A fresh tagged candidate must pass the new packaging check; the audit
+does not declare the older binary ready for submission or close Android/Mac work.

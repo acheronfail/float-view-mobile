@@ -56,6 +56,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.match(text, /Cole Bemis/);
       assert.match(text, /Luis Prado/);
       assert.match(text, /Apache License/);
+      assert.match(text, /Rust Standard Library/);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.evaluate(() => window.scrollTo(0, 2000));
       assert.ok(await page.evaluate(() => window.scrollY > 0));

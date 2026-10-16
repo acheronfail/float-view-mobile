@@ -52,13 +52,13 @@ class UploadTests(unittest.TestCase):
                        "ipaSHA256": hashlib.sha256(self.ipa.read_bytes()).hexdigest(),
                        "ci": {"commit": "a" * 40, "appVersion": "1.0.0", "buildNumber": "75",
                               "runId": "123", "repository": "owner/repo", "buildJob": "ios-store",
-                              "workflowPath": ".github/workflows/build-apps.yml"}}
+                              "workflowPath": ".github/workflows/build-apps.yml", "channel": "stable", "tag": "v1.0.0"}}
         self.output = self.root / "output"
         self.prior = self.root / "prior"
         self.prior.mkdir()
         self.env = patch.dict(os.environ, {"ASC_APP_ID": "123456", "GITHUB_RUN_ATTEMPT": "1",
                               "GITHUB_SHA": "a" * 40, "GITHUB_RUN_ID": "123", "GITHUB_REPOSITORY": "owner/repo",
-                              "FLOAT_VIEW_BUILD_NUMBER": "75", "APPLE_TEAM_ID": "TESTTEAM01"}, clear=True)
+                              "FLOAT_VIEW_BUILD_NUMBER": "75", "APPLE_TEAM_ID": "TESTTEAM01", "GITHUB_REF": "refs/tags/v1.0.0"}, clear=True)
         self.env.start()
         self.addCleanup(self.env.stop)
 
@@ -187,8 +187,10 @@ class UploadTests(unittest.TestCase):
     def test_upload_readiness_and_host_guards_run_before_key_use(self):
         args = ["ios-upload.py", str(self.root), str(self.output), "--prior-receipts", str(self.prior)]
         hosted = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_OS": "macOS",
-                  "GITHUB_REF": "refs/heads/master", "GITHUB_EVENT_NAME": "workflow_dispatch"}
-        for overrides in [{}, {**hosted}, {**hosted, "IOS_STORE_UPLOAD_READY": "true", "GITHUB_REF": "refs/heads/other"}]:
+                  "GITHUB_REF": "refs/tags/v1.0.0", "GITHUB_EVENT_NAME": "push"}
+        for overrides in [{}, {**hosted}, *[
+                {**hosted, "IOS_STORE_UPLOAD_READY": "true", "GITHUB_REF": ref}
+                for ref in ["refs/heads/master", "refs/heads/other", "refs/tags/v1.0.0-nightly.1.gabcdef0"]]]:
             with patch.dict(os.environ, overrides), patch("sys.argv", args), patch.object(upload, "credentials") as key:
                 with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                     upload.main()
@@ -198,7 +200,7 @@ class UploadTests(unittest.TestCase):
         (self.root / "export.json").write_text(json.dumps(self.record))
         api = FakeApple([None])
         hosted = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_OS": "macOS",
-                  "GITHUB_REF": "refs/heads/master", "GITHUB_EVENT_NAME": "workflow_dispatch"}
+                  "GITHUB_REF": "refs/tags/v1.0.0", "GITHUB_EVENT_NAME": "push"}
         args = ["ios-upload.py", str(self.root), str(self.output), "--prior-receipts", str(self.prior), "--check-only"]
         with patch.dict(os.environ, hosted), patch("sys.argv", args), patch.object(upload, "verify_export") as verify:
             with patch.object(upload, "credentials", return_value=contextlib.nullcontext(api)):

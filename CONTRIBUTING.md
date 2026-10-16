@@ -159,14 +159,16 @@ Current downloads remain AltStore IPAs, signed APKs and notarized Developer ID
 Mac ZIPs. Local iOS Release archive/export preparation is documented in the
 [Apple host guide](backends/apple/README.md#ios-app-store-preparation); it neither
 uploads to a store nor changes the GitHub packages. Android App Bundles remain
-planned work. The optional `ios-store` manual
-input builds an App Store-signed artifact in its own protected environment, using
-the same run counter; it does not upload or gate the three-platform GitHub release.
-The separate manual `ios-delivery=check` action verifies Apple authentication,
-the exact app and consumed number without uploading. `ios-delivery=upload`
-additionally requires a protected environment's explicit readiness setting and
-owner review; it uploads once and retains a processing receipt. Neither action
-invites testers or submits review. See the Apple host guide for gates and retries.
+planned work. Only stable `vX.Y.Z` release tags select protected App Store jobs.
+`just release ...` pushes that tag and selects iOS signing/delivery; master
+commits and rolling nightlies never select them. Owner environment review and
+explicit upload readiness are still required. A fresh manual run on an existing
+stable tag can rebuild store artifacts with `ios-store=true` or select
+`ios-delivery=check|upload`; requests on master/nightly refs are rejected.
+Published stable GitHub assets remain immutable during store retries. Check mode
+verifies authentication/app/build records without uploading. Upload mode sends
+once and retains a processing receipt. Neither invites testers or submits review.
+See the Apple host guide for gates and retries.
 
 Run the focused release-tooling checks with
 `node --strip-types --test .github/scripts/*.test.ts` and

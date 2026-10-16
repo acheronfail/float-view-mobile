@@ -111,9 +111,11 @@ occurred; upload readiness remains disabled.
 - Baseline 100 and software preservation/startup checks are implemented; complete
   the scoped device/container and failure/retry presentation checkpoint before
   inviting external users. See storage-baseline.md and verification.md.
-- Finish the iOS corresponding-source/package-notice check. The owner's official
-  Apple distribution permission is recorded in licensing.md; credited
-  dependencies and artwork retain their own terms.
+- The [iOS package/source audit](ios-package-source-audit.md) verified exact
+  public source and existing packaged texts, and fixed missing Rust runtime
+  notices. Validate the corrected texts in the fresh tagged candidate before
+  upload. Build 77 predates the fix. The owner's official Apple permission is
+  recorded in licensing.md; third-party terms remain independent.
 - When upload is authorized, create a fresh signed CI candidate and validate
   Apple processing and encryption status. Local and read-only checks do not
   establish transport or processing acceptance.

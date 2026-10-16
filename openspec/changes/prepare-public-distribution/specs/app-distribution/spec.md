@@ -4,7 +4,7 @@
 
 ### Requirement: Nightlies identify development commits
 
-Master pushes and manual master runs SHALL resolve commit-identified rolling nightly prereleases without marking them latest. Before the first stable v1.0.0 tag, nightlies SHALL target v1.0.0; afterward they SHALL use the next patch after the greatest stable ancestor. Unchanged successful commits SHALL skip ordinary nightly rebuilding; an explicit store-preparation run MAY request fresh packages for all routes with one shared native number. Failed publication SHALL remain retryable.
+Master pushes and manual master runs SHALL resolve commit-identified rolling nightly prereleases without marking them latest. Before the first stable v1.0.0 tag, nightlies SHALL target v1.0.0; afterward they SHALL use the next patch after the greatest stable ancestor. Unchanged successful commits SHALL skip ordinary nightly rebuilding. Master/nightly runs SHALL NOT select store jobs. Failed publication SHALL remain retryable.
 
 #### Scenario: Development after a minor release
 
@@ -14,7 +14,7 @@ Master pushes and manual master runs SHALL resolve commit-identified rolling nig
 #### Scenario: Unchanged source or failed build
 
 - **WHEN** the current commit already has a successfully published Nightly, or a platform build fails
-- **THEN** ordinary unchanged builds are skipped unless store preparation explicitly requests a shared new run, and failures do not replace the last successful Nightly
+- **THEN** ordinary unchanged builds are skipped, and failures do not replace the last successful Nightly
 
 #### Scenario: Launch preparation after old tags are removed
 
@@ -48,7 +48,7 @@ The approved pre-v1 cleanup SHALL remove all existing pre-v1 GitHub releases/ass
 
 ### Requirement: Version one is reserved until acceptance
 
-The first supported stable launch SHALL be v1.0.0. Its stable tag SHALL NOT be created or pushed until release-candidate checks pass. Preparation nightlies and store beta builds SHALL remain available before that point and SHALL NOT implicitly trigger production store release.
+The first supported stable launch SHALL be v1.0.0. Its stable tag SHALL NOT be created or pushed until repository release-candidate checks pass. Preparation nightlies SHALL remain available before that point. The accepted stable tag selects store build/upload work; TestFlight processing and delivered-device acceptance SHALL precede production store release. Upload SHALL NOT implicitly invite testers or submit review.
 
 #### Scenario: Candidate is still under test
 
@@ -80,7 +80,27 @@ The README SHALL link to verified live iOS App Store, Google Play and Mac App St
 
 ### Requirement: Store publication is explicit and traceable
 
-Store submissions SHALL use Release packages with recorded source revision, display version and monotonically increasing native build identifiers. Upload credentials SHALL be confined to protected release jobs. Nightly publication and pull requests SHALL NOT submit store builds. Retries SHALL inspect previous upload state and allocate a newer build identifier when required.
+Store jobs SHALL select only stable `vX.Y.Z` release tags, use Release packages and record exact source/version/native build identity. Master, nightly and pull-request runs SHALL NOT select them. Signing/upload credentials SHALL remain in reviewed release environments with explicit upload readiness. Retries SHALL inspect previous Apple state before resubmission.
+
+#### Scenario: Master commit is built
+
+- **WHEN** master is pushed or manually built, including a request for store preparation
+- **THEN** store jobs are skipped or the invalid request is rejected before store credentials are used; ordinary sideload nightlies remain available
+
+#### Scenario: Release helper pushes a stable tag
+
+- **WHEN** `just release ...` pushes a valid stable tag on master history
+- **THEN** its run selects independent protected store jobs and all newly built packages share its native number, without automatically inviting testers or submitting review
+
+#### Scenario: Retry an existing stable release
+
+- **WHEN** a deliberate manual check/retry targets an existing stable release tag
+- **THEN** it can allocate a fresh run/native number for the same source and marketing version without replacing published GitHub downloads
+
+#### Scenario: Correct source after submission
+
+- **WHEN** source changes are needed after a release was tagged
+- **THEN** a new release tag is created through `just release ...`; the published tag is not moved
 
 #### Scenario: Rebuild an already processed version
 

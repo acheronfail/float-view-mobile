@@ -43,7 +43,9 @@ class StoreTests(unittest.TestCase):
             source = store.ROOT / "backends/apple/ios" / (
                 "float-view" if identifier == store.APP_ID else "FloatViewLiveActivity") / "PrivacyInfo.xcprivacy"
             shutil.copyfile(source, bundle / "PrivacyInfo.xcprivacy")
-        (self.app / "index.html").write_text("shared frontend")
+        (self.app / "index.html").write_text("<script>" + ";".join(
+            "const text" + str(index) + "=" + json.dumps((store.ROOT / name).read_text())
+            for index, name in enumerate(["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"])) + "</script>")
         self.runner = patch.object(store, "run", side_effect=self.run_tool)
         self.runner.start()
         self.addCleanup(self.runner.stop)
@@ -80,6 +82,23 @@ class StoreTests(unittest.TestCase):
         store.verify_distribution(self.app, "1.0.0", "101", TEAM)
         self.assertEqual(len([x for x in self.operations if x[0] == "security"]), 2)
         self.assertEqual(len([x for x in self.operations if x[:2] == ("codesign", "--verify")]), 2)
+
+    def test_missing_or_changed_full_packaged_notices_rejected(self):
+        path = self.app / "index.html"
+        original = path.read_text()
+        for name in ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"]:
+            text = json.dumps((store.ROOT / name).read_text())
+            path.write_text(original.replace(text, '"only a licence title"'))
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "full legal text"):
+                store.bundles(self.app, "1.0.0", "101")
+        path.write_text(original)
+
+    def test_ci_signing_rejects_master_and_nightly_before_profile_use(self):
+        for ref in ["refs/heads/master", "refs/tags/v1.0.0-nightly.1.gabcdef0"]:
+            with patch.dict(os.environ, {**self.ci_environment(), "GITHUB_REF": ref}):
+                with self.assertRaisesRegex(ValueError, "stable release tag"):
+                    store.ci_build(argparse.Namespace(output=self.root / "output"))
+            self.assertEqual(self.operations, [])
 
     def test_development_profile_rejected(self):
         self.profile_changes["ProvisionedDevices"] = ["test-device"]
@@ -294,6 +313,7 @@ class StoreTests(unittest.TestCase):
                 changes(profile)
             profiles.append(base64.b64encode(plistlib.dumps(profile)).decode())
         return {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_OS": "macOS",
+                "GITHUB_REF": "refs/tags/v1.0.0", "GITHUB_EVENT_NAME": "push",
                 "APPLE_TEAM_ID": TEAM, "CODE_SIGN_IDENTITY": hashlib.sha1(certificate).hexdigest().upper(),
                 "FLOAT_VIEW_BUILD_RECORD": str(self.root / "ci-record.json"),
                 "IOS_APP_PROFILE_BASE64": profiles[0], "IOS_EXTENSION_PROFILE_BASE64": profiles[1]}

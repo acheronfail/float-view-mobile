@@ -385,18 +385,35 @@ test('CI build record and release link use the shared number; older retries cann
   assert.equal(f.state().actions.filter(x => x.startsWith('upload')).length, uploads);
 });
 
-test('an explicit store run rebuilds all routes with a shared new number, without bypassing stale-run guards', () => {
+test('store jobs follow stable release tags and reject master/nightly preparation', () => {
   const f = fixture();
-  assert.equal(f.run('publish').status, 0);
-  const request = { FLOAT_VIEW_BUILD_IOS_STORE: 'true', GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_RUN_NUMBER: '61' };
-  assert.notEqual(f.run('prepare', { FLOAT_VIEW_UPLOAD_IOS_STORE: 'true' }).status, 0);
-  assert.equal(f.run('prepare', request).status, 0);
+  for (const event of ['push', 'workflow_dispatch']) {
+    assert.equal(f.run('prepare', { GITHUB_EVENT_NAME: event }).status, 0);
+    assert.match(f.output(), /storeBuild=false/);
+    for (const request of [{ FLOAT_VIEW_BUILD_IOS_STORE: 'true' }, { FLOAT_VIEW_IOS_DELIVERY: 'check' }]) {
+      const result = f.run('prepare', { ...request, GITHUB_EVENT_NAME: event });
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /stable release tag/);
+    }
+  }
+  git(['tag', 'v1.0.0'], f.cwd);
+  const release = { GITHUB_REF: 'refs/tags/v1.0.0', GITHUB_EVENT_NAME: 'push', GITHUB_RUN_NUMBER: '61' };
+  assert.equal(f.run('prepare', release).status, 0);
+  assert.match(f.output(), /storeBuild=true\nstoreDelivery=upload/);
   assert.match(f.output(), /buildNumber=121/);
+  assert.match(f.output(), /configuration=Release/);
   assert.ok(f.output().endsWith('skip=false\n'));
-  assert.notEqual(f.run('prepare', { ...request, GITHUB_EVENT_NAME: 'push' }).status, 0);
-  const state = f.state();
-  state.releases[0]!.body = state.releases[0]!.body!.replace('float-view-build-number:120', 'float-view-build-number:122');
-  f.save(state);
-  assert.equal(f.run('prepare', request).status, 0);
+  // A fresh store retry uses the existing immutable release tag even if GitHub is published.
+  f.save({ releases: [{ id: 200, tag_name: 'v1.0.0', draft: false, assets: [] }], actions: [] });
+  assert.equal(f.run('prepare', { ...release, GITHUB_EVENT_NAME: 'workflow_dispatch',
+    FLOAT_VIEW_IOS_DELIVERY: 'check', GITHUB_RUN_NUMBER: '62' }).status, 0);
+  assert.match(f.output(), /storeBuild=true\nstoreDelivery=check/);
+  assert.match(f.output(), /buildNumber=122/);
   assert.ok(f.output().endsWith('skip=true\n'));
+  assert.equal(f.run('prepare', { ...release, GITHUB_EVENT_NAME: 'workflow_dispatch' }).status, 0);
+  assert.match(f.output(), /storeBuild=false/);
+  for (const tag of ['v1.0.0-nightly.1.gabcdef0', 'v01.0.0']) {
+    git(['tag', tag], f.cwd);
+    assert.notEqual(f.run('prepare', { ...release, GITHUB_REF: 'refs/tags/' + tag }).status, 0);
+  }
 });

@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       ios-store:
-        description: Build an App Store-signed iOS IPA (no upload)
+        description: Rebuild a tagged release store IPA (select its vX.Y.Z ref)
         type: boolean
         default: false
       ios-delivery:
-        description: Apple delivery action for the fresh store build (never invites testers)
+        description: Tagged release retry action (master/nightly store jobs are forbidden)
         type: choice
         options: [none, check, upload]
         default: none
@@ -30,6 +30,8 @@ jobs:
       app-version: ${{ steps.version.outputs.appVersion }}
       record-artifact: ${{ steps.version.outputs.buildRecordArtifact }}
       skip: ${{ steps.version.outputs.skip }}
+      store-build: ${{ steps.version.outputs.storeBuild }}
+      store-delivery: ${{ steps.version.outputs.storeDelivery }}
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -53,7 +55,7 @@ jobs:
         env:
           FLOAT_VIEW_BUILD_RECORD: ${{ runner.temp }}/build-record.json
           FLOAT_VIEW_BUILD_IOS_STORE: ${{ inputs.ios-store }}
-          FLOAT_VIEW_UPLOAD_IOS_STORE: ${{ inputs.ios-delivery != 'none' && inputs.ios-delivery != '' }}
+          FLOAT_VIEW_IOS_DELIVERY: ${{ inputs.ios-delivery }}
         run: node --strip-types .github/scripts/prepare.ts
 
       - name: Retain CI build identity
@@ -130,7 +132,7 @@ jobs:
 
   ios-store:
     needs: prepare
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.ios-store && needs.prepare.outputs.skip == 'false'
+    if: needs.prepare.outputs.store-build == 'true'
     runs-on: macos-26
     timeout-minutes: 45
     environment: ios-store-signing
@@ -147,6 +149,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Check signing environment readiness
         env:
           SIGNING_READY: ${{ vars.IOS_STORE_SIGNING_READY }}
@@ -203,7 +206,7 @@ jobs:
 
   ios-upload:
     needs: [prepare, ios-store]
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.ios-delivery != 'none' && inputs.ios-delivery != '' && needs.ios-store.result == 'success'
+    if: needs.prepare.outputs.store-build == 'true' && needs.prepare.outputs.store-delivery != 'none' && needs.ios-store.result == 'success'
     runs-on: macos-26
     timeout-minutes: 45
     environment: ios-store-upload
@@ -217,6 +220,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Download exact signed artifact and previous receipts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -229,7 +233,7 @@ jobs:
           if [[ "$has_receipts" == true ]]; then
             gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern "$RECEIPT_PREFIX*" --dir "$RUNNER_TEMP/ios-upload-prior"
           fi
-      - name: Verify signatures and upload once with Apple receipt checks
+      - name: Verify signed release and check or upload to Apple
         env:
           IOS_STORE_UPLOAD_READY: ${{ vars.IOS_STORE_UPLOAD_READY }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
@@ -237,7 +241,7 @@ jobs:
           ASC_API_ISSUER_ID: ${{ vars.ASC_API_ISSUER_ID }}
           ASC_APP_ID: ${{ vars.ASC_APP_ID }}
           ASC_API_PRIVATE_KEY_BASE64: ${{ secrets.ASC_API_PRIVATE_KEY_BASE64 }}
-          DELIVERY_ACTION: ${{ inputs.ios-delivery }}
+          DELIVERY_ACTION: ${{ needs.prepare.outputs.store-delivery }}
         run: |
           args=()
           case "$DELIVERY_ACTION" in

@@ -112,7 +112,9 @@ def candidate(directory):
             and ci.get("buildJob") == "ios-store"
             and ci.get("appVersion") == record.get("version")
             and ci.get("buildNumber") == record.get("buildNumber") == os.environ.get("FLOAT_VIEW_BUILD_NUMBER")
-            and ci.get("repository") == os.environ.get("GITHUB_REPOSITORY"),
+            and ci.get("repository") == os.environ.get("GITHUB_REPOSITORY")
+            and ci.get("channel") == "stable" and ci.get("tag") == "v" + record.get("version", "")
+            and os.environ.get("GITHUB_REF") == "refs/tags/" + ci.get("tag", ""),
             "Store export differs from the approved CI source/build/run")
     name = record.get("ipa", "")
     require(name == Path(name).name and name.endswith(".ipa"), "Invalid IPA filename")
@@ -219,9 +221,10 @@ def main():
     args = parser.parse_args()
     try:
         require(os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted"
-                and os.environ.get("RUNNER_OS") == "macOS" and os.environ.get("GITHUB_REF") == "refs/heads/master"
-                and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch",
-                "Upload requires the explicitly approved hosted master workflow")
+                and os.environ.get("RUNNER_OS") == "macOS"
+                and re.fullmatch(r"refs/tags/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)", os.environ.get("GITHUB_REF", ""))
+                and os.environ.get("GITHUB_EVENT_NAME") in ["push", "workflow_dispatch"],
+                "Apple delivery requires an approved hosted stable release tag; never master or nightly")
         require(args.check_only or os.environ.get("IOS_STORE_UPLOAD_READY") == "true", "Upload readiness is not enabled")
         record, ipa = candidate(args.export)
         with credentials() as api:

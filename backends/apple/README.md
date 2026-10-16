@@ -181,11 +181,11 @@ uploaded later.
 ### Protected CI store builds
 
 The existing **Build apps** workflow owns one native number (`run_number + 60`)
-for all platforms. A manual master run with the `ios-store` input also builds a
-Release App Store IPA. It requests fresh builds of all four routes even for an unchanged commit, so
-the IPA/APK/ZIP and store IPA share the new run number. The normal three-package
-GitHub gate can publish a refreshed rolling Nightly; older-run guards still apply. The store job is independent of the three-platform
-GitHub publication dependency. It has no upload credential or upload command.
+for all platforms. The stable `vX.Y.Z` tag pushed by `just release ...` selects
+Release App Store signing and protected delivery alongside the three sideload
+packages. Master pushes/manual master runs and nightly tags never select store
+jobs, even if store inputs are requested. GitHub publication depends only on the
+three sideload packages; store signing/delivery remain independent.
 
 Each run retains a `build-record-<attempt>` artifact with source, semantic/native
 version, run number, run ID, attempt and CI URL. Store `export.json` embeds that
@@ -197,8 +197,9 @@ the delivery job queries Apple before considering a retry of that number.
 
 Configure [the repository's environments](https://github.com/acheronfail/float-view-mobile/settings/environments)
 before enabling this job. The `ios-store-signing` environment was created with
-owner review and a `master`-only deployment policy. The owner configured the
-signing secrets and readiness; the first hosted signing/export passed on 2026-10-17.
+owner review and a tag-only `v*` deployment policy. The preparation and Python
+validators additionally require an exact stable `vX.Y.Z` ref, excluding nightlies.
+The owner configured the signing secrets and readiness; the first hosted signing/export passed on 2026-10-17.
 Keep its secrets scoped to that environment. The job refuses to proceed until environment variable
 `IOS_STORE_SIGNING_READY` is `true`; set it only after protection and secrets
 are configured. The existing repository `APPLE_TEAM_ID` variable is reused.
@@ -248,10 +249,12 @@ Only the explicitly selected protected job receives these secrets; normal
 GitHub releases and local builds continue without them. No App Store Connect
 API key is needed for this manual-profile build route.
 
-After the code is pushed and protection/secrets are configured, invoke:
+After candidate checks pass, `just release ...` pushes the stable tag and selects
+store jobs. To rebuild only store artifacts for an existing release, select its
+actual tag (replace `vX.Y.Z` below); never use master:
 
 ```sh
-gh workflow run build-apps.yml --ref master -f ios-store=true --repo acheronfail/float-view-mobile
+gh workflow run build-apps.yml --ref vX.Y.Z -f ios-store=true --repo acheronfail/float-view-mobile
 ```
 
 CI imports the distribution identity into a temporary keychain on a disposable
@@ -266,8 +269,8 @@ secret names; there is no change to the Mac signer or trust policy.
 
 ### Protected Apple delivery
 
-The separate `ios-store-upload` environment has owner review and a master-only
-deployment policy. Only its delivery step receives the App Store Connect team
+The separate `ios-store-upload` environment has owner review and a tag-only
+`v*` deployment policy; exact stable tags are validated before credentials are used. Only its delivery step receives the App Store Connect team
 key; signing and sideload jobs do not receive it. A Developer-role team key can
 access the team's apps, so keep its one-time `.p8` download and backups private.
 Store `ASC_API_PRIVATE_KEY_BASE64` as an environment secret and `ASC_API_KEY_ID`,
@@ -276,25 +279,27 @@ The repository's `APPLE_TEAM_ID` is reused. Live authentication, exact-app looku
 and consumed-number queries passed in build 77, attempt 2, on 2026-10-17.
 Upload readiness remains disabled.
 
-After reviewing and pushing the source, request a fresh signed candidate and a
-read-only authentication/app/build-number check:
+For an existing stable release, request a fresh candidate and read-only check
+using its actual tag (replace `vX.Y.Z`):
 
 ```sh
-gh workflow run build-apps.yml --ref master -f ios-store=true -f ios-delivery=check --repo acheronfail/float-view-mobile
+gh workflow run build-apps.yml --ref vX.Y.Z -f ios-store=true -f ios-delivery=check --repo acheronfail/float-view-mobile
 ```
 
 Approve the signing and delivery environment requests for that exact source.
 `check` independently verifies the exported signatures, profiles, privacy
 manifests, version and digest, authenticates to Apple, checks the numeric app
 record's bundle ID, and queries whether Apple already has that build number.
-It never uploads. The three sideload packages still build and can refresh the
-public rolling Nightly with the same native number. Signing/export artifacts
-and delivery receipts in this public repository are not confidential.
+It never uploads. Existing published stable downloads remain immutable, so a
+store-only retry can have a newer native number than those earlier downloads.
+The original release run gives all four packages the same number. Signing/export
+artifacts and delivery receipts in this public repository are not confidential.
 
 Keep `IOS_STORE_UPLOAD_READY` unset until the distribution, privacy, storage and
 review-material gates below are accepted. Then the owner can set it to `true`
-in `ios-store-upload` and explicitly dispatch `ios-delivery=upload` with
-`ios-store=true`. This makes a fresh candidate, uploads it once, and polls Apple
+in `ios-store-upload`. A new `just release ...` tag selects upload, subject to
+required review; a deliberate retry uses the existing stable tag and
+`ios-delivery=upload`. This makes a fresh candidate, uploads it once, and polls Apple
 processing. It does not invite testers or submit beta/App Store review.
 
 Each attempt retains a JSON receipt with source, version, native number, IPA
@@ -321,7 +326,8 @@ baseline-100 storage work. The separately approved read-only delivery check
 passed on attempt 2: Apple authentication and the exact app lookup succeeded,
 and Apple returned no existing build for 1.0.0 (77). No upload occurred; actual
 transport and Apple processing remain unverified. A future upload action creates
-a fresh candidate and number. The owner recorded permission for official Apple
+a fresh candidate and number. Corrected source needs a new stable release tag;
+never move an existing published tag. The owner recorded permission for official Apple
 distribution;
 third-party notices and source obligations retain their own terms. The privacy
 audit and Xcode aggregate report are documented in
@@ -445,8 +451,10 @@ Package names include the full display version, for example
 corresponding APK and universal macOS ZIP names. Settings displays the same version
 and commit revision. Native Apple marketing versions omit the nightly suffix;
 app and extension build numbers use the independent workflow counter. These
-downloads remain AltStore IPAs, signed APKs and notarized Developer ID Mac ZIPs;
-the optional store job produces a separate signed IPA without uploading it.
+downloads remain AltStore IPAs, signed APKs and notarized Developer ID Mac ZIPs.
+Only stable release tags select the separate store signing/delivery jobs;
+master/nightly runs never do. Signing alone does not upload; protected delivery
+requires its own review and readiness.
 
 Locally, `FLOAT_VIEW_VERSION=v0.2.0 FLOAT_VIEW_BUILD_NUMBER=60 just ipa` produces
 a versioned package with marketing version `0.2.0` and build `60`; add

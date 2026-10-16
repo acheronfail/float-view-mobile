@@ -102,6 +102,16 @@ def generate(android_report):
     entries.append((f"Bundled SQLite {sqlite_version} (libsqlite3-sys)", "Public domain",
                     "https://sqlite.org/copyright.html", []))
 
+    rust_version = re.search(r'channel = "([^"]+)"', (ROOT / "rust-toolchain.toml").read_text())[1]
+    runtime_notices = [(label, ROOT / "LICENSES" / f"Rust-{name}-{rust_version}.txt") for name, label in [
+        ("stdlib", "Standard library copyright and licence inventory"),
+        ("builtins", "Compiler-builtins licence and LLVM exception"),
+        ("libm", "Math implementation and embedded third-party notices"),
+    ]]
+    entries.append((f"Rust runtime {rust_version}", "MIT; Apache-2.0 WITH LLVM-exception; component terms in notices",
+                    f"https://github.com/rust-lang/rust/tree/{rust_version}/library",
+                    [(label, document(path.read_text())) for label, path in runtime_notices]))
+
     cache = Path(os.environ.get("GRADLE_USER_HOME", Path.home() / ".gradle")) / "caches/modules-2/files-2.1"
     coordinates = set()
     for line in android_report.read_text().splitlines():

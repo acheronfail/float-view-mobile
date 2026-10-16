@@ -61,6 +61,17 @@ def toolchain(store):
     return {"xcode": xcode, "iosSDK": sdk}
 
 
+def verify_frontend(app):
+    html = (app / "index.html").read_text()
+    for name in ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"]:
+        text = (ROOT / name).read_text()
+        # Vite emits raw-text imports as JS template literals or quoted strings.
+        template = "`" + text.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${") + "`"
+        quoted = [json.dumps(text, ensure_ascii=ascii_only) for ascii_only in [False, True]]
+        require(template in html or any(value in html for value in quoted),
+                "Shared frontend is missing or has stale full legal text: " + name)
+
+
 def bundles(app, version, number):
     extensions = sorted((app / "PlugIns").glob("*.appex"))
     require(len(extensions) == 1, "Expected exactly one Live Activity extension")
@@ -83,6 +94,7 @@ def bundles(app, version, number):
             require(info.get("ITSAppUsesNonExemptEncryption") is False,
                     "Missing reviewed encryption declaration")
     require((app / "index.html").is_file(), "Archive is missing the shared frontend")
+    verify_frontend(app)
     return result
 
 
@@ -131,7 +143,9 @@ def archive(args):
         require(ci.get("schema") == 1 and ci.get("commit") == commit
                 and ci.get("appVersion") == version[1:] and ci.get("buildNumber") == number
                 and ci.get("runId") == os.environ.get("GITHUB_RUN_ID")
-                and ci.get("workflowPath") == ".github/workflows/build-apps.yml",
+                and ci.get("workflowPath") == ".github/workflows/build-apps.yml"
+                and ci.get("channel") == "stable" and ci.get("tag") == version
+                and os.environ.get("GITHUB_REF") == "refs/tags/" + version,
                 "CI build record does not match the source/version/run")
     # A clean check applies before generating the ignored embedded frontend.
     run("just", "build")
@@ -227,6 +241,9 @@ def ci_build(args):
     require(os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted"
             and os.environ.get("RUNNER_OS") == "macOS", "CI profile import requires a hosted macOS runner")
+    require(re.fullmatch(r"refs/tags/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)", os.environ.get("GITHUB_REF", ""))
+            and os.environ.get("GITHUB_EVENT_NAME") in ["push", "workflow_dispatch"],
+            "CI store signing requires a stable release tag; never master or nightly")
     require(os.environ.get("FLOAT_VIEW_BUILD_RECORD"), "CI requires the shared build record")
     require(not args.output.exists(), "Output already exists")
     # Clear both profile secrets before invoking any child tool or Xcode build.

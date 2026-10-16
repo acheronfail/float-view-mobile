@@ -480,3 +480,50 @@ Checks completed:
   GitHub Issues support URL. Local ignored evidence is retained under
   `.local/ios-store/ci-38977368838/`. Overall progress remains 7/38; no broader
   store-readiness task is marked complete solely from authentication success.
+
+## iOS package/source audit and release-only store jobs (2026-10-17)
+
+- Audited the actual build 77 IPA: complete project licence, attribution and
+  generated dependency texts match decoded bundled JavaScript literals. All
+  95 external package/version pairs in the locked iOS Cargo build graph have
+  notice entries. The anonymous exact-commit source archive matched all 1,685
+  tracked Git blobs, including build inputs, lockfiles and artwork source.
+  Detailed evidence and source hash are in docs/ios-package-source-audit.md;
+  ignored public-source/audit artifacts are in the build 77 source-audit folder.
+- Found a real omission outside Cargo metadata: linked Rust standard-library
+  and compiler-builtins/math notices. Added pinned 1.93.0 upstream material and
+  regenerated the shared offline inventory. All 101 previous licence documents
+  remain unchanged; three runtime documents were added. The collector check passed against
+  the resolved offline Android Release graph and locked native/frontend inputs.
+  No dependency version or runtime code was changed. Build 77 is not eligible
+  for submission because it predates the notice correction.
+- Added a client-build check of actually rendered dependency modules and an iOS
+  package check requiring all three complete current legal texts in HTML. Missing
+  or stale packaged texts fail instead of being accepted on title/marker alone.
+  A real unsigned Xcode 26.0 Release archive passed with the corrected texts and
+  manifests. Local ignored evidence: notices-archive-check-20261017. Local build
+  1 is unallocated and the dirty-source archive cannot be uploaded.
+- Owner requested full notices outside Settings. Added /settings/licences with
+  sticky Settings return navigation and normal document scrolling. Shared
+  Settings retains summary/source/privacy/support links. The restoration
+  checkpoint maps this read-only page to Settings without a backend contract
+  change. Clean frontend builds now identify the full 40-character source commit.
+- Owner requested store jobs only for releases created by just release. Stable
+  tag pushes now select protected signing/delivery; master/nightly store requests
+  are rejected. Manual checks/retries require an existing stable tag and leave
+  published GitHub downloads immutable. Original release packages share one
+  number; a store-only retry can have a newer number. Corrected source needs a
+  new release tag. No stable tag was created to exercise the production trigger.
+- Replaced both GitHub environments' master-branch policies with tag-only v*
+  policies, verified each has only that tag rule and retains owner review.
+  Preparation/Python validators require exact stable vX.Y.Z refs, excluding
+  nightly tags. Upload readiness remains disabled; no Apple upload occurred.
+- Checks passed: 49 release-tooling tests, 27 store archive/export tests, 16
+  upload/receipt tests, frontend type check/build and focused ESLint/format checks,
+  20 focused navigation/restoration unit tests, Chromium/WebKit offline route
+  tests (2), actionlint, whitespace checks and
+  strict OpenSpec validation. Browser checks cover touch/keyboard activation,
+  cancellation/non-primary input, narrow layout, scrolling and native Back.
+  Fresh signed-candidate, Apple processing and physical delivery checks remain
+  open. Overall progress remains 7/38; Android/Mac notice and packaging work is
+  not closed by this iOS slice.
