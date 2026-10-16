@@ -2,16 +2,20 @@
   let {
     onconfigure,
     onbms,
+    onenablerefloat,
     nowMs,
     charging = false,
   }: {
     onconfigure?: (trigger: HTMLButtonElement) => void;
     onbms?: (trigger: HTMLButtonElement) => void;
+    onenablerefloat: () => void;
     nowMs: number;
     charging?: boolean;
   } = $props();
   import { backendState } from '$lib/backend/state.svelte';
-  import { readingsAreDimmed } from './live';
+  import { readingsAreDimmed, refloatMenuActions } from './live';
+  import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
+  import Icon from '$lib/ui/Icon.svelte';
   import WidgetNumbers from './WidgetNumbers.svelte';
   import WidgetGauge from './WidgetGauge.svelte';
   import WidgetPower from './WidgetPower.svelte';
@@ -23,6 +27,17 @@
 
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
   const dimmed = $derived(connection ? readingsAreDimmed(connection) : false);
+  const enableRefloat = $derived(
+    connection
+      ? refloatMenuActions(connection).find(
+          (action) => action.kind === 'control' && action.control === 'package' && action.enabled
+        )
+      : undefined
+  );
+
+  function enable() {
+    if (enableRefloat && !enableRefloat.disabled && !backendState.busy) onenablerefloat();
+  }
 </script>
 
 {#if connection}
@@ -47,13 +62,33 @@
 
       <div
         class:opacity-45={dimmed}
-        class="live-gauge motion-feedback min-h-0 overflow-hidden transition-opacity motion-reduce:transition-none"
+        class="live-gauge motion-feedback relative min-h-0 overflow-hidden transition-opacity motion-reduce:transition-none"
       >
         <WidgetGauge
           sessionId={connection.trackingMode === 'saved' ? (connection.activeSession?.sessionId ?? null) : null}
           {sample}
           {units}
         />
+        {#if connection.refloatControls?.packageEnabled === false}
+          <div
+            class="absolute inset-x-2 top-2 flex items-center justify-between gap-2 rounded-xl border border-danger bg-surface px-3 py-2 text-danger shadow-lg"
+          >
+            <p role="status" class="flex items-center gap-2 text-sm font-semibold">
+              <Icon name="triangle-alert" class="shrink-0 text-xl" />
+              Refloat is disabled
+            </p>
+            <button
+              type="button"
+              class="min-h-11 shrink-0 touch-manipulation rounded-lg border border-danger bg-danger/10 px-3 py-2 text-sm font-semibold disabled:opacity-50"
+              disabled={!enableRefloat || enableRefloat.disabled || backendState.busy}
+              aria-label="Enable Refloat"
+              aria-busy={enableRefloat?.pending || undefined}
+              onpointerdown={(event) => activateFromPointer(event, enable, { scrollable: true })}
+              onclick={(event) => activateFromKeyboardOrAssistiveClick(event, enable)}
+              >{enableRefloat?.pending ? 'Enabling…' : 'Enable'}</button
+            >
+          </div>
+        {/if}
       </div>
 
       <div

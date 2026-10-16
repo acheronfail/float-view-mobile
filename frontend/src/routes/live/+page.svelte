@@ -534,6 +534,12 @@
         <LiveView
           {charging}
           {nowMs}
+          onenablerefloat={() => {
+            const action = refloatMenuActions(connection).find(
+              (action) => action.kind === 'control' && action.control === 'package' && action.enabled
+            );
+            if (action && !action.disabled) activateRefloatAction(action, () => {});
+          }}
           onconfigure={openBatteryConfigure}
           onbms={bmsMenuVisible(connection.bms)
             ? (trigger) => {

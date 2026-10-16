@@ -408,6 +408,74 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             await menu.tap();
             await actionOverlay.getByRole('button', { name: 'Enable Refloat', exact: true }).waitFor();
             await page.keyboard.press('Escape');
+            const notice = page.getByRole('status').filter({ hasText: 'Refloat is disabled' });
+            const enable = page.getByRole('button', { name: 'Enable Refloat', exact: true });
+            await notice.waitFor();
+            for (const viewport of [
+              { width: 320, height: 568 },
+              { width: 568, height: 320 },
+              { width: 1280, height: 900 },
+              { width: 390, height: 844 },
+            ]) {
+              await page.setViewportSize(viewport);
+              const gauge = (await page.locator('.live-gauge').boundingBox())!;
+              const button = (await enable.boundingBox())!;
+              assert.ok(button.height >= 44, 'enable retains a touch target');
+              assert.ok(button.x >= gauge.x && button.y >= gauge.y);
+              assert.ok(button.x + button.width <= gauge.x + gauge.width);
+              assert.ok(button.y + button.height <= gauge.y + gauge.height);
+              if (output && name === 'chromium') {
+                await page.screenshot({ path: `${output}/refloat-disabled-${viewport.width}.png` });
+              }
+            }
+            const beforeEnable = requests.length;
+            await enable.click({ button: 'right' });
+            await enable.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
+            await enable.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
+            await enable.evaluate((el) =>
+              el.addEventListener(
+                'pointerdown',
+                (event) => el.setAttribute('data-pointer', String((event as PointerEvent).pointerId)),
+                { once: true }
+              )
+            );
+            await enable.hover();
+            await page.mouse.down();
+            await enable.dispatchEvent('pointercancel', {
+              pointerId: Number(await enable.getAttribute('data-pointer')),
+            });
+            await page.mouse.up();
+            assert.equal(requests.length, beforeEnable);
+            controls.writable = false;
+            await page.waitForFunction(() =>
+              document.querySelector('.live-gauge button[aria-label="Enable Refloat"]')?.matches(':disabled')
+            );
+            await notice.waitFor();
+            controls.writable = true;
+            await page.waitForFunction(() =>
+              document.querySelector('.live-gauge button[aria-label="Enable Refloat"]')?.matches(':enabled')
+            );
+            await enable.tap();
+            await enable.and(page.locator('[aria-busy="true"]')).waitFor();
+            assert.equal(requests.length, beforeEnable + 1, 'touch submits once');
+            assert.deepEqual(requests.at(-1), { control: 'package', enabled: true });
+            assert.equal(await enable.isDisabled(), true);
+            await notice.waitFor();
+            complete!(true);
+            await page.waitForFunction(() =>
+              document.querySelector('.live-gauge button[aria-label="Enable Refloat"]')?.matches(':enabled')
+            );
+            await notice.waitFor();
+            await enable.focus();
+            await page.keyboard.press('Enter');
+            await enable.and(page.locator('[aria-busy="true"]')).waitFor();
+            assert.equal(requests.length, beforeEnable + 2, 'keyboard retries once');
+            assert.deepEqual(requests.at(-1), { control: 'package', enabled: true });
+            complete!();
+            await notice.waitFor({ state: 'hidden' });
+            controls.packageEnabled = null;
+            await page.waitForTimeout(100);
+            assert.equal(await notice.count(), 0, 'unknown package state does not claim disabled');
             controls.packageEnabled = true;
           } else {
             const safety = page.getByRole('alertdialog', { name: 'Flywheel mode is active' });
