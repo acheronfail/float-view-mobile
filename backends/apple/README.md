@@ -196,7 +196,8 @@ a future upload retry must check whether Apple already received that number.
 
 Configure [the repository's environments](https://github.com/acheronfail/float-view-mobile/settings/environments)
 before enabling this job. The `ios-store-signing` environment was created with
-owner review and a `master`-only deployment policy; secrets/readiness remain unset.
+owner review and a `master`-only deployment policy. The owner configured the
+signing secrets and readiness; the first hosted signing/export passed on 2026-10-17.
 Keep its secrets scoped to that environment. The job refuses to proceed until environment variable
 `IOS_STORE_SIGNING_READY` is `true`; set it only after protection and secrets
 are configured. The existing repository `APPLE_TEAM_ID` variable is reused.
@@ -265,8 +266,9 @@ secret names; there is no change to the Mac signer or trust policy.
 ### Remaining store work
 
 The protected CI environment and validated manual profiles are ready, and the
-manual archive/export has passed locally. CI signing secrets/readiness and an
-actual hosted store build remain pending. Protected upload/authentication,
+manual archive/export has passed locally and on a protected GitHub runner
+([build 75](https://github.com/acheronfail/float-view-mobile/actions/runs/38972744150)).
+Both bundles passed independent verification after downloading the IPA. Protected upload/authentication,
 Apple-consumed build checks and actual TestFlight processing remain open. Local signed archive/export verification has
 passed; it does not establish authenticated upload or Apple processing. Upload credentials are not
 needed for the current sideload jobs or local structural checks. Before external

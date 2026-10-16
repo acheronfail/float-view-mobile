@@ -309,3 +309,35 @@ Checks completed:
   encrypted PKCS12, its password, both profile secrets and readiness activation.
   No workflow was dispatched, no Apple build number was consumed, and upload/
   TestFlight/device validation remains open.
+
+
+## Protected hosted iOS signing verified — 2026-10-17
+
+- Owner configured all four environment signing secrets and enabled readiness.
+  Read-back verified secret names only, required owner review and the master-only
+  deployment policy. The owner approved the reviewed run before signing started.
+- Pushed reviewed source `fae1a0beaa821e2bb1c45d722fc98425333946ce` and started
+  [run 38972744150](https://github.com/acheronfail/float-view-mobile/actions/runs/38972744150).
+  Canceled the duplicate push run; the explicit manual run built all four routes.
+  Preparation, AltStore IPA, APK, notarized universal Mac, protected iOS store
+  signing and rolling Nightly publication all succeeded. Preparation passed all
+  49 Node release-tool tests and 23 Python store-tool tests.
+- The shared record allocates native build `75` from workflow run number `15`
+  plus the retained offset `60`. Nightly is `v1.0.0-nightly.622.gfae1a0beaa82`;
+  the separate store IPA is Release version `1.0.0`/build `75` for both bundles,
+  retaining iOS 17 minimum support. Hosted Xcode was 26.6 (17F113), SDK 26.5.
+- Downloaded `FloatView-ios-store-75-attempt-1` and matched source, clean status,
+  shared run identity and IPA SHA-256 against export metadata:
+  `cce2e53a070c6a7d8f3abb385fe37d3d9d18323f6080118b2daaebdd7c698981`.
+  Independent local verification of the downloaded app and Live Activity extension
+  passed strict Apple distribution signatures, expected publishing team, profile
+  expiry/distribution scope, signed entitlements, identifiers, arm64 platform,
+  versions and shared frontend checks. Signing material remains outside Git.
+- The rolling Nightly has all three sideload assets, expected source/version and
+  build-75 run link. The store IPA is retained separately as an Actions artifact,
+  not attached to the GitHub release. Artifacts in this public repository are not
+  confidential; signing credentials are not included in the uploaded artifact.
+- No Apple upload or TestFlight processing/distribution occurred. Upload auth and
+  receipt/consumed-number checks, licensing/privacy audits, public-data baseline
+  and store-delivered physical validation remain open. Tasks 5.2/5.3 remain partial;
+  the overall plan remains 5/38 complete.
