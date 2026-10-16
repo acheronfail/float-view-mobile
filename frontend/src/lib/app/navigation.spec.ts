@@ -1,10 +1,24 @@
 import { render } from 'svelte/server';
 import { describe, expect, it, vi } from 'vitest';
 import { backendState } from '$lib/backend/state.svelte';
+import type { ActiveConnection } from '$lib/backend/contract';
 import BottomTabBar from './BottomTabBar.svelte';
 import { bottomTabForRoute, bottomTabs } from './navigation';
 
 describe('bottom navigation', () => {
+  it.each([
+    ['board', '/live'],
+    ['bms', '/bms'],
+  ] as const)('reopens a connected %s from the main navigation', (deviceKind, routeId) => {
+    const { body } = render(BottomTabBar, {
+      props: { routeId: '/sessions', connection: { deviceKind } as ActiveConnection },
+    });
+    expect(body).toContain(`href="#${routeId}"`);
+    expect(body).toContain('<span>board</span>');
+    expect(body.match(/aria-current="page"/g)).toHaveLength(1);
+    expect(body).toContain('<span>sessions</span>');
+    expect(body).toContain('<span>settings</span>');
+  });
   it('maps the three exact labels to their top-level hash routes', () => {
     expect(bottomTabs.map(({ label, href, routeId }) => ({ label, href, routeId }))).toEqual([
       { label: 'connect', href: '#/', routeId: '/' },
@@ -19,6 +33,7 @@ describe('bottom navigation', () => {
     expect(bottomTabForRoute('/boards')).toBeUndefined();
     expect(bottomTabForRoute('/settings')?.label).toBe('settings');
     expect(bottomTabForRoute('/live')).toBeUndefined();
+    expect(bottomTabForRoute('/bms')).toBeUndefined();
     expect(bottomTabForRoute('/sessions/session-1')).toBeUndefined();
     expect(bottomTabForRoute('/boards/board-1')).toBeUndefined();
     expect(bottomTabForRoute('/unknown')).toBeUndefined();
@@ -39,7 +54,7 @@ describe('bottom navigation', () => {
     expect(body).not.toContain('>Devices<');
   });
 
-  it.each(['/live', '/sessions/session-1', '/boards/board-1', '/unknown'])(
+  it.each(['/live', '/bms', '/sessions/session-1', '/boards/board-1', '/unknown'])(
     'hides the tab bar on subordinate route %s',
     (routeId) => {
       const { body } = render(BottomTabBar, { props: { routeId } });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { backDismissal } from '$lib/ui/back-dismissal';
   import { createMotion } from './motion';
   import { onMount, tick, type Snippet } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, type Activation } from './activation';
@@ -67,12 +68,7 @@
     if (event.defaultPrevented || dialog?.inert) return;
     const focusedDialog = document.activeElement?.closest('dialog, [role="dialog"], [role="alertdialog"]');
     if (focusedDialog && focusedDialog !== dialog) return;
-    // Escape also works before the opening focus frame reaches this overlay.
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      void close();
-      return;
-    }
+
     if (event.key !== 'Tab' || !dialog) return;
     const controls = Array.from(
       dialog.querySelectorAll<HTMLElement>(
@@ -101,6 +97,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div
+  use:backDismissal={{ close }}
   in:appearSurface|global={'panel'}
   out:exitSurface|global
   onintrostart={focusCloseButton}

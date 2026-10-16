@@ -20,7 +20,8 @@
   import { APP_HEADER_CONTEXT, type AppHeaderConfig, type AppHeaderContext, type AppHeaderPatch } from './header';
   import PageHeader from '$lib/ui/PageHeader.svelte';
   import { browserThemeEnvironment, ThemeController } from './theme';
-  import { connectionRedirect } from './connection-navigation';
+  import { connectionReturnHref, connectionRedirect } from './connection-navigation';
+  import { dismissTopSurface, installBackNavigation } from '$lib/ui/back-dismissal';
   import { trackKeyboardNavigation } from './focus';
 
   let { children }: { children: Snippet } = $props();
@@ -63,8 +64,12 @@
       starting = false;
     }
   });
-  beforeNavigate(() => {
+  beforeNavigate((navigation) => {
     if (restoringNavigation) return;
+    if (navigation.type === 'popstate' && dismissTopSurface()) {
+      navigation.cancel();
+      return;
+    }
     menuOpen = false;
     if (starting || restoreError) {
       restoreError = '';
@@ -98,7 +103,9 @@
               : 'This session is no longer available.';
           if (checkpoint.route.kind !== 'live')
             checkpoint.route =
-              checkpoint.route.kind === 'session' && checkpoint.route.savedDeviceId
+              checkpoint.route.kind === 'session' &&
+              checkpoint.route.returnTo === 'boardHistory' &&
+              checkpoint.route.savedDeviceId
                 ? { kind: 'boardHistory', savedDeviceId: checkpoint.route.savedDeviceId }
                 : { kind: 'sessions' };
           restoreNotice = backendState.error;
@@ -171,6 +178,22 @@
 
   onMount(() => {
     const stopKeyboardNavigation = trackKeyboardNavigation();
+    const stopBackNavigation = installBackNavigation(() => {
+      const href =
+        appHeader.backHref ??
+        (page.route.id === '/live' || page.route.id === '/bms'
+          ? connectionReturnHref
+          : page.route.id === '/settings'
+            ? backendState.snapshot?.activeConnection
+              ? connectionReturnHref
+              : '#/'
+            : page.route.id === '/sessions' && !backendState.snapshot?.activeConnection
+              ? '#/'
+              : null);
+      if (!href) return false;
+      void goto(href);
+      return true;
+    });
     themeController = new ThemeController(browserThemeEnvironment());
     const stopTheme = themeController.start();
     const handleNativeImportStarted = () => {
@@ -198,6 +221,7 @@
     void resume();
     return () => {
       stopKeyboardNavigation();
+      stopBackNavigation();
       window.removeEventListener('floatview:session-import-started', handleNativeImportStarted);
       window.removeEventListener('floatview:session-imported', handleNativeImport);
       window.removeEventListener('floatview:session-import-failed', handleNativeImportFailure);
@@ -300,5 +324,5 @@
       {/if}
     </div>
   </div>
-  <BottomTabBar routeId={page.route.id} />
+  <BottomTabBar routeId={page.route.id} connection={backendState.snapshot?.activeConnection} />
 </main>

@@ -17,12 +17,13 @@
   }: {
     charging?: boolean;
     savedBoard?: boolean;
-    onbms?: () => void;
+    onbms?: (trigger: HTMLButtonElement) => void;
     onconfigure?: (trigger: HTMLButtonElement) => void;
     sample: LiveSample | null | undefined;
     estimate: BatteryEstimate | null | undefined;
   } = $props();
 
+  let bmsButton = $state<HTMLButtonElement>();
   let activationFrame: number | undefined;
   onMount(() => () => {
     if (activationFrame !== undefined) cancelAnimationFrame(activationFrame);
@@ -33,7 +34,7 @@
     // Let synthesized touch mouse events finish before the overlay takes focus.
     activationFrame = requestAnimationFrame(() => {
       activationFrame = undefined;
-      onbms?.();
+      if (bmsButton) onbms?.(bmsButton);
     });
   }
 
@@ -50,9 +51,13 @@
     <button
       type="button"
       class="absolute inset-0 z-10 touch-manipulation rounded-sm"
+      bind:this={bmsButton}
       aria-label="Open battery management system"
       onpointerdown={(event) => activateFromPointer(event, openBmsFromPointer, { scrollable: true })}
-      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, onbms)}
+      onclick={(event) =>
+        activateFromKeyboardOrAssistiveClick(event, () => {
+          if (bmsButton) onbms?.(bmsButton);
+        })}
     ></button>
   {/if}
   <div class="power-heading mb-3 flex shrink-0 items-baseline justify-between gap-3">

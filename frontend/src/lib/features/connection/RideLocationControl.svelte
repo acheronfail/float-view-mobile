@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { backDismissal } from '$lib/ui/back-dismissal';
   import { onMount } from 'svelte';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
@@ -97,6 +98,7 @@
 </button>
 
 <dialog
+  use:backDismissal={{ close: () => close(true), enabled: open }}
   bind:this={dialog}
   use:motion.surface={'dialog'}
   aria-labelledby={titleId}

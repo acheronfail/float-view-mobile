@@ -64,6 +64,15 @@ export async function runConformance(target: Target) {
     assert.equal(await client.request('uiState.get', {}), null);
     assert.deepEqual(await client.request('uiState.set', { checkpoint }), { accepted: true });
     assert.deepEqual(await client.request('uiState.get', {}), checkpoint);
+    for (const returnTo of ['live', 'sessions', 'boardHistory'] as const) {
+      const sessionCheckpoint = {
+        ...checkpoint,
+        route: { kind: 'session' as const, sessionId: 'navigation-check', savedDeviceId: 'board', returnTo },
+      };
+      await client.request('uiState.set', { checkpoint: sessionCheckpoint });
+      assert.deepEqual(await client.request('uiState.get', {}), sessionCheckpoint);
+    }
+    await client.request('uiState.set', { checkpoint });
     const afterCheckpoint = await client.request('state.get', {});
     // Native TTS initialization can complete during these requests and publish
     // its own revision. Rust's checkpoint unit test checks the no-event invariant
@@ -77,10 +86,21 @@ export async function runConformance(target: Target) {
       { ...checkpoint, version: 2 },
       { ...checkpoint, draft: {} },
       { ...checkpoint, surface: { kind: 'liveCharts' } },
-      { ...checkpoint, route: { kind: 'session', sessionId: 'é'.repeat(257), savedDeviceId: null } },
+      { ...checkpoint, route: { kind: 'session', sessionId: 'ride', savedDeviceId: null } },
+      { ...checkpoint, route: { kind: 'session', sessionId: 'ride', savedDeviceId: null, returnTo: 'boardHistory' } },
+      { ...checkpoint, route: { kind: 'session', sessionId: 'ride', savedDeviceId: null, returnTo: 'external' } },
       {
         ...checkpoint,
-        route: { kind: 'session', sessionId: '\u0001'.repeat(512), savedDeviceId: '\u0001'.repeat(512) },
+        route: { kind: 'session', sessionId: 'é'.repeat(257), savedDeviceId: null, returnTo: 'sessions' },
+      },
+      {
+        ...checkpoint,
+        route: {
+          kind: 'session',
+          sessionId: '\u0001'.repeat(512),
+          savedDeviceId: '\u0001'.repeat(512),
+          returnTo: 'boardHistory',
+        },
       },
     ])
       await expectError(client.request('uiState.set', { checkpoint: invalid } as never), 'invalid_request');

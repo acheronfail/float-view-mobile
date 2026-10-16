@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { backDismissal } from '$lib/ui/back-dismissal';
   import { tick } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, type Activation } from '$lib/ui/activation';
 
@@ -24,10 +25,6 @@
   }
 
   function containFocus(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      return;
-    }
     if (event.key !== 'Tab') return;
     event.preventDefault();
     disableButton?.focus();
@@ -38,6 +35,7 @@
 
 <div class="fixed inset-0 z-50 grid h-screen place-items-center bg-black/75 p-4">
   <div
+    use:backDismissal={{ close: () => {} }}
     role="alertdialog"
     aria-modal="true"
     aria-labelledby="flywheel-mode-title"

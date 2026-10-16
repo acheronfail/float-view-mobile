@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { UiRestoration, resolveUiCheckpoint, uiHref } from './ui-restoration.svelte';
+import { UiRestoration, resolveUiCheckpoint, uiHref, uiRoute } from './ui-restoration.svelte';
 import type { AppState, UiCheckpoint } from '$lib/backend/contract';
 import { MockBackend } from '../../../backend-mock/api-v1';
 
@@ -10,6 +10,21 @@ const checkpoint = (kind: 'settings' | 'sessions'): UiCheckpoint => ({
   surface: null,
 });
 describe('UI restoration', () => {
+  it('round trips the session entry route independently of recording state', () => {
+    for (const [query, returnTo, savedDeviceId] of [
+      ['', 'sessions', null],
+      ['?from=live', 'live', null],
+      ['?board=a%2Fb', 'boardHistory', 'a/b'],
+    ] as const) {
+      const route = uiRoute(
+        '/sessions/[sessionId]',
+        { sessionId: 'ride' },
+        new URL(`https://example.test/#/sessions/ride${query}`)
+      );
+      expect(route).toEqual({ kind: 'session', sessionId: 'ride', savedDeviceId, returnTo });
+      expect(uiHref(route)).toBe(`#/sessions/ride${query}`);
+    }
+  });
   it('deduplicates and retains only the latest queued choice', async () => {
     let finish!: () => void;
     const save = vi
@@ -78,6 +93,8 @@ describe('UI restoration', () => {
       live: null,
       surface: null,
     });
-    expect(uiHref({ kind: 'session', sessionId: 'a/b', savedDeviceId: 'board' })).toBe('#/sessions/a%2Fb?board=board');
+    expect(uiHref({ kind: 'session', sessionId: 'a/b', savedDeviceId: 'board', returnTo: 'boardHistory' })).toBe(
+      '#/sessions/a%2Fb?board=board'
+    );
   });
 });

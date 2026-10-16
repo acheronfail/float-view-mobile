@@ -915,7 +915,12 @@ export interface Accepted {
 export type UiRoute =
   | { kind: 'home' | 'sessions' | 'settings' | 'live' | 'bms' }
   | { kind: 'boardHistory'; savedDeviceId: string }
-  | { kind: 'session'; sessionId: string; savedDeviceId: string | null };
+  | {
+      kind: 'session';
+      sessionId: string;
+      savedDeviceId: string | null;
+      returnTo: 'live' | 'sessions' | 'boardHistory';
+    };
 export type UiSurface =
   | { kind: 'liveActions' | 'liveCharts' | 'bmsDetails' | 'refloatConfiguration' | 'refloatTunes' | 'boardActions' }
   | { kind: 'boardConfiguration'; savedDeviceId: string; batteryOnly: boolean };

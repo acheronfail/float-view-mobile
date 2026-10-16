@@ -155,10 +155,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         for (const [theme, color] of [
           ['light', 'rgb(220, 38, 38)'],
           ['dark', 'rgb(248, 113, 113)'],
-        ]) {
-          await page.evaluate((theme) => {
-            document.documentElement.dataset.theme = theme;
-          }, theme);
+        ] as const) {
+          await client.request('settings.update', {
+            expectedRevision: (await client.request('state.get', {})).settings.revision,
+            patch: { themePreference: theme },
+          });
+          await page.waitForFunction((value) => document.documentElement.dataset.theme === value, theme);
           assert.deepEqual(await markerStyle(), { color, animation: 'rider-live-pulse', duration: '2.8s' });
         }
         await riderPosition.evaluate((node) => node.setAttribute('data-preserved-rider', 'yes'));
@@ -196,10 +198,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         for (const [theme, color] of [
           ['light', 'rgb(15, 23, 42)'],
           ['dark', 'rgb(241, 245, 249)'],
-        ]) {
-          await page.evaluate((theme) => {
-            document.documentElement.dataset.theme = theme;
-          }, theme);
+        ] as const) {
+          await client.request('settings.update', {
+            expectedRevision: (await client.request('state.get', {})).settings.revision,
+            patch: { themePreference: theme },
+          });
+          await page.waitForFunction((value) => document.documentElement.dataset.theme === value, theme);
           assert.equal((await markerStyle()).color, color);
           assert.equal((await markerStyle()).animation, 'none');
         }
@@ -214,19 +218,27 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await showLegend.waitFor();
         if (name === 'webkit') {
           await page.getByRole('button', { name: 'Chart mode: info. Switch to zoom mode', exact: true }).tap();
+          await page.getByRole('button', { name: 'Chart mode: zoom. Switch to pan mode', exact: true }).waitFor();
           const lowerChart = page.locator('[data-history-group] svg').nth(4);
-          await lowerChart.scrollIntoViewIfNeeded();
+          // WebKit can consider a chart visible underneath the sticky header.
+          await lowerChart.evaluate((node) => node.scrollIntoView({ block: 'center' }));
           await lowerChart.evaluate((node) => node.setAttribute('data-zoom-preserved', 'yes'));
           const beforeScroll = await page.evaluate(() => window.scrollY);
           const zoomBox = (await lowerChart.boundingBox())!;
           delaySeries = true;
           const beforeZoomRequests = ends.length;
+          const zoomRequest = page.waitForRequest(
+            (request) =>
+              request.url().endsWith('/api/session-data') &&
+              request.method() === 'POST' &&
+              request.postDataJSON().kind === 'series'
+          );
           await page.mouse.move(zoomBox.x + zoomBox.width * 0.2, zoomBox.y + zoomBox.height / 2);
           await page.mouse.down();
-          await page.mouse.move(zoomBox.x + zoomBox.width * 0.8, zoomBox.y + zoomBox.height / 2);
+          await page.mouse.move(zoomBox.x + zoomBox.width * 0.8, zoomBox.y + zoomBox.height / 2, { steps: 8 });
           await page.mouse.up();
           await page.waitForFunction(() => document.querySelector('[data-zoom-preserved="yes"]') !== null);
-          await page.waitForTimeout(250);
+          await zoomRequest;
           assert(ends.length > beforeZoomRequests, 'zoom must request a new range');
           assert.equal(await lowerChart.getAttribute('data-zoom-preserved'), 'yes');
           assert(

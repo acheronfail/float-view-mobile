@@ -214,6 +214,18 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await editor.isVisible(), true, 'Escape cancels the confirmation without closing the editor');
       await editor.getByRole('button', { name: 'Done', exact: true }).tap();
       await editor.waitFor({ state: 'hidden' });
+      const battery = page.getByRole('button', { name: 'Open battery management system', exact: true });
+      await battery.focus();
+      await page.keyboard.press('Enter');
+      const bms = page.getByRole('dialog', { name: 'Battery management system', exact: true });
+      await bms.waitFor();
+      await page.keyboard.press('Escape');
+      await bms.waitFor({ state: 'hidden' });
+      assert.equal(
+        await battery.evaluate((el) => el === document.activeElement),
+        true,
+        'BMS returns focus to its widget opener'
+      );
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

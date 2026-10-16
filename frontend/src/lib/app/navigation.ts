@@ -36,6 +36,11 @@ export const bottomTabs = [
 
 export type BottomTab = (typeof bottomTabs)[number];
 
+/** SvelteKit's hash router keeps route queries inside the fragment. */
+export function routeSearchParams(url: URL): URLSearchParams {
+  return new URL(url.hash.slice(1) || '/', url).searchParams;
+}
+
 export function bottomTabForRoute(routeId: string | null): BottomTab | undefined {
   return bottomTabs.find((tab) => tab.routeId === routeId);
 }

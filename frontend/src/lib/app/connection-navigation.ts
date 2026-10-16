@@ -1,6 +1,7 @@
 import type { ActiveConnection } from '$lib/backend/contract';
 
 export type ConnectionRoute = '/live' | '/bms';
+export const connectionReturnHref = '#/sessions';
 
 export function connectionRoute(connection: ActiveConnection | null | undefined): ConnectionRoute | null {
   if (connection?.deviceKind === 'bms') return '/bms';

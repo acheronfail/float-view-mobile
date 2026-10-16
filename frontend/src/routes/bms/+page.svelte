@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
+  import { connectionReturnHref } from '$lib/app/connection-navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
   import BmsView from '$lib/features/connection/BmsView.svelte';
@@ -18,6 +19,14 @@
       subtitleClass: connection.state === 'ready' ? 'text-sm text-success' : 'text-sm capitalize text-warning',
       menuLabel: 'BMS actions',
       menu: [
+        {
+          label: 'Back to app',
+          icon: 'arrow-left',
+          onactivate: (closeMenu: () => void) => {
+            closeMenu();
+            void goto(connectionReturnHref);
+          },
+        },
         {
           label: 'Disconnect',
           appearance: 'destructive',

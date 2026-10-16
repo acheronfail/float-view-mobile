@@ -255,6 +255,24 @@ limit. Session recordings capture motorLoad and batteryLoad fractions through
 bounded numeric extension storage using the limits at observation time. Missing
 inputs remain unavailable; load fractions are saturated at 100%.
 
+## Navigation
+
+Live and standalone BMS use the full screen without primary tabs. Back to app in
+the header dots menu returns to Sessions without disconnecting. The primary tabs
+there and on Settings keep Board as the first tab while connected, reopening that
+connection.
+Subordinate history screens use a labelled Back link. Session entry URLs carry the
+return context in the hash query: Live uses `from=live`, board history uses `board`,
+and Sessions uses neither. Recording updates never choose the return destination.
+The process-memory checkpoint retains this context across WebView restoration.
+
+`ui/back-dismissal.ts` owns Escape and native Back dismissal of the topmost visible
+surface. Surface owners register their existing Done/Cancel handler, so save errors
+and busy guards apply to every dismissal path. Android forwards system Back to
+`floatview:back`; the shell follows the route's return link only after surfaces have been handled.
+Live/BMS return to Sessions. Settings returns to Sessions while connected, or
+Connect while disconnected. Back at Sessions while connected returns control to Android. Keyboard dismissal restores focus to the opener.
+
 ## UI restoration
 
 The application shell saves one explicit version-1 UI checkpoint through
@@ -291,7 +309,7 @@ metadata, with no extra discovery requests or private identifiers.
 
 The live dashboard reserves full-height number and battery rows so a short viewport
 cannot squeeze their contents out of view. Short landscape screens place the gauge
-beside the remaining widgets; the smallest screens scroll vertically with the header
+beside the remaining widgets; compact dashboards scroll vertically with the header
 remaining fixed. Compact gauges retain a 44 px centre-box target and a smaller
 marker target, hiding the marker hint when it would overlap the centre box. The
 repeatable mobile rendering matrix is documented in `conformance/README.md`.

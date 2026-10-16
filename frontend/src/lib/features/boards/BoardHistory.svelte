@@ -99,7 +99,7 @@
   async function closeConfigure() {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     await tick();
-    await editor?.flush();
+    if ((await editor?.flush()) === false) return;
     configureOpen = false;
     await tick();
     appHeader.focusMenu();

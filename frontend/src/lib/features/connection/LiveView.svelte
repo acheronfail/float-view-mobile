@@ -6,7 +6,7 @@
     charging = false,
   }: {
     onconfigure?: (trigger: HTMLButtonElement) => void;
-    onbms?: () => void;
+    onbms?: (trigger: HTMLButtonElement) => void;
     nowMs: number;
     charging?: boolean;
   } = $props();

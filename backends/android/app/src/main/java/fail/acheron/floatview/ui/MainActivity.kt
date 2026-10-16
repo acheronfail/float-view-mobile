@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.ComponentCallbacks2
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -18,6 +19,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceError
 import android.view.View
 import android.widget.FrameLayout
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import fail.acheron.floatview.application.BluetoothEvent
 import fail.acheron.floatview.permissions.PermissionBroker
 import fail.acheron.floatview.files.SessionFileImportController
@@ -45,6 +48,8 @@ class MainActivity : Activity() {
         }
     }
     private val delayedTeardown = Runnable { destroyFrontend() }
+    private var backPending = false
+    private val backCallback = if (Build.VERSION.SDK_INT >= 33) OnBackInvokedCallback { navigateBack() } else null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +68,31 @@ class MainActivity : Activity() {
         }
         setContentView(frontendContainer)
         createFrontend()
+        if (Build.VERSION.SDK_INT >= 33) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                requireNotNull(backCallback),
+            )
+        }
+    }
+
+    @Deprecated("Used by Android versions before API 33")
+    override fun onBackPressed() = navigateBack()
+
+    private fun navigateBack() {
+        if (backPending) return
+        val current = webView
+        if (current == null) {
+            moveTaskToBack(true)
+            return
+        }
+        backPending = true
+        current.evaluateJavascript(
+            "window.dispatchEvent(new Event('floatview:back', { cancelable: true }))",
+        ) { result ->
+            backPending = false
+            if (webView === current && result != "false") moveTaskToBack(true)
+        }
     }
 
     override fun onStart() {
@@ -163,6 +193,7 @@ class MainActivity : Activity() {
     private fun destroyFrontend() {
         val current = webView ?: return
         webView = null
+        backPending = false
         frontendContainer.removeView(current)
         current.stopLoading()
         current.loadUrl("about:blank")
@@ -175,6 +206,9 @@ class MainActivity : Activity() {
     internal fun frontendIsAttached(): Boolean = webView != null
 
     override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            onBackInvokedDispatcher.unregisterOnBackInvokedCallback(requireNotNull(backCallback))
+        }
         handler.removeCallbacks(delayedTeardown)
         handler.removeCallbacks(notificationPermissionCheck)
         val runtime = (application as FloatViewApplication).runtime

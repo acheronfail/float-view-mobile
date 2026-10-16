@@ -102,6 +102,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           kind: 'session',
           sessionId: connection.activeSession!.sessionId,
           savedDeviceId: connection.savedDeviceId,
+          returnTo: 'boardHistory',
         },
         live: null,
         surface: null,
@@ -118,7 +119,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal((await client.request('state.get', {})).activeConnection?.deviceId, connection.deviceId);
       await page.close();
       await client.request('uiState.set', {
-        checkpoint: { ...cp, route: { kind: 'session', sessionId: 'removed', savedDeviceId: null } },
+        checkpoint: {
+          ...cp,
+          route: { kind: 'session', sessionId: 'removed', savedDeviceId: null, returnTo: 'sessions' },
+        },
       });
       page = await context.newPage();
       page.setDefaultTimeout(5000);

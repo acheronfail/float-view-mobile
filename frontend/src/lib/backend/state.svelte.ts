@@ -333,10 +333,10 @@ export class BackendState {
     return this.run((client) => client.request('device.selectController', { deviceId, canId }).then(() => undefined));
   }
 
-  async updateSavedDeviceName(savedDeviceId: string, customDisplayName: string | null): Promise<void> {
+  async updateSavedDeviceName(savedDeviceId: string, customDisplayName: string | null): Promise<boolean> {
     const device = this.savedDevices.find((value) => value.savedDeviceId === savedDeviceId);
-    if (!device) return;
-    await this.run(async (client) => {
+    if (!device) return false;
+    return this.run(async (client) => {
       const updated = await client.request('savedDevice.update', {
         savedDeviceId,
         expectedRevision: device.revision,

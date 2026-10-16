@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { navigationLink } from './navigation-link';
   import type { Snippet } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, type Activation } from './activation';
 
@@ -17,7 +18,7 @@
 </script>
 
 {#if href}
-  <a class={interactiveClass} {href}>
+  <a class={interactiveClass} {href} use:navigationLink={{ scrollable: true }}>
     <span class="block min-w-0 flex-1">
       <span class="block font-medium">{title}</span>
       <span class="text-sm text-muted">{subtitle}</span>

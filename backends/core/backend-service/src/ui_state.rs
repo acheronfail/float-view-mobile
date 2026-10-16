@@ -27,7 +27,16 @@ enum Route {
         session_id: String,
         #[serde(rename = "savedDeviceId")]
         saved_device_id: Option<String>,
+        #[serde(rename = "returnTo")]
+        return_to: SessionReturn,
     },
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum SessionReturn {
+    Live,
+    Sessions,
+    BoardHistory,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -70,7 +79,13 @@ impl Checkpoint {
             Route::Session {
                 session_id,
                 saved_device_id,
-            } => id(session_id) && saved_device_id.as_ref().is_none_or(|s| id(s)),
+                return_to,
+            } => {
+                id(session_id)
+                    && saved_device_id.as_ref().is_none_or(|s| id(s))
+                    && (!matches!(return_to, SessionReturn::BoardHistory)
+                        || saved_device_id.is_some())
+            }
             _ => true,
         };
         let live_valid = match (&self.route, &self.live) {
@@ -204,5 +219,25 @@ mod tests {
         let mut bad = good;
         bad["surface"] = json!({"kind":"shutdown"});
         assert!(!parse(bad));
+    }
+
+    #[test]
+    fn session_return_destination_is_explicit_and_closed() {
+        for destination in ["live", "sessions", "boardHistory"] {
+            let value = json!({"version":1,"route":{"kind":"session","sessionId":"ride","savedDeviceId":"board","returnTo":destination},"live":null,"surface":null});
+            assert!(
+                serde_json::from_value::<Checkpoint>(value)
+                    .unwrap()
+                    .validate()
+            );
+        }
+        for route in [
+            json!({"kind":"session","sessionId":"ride","savedDeviceId":null}),
+            json!({"kind":"session","sessionId":"ride","savedDeviceId":null,"returnTo":"boardHistory"}),
+            json!({"kind":"session","sessionId":"ride","savedDeviceId":null,"returnTo":"https://example.test"}),
+        ] {
+            let value = json!({"version":1,"route":route,"live":null,"surface":null});
+            assert!(!serde_json::from_value::<Checkpoint>(value).is_ok_and(|c| c.validate()));
+        }
     }
 }

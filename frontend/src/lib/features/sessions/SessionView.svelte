@@ -52,7 +52,11 @@
     void backendState.openSession(sessionId);
   }
 
-  let { sessionId, boardSavedDeviceId }: { sessionId: string; boardSavedDeviceId?: string | null } = $props();
+  let {
+    sessionId,
+    boardSavedDeviceId,
+    fromLive = false,
+  }: { sessionId: string; boardSavedDeviceId?: string | null; fromLive?: boolean } = $props();
   const activeConnection = $derived(backendState.snapshot?.activeConnection);
   const isCurrentRide = $derived(activeConnection?.activeSession?.sessionId === sessionId);
   const isActive = $derived(backendState.selectedSession?.state === 'active');
@@ -156,15 +160,12 @@
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   const headerOwner = '/sessions/[sessionId]';
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
-  const owningBoardSavedDeviceId = $derived(
-    boardSavedDeviceId ??
-      backendState.savedDevices.find(
-        (device) => device.deviceHistoryId === backendState.selectedSession?.deviceHistoryId
-      )?.savedDeviceId ??
-      null
-  );
   const returnHref = $derived(
-    owningBoardSavedDeviceId ? `#/sessions/boards/${encodeURIComponent(owningBoardSavedDeviceId)}` : '#/sessions'
+    fromLive
+      ? '#/live'
+      : boardSavedDeviceId
+        ? `#/sessions/boards/${encodeURIComponent(boardSavedDeviceId)}`
+        : '#/sessions'
   );
 
   $effect(() => {
@@ -172,8 +173,8 @@
     const canExport = !backendState.busy && session?.state !== 'active';
     appHeader.set(headerOwner, {
       title: isActive ? 'Current ride' : (sessionStartDateLabel(session?.startedAt) ?? 'Session'),
-      backHref: isCurrentRide ? '#/live' : returnHref,
-      backLabel: isCurrentRide ? 'Back to board' : owningBoardSavedDeviceId ? 'Board sessions' : 'Sessions',
+      backHref: returnHref,
+      backLabel: fromLive ? 'Back to board' : boardSavedDeviceId ? 'Board sessions' : 'Sessions',
       ...(session
         ? {
             menuLabel: 'Session actions',

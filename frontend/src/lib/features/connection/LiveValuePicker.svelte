@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { backDismissal } from '$lib/ui/back-dismissal';
   import { createMotion } from '$lib/ui/motion';
   import { onMount } from 'svelte';
   import { backendState } from '$lib/backend/state.svelte';
@@ -50,6 +51,11 @@
 </script>
 
 <dialog
+  use:backDismissal={{
+    close: () => {
+      if (!busy) onclose(true);
+    },
+  }}
   use:motion.surface={'panel'}
   bind:this={dialog}
   aria-labelledby="live-value-picker-title"

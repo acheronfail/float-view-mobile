@@ -79,6 +79,11 @@ coverage when native integration is affected, not just because a frontend is
 also shipped in a WebView. Package/build changes need the relevant build checks;
 a pure component edit does not need clean packages for every architecture.
 
+Run frontend builds, Vitest and SvelteKit checks sequentially: they share generated
+SvelteKit files. The build validates that the embedded app and startup IDs agree.
+When running multiple browser files, use `--test-concurrency=1` because their mock
+servers share a port.
+
 `just verify` retains the complete software check as an option for broad changes,
 uncertain impact or an explicit full-regression request. `just test all` is also
 available; neither is a default completion gate.

@@ -5,12 +5,14 @@
 <script lang="ts">
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, type Activation } from './activation';
   import Icon from './Icon.svelte';
+  import type { IconName } from './icon';
   import ToggleIndicator from './ToggleIndicator.svelte';
 
   const statusId = $props.id();
 
   let {
     label,
+    icon,
     onactivate,
     appearance = 'normal',
     disabled = false,
@@ -18,6 +20,7 @@
     pending = false,
   }: {
     label: string;
+    icon?: IconName;
     onactivate: Activation;
     appearance?: MenuItemAppearance;
     disabled?: boolean;
@@ -40,7 +43,7 @@
   onpointerdown={(event) => activateFromPointer(event, onactivate)}
   onclick={(event) => activateFromKeyboardOrAssistiveClick(event, onactivate)}
 >
-  {#if appearance === 'warning'}<Icon name="triangle-alert" class="mr-1 text-xl" />{/if}
+  {#if icon || appearance === 'warning'}<Icon name={icon ?? 'triangle-alert'} class="mr-1 text-xl" />{/if}
   <span class="flex-1 whitespace-nowrap">{label}</span>
   {#if checked === null}
     <span id={statusId} role="status" class="text-xs text-muted">Unknown</span>

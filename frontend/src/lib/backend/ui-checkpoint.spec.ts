@@ -2,6 +2,25 @@ import { expect, it } from 'vitest';
 import { MockBackend } from '../../../backend-mock/api-v1';
 import { validUiCheckpoint } from './ui-checkpoint';
 
+it('validates an explicit, closed session return destination', () => {
+  for (const returnTo of ['sessions', 'live', 'boardHistory']) {
+    expect(
+      validUiCheckpoint({
+        version: 1,
+        route: { kind: 'session', sessionId: 'ride', savedDeviceId: 'board', returnTo },
+        live: null,
+        surface: null,
+      })
+    ).toBe(true);
+  }
+  for (const route of [
+    { kind: 'session', sessionId: 'ride', savedDeviceId: null },
+    { kind: 'session', sessionId: 'ride', savedDeviceId: null, returnTo: 'boardHistory' },
+    { kind: 'session', sessionId: 'ride', savedDeviceId: null, returnTo: 'https://example.test' },
+  ])
+    expect(validUiCheckpoint({ version: 1, route, live: null, surface: null })).toBe(false);
+});
+
 it('retains only validated presentation without publishing state', () => {
   const events: unknown[] = [];
   const backend = new MockBackend((event) => events.push(event));

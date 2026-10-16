@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { backDismissal } from '$lib/ui/back-dismissal';
   import { createMotion } from '$lib/ui/motion';
   import { onMount } from 'svelte';
   import type { AppHeaderAction } from './header';
@@ -98,6 +99,7 @@
 </button>
 
 <dialog
+  use:backDismissal={{ close: () => close(true), enabled: open }}
   use:motion.surface={'panel'}
   bind:this={dialog}
   aria-labelledby={titleId}

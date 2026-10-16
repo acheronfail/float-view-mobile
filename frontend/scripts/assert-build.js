@@ -1,6 +1,11 @@
 import { readdir, readFile, rm } from 'node:fs/promises';
 
 const html = await readFile(new URL('../build/index.html', import.meta.url), 'utf8');
+const embedded = html.match(/this\.__sveltekit_(\w+)\.app=/)?.[1];
+const started = html.match(/__sveltekit_(\w+)\.app\.start\(element\)/)?.[1];
+if (!embedded || embedded !== started) {
+  throw new Error('Inline app and startup IDs differ. Rebuild without concurrent Vite, Vitest or SvelteKit checks.');
+}
 if (/(?:src|href)=(?:"|')\/?(?:_app|app)\//.test(html)) {
   throw new Error('build/index.html references an external runtime asset');
 }

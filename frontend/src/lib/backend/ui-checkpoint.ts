@@ -21,8 +21,10 @@ export function validUiCheckpoint(value: unknown): value is UiCheckpoint {
     if (!keys(route, ['kind', 'savedDeviceId']) || !id(route.savedDeviceId)) return false;
   } else if (route.kind === 'session') {
     if (
-      !keys(route, ['kind', 'sessionId', 'savedDeviceId']) ||
+      !keys(route, ['kind', 'sessionId', 'savedDeviceId', 'returnTo']) ||
       !id(route.sessionId) ||
+      !['live', 'sessions', 'boardHistory'].includes(String(route.returnTo)) ||
+      (route.returnTo === 'boardHistory' && !id(route.savedDeviceId)) ||
       !('savedDeviceId' in route) ||
       (route.savedDeviceId != null && !id(route.savedDeviceId))
     )

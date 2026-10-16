@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { backDismissal } from '$lib/ui/back-dismissal';
   import { createMotion } from './motion';
   import type { Snippet } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, isPrimaryPointerActivation } from './activation';
@@ -37,7 +38,7 @@
 
 <svelte:window onpointerdown={dismissOnOutsidePointer} />
 
-<div bind:this={menuRoot} class="relative shrink-0">
+<div use:backDismissal={{ close: closeMenu, enabled: menuOpen }} bind:this={menuRoot} class="relative shrink-0">
   <button
     bind:this={button}
     type="button"

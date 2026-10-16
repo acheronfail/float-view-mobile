@@ -1,11 +1,13 @@
 import type { UiCheckpoint, UiRoute, UiSurface, AppState } from '$lib/backend/contract';
 import { bmsMenuVisible } from '$lib/features/connection/bms';
 import { flywheelOverlayVisible } from '$lib/features/connection/live';
+import { routeSearchParams } from './navigation';
 import { connectionHref } from './connection-navigation';
 
 export const UI_RESTORATION = Symbol('ui-restoration');
 
 export function uiRoute(routeId: string | null, params: Record<string, string | undefined>, url: URL): UiRoute {
+  const query = routeSearchParams(url);
   switch (routeId) {
     case '/live':
       return { kind: 'live' };
@@ -18,7 +20,12 @@ export function uiRoute(routeId: string | null, params: Record<string, string | 
     case '/sessions/boards/[savedDeviceId]':
       return { kind: 'boardHistory', savedDeviceId: params.savedDeviceId! };
     case '/sessions/[sessionId]':
-      return { kind: 'session', sessionId: params.sessionId!, savedDeviceId: url.searchParams.get('board') };
+      return {
+        kind: 'session',
+        sessionId: params.sessionId!,
+        savedDeviceId: query.get('board'),
+        returnTo: query.get('from') === 'live' ? 'live' : query.has('board') ? 'boardHistory' : 'sessions',
+      };
     default:
       return { kind: 'home' };
   }
@@ -30,7 +37,7 @@ export function uiHref(route: UiRoute): string {
     case 'boardHistory':
       return `#/sessions/boards/${encodeURIComponent(route.savedDeviceId)}`;
     case 'session':
-      return `#/sessions/${encodeURIComponent(route.sessionId)}${route.savedDeviceId ? `?board=${encodeURIComponent(route.savedDeviceId)}` : ''}`;
+      return `#/sessions/${encodeURIComponent(route.sessionId)}${route.returnTo === 'live' ? '?from=live' : route.returnTo === 'boardHistory' && route.savedDeviceId ? `?board=${encodeURIComponent(route.savedDeviceId)}` : ''}`;
     default:
       return `#/${route.kind}`;
   }
@@ -48,6 +55,10 @@ export function resolveUiCheckpoint(checkpoint: UiCheckpoint, state: AppState): 
     !state.savedDevices.some((d) => d.savedDeviceId === route.savedDeviceId)
   ) {
     route.savedDeviceId = null;
+    if (route.returnTo === 'boardHistory') route.returnTo = 'sessions';
+  }
+  if (route.kind === 'session' && route.returnTo === 'live' && state.activeConnection?.deviceKind !== 'board') {
+    route.returnTo = 'sessions';
   }
   if (result.route.kind === 'live' || result.route.kind === 'bms') {
     const href = connectionHref(state.activeConnection);

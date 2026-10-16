@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { backDismissal } from '$lib/ui/back-dismissal';
   import '$lib/ui/telemetry-chart.css';
   import { createMotion } from '$lib/ui/motion';
   import { onMount, untrack } from 'svelte';
@@ -72,6 +73,7 @@
 </script>
 
 <dialog
+  use:backDismissal={{ close: () => onclose(true) }}
   use:motion.surface={'panel'}
   bind:this={dialog}
   aria-labelledby="live-charts-title"

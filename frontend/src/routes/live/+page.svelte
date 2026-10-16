@@ -4,6 +4,7 @@
   import { UI_RESTORATION, type UiRestoration, uiDiagnostic } from '$lib/app/ui-restoration.svelte';
   import type { UiSurface } from '$lib/backend/contract';
   import { goto } from '$app/navigation';
+  import { connectionReturnHref } from '$lib/app/connection-navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
   import type { RefloatControl } from '$lib/backend/contract';
@@ -48,6 +49,7 @@
   let view = $state<View>('normal');
   let configuration = $state<{ savedDeviceId: string; batteryOnly: boolean; trigger?: HTMLButtonElement } | null>(null);
   let liveChartsOpen = $state(false);
+  let bmsTrigger: HTMLButtonElement | undefined;
   let bmsOpen = $state(false);
   let locationOpen = $state(false);
   let refloatConfigurationOpen = $state(false);
@@ -201,6 +203,15 @@
       menuUnavailable: flywheelOverlayVisible(connection),
       menu: [
         {
+          label: 'Back to app',
+          icon: 'arrow-left',
+          group: 'View',
+          onactivate: (closeMenu: () => void) => {
+            closeMenu();
+            void goto(connectionReturnHref);
+          },
+        },
+        {
           label: nextView.displayName,
           icon: nextView.type === 'detailed' ? 'list' : 'layout-dashboard',
           group: 'View',
@@ -224,7 +235,7 @@
                 onactivate: (closeMenu: () => void) => {
                   closeMenu();
                   if (connection?.activeSession)
-                    void goto(`#/sessions/${encodeURIComponent(connection.activeSession.sessionId)}`);
+                    void goto(`#/sessions/${encodeURIComponent(connection.activeSession.sessionId)}?from=live`);
                 },
               },
             ]
@@ -487,7 +498,9 @@
   async function closeBms() {
     bmsOpen = false;
     await tick();
-    appHeader.focusMenu();
+    if (bmsTrigger?.isConnected) bmsTrigger.focus();
+    else appHeader.focusMenu();
+    bmsTrigger = undefined;
   }
 
   async function closeRefloatConfiguration() {
@@ -521,7 +534,8 @@
           {nowMs}
           onconfigure={openBatteryConfigure}
           onbms={bmsMenuVisible(connection.bms)
-            ? () => {
+            ? (trigger) => {
+                bmsTrigger = trigger;
                 bmsOpen = true;
               }
             : undefined}

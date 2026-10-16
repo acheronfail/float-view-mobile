@@ -105,7 +105,19 @@
   function saveName() {
     const next = normalizedCustomName(customDisplayName);
     if (next === (device?.customDisplayName ?? null)) return;
-    enqueue(() => backendState.updateSavedDeviceName(savedDeviceId, next));
+    enqueue(async () => {
+      pendingSaves++;
+      const saved = await backendState.updateSavedDeviceName(savedDeviceId, next);
+      pendingSaves--;
+      if (!active) return;
+      if (saved) {
+        delete failedPatch.customDisplayName;
+        if (!Object.keys(failedPatch).length) saveError = null;
+      } else {
+        failedPatch.customDisplayName = next;
+        saveError = backendState.error ?? 'The name could not be saved. Please try again.';
+      }
+    });
   }
 
   function saveProfile(patch: Record<string, unknown>) {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { backDismissal } from '$lib/ui/back-dismissal';
   import { createMotion } from './motion';
   import { tick } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, type Activation } from './activation';
@@ -45,11 +46,7 @@
 
   function handleKeydown(event: KeyboardEvent) {
     if (!open) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      cancel();
-      return;
-    }
+
     if (event.key !== 'Tab' || !dialog) return;
     const controls = Array.from(
       dialog.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled)')
@@ -81,6 +78,7 @@
     <div
       use:enterSurface={'dialog'}
       bind:this={dialog}
+      use:backDismissal={{ close: cancel }}
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="new-board-title"
