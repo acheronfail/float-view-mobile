@@ -109,8 +109,12 @@ casually: a different key prevents ordinary updates to existing installations.
 The foreground service runs while a device connection or recording is active,
 including guest connections. It reads the shared Rust `live_activity` projection
 and updates one ongoing notification at most once per second. The notification
-shows the primary gauge's winning load percentage, distance in the selected
-units, battery charge and pack voltage to one decimal place. Unchanged visible readings do not trigger reposts;
+uses a compact Load/Board and Temp summary when collapsed. Expanded notifications
+show separate Load (or Board), Distance, Battery and Temp rows, including the
+winning load source, selected distance units, pack voltage to one decimal place,
+and hottest component. Temperature numbers use the system foreground; a thermometer
+carries the temperature colour where the system preserves colour spans. Android
+may simplify text styling on promoted surfaces. Unchanged visible readings do not trigger reposts;
 after 15 seconds without telemetry, it shows “Waiting for telemetry”. Opening
 the notification returns to the app, and “Stop and disconnect” uses the existing
 shared-service stop request.

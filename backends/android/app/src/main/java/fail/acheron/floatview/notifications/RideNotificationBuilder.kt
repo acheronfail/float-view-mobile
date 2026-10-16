@@ -11,6 +11,8 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.TtsSpan
+import android.text.style.StyleSpan
+import android.graphics.Typeface
 import fail.acheron.floatview.R
 
 internal fun buildRideNotification(
@@ -23,15 +25,17 @@ internal fun buildRideNotification(
     allowPromotion: Boolean = true,
 ): Notification {
     val title = context.getString(if (model.recording) R.string.logging_notification_title else R.string.ride_notification_title)
+    val loadTitle = context.getString(if (model.status == null) R.string.ride_notification_load else R.string.ride_notification_board)
+    val live = model.generation != null && !model.stale
     val text = when {
         model.generation == null -> context.getString(R.string.ride_notification_waiting_connection)
         model.stale -> context.getString(R.string.ride_notification_waiting_telemetry)
-        else -> context.getString(R.string.ride_notification_values, model.load, model.distance, model.battery)
+        else -> context.getString(R.string.ride_notification_summary, loadTitle, model.load, model.temperature)
     }
     val dark = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
     // Standard styled text keeps the system layout and promotion eligibility.
     val content = SpannableStringBuilder()
-    if (model.generation != null && !model.stale) {
+    if (live) {
         for ((index, pad) in listOf(model.footpadLeft, model.footpadRight).withIndex()) {
             val color = when (pad) {
                 "active" -> if (dark) "#6ee7b7" else "#047857"
@@ -50,25 +54,47 @@ internal fun buildRideNotification(
                 .build(), start, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         content.append(" · ")
-    }
-    content.append(text)
-    if (model.generation != null && !model.stale) {
-        content.append("\n")
-        val start = content.length
-        content.append(context.getString(R.string.ride_notification_temperature, model.temperature))
-        model.temperatureColor?.let {
-            content.setSpan(ForegroundColorSpan(it), start, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        fun row(label: String, value: String, detail: String? = null) {
+            val start = content.length
+            content.append(label)
+            content.setSpan(StyleSpan(Typeface.BOLD), start, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            content.append(" ").append(value)
+            detail?.let { content.append(" · ").append(it) }
         }
+        val loadSource = when (model.source) {
+            "duty" -> context.getString(R.string.ride_notification_source_duty)
+            "motor" -> context.getString(R.string.ride_notification_source_motor)
+            "battery" -> context.getString(R.string.ride_notification_source_battery)
+            else -> null
+        }
+        row(loadTitle, model.load, loadSource)
+        content.append("\n")
+        row(context.getString(R.string.ride_notification_distance), model.distance)
+        content.append("\n")
+        row(context.getString(R.string.ride_notification_battery), model.battery)
+        content.append("\n")
+        val temperatureStart = content.length
+        // Keep the reading in the system foreground. Only the thermometer carries colour;
+        // promoted surfaces may simplify spans to the system palette.
+        val iconStart = content.length
+        content.append("🌡\uFE0E")
+        model.temperatureColor?.let {
+            content.setSpan(ForegroundColorSpan(it), iconStart, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        content.append(" ")
+        row(context.getString(R.string.ride_notification_temperature), model.temperature, model.temperatureSource)
         content.setSpan(TtsSpan.TextBuilder(context.getString(
             R.string.ride_notification_temperature_accessibility,
             model.temperatureSource ?: context.getString(R.string.ride_notification_temperature_sensor),
             if (model.temperature == "—") context.getString(R.string.ride_notification_unavailable) else model.temperature,
-        )).build(), start, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        )).build(), temperatureStart, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    } else {
+        content.append(text)
     }
     val builder = Notification.Builder(context, channel)
         .setSmallIcon(R.drawable.ic_ride_notification)
         .setContentTitle(title)
-        .setContentText(content)
+        .setContentText(text)
         .setStyle(Notification.BigTextStyle().bigText(content))
         .setContentIntent(open)
         .setDeleteIntent(dismiss)

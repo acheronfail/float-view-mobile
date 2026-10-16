@@ -24,7 +24,9 @@ class RideNotificationTest {
 
     @Test fun nativeProjectionFormatsRideWithoutRecalculatingGauge() {
         val model = RideNotification.from(state(), true, 100001)
-        assertEquals("Motor 82%", model.load)
+        assertEquals("82%", model.load)
+        assertEquals("motor", model.source)
+        assertNull(model.status)
         assertEquals("1.00 mi", model.distance)
         assertEquals("67% · 75.6 V", model.battery)
         assertEquals("82%", model.chip)
@@ -66,7 +68,7 @@ class RideNotificationTest {
     @Test fun staleAndMissingReadingsNeverLookLive() {
         val stale = RideNotification.from(state(), false, 115000)
         assertTrue(stale.stale)
-        assertEquals("Motor —", stale.load)
+        assertEquals("—", stale.load)
         assertEquals("—", stale.distance)
         assertEquals("—", stale.battery)
         assertNull(stale.chip)
@@ -78,6 +80,7 @@ class RideNotificationTest {
     @Test fun stoppedBoardReplacesLoadIncludingTheCompactChip() {
         val stopped = RideNotification.from(state().copy(status = "Stopped"), false, 100001)
         assertEquals("Stopped", stopped.load)
+        assertEquals("Stopped", stopped.status)
         assertEquals("Stopped", stopped.chip)
         assertNull(stopped.source)
         assertEquals("active", stopped.footpadLeft)

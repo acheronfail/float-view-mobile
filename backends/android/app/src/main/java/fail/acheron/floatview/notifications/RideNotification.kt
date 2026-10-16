@@ -8,6 +8,7 @@ import kotlin.math.roundToInt
 data class RideNotification(
     val generation: Long?,
     val source: String?,
+    val status: String?,
     val load: String,
     val distance: String,
     val battery: String,
@@ -24,12 +25,6 @@ data class RideNotification(
         fun from(state: LiveActivityState?, recording: Boolean, now: Long): RideNotification {
             val stale = state?.observedAt == null || now - state.observedAt >= 15_000
             fun percent(value: Double?) = value?.let { String.format(Locale.getDefault(), "%.0f%%", it) } ?: "—"
-            val label = when (state?.source) {
-                "duty" -> "Duty"
-                "motor" -> "Motor"
-                "battery" -> "Battery current"
-                else -> "Drive load"
-            }
             val load = if (stale) "—" else percent(state?.percentage)
             val distance = if (stale) "—" else state?.distanceMeters?.let {
                 String.format(Locale.getDefault(), "%.2f %s", it / if (state.imperial) 1609.344 else 1000.0,
@@ -37,8 +32,8 @@ data class RideNotification(
             } ?: "—"
             val voltage = state?.batteryVoltage?.let { String.format(Locale.getDefault(), "%.1f V", it) } ?: "—"
             val temperature = state?.highestTemperatureC?.takeIf { !stale && it.isFinite() }
-            return RideNotification(state?.generation, if (stale || state?.status != null) null else state?.source,
-                if (stale) "$label —" else state?.status ?: "$label $load", distance,
+            return RideNotification(state?.generation, if (stale || state?.status != null) null else state?.source, state?.status,
+                if (stale) "—" else state?.status ?: load, distance,
                 if (stale) "—" else "${percent(state?.batteryPercent)} · $voltage",
                 if (stale) null else state?.status ?: load.takeIf { state?.percentage != null }, stale, recording,
                 if (stale) "neutral" else state?.footpadLeft ?: "neutral",
