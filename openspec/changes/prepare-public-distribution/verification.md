@@ -370,3 +370,44 @@ Checks completed:
 - This is not a signed candidate or Apple privacy-report/processing acceptance.
   Xcode Organizer report, provider-header/device checks, actual console answers,
   baseline storage/startup and upload credentials remain open. No upload occurred.
+
+
+## Baseline 100 and Apple startup preservation — 2026-10-17
+
+- Established shared owned-storage baseline 100, independently retaining archive
+  format 4 and existing SQLite schema numbering. Inventory and upgrade policy are
+  in docs/storage-baseline.md. Recognised exact markers from Git history are
+  12–15 and 17–26; arbitrary lower/future markers never authorize deletion.
+- Read-only preflight rejects unknown/newer/malformed/oversized/non-UTF-8 markers,
+  unknown layouts and nonempty roots without markers before creating a root lock.
+  An exclusive owner rechecks state, validates all owned paths before deletion,
+  handles issued sidecars/staging/cache names, retains the old marker through
+  deletion and atomically commits 100 afterward. Interrupted deletion/empty
+  initialization can retry; 100 never triggers another compatibility reset.
+  Missing catalogs beside recordings, corruption and I/O failures preserve files.
+- Added frozen synthetic catalog/archive fixtures and a standalone generator
+  that refuses existing output directories. Baseline catalog opens retain saved
+  board/settings across updates; format-4 imports retain synthetic location and
+  ride markers without changing settings. Unknown archive/schema/attachment tests
+  remain green. Fixtures contain no real routes, credentials or user device data.
+- iOS startup catches service/storage/resource failures and presents native retry
+  guidance; Mac startup propagates errors to a retry/quit alert. Retrying releases
+  failed owners rather than creating a second runtime. No public frontend contract
+  or C/JNI ABI change was needed. Android startup was audited: its existing
+  pre-Activity exception path still needs a separate nonfatal presentation.
+- Product-store/backend-service/runtime-host and Apple/Android ABI consumer tests
+  passed, including 35 store and 11 archive cases; five opt-in stress tests were
+  not requested/run. Warnings-denied Clippy passed for the affected store/service/
+  host targets. Apple host tests passed (11 XCTest + 23 Swift Testing), followed
+  by a new Swift-to-real-Rust unsupported-storage/compatible-retry test (1) using
+  inactive OS adapters. An unsigned iOS Release archive with both privacy manifests
+  passed using Xcode 26.0/SDK 26.0 under ignored
+  .local/ios-store/baseline-archive-check-20261017/.
+- Updated AGENTS/config/contributor/storage policy at the baseline boundary and
+  added coherent deltas for backend-contract, platform-hosts, shared-rust-backend-
+  service, session-location-recording and refloat-telemetry-pipeline. Canonical
+  spec sync remains reserved for final archive. Strict change validation passed.
+- No actual device database was opened or erased here, and native failure-screen
+  presentation was not physically validated. Device/container checkpoint and
+  Android startup UX remain open; tasks 4.2/4.3/4.5 are partial. Tasks 4.1/4.4
+  are complete; overall progress is 7/38. No Apple upload occurred.

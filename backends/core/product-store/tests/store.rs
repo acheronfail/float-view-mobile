@@ -72,20 +72,208 @@ fn current_storage_reopens_without_changing_revision_or_sql() {
         "wal"
     );
 }
+
+#[test]
+fn frozen_public_baseline_catalog_opens_and_preserves_user_settings() {
+    let root = Root::new();
+    fs::write(root.0.join(".schema-version"), "100").unwrap();
+    fs::write(
+        root.0.join("catalog.sqlite"),
+        include_bytes!("../../../fixtures/public-baseline/100/catalog.sqlite"),
+    )
+    .unwrap();
+    let mut store = root.open();
+    let settings = store.settings().unwrap();
+    assert_eq!(settings.minimum_session_distance, 42.);
+    assert!(settings.safety_disclaimer_accepted);
+    assert_eq!(store.boards().unwrap().len(), 1);
+    let updated = store
+        .update_settings(settings.revision, r#"{"minimumSessionDistance":100}"#)
+        .unwrap();
+    drop(store);
+    assert_eq!(root.open().settings().unwrap(), updated);
+}
 #[test]
 fn outdated_storage_resets_only_owned_files() {
     let root = Root::new();
-    fs::write(root.0.join(".schema-version"), "11").unwrap();
+    fs::write(root.0.join(".schema-version"), "12").unwrap();
     fs::write(root.0.join("catalog.sqlite"), "old database").unwrap();
-    fs::write(root.0.join("session-old.sqlite"), "old session").unwrap();
+    fs::write(
+        root.0
+            .join("session-00000000-0000-4000-8000-000000000001.sqlite"),
+        "old session",
+    )
+    .unwrap();
     fs::write(root.0.join("personal-note.txt"), "keep").unwrap();
     let store = root.open();
     assert_eq!(store.settings().unwrap().revision, 0);
-    assert!(!root.0.join("session-old.sqlite").exists());
+    assert!(
+        !root
+            .0
+            .join("session-00000000-0000-4000-8000-000000000001.sqlite")
+            .exists()
+    );
     assert_eq!(
         fs::read_to_string(root.0.join("personal-note.txt")).unwrap(),
         "keep"
     );
+}
+
+#[test]
+fn unknown_future_or_malformed_markers_preserve_every_file() {
+    for marker in [
+        b"0".as_slice(),
+        b"11",
+        b"16",
+        b"27",
+        b"99",
+        b"101",
+        b"garbage",
+        b"100\nx",
+        &[255],
+        &[b'1'; 65],
+    ] {
+        let root = Root::new();
+        fs::write(root.0.join(".schema-version"), marker).unwrap();
+        fs::write(root.0.join("catalog.sqlite"), b"private catalog").unwrap();
+        fs::write(root.0.join("session-private.sqlite"), b"private recording").unwrap();
+        assert!(
+            matches!(ProductStore::open(&root.0), Err(Error::UnsupportedStorage)),
+            "marker: {marker:?}"
+        );
+        assert_eq!(fs::read(root.0.join(".schema-version")).unwrap(), marker);
+        assert_eq!(
+            fs::read(root.0.join("catalog.sqlite")).unwrap(),
+            b"private catalog"
+        );
+        assert_eq!(
+            fs::read(root.0.join("session-private.sqlite")).unwrap(),
+            b"private recording"
+        );
+        assert_eq!(fs::read_dir(&root.0).unwrap().count(), 3);
+    }
+}
+
+#[test]
+fn missing_marker_on_nonempty_storage_never_initializes_or_deletes() {
+    let root = Root::new();
+    fs::write(root.0.join("catalog.sqlite"), b"private catalog").unwrap();
+    assert!(matches!(
+        ProductStore::open(&root.0),
+        Err(Error::UnsupportedStorage)
+    ));
+    assert_eq!(
+        fs::read(root.0.join("catalog.sqlite")).unwrap(),
+        b"private catalog"
+    );
+    assert_eq!(fs::read_dir(&root.0).unwrap().count(), 1);
+}
+
+#[test]
+fn interrupted_development_reset_finishes_and_baseline_never_resets_again() {
+    for marker in [
+        "12", "13", "14", "15", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26",
+    ] {
+        let root = Root::new();
+        let mut old = root.open();
+        old.update_settings(0, r#"{"minimumSessionDistance":42}"#)
+            .unwrap();
+        old.ensure_board("old board", None, Some(&[3; 12]), 1)
+            .unwrap();
+        drop(old);
+        fs::write(root.0.join(".schema-version"), marker).unwrap();
+        fs::write(root.0.join(".schema-version.tmp"), "100").unwrap();
+        fs::write(
+            root.0
+                .join("session-00000000-0000-4000-8000-000000000001.sqlite-journal"),
+            "old journal",
+        )
+        .unwrap();
+        let mut fresh = root.open();
+        assert_eq!(fresh.settings().unwrap(), Settings::default());
+        assert!(
+            !root
+                .0
+                .join("session-00000000-0000-4000-8000-000000000001.sqlite-journal")
+                .exists()
+        );
+        assert!(!root.0.join(".schema-version.tmp").exists());
+        let value = fresh
+            .update_settings(0, r#"{"minimumSessionDistance":75}"#)
+            .unwrap();
+        drop(fresh);
+        assert_eq!(root.open().settings().unwrap(), value);
+        assert_eq!(
+            fs::read_to_string(root.0.join(".schema-version")).unwrap(),
+            "100"
+        );
+    }
+    // No catalog remains after interruption, but the old marker still authorizes completion.
+    let root = Root::new();
+    fs::write(root.0.join(".schema-version"), "26").unwrap();
+    fs::write(
+        root.0
+            .join("session-00000000-0000-4000-8000-000000000002.sqlite"),
+        "old",
+    )
+    .unwrap();
+    drop(root.open());
+    assert!(
+        !root
+            .0
+            .join("session-00000000-0000-4000-8000-000000000002.sqlite")
+            .exists()
+    );
+}
+
+#[test]
+fn unknown_development_layout_and_missing_baseline_catalog_are_preserved() {
+    let root = Root::new();
+    fs::write(root.0.join(".schema-version"), "26").unwrap();
+    fs::write(root.0.join("catalog.sqlite"), "old catalog").unwrap();
+    fs::write(root.0.join("unrecognised.sqlite"), "keep").unwrap();
+    assert!(matches!(
+        ProductStore::open(&root.0),
+        Err(Error::UnsupportedStorage)
+    ));
+    assert_eq!(
+        fs::read_to_string(root.0.join("catalog.sqlite")).unwrap(),
+        "old catalog"
+    );
+    assert_eq!(
+        fs::read_to_string(root.0.join("unrecognised.sqlite")).unwrap(),
+        "keep"
+    );
+    let root = Root::new();
+    fs::write(root.0.join(".schema-version"), "100").unwrap();
+    fs::write(
+        root.0
+            .join("session-00000000-0000-4000-8000-000000000003.sqlite"),
+        "recording",
+    )
+    .unwrap();
+    assert!(matches!(ProductStore::open(&root.0), Err(Error::Corrupt)));
+    assert_eq!(
+        fs::read_to_string(
+            root.0
+                .join("session-00000000-0000-4000-8000-000000000003.sqlite")
+        )
+        .unwrap(),
+        "recording"
+    );
+    assert!(!root.0.join("catalog.sqlite").exists());
+}
+
+#[test]
+fn interrupted_empty_initialization_retries_without_a_version_reset() {
+    let root = Root::new();
+    fs::write(root.0.join(".schema-version.tmp"), "100").unwrap();
+    drop(root.open());
+    assert_eq!(
+        fs::read_to_string(root.0.join(".schema-version")).unwrap(),
+        "100"
+    );
+    assert!(!root.0.join(".schema-version.tmp").exists());
 }
 #[test]
 fn ordinary_corruption_and_schema_drift_never_reset() {
@@ -155,10 +343,12 @@ fn symlinks_and_hardlinks_never_authorize_reset_or_catalog_access() {
         Err(Error::UnsafePath)
     ));
     fs::remove_file(root.0.join("catalog.sqlite")).unwrap();
+    fs::write(root.0.join(".schema-version"), "26").unwrap();
     fs::create_dir(root.0.join("Exports")).unwrap();
     symlink(&secret, root.0.join("Exports/export.csv")).unwrap();
     fs::write(
-        root.0.join("session-keep.sqlite"),
+        root.0
+            .join("session-00000000-0000-4000-8000-000000000003.sqlite"),
         "not deleted before validation",
     )
     .unwrap();
@@ -166,7 +356,11 @@ fn symlinks_and_hardlinks_never_authorize_reset_or_catalog_access() {
         ProductStore::open(&root.0),
         Err(Error::UnsafePath)
     ));
-    assert!(root.0.join("session-keep.sqlite").exists());
+    assert!(
+        root.0
+            .join("session-00000000-0000-4000-8000-000000000003.sqlite")
+            .exists()
+    );
 }
 #[test]
 fn accent_presets_validate_and_survive_reopening() {

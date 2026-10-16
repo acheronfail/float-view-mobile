@@ -23,8 +23,14 @@ struct ContentView: View {
           .accessibilityHidden(loadedGeneration != frontend.generation)
           .ignoresSafeArea()
       }
-      if backend.frontendStartupFailed, scenePhase == .active {
-        ContentUnavailableView("Unable to start Float View", systemImage: "exclamationmark.triangle")
+      if (backend.serviceStartupFailed || backend.frontendStartupFailed), scenePhase == .active {
+        ContentUnavailableView {
+          Label("Unable to start Float View", systemImage: "exclamationmark.triangle")
+        } description: {
+          Text("Float View could not open its data. If this data came from a newer build, install a compatible version. Otherwise check available storage and try again. Keep this installation until you have a backup.")
+        } actions: {
+          Button("Try again") { backend.retryStartup() }
+        }
       } else if backend.frontend == nil || loadedGeneration != backend.frontend?.generation {
         VStack(spacing: 20) {
           Image("LoadingSymbol")

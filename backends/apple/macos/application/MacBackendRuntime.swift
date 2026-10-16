@@ -12,7 +12,7 @@ final class MacBackendRuntime: @unchecked Sendable {
   private let service: SharedService
   private let html: Data
 
-  init(html: Data) {
+  init(html: Data) throws {
     let relay = BluetoothEventRelay()
     let bluetooth: any BluetoothPort
     #if FLOAT_VIEW_CONFORMANCE && DEBUG
@@ -30,7 +30,7 @@ final class MacBackendRuntime: @unchecked Sendable {
     if let override = testLogRoot {
       logRoot = URL(fileURLWithPath: override, isDirectory: true)
     } else {
-      let applicationSupport = try! FileManager.default.url(
+      let applicationSupport = try FileManager.default.url(
         for: .applicationSupportDirectory,
         in: .userDomainMask,
         appropriateFor: nil,
@@ -40,7 +40,7 @@ final class MacBackendRuntime: @unchecked Sendable {
         .appending(path: "FloatView")
         .appending(path: "Sessions")
     }
-    let service = try! SharedService(root: logRoot, bluetooth: bluetooth, location: CoreLocationAdapter())
+    let service = try SharedService(root: logRoot, bluetooth: bluetooth, location: CoreLocationAdapter())
     relay.setHandler { [weak service] event in service?.receive(event) }
     self.bluetooth = bluetooth
     self.service = service
@@ -50,11 +50,11 @@ final class MacBackendRuntime: @unchecked Sendable {
   func makeServer(
     exportPresenter: (@Sendable (NativeFilePresentation) -> Bool)? = nil,
     theme: (@Sendable (ThemePreference) -> Void)? = nil
-  ) -> LoopbackServer {
+  ) throws -> LoopbackServer {
     let port = ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_PORT"]
       .flatMap(UInt16.init)
       ?? PlatformLoopbackPort.macOS
-    try! service.start(presenter: exportPresenter, theme: theme)
+    try service.start(presenter: exportPresenter, theme: theme)
     return LoopbackServer(html: html, port: port, service: service)
   }
 

@@ -28,11 +28,15 @@ Implementation order: 1–2 establish repository readiness; 3 proves the largest
 
 ## 4. Public data baseline before external beta
 
-- [ ] 4.1 Record baseline storage marker 100 for the v1.0.0 candidate, its source and independently numbered archive format (currently 4). Inventory recognised historical development markers/layouts and owned databases/settings/boards/tunes/caches/recordings plus disposable web/native hints. Keep actual OS permission history/grants intact. Add minimal baseline fixtures and increment/upgrade policy for 101 onward before external betas.
+- [x] 4.1 Record baseline storage marker 100 for the v1.0.0 candidate, its source and independently numbered archive format (currently 4). Inventory recognised historical development markers/layouts and owned databases/settings/boards/tunes/caches/recordings plus disposable web/native hints. Keep actual OS permission history/grants intact. Add minimal baseline fixtures and increment/upgrade policy for 101 onward before external betas.
 - [ ] 4.2 Replace unconditional mismatch deletion with a bounded, restartable reset only for recognised pre-v1 development storage; initialize at 100 without migrating records, preserve 100 on subsequent launches, and preserve/reject unknown/newer/malformed/missing-marker nonempty roots. Test actual old-device data reset, repeat launch, interrupted reset, I/O/corruption and byte-preservation failures. Do not delete exported files, committed fixtures, vendor databases or unrelated paths.
+      Shared-store baseline/reset and preservation checks are implemented, including frozen fixtures; representative generated old-format roots and interrupted resets pass. Actual old-device/container verification remains open.
 - [ ] 4.3 Replace Apple fallible startup force-unwraps with an actionable non-destructive failure/recovery presentation; audit Android startup failure handling. Test both host consumers. If the shared public error/state contract must change, update contract/client/mock/native bindings/conformance together.
-- [ ] 4.4 Add regression cases for baseline storage open/recovery, published archive import, hostile/unsupported archive rejection and future-marker/downgrade refusal. Keep tests focused on observable data preservation and bounded recovery, not just marker constants.
+      Apple startup is nonfatal with retry, real Swift/Rust refusal-and-retry coverage and successful iOS Release/Mac builds. Native failure-screen presentation remains open. Android startup was audited and still throws before activity creation; its nonfatal presentation is pending.
+- [x] 4.4 Add regression cases for baseline storage open/recovery, published archive import, hostile/unsupported archive rejection and future-marker/downgrade refusal. Keep tests focused on observable data preservation and bounded recovery, not just marker constants.
 - [ ] 4.5 Replace disposable-until-first-release/v1.0 policy in AGENTS.md, OpenSpec config and current documentation. Reconcile active test-stage clauses in backend-contract, platform-hosts, shared-rust-backend-service, session-location-recording and refloat-telemetry-pipeline with the new public baseline; preserve archived evidence. Validate affected spec edits and document no promise to recover earlier development data.
+
+      Agent/config/contributor/storage policies now enforce the baseline boundary; five coherent active-area deltas are staged in this change. Canonical spec sync remains part of final archive, not performed yet.
 
 ## 5. Versioning, signing and independent store jobs
 

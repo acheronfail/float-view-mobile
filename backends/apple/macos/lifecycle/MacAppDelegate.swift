@@ -6,7 +6,8 @@ import WebKit
 final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   WKNavigationDelegate
 {
-  private let runtime: MacBackendRuntime
+  private var runtime: MacBackendRuntime?
+  private let html: Data
   private var server: LoopbackServer?
   private var generation = 0
   private var window: NSWindow?
@@ -14,8 +15,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   private var loadingView: MacLoadingView?
 
   init(html: Data) {
-    let runtime = MacBackendRuntime(html: html)
-    self.runtime = runtime
+    self.html = html
   }
 
   func applicationDidFinishLaunching(_: Notification) {
@@ -23,11 +23,11 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   }
 
   func applicationDidBecomeActive(_: Notification) {
-    runtime.setForeground(true)
+    runtime?.setForeground(true)
   }
 
   func applicationDidResignActive(_: Notification) {
-    runtime.setForeground(false)
+    runtime?.setForeground(false)
   }
 
   func applicationShouldHandleReopen(
@@ -42,7 +42,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
   func applicationWillTerminate(_: Notification) {
     server?.stop()
-    runtime.shutdown()
+    runtime?.shutdown()
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
@@ -50,7 +50,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   }
 
   func windowWillClose(_: Notification) {
-    runtime.setForeground(false)
+    runtime?.setForeground(false)
     webView?.navigationDelegate = nil
     webView?.stopLoading()
     server?.stop()
@@ -91,7 +91,13 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       return
     }
     do {
-      let server = runtime.makeServer(exportPresenter: MacExportPresenter.schedule) { preference in
+      let runtime: MacBackendRuntime
+      if let existing = self.runtime { runtime = existing }
+      else {
+        runtime = try MacBackendRuntime(html: html)
+        self.runtime = runtime
+      }
+      let server = try runtime.makeServer(exportPresenter: MacExportPresenter.schedule) { preference in
         DispatchQueue.main.async {
           MacTheme.apply(preference, to: NSApplication.shared)
         }
@@ -137,6 +143,20 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         error: error
       )
       trace("[FloatViewState] frontend state=failed \(message)")
+      server?.stop()
+      server = nil
+      runtime?.shutdown()
+      runtime = nil
+      let alert = NSAlert()
+      alert.messageText = "Unable to start Float View"
+      alert.informativeText = "Float View could not open its data or start its local connection. If this data came from a newer build, install a compatible version. Otherwise check available storage and try again. Keep this installation until you have a backup."
+      alert.addButton(withTitle: "Try again")
+      alert.addButton(withTitle: "Quit")
+      if alert.runModal() == .alertFirstButtonReturn {
+        DispatchQueue.main.async { [weak self] in self?.showFrontend() }
+      } else {
+        NSApplication.shared.terminate(nil)
+      }
     }
   }
 

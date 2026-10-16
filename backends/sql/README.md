@@ -1,7 +1,7 @@
 # Durable storage source of truth
 
 `catalog.sql` owns saved boards, profiles, settings, immutable session summaries,
-active job recovery metadata, and reversible session groups. Each session has a
+active job recovery metadata, and standalone session summaries. Each session has a
 separate database initialized with `session.sql`.
 
 The shared Rust store and session writer execute these files verbatim, enable foreign keys and
@@ -13,13 +13,14 @@ Recovery treats catalog rows with an active state as interrupted, validates the
 session database with `PRAGMA quick_check`, truncates catalog counts to the last
 commit marker, and records a recovery event. No recovery path auto-deletes data.
 
-There are deliberately no migrations while the application is in test
-development. The shared product store keeps its canonical marker (defined in
-`../core/product-store/src/lib.rs`) beside the databases. Under the current
-pre-release policy, missing or incompatible markers reset only validated, app-owned files.
-Corruption, protected storage and ordinary operational failures never reset data.
-Update the shared store marker whenever either SQL schema or a persisted JSON
-record changes incompatibly. Marker `26` adds the installation-local preferred auto-connect board setting. Incompatible development storage is reset by its marker; ordinary corruption and operational failure never trigger that reset.
+The shared product store's canonical marker (defined in
+`../core/product-store/src/lib.rs`) establishes baseline 100 for the first public
+candidate. Recognised earlier development formats reset once without migration.
+Baseline data is preserved; unsupported/newer/malformed markers and missing markers
+on nonempty roots fail without deletion. Ordinary corruption and I/O failure never
+reset data. Increment later incompatible storage markers and implement a tested,
+crash-safe supported-data upgrade. SQLite schema/user_version and portable archive
+format numbering remain independent. See [the inventory](../../docs/storage-baseline.md).
 
 `refloat_configuration` stores bounded, complete application-wide Tunes. Exact
 package version, schema fingerprint, and wire signature are part of the record
@@ -97,8 +98,8 @@ update. Telemetry inserts reuse prepared statements. Sample/event time ranges
 start at their cursors; Tunes use a tuple seek inside the identity index.
 Location pruning uses indexed `BETWEEN` instead of applying `ABS` to every sample.
 The event source-sample index prevents foreign-key checks from scanning events
-for every removed sample. The shared storage marker resets incompatible owned
-development storage rather than migrating old schemas, per the current pre-release policy.
+for every removed sample. The shared storage marker permits only the recognised pre-baseline development
+reset; baseline and subsequent supported data are preserved.
 
 The larger run seeded 1,000,000 catalog rows and recorded 1,000,000 telemetry
 samples. Completed-session traversal took 5.19 seconds **for all 988,697 visible

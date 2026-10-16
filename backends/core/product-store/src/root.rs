@@ -22,6 +22,9 @@ pub(crate) fn prepare(root: &Path) -> Result<(PathBuf, RootLock)> {
     } else {
         fs::create_dir(&root)?;
     }
+    validate_root_entries(&root)?;
+    // Reject unsupported roots before even creating the coordination database.
+    inspect_storage(&root)?;
     let lock_path = root.join(".service.lock");
     if lock_path.symlink_metadata().is_ok() {
         require_kind(&lock_path, false)?;
@@ -40,56 +43,152 @@ pub(crate) fn prepare(root: &Path) -> Result<(PathBuf, RootLock)> {
     require_kind(&lock_path, false)?;
     lock.busy_timeout(std::time::Duration::ZERO)?;
     lock.execute_batch("PRAGMA trusted_schema=OFF; BEGIN EXCLUSIVE")?;
+    validate_root_entries(&root)?;
+    // Recheck under the exclusive owner: another process may have initialized
+    // the root between the read-only preflight and acquiring the lock.
+    match inspect_storage(&root)? {
+        StorageAction::Current => {}
+        StorageAction::Initialize => write_marker(&root)?,
+        StorageAction::ResetDevelopment => {
+            // The old marker stays in place until every owned deletion finishes.
+            // An interrupted reset can repeat; baseline 100 is never reset.
+            visit_owned(&root, false)?;
+            visit_owned(&root, true)?;
+            write_marker(&root)?;
+        }
+    }
+    Ok((root, std::sync::Arc::new(std::sync::Mutex::new(lock))))
+}
+fn validate_root_entries(root: &Path) -> Result<()> {
     for name in [
         "catalog.sqlite",
         "catalog.sqlite-wal",
         "catalog.sqlite-shm",
+        "catalog.sqlite-journal",
         ".schema-version",
     ] {
-        let p = root.join(name);
-        if p.symlink_metadata().is_ok() {
-            require_kind(&p, false)?;
+        let path = root.join(name);
+        if path.symlink_metadata().is_ok() {
+            require_kind(&path, false)?;
         }
     }
     for name in ["Exports", "refloat-schema-cache"] {
-        let p = root.join(name);
-        if p.symlink_metadata().is_ok() {
-            require_kind(&p, true)?;
+        let path = root.join(name);
+        if path.symlink_metadata().is_ok() {
+            require_kind(&path, true)?;
         }
     }
-    let marker = root.join(".schema-version");
-    let version = match fs::File::open(&marker) {
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum StorageAction {
+    Current,
+    Initialize,
+    ResetDevelopment,
+}
+
+fn read_marker(path: &Path) -> Result<Option<String>> {
+    if path.symlink_metadata().is_ok() {
+        require_kind(path, false)?;
+    }
+    match fs::File::open(path) {
         Ok(file) => {
-            let mut text = String::new();
-            file.take(65).read_to_string(&mut text)?;
-            if text.len() > 64 {
+            require_kind(path, false)?;
+            let mut bytes = Vec::new();
+            file.take(65).read_to_end(&mut bytes)?;
+            if bytes.len() > 64 {
+                return Err(Error::UnsupportedStorage);
+            }
+            String::from_utf8(bytes)
+                .map(Some)
+                .map_err(|_| Error::UnsupportedStorage)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // A dangling marker symlink is not an empty/new root.
+            if path.symlink_metadata().is_ok() {
+                return Err(Error::UnsafePath);
+            }
+            Ok(None)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn inspect_storage(root: &Path) -> Result<StorageAction> {
+    let marker = root.join(".schema-version");
+    if marker.symlink_metadata().is_ok() {
+        require_kind(&marker, false)?;
+    }
+    let text = read_marker(&marker)?;
+    match text.as_deref().map(str::trim) {
+        Some(STORAGE_VERSION) => {
+            // A missing catalog beside recordings is corruption, not a new root.
+            if !root.join("catalog.sqlite").try_exists()? && !initialization_only(root, true)? {
                 return Err(Error::Corrupt);
             }
-            Some(text)
+            Ok(StorageAction::Current)
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(e.into()),
-    };
-    if version.as_deref().map(str::trim) != Some(STORAGE_VERSION) {
-        // Enumerate twice: fail on hostile owned entries before any deletion.
-        visit_owned(&root, false)?;
-        visit_owned(&root, true)?;
-        let temporary = root.join(".schema-version.tmp");
-        if temporary.symlink_metadata().is_ok() {
-            require_kind(&temporary, false)?;
-            fs::remove_file(&temporary)?;
+        // Exact markers found in shared product-store Git history. Do not use a
+        // numeric range: future or unrecognised formats never authorize erasure.
+        Some(
+            "12" | "13" | "14" | "15" | "17" | "18" | "19" | "20" | "21" | "22" | "23" | "24"
+            | "25" | "26",
+        ) => {
+            visit_owned(root, false)?;
+            Ok(StorageAction::ResetDevelopment)
         }
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        std::io::Write::write_all(&mut file, STORAGE_VERSION.as_bytes())?;
-        file.sync_all()?;
-        fs::rename(temporary, marker)?;
-        fs::File::open(&root)?.sync_all()?;
+        None if initialization_only(root, false)? => Ok(StorageAction::Initialize),
+        _ => Err(Error::UnsupportedStorage),
     }
-    Ok((root, std::sync::Arc::new(std::sync::Mutex::new(lock))))
 }
+
+fn initialization_only(root: &Path, marked: bool) -> Result<bool> {
+    for (i, entry) in fs::read_dir(root)?.enumerate() {
+        if i >= limits::MAX_DIRECTORY_ENTRIES {
+            return Err(Error::Capacity);
+        }
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            return Ok(false);
+        };
+        match name {
+            ".service.lock"
+            | ".service.lock-journal"
+            | ".service.lock-wal"
+            | ".service.lock-shm" => {
+                require_kind(&entry.path(), false)?;
+            }
+            ".schema-version" if marked => {}
+            ".schema-version.tmp" => {
+                if read_marker(&entry.path())?.as_deref() != Some(STORAGE_VERSION) {
+                    return Ok(false);
+                }
+            }
+            _ => return Ok(false),
+        }
+    }
+    Ok(true)
+}
+
+fn write_marker(root: &Path) -> Result<()> {
+    let temporary = root.join(".schema-version.tmp");
+    if temporary.symlink_metadata().is_ok() {
+        require_kind(&temporary, false)?;
+        fs::remove_file(&temporary)?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    std::io::Write::write_all(&mut file, STORAGE_VERSION.as_bytes())?;
+    file.sync_all()?;
+    fs::rename(temporary, root.join(".schema-version"))?;
+    fs::File::open(root)?.sync_all()?;
+    Ok(())
+}
+
 pub(crate) fn require_kind(path: &Path, directory: bool) -> Result<()> {
     let meta = path.symlink_metadata()?;
     if meta.file_type().is_symlink()
@@ -124,6 +223,21 @@ fn visit_owned(root: &Path, delete: bool) -> Result<()> {
                 }
                 let child = child?.path();
                 require_kind(&child, false)?;
+                let child_name = child
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .ok_or(Error::UnsupportedStorage)?;
+                let recognized = if name == "Exports" {
+                    issued_file(child_name, "float-view-", ".tmp")
+                } else {
+                    let stem = child_name
+                        .strip_suffix(".json")
+                        .or_else(|| child_name.strip_suffix(".tmp"));
+                    stem.is_some_and(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+                };
+                if !recognized {
+                    return Err(Error::UnsupportedStorage);
+                }
                 if delete {
                     fs::remove_file(child)?;
                 }
@@ -137,25 +251,44 @@ fn visit_owned(root: &Path, delete: bool) -> Result<()> {
                 "catalog.sqlite"
                     | "catalog.sqlite-wal"
                     | "catalog.sqlite-shm"
+                    | "catalog.sqlite-journal"
                     | ".schema-version.tmp"
             )
-            || (name.starts_with("session-")
-                && [".sqlite", ".sqlite-wal", ".sqlite-shm"]
-                    .iter()
-                    .any(|s| name.ends_with(s)))
-            || (name.starts_with("import-")
-                && [".floatview.tmp", ".floatview.tmp-wal", ".floatview.tmp-shm"]
-                    .iter()
-                    .any(|s| name.ends_with(s)))
+            || issued_file(name, "session-", ".sqlite")
+            || issued_file(name, "import-", ".floatview.tmp")
         {
             require_kind(&path, false)?;
             if delete {
                 fs::remove_file(path)?;
             }
+        } else if path.is_dir() || name.ends_with(".sqlite") || name.ends_with(".db") {
+            return Err(Error::UnsupportedStorage);
         }
     }
     Ok(())
 }
+fn issued_file(name: &str, prefix: &str, suffix: &str) -> bool {
+    let name = name
+        .strip_suffix("-wal")
+        .or_else(|| name.strip_suffix("-shm"))
+        .or_else(|| name.strip_suffix("-journal"))
+        .unwrap_or(name);
+    name.strip_prefix(prefix)
+        .and_then(|s| s.strip_suffix(suffix))
+        .is_some_and(is_uuid)
+}
+
+fn is_uuid(id: &str) -> bool {
+    id.len() == 36
+        && id.bytes().enumerate().all(|(i, b)| {
+            if [8, 13, 18, 23].contains(&i) {
+                b == b'-'
+            } else {
+                b.is_ascii_hexdigit()
+            }
+        })
+}
+
 pub(crate) fn validate_catalog(catalog: &Connection, fresh: bool) -> Result<()> {
     if catalog.query_row("PRAGMA quick_check(1)", [], |r| r.get::<_, String>(0))? != "ok" {
         return Err(Error::Corrupt);
@@ -196,15 +329,7 @@ pub(crate) fn owned_session_temporary(name: &str) -> bool {
     let Some((id, sequence)) = base.split_once(".sqlite.float-view-") else {
         return false;
     };
-    if id.len() != 36
-        || !id.bytes().enumerate().all(|(i, b)| {
-            if [8, 13, 18, 23].contains(&i) {
-                b == b'-'
-            } else {
-                b.is_ascii_hexdigit()
-            }
-        })
-    {
+    if !is_uuid(id) {
         return false;
     }
     let Some((pid, sequence)) = sequence.split_once('.') else {

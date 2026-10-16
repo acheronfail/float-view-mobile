@@ -13,7 +13,7 @@ small hand-written contract in `frontend/src/lib/backend/contract.ts`.
 - `backends/core/` — shared Rust application runtime and loopback server.
 - `backends/android/` — one Android application module containing the backend
   and thin WebView shell.
-- `backends/sql/` — the two current disposable-test-stage SQLite schemas.
+- `backends/sql/` — the canonical supported SQLite schemas.
 - `backends/fixtures/` — immutable VESC and Refloat protocol fixtures.
 - `conformance/` — the canonical black-box contract suite and programmable VESC
   simulator/orchestrator.

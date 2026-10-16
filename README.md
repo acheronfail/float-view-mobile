@@ -2,8 +2,9 @@
 
 > [!WARNING]
 > Store releases are being prepared. Current downloads are development builds.
-> The first v1.0.0 candidate will reset earlier development data to a fresh
-> baseline. Do not use these builds as the only copy of recordings you want to keep.
+> The v1.0.0 candidate resets recognised earlier development data once to
+> baseline 100, then preserves supported data. Export recordings before switching
+> installation routes, and keep backups when testing nightlies.
 
 Float View is open source under [AGPL-3.0-or-later](LICENSE).
 Buying the app through an app store supports ongoing development and helps cover

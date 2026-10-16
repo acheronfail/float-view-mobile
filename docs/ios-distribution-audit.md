@@ -98,8 +98,9 @@ territory-specific questions in App Store Connect. Source:
 
 ## Gates still open before TestFlight
 
-- Establish storage baseline 100, supported-data preservation and useful startup
-  failures before inviting external users; record scoped device evidence.
+- Baseline 100 and software preservation/startup checks are implemented; complete
+  the scoped device/container and failure/retry presentation checkpoint before
+  inviting external users. See storage-baseline.md and verification.md.
 - Finish the iOS corresponding-source/package-notice check and document the
   owner's recorded official Apple distribution permission alongside AGPL source
   licensing. Credited dependencies and artwork retain their own terms.

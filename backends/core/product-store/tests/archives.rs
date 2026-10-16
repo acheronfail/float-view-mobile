@@ -91,6 +91,28 @@ fn sink(store: &ProductStore, path: &std::path::Path) -> ImportSink {
     }
     sink
 }
+
+#[test]
+fn frozen_public_baseline_archive_imports_without_changing_settings() {
+    let root = TestDirectory::new();
+    let mut store = ProductStore::open(root.path()).unwrap();
+    let bytes = include_bytes!("../../../fixtures/public-baseline/100/recording.floatview");
+    let mut input = store.begin_import(bytes.len() as u64).unwrap();
+    for (index, chunk) in bytes.chunks(65_536).enumerate() {
+        input.write((index * 65_536) as u64, chunk).unwrap();
+    }
+    let settings = store.settings().unwrap();
+    let imported = store
+        .attach_import(input.validate(&FileCancellation::default()).unwrap())
+        .unwrap();
+    assert_eq!(store.settings().unwrap(), settings);
+    let mut reader =
+        SessionReader::open(store.session_path(&imported.session_id).unwrap()).unwrap();
+    let boundary = reader.marker().unwrap();
+    assert_eq!(boundary.recorded_location_count, 1);
+    assert_eq!(reader.ride_markers((&boundary).into()).unwrap().len(), 1);
+    assert!(store.boards().unwrap()[0].local_identifier.is_none());
+}
 #[test]
 fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     let (_dir, mut store, id) = setup();

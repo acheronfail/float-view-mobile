@@ -12,8 +12,8 @@ enum FloatViewMac {
     if CommandLine.arguments.contains("--browser-host") {
       let application = NSApplication.shared
       application.setActivationPolicy(.accessory)
-      let runtime = MacBackendRuntime(html: html)
-      let server = runtime.makeServer(exportPresenter: MacExportPresenter.schedule)
+      let runtime = try MacBackendRuntime(html: html)
+      let server = try runtime.makeServer(exportPresenter: MacExportPresenter.schedule)
       try server.start()
       try printReadiness(server: server, runtime: runtime)
       application.run()
@@ -22,8 +22,8 @@ enum FloatViewMac {
       return
     }
     if CommandLine.arguments.contains("--test-host") {
-      let runtime = MacBackendRuntime(html: html)
-      let server = runtime.makeServer()
+      let runtime = try MacBackendRuntime(html: html)
+      let server = try runtime.makeServer()
       try server.start()
       try printReadiness(server: server, runtime: runtime)
       RunLoop.current.run()

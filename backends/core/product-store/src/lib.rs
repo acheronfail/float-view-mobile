@@ -34,7 +34,7 @@ pub use tunes::{
     Tune, TuneIdentity, TunePage, TuneValue, TuneValues, is_tune_field, validate_tune_values,
 };
 
-pub const STORAGE_VERSION: &str = "26";
+pub const STORAGE_VERSION: &str = "100";
 pub const CATALOG_SCHEMA: &str = include_str!("../../../sql/catalog.sql");
 
 /// Errors intentionally exclude SQL, paths, identifiers and other private data.
@@ -51,6 +51,7 @@ pub enum Error {
     Full,
     Corrupt,
     UnsafePath,
+    UnsupportedStorage,
     Io,
     Database,
 }

@@ -4,18 +4,25 @@ Float View contains one SvelteKit frontend and native backends for Apple
 (iOS/macOS) and Android. Keep the repository small and delete superseded paths;
 there is no generated API layer or platform-specific frontend code.
 
-## Pre-release compatibility policy
+## Supported data compatibility policy
 
-Float View has not shipped a release and has no users yet. Until the first
-release is cut, persisted data and archives are disposable development data.
-Do not add or retain database migrations, legacy identity aliases, old-format
-readers, compatibility shims, or fallback paths solely to preserve earlier
-development versions. Replace superseded code and reset incompatible owned
-storage with an explicit format/schema marker when needed. Preserve current
-data on ordinary corruption or operational failure; those are not version
-mismatches. This policy does not remove support for intentionally supported
-VESC/Refloat firmware wire families. Revisit compatibility guarantees when the
-first release is cut, not when a development version number changes.
+The v1.0.0 candidate establishes owned-storage baseline 100 before external
+beta testing. Preserve baseline and subsequent supported data regardless of
+marketing version, nightly/store channel or whether the stable tag exists.
+Only explicitly recognised pre-baseline development markers/layouts authorize
+bounded, restartable deletion of validated app-owned development data.
+Unknown/newer/malformed markers and nonempty roots with a missing marker must
+remain untouched and fail actionably. Corruption or operational failure never
+authorizes a compatibility reset. Exported user files are outside that reset.
+
+Increment the storage marker for later incompatible changes and implement an
+explicit crash-safe, tested upgrade for supported data; do not add a general
+migration framework without a real published schema transition. Keep archive
+format numbering independent and preserve supported baseline archive imports.
+Do not retain earlier development readers, legacy identity aliases or fallback
+paths solely to recover pre-baseline data. Keep the frozen baseline fixtures.
+This policy does not remove support for intentionally supported VESC/Refloat
+firmware wire families. See docs/storage-baseline.md for the concrete inventory.
 
 ## Researching definitive upstream source
 
