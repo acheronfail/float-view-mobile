@@ -107,6 +107,14 @@ changes need affected crate and consumer tests; public contract changes also nee
 client/mock and canonical conformance coverage for affected host integrations.
 Native-only changes need checks for the affected host and shared boundaries.
 
+On macOS, run Playwright browser tests in `conformance/test/*.browser.ts`
+outside the Codex sandbox (`sandbox_permissions: "require_escalated"`). The
+sandbox prevents Chromium and WebKit from launching: Chromium can report
+`MachPortRendezvousServer ... Permission denied (1100)`, while WebKit can abort
+at startup. Request escalation for the browser test command directly instead
+of first running it in the sandbox. Build the frontend beforehand as documented
+in `CONTRIBUTING.md`; the build can run inside the sandbox.
+
 `just verify` remains an optional comprehensive software check for broad changes,
 uncertain cross-cutting impact, or an explicitly requested full regression. It is
 not a prerequisite for every change, commit, spec sync, or archive.
