@@ -272,8 +272,9 @@ key; signing and sideload jobs do not receive it. A Developer-role team key can
 access the team's apps, so keep its one-time `.p8` download and backups private.
 Store `ASC_API_PRIVATE_KEY_BASE64` as an environment secret and `ASC_API_KEY_ID`,
 `ASC_API_ISSUER_ID`, and the numeric `ASC_APP_ID` as environment variables.
-The repository's `APPLE_TEAM_ID` is reused. These values are configured; live
-authentication has not yet been verified.
+The repository's `APPLE_TEAM_ID` is reused. Live authentication, exact-app lookup
+and consumed-number queries passed in build 77, attempt 2, on 2026-10-17.
+Upload readiness remains disabled.
 
 After reviewing and pushing the source, request a fresh signed candidate and a
 read-only authentication/app/build-number check:
@@ -312,14 +313,16 @@ existing older-run guards still prevent stale nightly publication.
 
 ### Remaining store work
 
-The protected CI environment and validated manual profiles are ready, and the
-manual archive/export has passed locally and on a protected GitHub runner
-([build 75](https://github.com/acheronfail/float-view-mobile/actions/runs/38972744150)).
-Both bundles passed independent verification after downloading the IPA. Build 75
-predates the new privacy manifests and baseline-100 storage work; it is not the
-next upload candidate. Protected delivery tooling and credentials are prepared,
-but live authentication, Apple-consumed number queries and processing remain
-unverified. The owner recorded permission for official Apple distribution;
+The protected CI environments and validated manual profiles are ready.
+[Build 77](https://github.com/acheronfail/float-view-mobile/actions/runs/38977368838)
+passed signing/export and independent downloaded-IPA verification, including
+both bundles' signatures/profiles and the new privacy manifests. It includes the
+baseline-100 storage work. The separately approved read-only delivery check
+passed on attempt 2: Apple authentication and the exact app lookup succeeded,
+and Apple returned no existing build for 1.0.0 (77). No upload occurred; actual
+transport and Apple processing remain unverified. A future upload action creates
+a fresh candidate and number. The owner recorded permission for official Apple
+distribution;
 third-party notices and source obligations retain their own terms. The privacy
 audit and Xcode aggregate report are documented in
 [the iOS distribution audit](../../docs/ios-distribution-audit.md).

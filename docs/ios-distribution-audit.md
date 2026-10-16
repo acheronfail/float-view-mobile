@@ -17,10 +17,10 @@ checks; successful packaging is not Apple processing or physical beta acceptance
 | Support/TestFlight | Support links open public GitHub Issues. Apple provides TestFlight crash/usage/feedback information separately from app-initiated collection; the privacy policy explains this. A feedback email is still needed in App Store Connect, even when public support uses Issues. |
 
 The public policy is [PRIVACY.md](../PRIVACY.md), linked from README and shared
-Settings. Proposed console URL after pushing:
+Settings. Public console URL:
 `https://github.com/acheronfail/float-view-mobile/blob/master/PRIVACY.md`.
 Support URL: `https://github.com/acheronfail/float-view-mobile/issues`.
-Verify both anonymously after publication before entering them in Apple metadata.
+Both returned HTTP 200 without authentication on 2026-10-17 after publication.
 
 Do not answer “Data Not Collected” solely because there is no developer server.
 The app manifest conservatively declares precise location and other data (IP and
@@ -102,17 +102,21 @@ territory-specific questions in App Store Connect. Source:
 
 ## Gates still open before TestFlight
 
+Build 77 passed protected signing/export and independent IPA verification,
+including the packaged privacy manifests. Its read-only Apple delivery check
+passed on attempt 2 on 2026-10-17: authentication and the exact app lookup
+succeeded, with no existing Apple build returned for 1.0.0 (77). No upload
+occurred; upload readiness remains disabled.
+
 - Baseline 100 and software preservation/startup checks are implemented; complete
   the scoped device/container and failure/retry presentation checkpoint before
   inviting external users. See storage-baseline.md and verification.md.
-- Finish the iOS corresponding-source/package-notice check and document the
-  owner's recorded official Apple distribution permission alongside AGPL source
-  licensing. Credited dependencies and artwork retain their own terms.
-- Run the prepared protected read-only delivery check to verify authentication,
-  exact-app lookup and consumed-build queries. Upload credentials are configured
-  separately from signing; upload readiness remains disabled.
-- Verify a fresh signed CI candidate, then validate Apple processing and
-  encryption status when upload is authorized. Build 75 predates these changes.
+- Finish the iOS corresponding-source/package-notice check. The owner's official
+  Apple distribution permission is recorded in licensing.md; credited
+  dependencies and artwork retain their own terms.
+- When upload is authorized, create a fresh signed CI candidate and validate
+  Apple processing and encryption status. Local and read-only checks do not
+  establish transport or processing acceptance.
 - Fill beta description, feedback email, what-to-test notes and any required beta
   review contact privately in App Store Connect. First tester is the owner;
   invited external users come later and need the applicable external beta review.

@@ -449,3 +449,34 @@ Checks completed:
   predates these changes and cannot substitute for a fresh signed candidate.
 - No Apple upload, beta invitation or review submission occurred. Tasks 5.2,
   5.3, 5.6 and 6.2 remain partial; overall progress remains 7/38.
+
+## Hosted build 77 and read-only Apple verification (2026-10-17)
+
+- With explicit owner approval, pushed the four prepared commits through
+  `fae17d3206174adfd1c432bb64d7df370e9a005f` and dispatched
+  [run 38977368838](https://github.com/acheronfail/float-view-mobile/actions/runs/38977368838)
+  with `ios-store=true` and `ios-delivery=check`. Canceled redundant push run
+  38977360322. Run number 17 plus offset 60 allocated native build 77.
+- All four native jobs passed. The three sideload jobs published rolling nightly
+  `v1.0.0-nightly.626.gfae17d320617`; the protected store build produced a separate
+  Release 1.0.0 (77) IPA. Downloaded its exact record/artifact and independently
+  verified source, clean status, version, team, signatures, provisioned profiles,
+  both packaged privacy manifests and IPA SHA-256:
+  `6cdf0b749e0b5631dde8c6823b469e38dba7931a664bb22fa6021524158a3830`.
+- The first delivery attempt failed before contacting Apple: environment variable
+  names existed but retained example placeholders, and the API-key secret was
+  empty. This demonstrated delivery failure does not block GitHub publication.
+  The owner corrected configuration with the local ignored key and approved the
+  environment again. Only the failed delivery job was rerun; native artifacts
+  and their build number were retained.
+- Attempt 2 passed authenticated Apple API lookup for the expected numeric app
+  record and `fail.acheron.floatview`, then queried 1.0.0 (77). Apple returned no
+  existing build. Downloaded receipt `ios-store-upload-receipt-77-attempt-2`
+  matches the source, run, version, build and IPA digest, has `status=checkedOnly`,
+  `appleBuild=null` and no transport acceptance. No Apple upload, tester invitation
+  or review submission occurred. Upload readiness remains disabled. Actual
+  transport, Apple processing and delivered-device checks remain open.
+- Anonymous HTTP checks returned 200 for the published PRIVACY.md page and
+  GitHub Issues support URL. Local ignored evidence is retained under
+  `.local/ios-store/ci-38977368838/`. Overall progress remains 7/38; no broader
+  store-readiness task is marked complete solely from authentication success.
