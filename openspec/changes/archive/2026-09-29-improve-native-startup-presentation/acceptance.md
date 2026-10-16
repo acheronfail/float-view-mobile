@@ -22,7 +22,7 @@ The existing automated software gate remains required. There is no new physical 
 
 ## Retained evidence
 
-Evidence directory: `/Users/cosmotherly/Desktop/codex/visualizations/2026/09/29/01a0eaca-e976-7aa0-ae44-df57a22ddc30/startup/`.
+Evidence directory: local startup-rendering artifacts (not checked in).
 
 - `phone-acceptance-manifest.json` identifies the final 24 candidate recordings: six iPhone videos containing three cold launches and three foreground returns each, plus eighteen Android cold-launch clips.
 - `ios-phone-baseline-{light,dark}-system.mp4`: three baseline cold launches per mode. `ios-phone-candidate-{light,dark}-{system,light,dark}.mp4` and corresponding XCTest logs/attachments cover all six candidate combinations. `FloatViewLifecycleTests/testStartupAndForegroundPresentation` passed in each run.

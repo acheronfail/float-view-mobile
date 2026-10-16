@@ -30,7 +30,7 @@ not depend on this change's eventual archive location.
   zero errors and warnings; `npm run format:check` and `npm run build` passed.
 - Conformance `npx tsc --noEmit` passed.
 - Canonical `npm run direct`, `npm run mock`, `npm run macos` and
-  `ANDROID_HOME=/Users/cosmotherly/Library/Android/sdk npm run android` passed.
+  `ANDROID_HOME="$HOME/Library/Android/sdk" npm run android` passed.
   The configured-board checks validate complete snapshots, catalog bounds,
   authoritative sample/profile metadata, a numerical estimate, rejected edits,
   revision conflicts and series mismatch. Existing raw-sample/export assertions

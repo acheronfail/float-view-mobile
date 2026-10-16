@@ -1,5 +1,10 @@
 # Apple host
 
+No personal development team is committed in the Xcode project. For signed
+device builds, supply `DEVELOPMENT_TEAM=<team-id>` as an `xcodebuild` build-setting
+override. Keep local signing/account configuration out of version control.
+Unsigned packaging checks do not need a development team.
+
 Swift owns Apple OS integration for the shared Rust backend. One `SharedService`
 creates the process owner in a private application-support root, protected until
 first unlock on iOS. Its bounded executor maps Bluetooth/location callbacks,
