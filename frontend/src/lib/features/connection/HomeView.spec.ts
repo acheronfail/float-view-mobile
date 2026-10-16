@@ -86,3 +86,30 @@ it('offers a scan retry with actionable failure text and hides stale discoveries
   expect(body).not.toContain('Keep your board nearby');
   state.scanError = null;
 });
+
+it('puts saved boards first while preserving discovery order within each group', () => {
+  const original = state.discoveredDevices;
+  state.discoveredDevices = [
+    original[1],
+    { deviceId: 'board-4', name: 'Second saved', savedDeviceId: 'saved-4', rssi: -80 },
+    original[2],
+    original[0],
+  ];
+  try {
+    const body = renderDiscovery();
+    const titles = [...body.matchAll(/<span class="block font-medium">(.*?)<\/span>/g)].map((match) => match[1]);
+    expect(titles).toEqual(['Second saved', 'XRV', 'Another board', 'board-3']);
+    expect(state.discoveredDevices[0].deviceId).toBe('board-2');
+    const cards = body.match(/<button\b[\s\S]*?<\/button>/g)!;
+    for (const card of cards.slice(0, 2)) {
+      expect(card).toContain('Saved board');
+      expect(card).toContain('border-accent bg-accent-soft');
+    }
+    for (const card of cards.slice(2)) {
+      expect(card).not.toContain('Saved board');
+      expect(card).toContain('border-transparent bg-elevated');
+    }
+  } finally {
+    state.discoveredDevices = original;
+  }
+});

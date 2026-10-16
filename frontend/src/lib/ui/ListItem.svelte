@@ -10,11 +10,16 @@
     trailing?: Snippet;
     onactivate?: Activation;
     disabled?: boolean;
+    emphasized?: boolean;
   };
 
-  let { title, subtitle, href, trailing, onactivate, disabled = false }: ListItemProps = $props();
-  const interactiveClass =
-    'flex w-full min-w-0 touch-manipulation items-center justify-between gap-3 rounded-lg border border-transparent bg-elevated p-3 text-left transition-colors motion-feedback motion-reduce:transition-none hover:border-outline hover:bg-surface active:border-accent active:bg-accent-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-transparent disabled:hover:bg-elevated';
+  let { title, subtitle, href, trailing, onactivate, disabled = false, emphasized = false }: ListItemProps = $props();
+  const interactiveClass = $derived(
+    'flex w-full min-w-0 touch-manipulation items-center justify-between gap-3 rounded-lg border p-3 text-left transition-colors motion-feedback motion-reduce:transition-none active:border-accent active:bg-accent-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ' +
+      (emphasized
+        ? ' border-accent bg-accent-soft hover:bg-accent-soft/80 disabled:hover:bg-accent-soft'
+        : ' border-transparent bg-elevated hover:border-outline hover:bg-surface disabled:hover:border-transparent disabled:hover:bg-elevated')
+  );
 </script>
 
 {#if href}

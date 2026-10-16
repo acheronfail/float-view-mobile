@@ -22,6 +22,10 @@
   const permissionPending = $derived(backendState.scanPermissionPending || bluetoothPermission?.pending === true);
   const notice = $derived(discoveryNotice(backendState.snapshot?.bluetooth, permissionPending));
 
+  const discoveredDevices = $derived(
+    [...backendState.discoveredDevices].sort((a, b) => Number(!!b.savedDeviceId) - Number(!!a.savedDeviceId))
+  );
+
   const SCAN_INTERVAL_MS = 10_000;
   const RETRY_INTERVAL_MS = 1_000;
   let pendingDevice = $state<DiscoveredDevice | null>(null);
@@ -174,7 +178,7 @@
       <div class="flex flex-col gap-2">
         <SectionTitle title="Discovered boards" />
         <ul class="flex flex-col gap-2">
-          {#each backendState.discoveredDevices as device (device.deviceId)}
+          {#each discoveredDevices as device (device.deviceId)}
             <li in:discoverRow>
               <ListItem
                 title={backendState.savedDevices.find((saved) => saved.savedDeviceId === device.savedDeviceId)
@@ -184,9 +188,13 @@
                 subtitle={device.deviceId}
                 onactivate={() => chooseDevice(device)}
                 disabled={backendState.busy}
+                emphasized={!!device.savedDeviceId}
               >
                 {#snippet trailing()}
-                  <span class="flex items-center gap-2">
+                  <span class="flex shrink-0 flex-col items-end gap-1">
+                    {#if device.savedDeviceId}
+                      <span class="text-xs font-medium text-on-accent-soft">Saved board</span>
+                    {/if}
                     <span
                       aria-label={`Signal strength: ${formatSignalStrength(device.rssi)}`}
                       class="inline-flex shrink-0 items-center gap-1 text-accent"
