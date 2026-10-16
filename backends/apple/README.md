@@ -71,8 +71,9 @@ Apple Developer membership is confirmed. On 2026-10-17 the owner installed Xcode
 26.0, registered the two identifiers below and created an Apple Distribution
 certificate. The owner also confirmed creating the iOS App Store Connect record.
 Automatic provisioning and a local signed archive/App Store export have been
-verified for both bundles. Protected uploads and TestFlight processing remain
-pending.
+verified for both bundles. A separate manual-profile archive/export has also
+passed with the portal-created profiles intended for CI. Protected uploads and
+TestFlight processing remain pending.
 
 1. Install a supported [Xcode release](https://developer.apple.com/xcode/resources/).
    [Apple currently requires Xcode 26+ and the iOS 26+ SDK](https://developer.apple.com/news/upcoming-requirements/?id=04282026a)
@@ -201,7 +202,10 @@ Keep its secrets scoped to that environment. The job refuses to proceed until en
 are configured. The existing repository `APPLE_TEAM_ID` variable is reused.
 
 Export **only** the selected Apple Distribution identity and private key as an
-encrypted PKCS12 in Keychain Access. Create/download two **App Store Connect**
+encrypted PKCS12 in Keychain Access → My Certificates: right-click the Apple
+Distribution certificate with its private key, choose Export, and save it as
+`.local/ios-store/ci-signing/distribution.p12`. Choose an export password for the
+interactive secret prompt below. Create/download two **App Store Connect**
 distribution profiles in the [Apple developer portal](https://developer.apple.com/account/resources/profiles/list),
 selecting that certificate and the registered app/extension IDs. These profiles
 contain no device list; development/ad-hoc and Xcode-managed profiles are rejected.
@@ -217,12 +221,18 @@ Xcode's automatic local export creates managed profiles, which Xcode refuses in
 this manual CI route. Keep those managed profiles for automatic local signing;
 create the two portal-managed profiles separately. Place the downloaded files
 under ignored `.local/ios-store/ci-signing/` as `app.mobileprovision` and
-`live-activity.mobileprovision`, then set the secrets yourself:
+`live-activity.mobileprovision`, then set the secrets yourself. First run this
+interactive password command on its own and enter the PKCS12 export password:
+
+```sh
+gh secret set IOS_CODE_SIGN_P12_PASSWORD --env ios-store-signing --repo acheronfail/float-view-mobile
+```
+
+Then run the file uploads and enable readiness:
 
 ```sh
 base64 < .local/ios-store/ci-signing/distribution.p12 | \
   gh secret set IOS_CODE_SIGN_P12_BASE64 --env ios-store-signing --repo acheronfail/float-view-mobile
-gh secret set IOS_CODE_SIGN_P12_PASSWORD --env ios-store-signing --repo acheronfail/float-view-mobile
 base64 < .local/ios-store/ci-signing/app.mobileprovision | \
   gh secret set IOS_APP_PROFILE_BASE64 --env ios-store-signing --repo acheronfail/float-view-mobile
 base64 < .local/ios-store/ci-signing/live-activity.mobileprovision | \
@@ -254,9 +264,10 @@ secret names; there is no change to the Mac signer or trust policy.
 
 ### Remaining store work
 
-The protected CI environment exists, but manual profiles, signing secrets and
-an actual hosted store build remain pending. Protected upload/authentication, Apple-consumed build
-checks and actual TestFlight processing remain open. Local signed archive/export verification has
+The protected CI environment and validated manual profiles are ready, and the
+manual archive/export has passed locally. CI signing secrets/readiness and an
+actual hosted store build remain pending. Protected upload/authentication,
+Apple-consumed build checks and actual TestFlight processing remain open. Local signed archive/export verification has
 passed; it does not establish authenticated upload or Apple processing. Upload credentials are not
 needed for the current sideload jobs or local structural checks. Before external
 beta, finish the baseline-100 storage/startup work. Before any upload, complete

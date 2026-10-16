@@ -281,3 +281,31 @@ Checks completed:
   profile names and secret commands are in the Apple guide. Manual signing and
   hosted iOS store execution remain pending those inputs. Upload authentication,
   consumed-build checks, privacy/rights/data-baseline gates remain separate work.
+
+
+## Portal-created profiles and manual export verified — 2026-10-17
+
+- Owner supplied two portal-created profiles in the repository root after macOS
+  privacy controls blocked agent access to Downloads. Validated their exact app
+  and extension IDs, publishing team, unexpired App Store scope, disabled debugger
+  grant, non-Xcode-managed status and authorization of the available Distribution
+  certificate. Moved them to ignored `.local/ios-store/ci-signing/` as
+  `app.mobileprovision` and `live-activity.mobileprovision`, with mode 0600.
+- Installed only these two validated profiles into Xcode's user profile directory,
+  preserving existing profiles. No profile bytes were changed, no private key was
+  exported and no GitHub secret was uploaded by the agent.
+- A clean-source Release archive and local manual App Store Connect export passed
+  from revision `fae12fa47e564b0222db74636826aac21ebb8eac`, using Xcode 26.0 / SDK
+  26.0, version `1.0.0` and unallocated local test build `1`. Both signatures and
+  provisioning/entitlement checks passed without `-allowProvisioningUpdates`.
+- Export metadata and IPA remain under ignored
+  `.local/ios-store/manual-portal-profile-check-20261017/export/`.
+  IPA SHA-256: `39224948060d8acc1d292d73755198b187756784bade894552e9618c93723bc4`.
+  Digest verification passed, and both embedded provisioning profiles match the
+  staged portal files byte for byte. This confirms the manual route planned for
+  CI, separately from the earlier automatic local export.
+- Documentation/strict OpenSpec/whitespace checks passed. No application source
+  changed in this checkpoint. Hosted CI signing still needs the owner-exported
+  encrypted PKCS12, its password, both profile secrets and readiness activation.
+  No workflow was dispatched, no Apple build number was consumed, and upload/
+  TestFlight/device validation remains open.
