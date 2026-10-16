@@ -186,8 +186,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 swatch: getComputedStyle(swatch).backgroundColor,
                 ring: getComputedStyle(button).borderColor,
                 background: getComputedStyle(document.body).backgroundColor,
+                accent: getComputedStyle(document.querySelector('section[aria-label="Settings"] .text-accent')!).color,
               };
             });
+            assert.equal(selection.swatch, selection.accent, 'swatch matches the applied accent in each theme');
             assert.ok(contrast(selection.check, selection.swatch) >= 3, 'checkmark contrasts with swatch');
             assert.ok(contrast(selection.ring, selection.background) >= 3, 'selection ring contrasts with canvas');
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);

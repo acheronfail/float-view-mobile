@@ -1,11 +1,11 @@
 import type { AccentPreference, ThemePreference } from '$lib/backend/contract';
 
-export const accentPresets: { value: AccentPreference; label: string; swatch: string }[] = [
-  { value: 'purple', label: 'Purple', swatch: '#4f46e5' },
-  { value: 'blue', label: 'Blue', swatch: '#1d4ed8' },
-  { value: 'teal', label: 'Teal', swatch: '#0f766e' },
-  { value: 'amber', label: 'Amber', swatch: '#92400e' },
-  { value: 'rose', label: 'Rose', swatch: '#be185d' },
+export const accentPresets: { value: AccentPreference; label: string }[] = [
+  { value: 'purple', label: 'Purple' },
+  { value: 'blue', label: 'Blue' },
+  { value: 'teal', label: 'Teal' },
+  { value: 'amber', label: 'Amber' },
+  { value: 'rose', label: 'Rose' },
 ];
 
 export function isAccentPreference(value: unknown): value is AccentPreference {

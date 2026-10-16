@@ -72,12 +72,13 @@
               <span
                 aria-hidden="true"
                 class="flex size-full items-center justify-center rounded-full"
-                style:background={preset.swatch}
+                style:background={`var(--app-accent-${preset.value})`}
+                style:color={`var(--app-on-accent-${preset.value})`}
               >
                 {#if backendState.settings.accentPreference === preset.value}
                   <svg
                     viewBox="0 0 24 24"
-                    class="size-5 text-white"
+                    class="size-5"
                     fill="none"
                     stroke="currentColor"
                     stroke-width="3"
