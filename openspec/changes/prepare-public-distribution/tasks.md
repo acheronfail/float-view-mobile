@@ -12,10 +12,10 @@ Implementation order: 1–2 establish repository readiness; 3 proves the largest
 
 ## 2. Repository cleanup and production entry points
 
-- [ ] 2.1 Reconcile README/CONTRIBUTING/backend docs with current stable/nightly builds; remove stale marker/archive numbers and misleading “no release version” claims. Preserve the development-data policy until the explicit boundary in group 4.
+- [x] 2.1 Reconcile README/CONTRIBUTING/backend docs with current stable/nightly builds; remove stale marker/archive numbers and misleading “no release version” claims. Preserve the development-data policy until the explicit boundary in group 4.
 - [ ] 2.2 Guard Mac test/browser-host modes and frontend/root/port overrides with explicit development/conformance configurations; audit iOS/Android fixture/reset/inspection paths too. Add focused checks proving stable Release packages ignore/reject test options and contributor/conformance builds still work.
 - [ ] 2.3 Replace Android backup/data-extraction sample templates with explicit cloud/device-transfer rules matching the chosen policy; document backup/export scope and verify supported Android OS behavior, including transfer where software checks cannot establish it.
-- [ ] 2.4 Audit remaining TODO/FIXME/pre-release statements in active source/docs/specs. Classify actionable release issues separately from valid firmware compatibility, disposable views, fixture behavior and historical migration evidence; retain a short resolved/deferred inventory.
+- [x] 2.4 Audit remaining TODO/FIXME/pre-release statements in active source/docs/specs. Classify actionable release issues separately from valid firmware compatibility, disposable views, fixture behavior and historical migration evidence; retain a short resolved/deferred inventory. Findings are recorded in design.md: stale version claims are resolved; the remaining Android backup-template TODO is tracked in 2.3, development entry points in 2.2, and compatibility-policy changes in 4.5.
 
 ## 3. macOS sandbox feasibility and direct-download installation
 

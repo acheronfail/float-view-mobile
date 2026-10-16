@@ -65,11 +65,12 @@ synthetic OS facts and the same canonical product scenarios as native hosts.
 [verification policy](../../AGENTS.md#verification) for physical checkpoints;
 shared logic or persistence edits alone do not require devices or an ESP32.
 
-The application has no users or release version. Storage marker `12` resets
-incompatible owned development data; ordinary corruption or I/O errors never
-trigger a reset. Do not retain migrations, legacy identity aliases, previous
-format readers or fallback implementations before the first release. See
-AGENTS.md for the persistent policy.
+Existing GitHub releases are development distributions. The canonical marker in
+`product-store/src/lib.rs` currently resets incompatible owned development data;
+ordinary corruption or I/O errors never trigger a reset. The public-release plan
+introduces a fresh baseline 100 before external testing. Do not retain migrations,
+legacy identity aliases, previous-format readers or fallback implementations for
+earlier development data. See AGENTS.md for the current compatibility policy.
 
 ## Process-memory UI checkpoint
 

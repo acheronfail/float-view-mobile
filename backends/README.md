@@ -102,8 +102,9 @@ filtered by exact package version, schema fingerprint, and wire signature with
 optimistic revisions. The schema cache lives in shared product storage and is keyed
 by private connection identity, custom index, and a nonzero hardware CRC; every
 hit is digest-checked, bounded, decoded, and audited again. Cache identity is
-never public and never authorizes a write by itself. Both hosts select the shared store with
-storage marker `12`; incompatible development databases are recreated.
+never public and never authorizes a write by itself. Both hosts select the shared
+store; its canonical storage marker is defined in `core/product-store/src/lib.rs`.
+Incompatible development databases currently follow the pre-release reset policy.
 
 ## Controller shutdown boundary
 
@@ -240,5 +241,8 @@ sqlite3 'file:ride.floatview?immutable=1' \
   'SELECT record_json FROM session_diagnostic ORDER BY sequence;'
 ```
 
-The archive format is version 3 and the owned product-storage marker is version 15. As required by the pre-release policy, old development storage is reset and
-older archive formats are rejected rather than migrated.
+The archive format is defined in `core/product-store/src/archive.rs` and the
+owned product-storage marker in `core/product-store/src/lib.rs`. Under the current
+pre-release policy, incompatible development storage is reset and unsupported
+archive formats are rejected rather than migrated. The public-release plan
+introduces baseline 100 and preservation guarantees before external testing.

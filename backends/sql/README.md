@@ -14,8 +14,9 @@ session database with `PRAGMA quick_check`, truncates catalog counts to the last
 commit marker, and records a recovery event. No recovery path auto-deletes data.
 
 There are deliberately no migrations while the application is in test
-development. The shared product store keeps storage marker `25` beside the
-databases. Missing or incompatible markers reset only validated, app-owned files.
+development. The shared product store keeps its canonical marker (defined in
+`../core/product-store/src/lib.rs`) beside the databases. Under the current
+pre-release policy, missing or incompatible markers reset only validated, app-owned files.
 Corruption, protected storage and ordinary operational failures never reset data.
 Update the shared store marker whenever either SQL schema or a persisted JSON
 record changes incompatibly. Marker `25` adds mandatory first-launch safety acceptance to settings.
@@ -96,8 +97,8 @@ update. Telemetry inserts reuse prepared statements. Sample/event time ranges
 start at their cursors; Tunes use a tuple seek inside the identity index.
 Location pruning uses indexed `BETWEEN` instead of applying `ABS` to every sample.
 The event source-sample index prevents foreign-key checks from scanning events
-for every removed sample. Storage marker `20` resets incompatible owned development
-storage rather than migrating old schemas, per the pre-release policy.
+for every removed sample. The shared storage marker resets incompatible owned
+development storage rather than migrating old schemas, per the current pre-release policy.
 
 The larger run seeded 1,000,000 catalog rows and recorded 1,000,000 telemetry
 samples. Completed-session traversal took 5.19 seconds **for all 988,697 visible
