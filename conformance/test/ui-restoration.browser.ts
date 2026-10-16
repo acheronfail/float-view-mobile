@@ -9,7 +9,7 @@ import type { UiCheckpoint } from '../../frontend/src/lib/backend/contract.ts';
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(`${name}: UI checkpoint restores a fresh frontend without replaying mutations`, { timeout: 60000 }, async () => {
-    const port = await startMockServer(11002);
+    const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
     const browser = await engine.launch();

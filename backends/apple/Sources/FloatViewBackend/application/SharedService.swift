@@ -1,5 +1,10 @@
 import CFloatViewApplicationRuntime
 import Foundation
+#if os(macOS)
+  import AppKit
+#elseif os(iOS)
+  import Darwin
+#endif
 
 public struct NativeFilePresentation: Sendable {
   public let fileURL: URL
@@ -92,7 +97,12 @@ public final class SharedService: @unchecked Sendable {
             #endif
             service.fact([
               "fact": "speech_ready",
-              "state": ["status": status, "reason": reason as Any? ?? NSNull(), "loweringControl": lowering, "voiceSettingsAvailable": false],
+              "state": [
+                "status": status,
+                "reason": reason as Any? ?? NSNull(),
+                "loweringControl": lowering,
+                "voiceSettingsAvailable": false,
+              ],
             ])
           }
         }
@@ -350,6 +360,14 @@ public final class SharedService: @unchecked Sendable {
         operation: number("operation"),
         response: value["mode"] as? String == "with_response"
       )
+    case "exit_app":
+      DispatchQueue.main.async {
+        #if os(macOS)
+          NSApplication.shared.terminate(nil)
+        #elseif os(iOS)
+          Darwin.exit(EXIT_SUCCESS)
+        #endif
+      }
     case "open_voice_settings":
       fact(["fact": "voice_settings_opened", "id": id, "success": false])
     case "refresh_speech": speech.refresh()

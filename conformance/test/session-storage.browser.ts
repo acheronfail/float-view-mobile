@@ -11,7 +11,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     `${name}: session storage footers share settings styling and update after deletion`,
     { timeout: 60_000 },
     async () => {
-      const port = await startMockServer(11002);
+      const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
       const endpoint = getMockBootstrap(port);
       const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
       const browser = await engine.launch();

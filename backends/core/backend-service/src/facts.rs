@@ -16,6 +16,7 @@ record!(Bluetooth {
 });
 record!(Location { authorization: String, background_capture: String, reason: Option<String>, permission_action: Option<crate::permissions::Action> });
 record!(Settings {
+    safety_disclaimer_accepted: bool,
     announcements: float_view_product_store::AnnouncementSettings,
     session_display_options: float_view_product_store::SessionDisplayOptions,
     revision: u64, idle_probe_interval_ms: u64, idle_persist_interval_ms: u64,

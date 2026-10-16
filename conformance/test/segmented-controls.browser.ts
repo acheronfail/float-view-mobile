@@ -10,7 +10,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     `${name}: touch, cancelled pointers, keyboard and authoritative segmented settings`,
     { timeout: 60_000 },
     async () => {
-      const port = await startMockServer(11002);
+      const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
       const endpoint = getMockBootstrap(port);
       const browser = await engine.launch();
       try {

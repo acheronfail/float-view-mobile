@@ -31,6 +31,24 @@ impl Drop for Root {
 }
 
 #[test]
+fn safety_acceptance_is_explicit_validated_and_durable() {
+    let root = Root::new();
+    let mut store = root.open();
+    assert!(!store.settings().unwrap().safety_disclaimer_accepted);
+    assert_eq!(
+        store.update_settings(0, r#"{"safetyDisclaimerAccepted":"yes"}"#),
+        Err(Error::InvalidInput)
+    );
+    assert_eq!(store.settings().unwrap().revision, 0);
+    let accepted = store
+        .update_settings(0, r#"{"safetyDisclaimerAccepted":true}"#)
+        .unwrap();
+    assert!(accepted.safety_disclaimer_accepted);
+    drop(store);
+    assert_eq!(root.open().settings().unwrap(), accepted);
+}
+
+#[test]
 fn current_storage_reopens_without_changing_revision_or_sql() {
     let root = Root::new();
     let mut store = root.open();

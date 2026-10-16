@@ -21,6 +21,7 @@ class SharedService(
     private val foregroundRequiredChanged: (Boolean) -> Unit,
     private val locationChanged: () -> Unit,
 ) : AutoCloseable {
+    @Volatile var exitHandler: (() -> Unit)? = null
     private val speech = fail.acheron.floatview.speech.SpeechAdapter(context) { status, id, reason -> enqueue {
         if (status == "outcome") fact(json("fact" to "speech_finished", "id" to id, "outcome" to reason))
         else fact(json("fact" to "speech_ready", "state" to json("status" to status, "reason" to reason, "loweringControl" to "automatic", "voiceSettingsAvailable" to fail.acheron.floatview.speech.SpeechAdapter.canOpenVoiceSettings(context))))
@@ -260,6 +261,7 @@ class SharedService(
             "speak" -> speech.speak(value.getJSONObject("speech"))
             "cancel_speech" -> speech.cancel(id)
             "refresh_speech" -> speech.refresh()
+            "exit_app" -> exitHandler?.invoke()
             "open_voice_settings" -> {
                 val operationLifetime = lifetime
                 speech.openVoiceSettings(value.getLong("expires_at_ms")) { success -> enqueue {

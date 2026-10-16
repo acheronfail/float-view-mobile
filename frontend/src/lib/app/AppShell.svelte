@@ -16,6 +16,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import SessionPruneProgress from '$lib/features/sessions/SessionPruneProgress.svelte';
   import BottomTabBar from './BottomTabBar.svelte';
+  import SafetyDisclaimer from './SafetyDisclaimer.svelte';
   import { bottomTabForRoute } from './navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderConfig, type AppHeaderContext, type AppHeaderPatch } from './header';
   import PageHeader from '$lib/ui/PageHeader.svelte';
@@ -29,6 +30,39 @@
   const restoration = new UiRestoration((checkpoint) => backendState.setUiCheckpoint(checkpoint));
   setContext(UI_RESTORATION, restoration);
   let starting = $state(true);
+  let safetyCleared = $state(false);
+  let safetyBusy = $state(false);
+  let safetyError = $state('');
+  let safetyDeclined = $state(false);
+
+  async function acceptSafety() {
+    if (safetyBusy) return;
+    safetyBusy = true;
+    safetyError = '';
+    try {
+      if (!(await backendState.updateSessionSettings({ safetyDisclaimerAccepted: true }))) {
+        safetyError = 'Could not save your agreement. Please try again.';
+        return;
+      }
+      await resume();
+    } finally {
+      safetyBusy = false;
+    }
+  }
+
+  async function declineSafety() {
+    if (safetyBusy) return;
+    safetyBusy = true;
+    safetyError = '';
+    try {
+      await backendState.exitApp();
+      safetyDeclined = true;
+    } catch {
+      safetyError = 'Could not close the app. Please close it or try again.';
+    } finally {
+      safetyBusy = false;
+    }
+  }
   $effect(() => {
     // The early HTML placeholder also covers backend connection and screen restoration.
     const loading = document.getElementById('app-loading');
@@ -54,6 +88,7 @@
   });
   let restoreNotice = $state('');
   let restoreError = $state('');
+  const safetyGateOpen = $derived(!starting && !restoreError && !safetyCleared);
   let menuOpen = $state(false);
   let startupGeneration = 0;
   let restoringNavigation = false;
@@ -66,6 +101,10 @@
   });
   beforeNavigate((navigation) => {
     if (restoringNavigation) return;
+    if (!safetyCleared) {
+      navigation.cancel();
+      return;
+    }
     if (navigation.type === 'popstate' && dismissTopSurface()) {
       navigation.cancel();
       return;
@@ -84,8 +123,13 @@
     starting = true;
     restoreError = '';
     try {
-      await backendState.connect();
+      if (backendState.status !== 'connected') await backendState.connect();
       if (backendState.status !== 'connected') throw new Error('Backend unavailable');
+      if (!backendState.settings?.safetyDisclaimerAccepted) {
+        if (generation === startupGeneration) starting = false;
+        return;
+      }
+      safetyCleared = true;
       const saved = await backendState.getUiCheckpoint();
       if (generation !== startupGeneration) return;
       const incoming = window.location.hash;
@@ -125,7 +169,10 @@
         }
         uiDiagnostic('restored', checkpoint.route.kind, checkpoint.surface?.kind);
       }
-      if (generation === startupGeneration) starting = false;
+      if (generation === startupGeneration) {
+        safetyCleared = true;
+        starting = false;
+      }
     } catch {
       if (generation === startupGeneration) {
         restoreError = 'Could not resume this screen. Retry or choose a destination.';
@@ -240,7 +287,7 @@
   });
 
   $effect(() => {
-    if (starting || restoreError) return;
+    if (starting || restoreError || !safetyCleared) return;
     const href = connectionRedirect(
       page.route.id,
       backendState.snapshot?.activeConnection,
@@ -249,7 +296,7 @@
     if (href) void goto(href, { replaceState: true });
   });
   $effect(() => {
-    if (starting || restoreError || backendState.status !== 'connected') return;
+    if (starting || restoreError || !safetyCleared || backendState.status !== 'connected') return;
     const route = uiRoute(page.route.id, page.params, page.url);
     if ((route.kind === 'live' || route.kind === 'boardHistory') && restoration.owner !== uiHref(route)) return;
     const surface = menuOpen
@@ -266,6 +313,7 @@
 </script>
 
 <main
+  inert={safetyGateOpen}
   class="bg-canvas text-foreground"
   class:min-h-screen={!liveRoute}
   class:h-screen={liveRoute}
@@ -315,7 +363,7 @@
             >Retry</button
           >
         </section>
-      {:else if !starting}
+      {:else if !starting && safetyCleared}
         {#if restoreNotice}<p role="status" class="p-3 text-muted">{restoreNotice}</p>{/if}
         <SessionPruneProgress
           operation={backendState.snapshot?.sessionOperation}
@@ -327,3 +375,13 @@
   </div>
   <BottomTabBar routeId={page.route.id} connection={backendState.snapshot?.activeConnection} />
 </main>
+
+{#if safetyGateOpen}
+  <SafetyDisclaimer
+    busy={safetyBusy}
+    error={safetyError}
+    declined={safetyDeclined}
+    onaccept={acceptSafety}
+    ondecline={declineSafety}
+  />
+{/if}

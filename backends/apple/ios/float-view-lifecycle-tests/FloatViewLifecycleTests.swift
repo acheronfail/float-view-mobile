@@ -3,10 +3,23 @@ import XCTest
 final class FloatViewLifecycleTests: XCTestCase {
   private let application = XCUIApplication(bundleIdentifier: "fail.acheron.float-view")
 
+  private func acceptSafetyIfNeeded() {
+    let agreement = application.buttons["I agree"]
+    let ready = NSPredicate { [self] _, _ in
+      agreement.exists || application.links["settings"].isHittable
+    }
+    expectation(for: ready, evaluatedWith: nil)
+    waitForExpectations(timeout: 15)
+    if agreement.exists {
+      agreement.tap()
+    }
+  }
+
   func testStartupAndForegroundPresentation() {
     for _ in 0 ..< 3 {
       application.terminate()
       application.launch()
+      acceptSafetyIfNeeded()
       XCTAssertTrue(
         application.links["settings"].waitForExistence(timeout: 15),
         "Startup did not expose frontend navigation"
@@ -27,6 +40,7 @@ final class FloatViewLifecycleTests: XCTestCase {
     application.terminate()
     application.resetAuthorizationStatus(for: .location)
     application.launch()
+    acceptSafetyIfNeeded()
     XCTAssertTrue(application.links["settings"].waitForExistence(timeout: 15))
     application.links["settings"].tap()
     let request = application.buttons["Request access"].firstMatch

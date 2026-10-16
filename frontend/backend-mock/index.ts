@@ -178,10 +178,13 @@ server.on('upgrade', (request, socket, head) => {
   });
 });
 
-export function startMockServer(port = DEFAULT_PORT): Promise<number> {
+export function startMockServer(
+  port = DEFAULT_PORT,
+  options: { safetyDisclaimerAccepted?: boolean } = {}
+): Promise<number> {
   if (mockRunning) return Promise.reject(new Error('Mock server is already running'));
   sessionToken = randomBytes(32).toString('base64url');
-  wss = createWebSocketServer();
+  wss = createWebSocketServer(options);
   return new Promise((resolve, reject) => {
     const handleError = (error: Error) => reject(error);
     server.once('error', handleError);
@@ -198,7 +201,7 @@ export function startMockServer(port = DEFAULT_PORT): Promise<number> {
   });
 }
 
-function createWebSocketServer() {
+function createWebSocketServer(options: { safetyDisclaimerAccepted?: boolean } = {}) {
   const value = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
   const delivery = new WeakMap<import('ws').WebSocket, { sendingState: boolean; pendingState?: string }>();
   function sendNewestState(client: import('ws').WebSocket, payload: string) {
@@ -221,7 +224,7 @@ function createWebSocketServer() {
     for (const client of value.clients) {
       if (client.readyState === client.OPEN) sendNewestState(client, payload);
     }
-  });
+  }, options);
   activeMockBackend = backend;
   let telemetryTimer: NodeJS.Timeout;
   const publishNextSample = () => {

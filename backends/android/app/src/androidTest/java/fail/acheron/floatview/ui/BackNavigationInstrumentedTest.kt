@@ -21,6 +21,8 @@ class BackNavigationInstrumentedTest {
         ) as MainActivity
         try {
             awaitScript(activity, "!!document.querySelector('nav[aria-label=Primary]') && document.getElementById('app-loading')?.hidden === true")
+            script(activity, "Array.from(document.querySelectorAll('[role=alertdialog] button')).find(b => b.textContent.trim() === 'I agree')?.click()")
+            awaitScript(activity, "!document.querySelector('[aria-labelledby=safety-title]') && !document.querySelector('main').inert")
             script(activity, "location.hash = '#/settings'")
             awaitScript(activity, "location.hash === '#/settings' && document.querySelector('h1')?.textContent === 'Settings'")
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)

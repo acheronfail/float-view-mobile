@@ -10,7 +10,7 @@ const html = await readFile(new URL('../../frontend/build/index.html', import.me
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(`${name}: live lighting boxes, holds, menu confirmations and pending state`, { timeout: 60_000 }, async () => {
     const browser = await engine.launch();
-    const port = await startMockServer(11002);
+    const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
     try {

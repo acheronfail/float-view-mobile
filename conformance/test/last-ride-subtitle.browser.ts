@@ -7,7 +7,7 @@ import { startMockServer, stopMockServer, getMockBootstrap } from '../../fronten
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(`${name}: dynamic session and settings subtitles`, { timeout: 60_000 }, async () => {
-    const port = await startMockServer(11002);
+    const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const browser = await engine.launch();
     try {

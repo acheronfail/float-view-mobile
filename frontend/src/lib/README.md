@@ -357,3 +357,15 @@ The announcement Voice settings action renders only when mandatory
 `announcementAudio.voiceSettingsAvailable` is true. It sends the authenticated
 `announcements.openVoiceSettings` method, never an OS URI or platform guess;
 native hosts own chooser availability, launch and return-time voice refresh.
+
+## First-launch safety agreement
+
+The app shell requires an explicit riding-safety agreement before mounting routes
+or restoring a screen. Acceptance is saved in native/shared settings before access
+is granted and survives WebView and process recreation. Escape, native Back and
+the backdrop cannot dismiss the gate. Failed saves keep it locked and allow retry.
+Declining sends authenticated `app.exit`; native hosts close the app. The browser
+mock leaves a locked notice because browsers cannot close ordinary user-opened
+tabs. Exit is only available before acceptance, in the foreground and without an
+active connection. The disclaimer covers riding risk, safe app use and the author's
+responsibility for injury or damage, to the extent permitted by law.

@@ -849,6 +849,8 @@ export interface SessionDisplayOptions {
 }
 
 export interface Settings {
+  /** Explicit acceptance of the first-launch riding safety disclaimer. */
+  safetyDisclaimerAccepted: boolean;
   announcements: AnnouncementSettings;
   sessionDisplayOptions: SessionDisplayOptions;
   revision: number;
@@ -1029,6 +1031,8 @@ export interface BackendMethods {
     result: SavedDevice;
   };
   'savedDevice.delete': { params: { savedDeviceId: string }; result: Accepted };
+  /** Close the native app after declining the first-launch disclaimer. Only valid before acceptance. */
+  'app.exit': { params: EmptyParams; result: { accepted: true } };
   'announcements.openVoiceSettings': { params: Record<string, never>; result: { accepted: true } };
   /** Manual preview: requires a free speech slot, independent of the automatic repeat interval. */
   'announcements.test': {

@@ -23,7 +23,7 @@ const longName = 'The Extremely Long Named Trail Board — Weekend Adventure Edi
 
 for (const [engineName, engine] of Object.entries({ chromium, webkit })) {
   test(`${engineName}: live viewport matrix`, { timeout: 180_000 }, async () => {
-    const port = await startMockServer(0);
+    const port = await startMockServer(0, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
     const browser = await engine.launch();

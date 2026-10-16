@@ -29,6 +29,7 @@ import fail.acheron.floatview.theme.AndroidThemeController
 
 class MainActivity : Activity() {
     private var webView: WebView? = null
+    private val exitHandler: () -> Unit = { runOnUiThread { finishAndRemoveTask() } }
     private var themeSubscription: AutoCloseable? = null
     private val frontendContainer by lazy { FrameLayout(this) }
     private val loadingPresentation by lazy { LoadingPresentation(this) }
@@ -54,6 +55,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as FloatViewApplication
+        app.runtime.service.exitHandler = exitHandler
         app.runtime.permissionBroker.attach(this)
         app.runtime.exportPresentationBroker.attach(this)
         frontendContainer.addView(
@@ -212,6 +214,7 @@ class MainActivity : Activity() {
         handler.removeCallbacks(delayedTeardown)
         handler.removeCallbacks(notificationPermissionCheck)
         val runtime = (application as FloatViewApplication).runtime
+        if (runtime.service.exitHandler === exitHandler) runtime.service.exitHandler = null
         runtime.permissionBroker.detach(this)
         runtime.exportPresentationBroker.detach(this)
         sessionFiles.close()

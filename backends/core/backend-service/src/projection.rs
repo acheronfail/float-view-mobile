@@ -337,6 +337,7 @@ impl BackendService {
 
 pub(crate) fn settings(v: &store::Settings) -> f::Settings {
     f::Settings {
+        safety_disclaimer_accepted: v.safety_disclaimer_accepted,
         announcements: v.announcements.clone(),
         revision: v.revision,
         idle_probe_interval_ms: v.idle_probe_interval_ms,

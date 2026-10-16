@@ -6,6 +6,7 @@ use serde_json::Value;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
+    pub safety_disclaimer_accepted: bool,
     pub announcements: AnnouncementSettings,
     pub session_display_options: SessionDisplayOptions,
     pub revision: u64,
@@ -69,6 +70,7 @@ pub struct SessionDisplayOptions {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            safety_disclaimer_accepted: false,
             announcements: AnnouncementSettings::default(),
             revision: 0,
             session_display_options: SessionDisplayOptions::default(),
@@ -138,7 +140,9 @@ impl ProductStore {
                     if serde_json::from_value::<SessionDisplayOptions>(value.clone()).is_ok() => {}
                 "liveWidgetSlots" if valid_live_widget_slots(&value) => {}
                 "unitPreference" if matches!(value.as_str(), Some("metric" | "imperial")) => {}
-                "locationRecordingEnabled" | "includeGpsLocationWhenExporting"
+                "safetyDisclaimerAccepted"
+                | "locationRecordingEnabled"
+                | "includeGpsLocationWhenExporting"
                     if value.is_boolean() => {}
                 _ => return Err(Error::InvalidInput),
             }

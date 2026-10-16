@@ -10,7 +10,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       `${name} ${hasTouch ? 'touch' : 'desktop'}: map filtering owns navigation and shows disjoint visits`,
       { timeout: 90_000 },
       async () => {
-        const port = await startMockServer(11002),
+        const port = await startMockServer(11002, { safetyDisclaimerAccepted: true }),
           endpoint = getMockBootstrap(port);
         const browser = await engine.launch();
         try {

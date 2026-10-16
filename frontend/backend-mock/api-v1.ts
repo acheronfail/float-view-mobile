@@ -335,6 +335,7 @@ export class MockBackend {
       liveWidgetSlots: [...defaultLiveWidgetSlots],
       historyGapThresholdSeconds: null,
       locationRecordingEnabled: false,
+      safetyDisclaimerAccepted: false,
       includeGpsLocationWhenExporting: false,
     },
     permissions: permissionInventory('ios'),
@@ -350,8 +351,9 @@ export class MockBackend {
   private operation?: SessionOperationState;
   private operationTimer?: ReturnType<typeof setTimeout>;
 
-  constructor(publish: (event: StateChanged) => void = () => {}) {
+  constructor(publish: (event: StateChanged) => void = () => {}, options: { safetyDisclaimerAccepted?: boolean } = {}) {
     this.publish = publish;
+    this.state.settings.safetyDisclaimerAccepted = options.safetyDisclaimerAccepted ?? false;
   }
 
   handlePayload(payload: string): Response {
@@ -804,6 +806,12 @@ export class MockBackend {
           values: { ...this.refloatCurrentValues, ...tune.values },
         });
       }
+      case 'app.exit': {
+        if (Object.keys(params).length) return failure(id, 'invalid_request', 'Unexpected parameters');
+        if (this.state.settings.safetyDisclaimerAccepted || this.state.activeConnection)
+          return failure(id, 'invalid_state', 'Safety disclaimer is no longer pending');
+        return success(id, { accepted: true });
+      }
       case 'announcements.openVoiceSettings': {
         if (Object.keys(params).length) return failure(id, 'invalid_request', 'Unexpected parameters');
         return this.state.announcementAudio.voiceSettingsAvailable
@@ -844,6 +852,7 @@ export class MockBackend {
           'sessionDisplayOptions',
           'historyGapThresholdSeconds',
           'locationRecordingEnabled',
+          'safetyDisclaimerAccepted',
           'includeGpsLocationWhenExporting',
         ]);
         if ('announcements' in patch) {
@@ -893,6 +902,7 @@ export class MockBackend {
               historyGap < 0.1 ||
               historyGap > 3_600)) ||
           ('locationRecordingEnabled' in patch && typeof patch.locationRecordingEnabled !== 'boolean') ||
+          ('safetyDisclaimerAccepted' in patch && typeof patch.safetyDisclaimerAccepted !== 'boolean') ||
           ('includeGpsLocationWhenExporting' in patch && typeof patch.includeGpsLocationWhenExporting !== 'boolean')
         ) {
           return failure(id, 'invalid_request', 'Settings patch is invalid');

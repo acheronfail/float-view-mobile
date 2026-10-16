@@ -47,6 +47,16 @@ impl BackendService {
         let epoch = self.policy.exchange.epoch;
         let generation = self.runtime.snapshot().application.generation;
         let result = match operation {
+            Operation::ExitApp => {
+                if !self.policy.foreground
+                    || self.policy.settings.safety_disclaimer_accepted
+                    || self.policy.active.is_some()
+                {
+                    return Err(Failure::InvalidState);
+                }
+                self.policy.exchange.push(os::Effect::ExitApp)?;
+                f::Completion::Unit
+            }
             Operation::OpenVoiceSettings => return self.open_voice_settings(owner),
             Operation::TestAnnouncement { kind } => return self.test_announcement(owner, kind),
             Operation::AddRideMarker {

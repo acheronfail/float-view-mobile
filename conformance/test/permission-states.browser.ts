@@ -152,7 +152,7 @@ for (const [engineName, engine] of Object.entries({ chromium, webkit })) {
     `${engineName}: permission states remain readable across themes and screen sizes`,
     { timeout: 120_000 },
     async () => {
-      const port = await startMockServer(11002);
+      const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
       const endpoint = getMockBootstrap(port);
       const browser = await engine.launch();
       const output = engineName === 'chromium' ? process.env.PERMISSION_SCREENSHOT_DIR : undefined;

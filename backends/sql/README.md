@@ -14,11 +14,11 @@ session database with `PRAGMA quick_check`, truncates catalog counts to the last
 commit marker, and records a recovery event. No recovery path auto-deletes data.
 
 There are deliberately no migrations while the application is in test
-development. The shared product store keeps storage marker `24` beside the
+development. The shared product store keeps storage marker `25` beside the
 databases. Missing or incompatible markers reset only validated, app-owned files.
 Corruption, protected storage and ordinary operational failures never reset data.
 Update the shared store marker whenever either SQL schema or a persisted JSON
-record changes incompatibly. Marker `24` adds the mandatory accent preset to settings.
+record changes incompatibly. Marker `25` adds mandatory first-launch safety acceptance to settings.
 
 `refloat_configuration` stores bounded, complete application-wide Tunes. Exact
 package version, schema fingerprint, and wire signature are part of the record
