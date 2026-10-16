@@ -63,3 +63,18 @@ corresponding-source availability. Resolve Apple's distribution terms against al
 applicable rights. This repository does not silently grant a store exception or
 waive any third-party obligations. Any additional permission for owner-controlled
 code needs an explicit owner decision.
+
+### Official Apple distribution
+
+On 2026-10-17 the owner confirmed ownership of project-authored code and
+permission to distribute official binaries through Apple TestFlight and the
+App Store under Apple's applicable terms. Public source remains
+AGPL-3.0-or-later; LICENSE has no general store exception. This is a project
+audit note, not a document required by Apple. It grants no rights to separately
+credited dependencies, artwork or future outside contributions.
+
+The locked notice inventory identifies permissive software licences and CC BY
+artwork, with no third-party GPL/LGPL/AGPL runtime dependency identified.
+Research vendor submodules and source-derived test fixtures are not copied into
+the Release app. Final package notices and exact source availability must still
+be verified; new copyleft code or outside contributions need a fresh rights review.

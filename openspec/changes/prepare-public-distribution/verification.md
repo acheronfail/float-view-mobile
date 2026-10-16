@@ -341,3 +341,32 @@ Checks completed:
   receipt/consumed-number checks, licensing/privacy audits, public-data baseline
   and store-delivered physical validation remain open. Tasks 5.2/5.3 remain partial;
   the overall plan remains 5/38 complete.
+
+
+## iOS privacy and package prerequisites — 2026-10-17
+
+- Owner selected repository-hosted privacy/support documentation and GitHub Issues;
+  added PRIVACY.md, a short README link and shared Settings links. Policy covers
+  private BLE/ride/route storage, backups, OSM tile requests, speech, user-shared
+  exports, public support and Apple TestFlight information. External beta users
+  are planned after the owner's initial test. No URL is claimed live until pushed.
+- Owner confirmed project-code ownership and official Apple distribution
+  permission. Recorded a brief licensing audit note; AGPL and third-party terms
+  are unchanged. No Apple-specific declaration or private account details added.
+- Added app/extension privacy manifests, conservative map location/request-data
+  collection declarations, actual timer/disk/file API reasons and no tracking.
+  Documented evidence and pending console/physical/report checks in
+  docs/ios-distribution-audit.md. No custom encryption/TLS stack was identified;
+  iOS declares no non-exempt encryption.
+- Release iOS no longer enables WebView inspection; its user-agent identifies
+  FloatView for map requests. Debug inspection remains enabled. Store tooling
+  rejects missing/changed packaged manifests and a missing encryption declaration.
+- All 25 Python packaging tests, frontend type checks/build and Chromium/WebKit
+  offline-notices/privacy/support-link checks (2) passed. A real unsigned arm64
+  Release archive passed using Xcode 26.0/SDK 26.0, with both manifests embedded.
+  Native import inspection found app stat/disk APIs and no such extension symbols;
+  neither Release executable contains the WebView inspection selector. Unsigned
+  evidence is in ignored .local/ios-store/privacy-archive-check-20261017/.
+- This is not a signed candidate or Apple privacy-report/processing acceptance.
+  Xcode Organizer report, provider-header/device checks, actual console answers,
+  baseline storage/startup and upload credentials remain open. No upload occurred.

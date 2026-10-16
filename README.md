@@ -11,6 +11,8 @@ developer memberships and distribution fees. You can also install through the
 alternative routes below or [build it yourself](CONTRIBUTING.md).
 Store links will be added here as each listing becomes available.
 
+[Privacy policy](PRIVACY.md) · [Support](https://github.com/acheronfail/float-view-mobile/issues)
+
 - 📡 Connect to your VESC board over Bluetooth.
 - 📊 Watch live telemetry.
 - 🔊 Configurable speed and load announcements.

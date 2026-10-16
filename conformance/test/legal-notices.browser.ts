@@ -30,6 +30,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await section.waitFor();
       assert.match(await section.innerText(), /Copyright © 2026 acheronfail/);
       assert.match(await section.innerText(), /Luis Prado/);
+      assert.equal(await section.getByRole('link', { name: 'Privacy policy', exact: true }).getAttribute('href'),
+        'https://github.com/acheronfail/float-view-mobile/blob/master/PRIVACY.md');
+      assert.equal(await section.getByRole('link', { name: 'Support', exact: true }).getAttribute('href'),
+        'https://github.com/acheronfail/float-view-mobile/issues');
       const button = section.getByRole('button');
       for (const pointer of [
         { button: 2, isPrimary: true },

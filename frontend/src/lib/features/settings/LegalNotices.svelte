@@ -22,6 +22,21 @@
     <p>Float View is open source under AGPL-3.0-or-later.</p>
     <p>Copyright © 2026 acheronfail.</p>
     <p>
+      <a
+        class="touch-manipulation text-accent underline"
+        href="https://github.com/acheronfail/float-view-mobile/blob/master/PRIVACY.md"
+        target="_blank"
+        rel="noreferrer">Privacy policy</a
+      >
+      ·
+      <a
+        class="touch-manipulation text-accent underline"
+        href="https://github.com/acheronfail/float-view-mobile/issues"
+        target="_blank"
+        rel="noreferrer">Support</a
+      >
+    </p>
+    <p>
       Rider artwork adapted from “onewheel” by Luis Prado, Noun Project, under CC BY 3.0. Colours, backgrounds and
       formats have been adapted for Float View.
     </p>

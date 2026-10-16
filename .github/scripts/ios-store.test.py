@@ -38,8 +38,11 @@ class StoreTests(unittest.TestCase):
             (bundle / "Info.plist").write_bytes(plistlib.dumps({
                 "CFBundleIdentifier": identifier, "CFBundleShortVersionString": "1.0.0",
                 "CFBundleVersion": "101", "CFBundleExecutable": "executable",
-                "CFBundleSupportedPlatforms": ["iPhoneOS"]}))
+                "CFBundleSupportedPlatforms": ["iPhoneOS"], "ITSAppUsesNonExemptEncryption": False}))
             (bundle / "executable").write_bytes(b"fixture-executable")
+            source = store.ROOT / "backends/apple/ios" / (
+                "float-view" if identifier == store.APP_ID else "FloatViewLiveActivity") / "PrivacyInfo.xcprivacy"
+            shutil.copyfile(source, bundle / "PrivacyInfo.xcprivacy")
         (self.app / "index.html").write_text("shared frontend")
         self.runner = patch.object(store, "run", side_effect=self.run_tool)
         self.runner.start()
@@ -82,6 +85,27 @@ class StoreTests(unittest.TestCase):
         self.profile_changes["ProvisionedDevices"] = ["test-device"]
         with self.assertRaisesRegex(ValueError, "App Store profile"):
             store.verify_distribution(self.app, "1.0.0", "101", TEAM)
+
+    def test_missing_or_changed_packaged_privacy_manifest_rejected(self):
+        for bundle in [self.app, self.extension]:
+            with self.subTest(bundle=bundle.name):
+                path = bundle / "PrivacyInfo.xcprivacy"
+                original = path.read_bytes()
+                path.unlink()
+                with self.assertRaisesRegex(ValueError, "privacy manifest"):
+                    store.bundles(self.app, "1.0.0", "101")
+                path.write_bytes(plistlib.dumps({"NSPrivacyTracking": True}))
+                with self.assertRaisesRegex(ValueError, "privacy manifest"):
+                    store.bundles(self.app, "1.0.0", "101")
+                path.write_bytes(original)
+
+    def test_missing_encryption_declaration_rejected(self):
+        path = self.app / "Info.plist"
+        info = plistlib.loads(path.read_bytes())
+        del info["ITSAppUsesNonExemptEncryption"]
+        path.write_bytes(plistlib.dumps(info))
+        with self.assertRaisesRegex(ValueError, "encryption declaration"):
+            store.bundles(self.app, "1.0.0", "101")
 
     def test_enterprise_profile_rejected(self):
         self.profile_changes["ProvisionsAllDevices"] = True

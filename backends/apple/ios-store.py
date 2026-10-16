@@ -74,6 +74,14 @@ def bundles(app, version, number):
         architectures = run("lipo", "-archs", str(executable), capture=True).decode().split()
         require(architectures == ["arm64"], "Expected an arm64 device executable")
         require(info.get("CFBundleSupportedPlatforms") == ["iPhoneOS"], "Expected an iOS device bundle")
+        manifest_source = ROOT / "backends/apple/ios" / (
+            "float-view" if identifier == APP_ID else "FloatViewLiveActivity") / "PrivacyInfo.xcprivacy"
+        manifest = bundle / "PrivacyInfo.xcprivacy"
+        require(manifest.is_file() and load_plist(manifest) == load_plist(manifest_source),
+                "Missing or changed app/extension privacy manifest")
+        if identifier == APP_ID:
+            require(info.get("ITSAppUsesNonExemptEncryption") is False,
+                    "Missing reviewed encryption declaration")
     require((app / "index.html").is_file(), "Archive is missing the shared frontend")
     return result
 

@@ -26,6 +26,7 @@ struct WebView: UIViewRepresentable {
 
   func makeUIView(context: Context) -> WKWebView {
     let configuration = WKWebViewConfiguration()
+    configuration.applicationNameForUserAgent = "FloatView/\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development")"
 
     #if DEBUG
       configuration.userContentController.add(context.coordinator, name: "floatViewPerformance")
@@ -35,9 +36,9 @@ struct WebView: UIViewRepresentable {
     webView.navigationDelegate = context.coordinator
     webView.allowsLinkPreview = false
 
-    if #available(iOS 16.4, *) {
+    #if DEBUG
       webView.isInspectable = true
-    }
+    #endif
 
     applyCanvasColor(to: webView)
     webView.scrollView.pinchGestureRecognizer?.isEnabled = false
