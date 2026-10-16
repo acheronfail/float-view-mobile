@@ -40,10 +40,26 @@ Actual Apple-service and artifact checks:
   temporary directory and applied quarantine. Both architectures, signature,
   stapled ticket and Gatekeeper acceptance passed on that extracted copy.
 
+Hosted workflow and published download:
+
+- Pushed implementation and portable-decoding fix through revision
+  `fae1192cd97f77f74cf51de96d3b49dd30f61afe`.
+- [GitHub Actions run 38863449266](https://github.com/acheronfail/float-view-mobile/actions/runs/38863449266)
+  passed preparation (38 release-tooling tests), iOS, Android, macOS and release
+  publication. This exercised the owner-provisioned signing and notary credentials
+  on the hosted macOS runner.
+- Apple accepted hosted submission `eeacd242-b2d2-4e40-812f-6678efdeb9d5`.
+- Published [nightly v0.3.1-nightly.8.gfae1192cd97f](https://github.com/acheronfail/float-view-mobile/releases/tag/v0.3.1-nightly.8.gfae1192cd97f)
+  with the universal macOS ZIP alongside the IPA and APK.
+- Downloaded the published macOS ZIP and matched its SHA-256 to the GitHub asset
+  digest: `352f7b0ec252186e447eccbf237f2a02c670faa466f8f7fe4aaf8c2b56bce876`.
+- Fresh extraction with quarantine applied passed both-architecture inspection,
+  strict Apple Developer ID signature validation, stapled-ticket validation and
+  Gatekeeper assessment (`source=Notarized Developer ID`). These checks ran on
+  the existing development Mac, not a clean-machine permission-transition test.
+
 Outstanding:
 
-- Activate and verify the updated GitHub workflow; signing and notarization
-  credential settings now exist but must be exercised by an actual hosted run.
 - Verify a published download on a clean supported Mac, and the affected signing
   transition's Bluetooth/location permission retention or regrant, recording and
   export. Local signing/Gatekeeper checks are not this OS/device checkpoint.

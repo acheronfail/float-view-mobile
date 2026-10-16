@@ -23,7 +23,7 @@ Implementation order: 1–2 establish repository readiness; 3 proves the largest
 - [ ] 3.2 Validate affected Bluetooth/location permission presentation, speech and native file dialogs on a supported Mac; record device/OS and observed results. Check both supported executable architectures in packaging checks.
 - [ ] 3.3 Define and document bundle identity, container paths, direct/store switching and single-owner behavior; test existing direct storage versus sandbox storage with supported archive transfer. State settings/profile/association transfer limits explicitly.
 - [ ] 3.4 Provision Developer ID direct-distribution signing, hardened runtime, notarization and stapling in protected jobs; keep the universal ZIP. Validate codesign, Gatekeeper assessment and a quarantined download on a clean Mac; replace quarantine-removal instructions only after validation. Verify transition from the current signer and note any permission regrant.
-      Implementation and actual local notarization/quarantined-ZIP checks are complete; see verification.md. Owner-managed CI credential provisioning/activation and the clean-Mac/permission-transition checkpoint remain outstanding, so this task stays open.
+      Implementation, owner-managed CI credential provisioning, hosted notarization/publication and quarantined published-ZIP checks are complete; see verification.md. The clean-Mac/permission-transition checkpoint remains outstanding, so this task stays open.
 
 ## 4. Public data baseline before external beta
 
