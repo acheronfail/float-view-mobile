@@ -35,6 +35,46 @@ final class FloatViewLifecycleTests: XCTestCase {
     }
   }
 
+  #if targetEnvironment(simulator)
+    /// Run on a disposable simulator with the synthetic baseline catalog and
+    /// Safari as its default browser. No personal agreement/contact is submitted.
+    func testExternalPrivacySupportAndSourceLinks() throws {
+      continueAfterFailure = false
+      application.launch()
+      if application.buttons["I agree"].waitForExistence(timeout: 3) {
+        throw XCTSkip("Requires a disposable simulator with the synthetic accepted baseline catalog")
+      }
+      XCTAssertTrue(application.links["settings"].waitForExistence(timeout: 15))
+      application.links["settings"].tap()
+      let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+      for label in ["Privacy policy", "Support", "Source code and build instructions"] {
+        let link = application.links[label]
+        // XCTest can report covered WebView links as hittable. Keep the whole
+        // link above the fixed navigation bar before synthesizing its tap.
+        let navigation = application.links["settings"]
+        for _ in 0 ..< 12 {
+          if link.isHittable, link.frame.height > 1,
+             link.frame.minY > application.frame.minY + 120,
+             link.frame.maxY < navigation.frame.minY - 12
+          {
+            break
+          }
+          application.swipeUp()
+        }
+        XCTAssertTrue(link.isHittable, "Missing external link: \(label)")
+        XCTAssertGreaterThan(link.frame.height, 1, "Link has no visible frame")
+        XCTAssertGreaterThan(link.frame.minY, application.frame.minY + 120, "Link is above the visible document")
+        XCTAssertLessThan(link.frame.maxY, navigation.frame.minY - 12, "Link is covered by navigation")
+        let tapFrame = link.frame
+        link.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15),
+                      "Link did not open Safari: \(label); link=\(tapFrame), tabs=\(navigation.frame)")
+        application.activate()
+        XCTAssertTrue(link.waitForExistence(timeout: 10), "Returning lost the Settings page")
+      }
+    }
+  #endif
+
   func testPermissionsRecovery() {
     continueAfterFailure = false
     application.terminate()

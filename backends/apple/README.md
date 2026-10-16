@@ -59,6 +59,15 @@ failures, with settings/retry actions where appropriate. Validate the first-use
 prompt, denial/recovery and quit-without-requesting behavior on macOS; mocked
 permission tests cannot establish actual OS prompt presentation.
 
+## Embedded navigation
+
+Both Apple WebViews stay on the backend's frontend document. Internal hash routes
+are allowed; changing its origin, path or query is not. User-activated external
+HTTP(S) links open through the OS in the user's default browser, including links
+with a new-window target. Scripted external navigation, other URL schemes and
+embedded subframes are cancelled. No additional WebView is created for popups.
+Returning from the browser retains the app's current route.
+
 ## iOS App Store preparation
 
 The GitHub `just ipa` route remains unsigned for AltStore to re-sign. Store

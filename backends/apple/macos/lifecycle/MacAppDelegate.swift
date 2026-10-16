@@ -4,7 +4,7 @@ import Foundation
 import WebKit
 
 final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
-  WKNavigationDelegate
+  WKNavigationDelegate, WKUIDelegate
 {
   private var runtime: MacBackendRuntime?
   private let html: Data
@@ -52,6 +52,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   func windowWillClose(_: Notification) {
     runtime?.setForeground(false)
     webView?.navigationDelegate = nil
+    webView?.uiDelegate = nil
     webView?.stopLoading()
     server?.stop()
     server = nil
@@ -75,6 +76,55 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     loadingView?.isHidden = true
   }
 
+  func webView(_: WKWebView, decidePolicyFor action: WKNavigationAction,
+               decisionHandler: @escaping (WKNavigationActionPolicy) -> Void)
+  {
+    // A new-window request must reach WKUIDelegate. That delegate opens
+    // eligible links externally and always returns nil, never another WebView.
+    if action.targetFrame == nil {
+      decisionHandler(.allow)
+      return
+    }
+    switch navigationDecision(for: action) {
+    case .allowBackend:
+      decisionHandler(.allow)
+    case let .openBrowser(url):
+      decisionHandler(.cancel)
+      NSWorkspace.shared.open(url)
+    case .cancel:
+      decisionHandler(.cancel)
+    }
+  }
+
+  func webView(_: WKWebView, decidePolicyFor response: WKNavigationResponse,
+               decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void)
+  {
+    decisionHandler(response.isForMainFrame && isBackendPage(response.response.url, backendURL: backendURL)
+      ? .allow : .cancel)
+  }
+
+  func webView(_: WKWebView, createWebViewWith _: WKWebViewConfiguration,
+               for action: WKNavigationAction, windowFeatures _: WKWindowFeatures) -> WKWebView?
+  {
+    if case let .openBrowser(url) = navigationDecision(for: action) {
+      NSWorkspace.shared.open(url)
+    }
+    return nil
+  }
+
+  private var backendURL: URL? {
+    server.flatMap { URL(string: $0.origin) }
+  }
+
+  private func navigationDecision(for action: WKNavigationAction) -> WebViewNavigationDecision {
+    webViewNavigationDecision(
+      action.request.url, backendURL: backendURL,
+      isUserLink: action.navigationType == .linkActivated,
+      isMainFrame: action.targetFrame?.isMainFrame == true,
+      opensNewWindow: action.targetFrame == nil
+    )
+  }
+
   func webView(_ webView: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError _: Error) {
     guard webView === self.webView else { return }
     loadingView?.showFailure()
@@ -92,8 +142,9 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
     do {
       let runtime: MacBackendRuntime
-      if let existing = self.runtime { runtime = existing }
-      else {
+      if let existing = self.runtime {
+        runtime = existing
+      } else {
         runtime = try MacBackendRuntime(html: html)
         self.runtime = runtime
       }
@@ -108,6 +159,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       let webView = WKWebView(frame: .zero)
       webView.underPageBackgroundColor = MacTheme.canvasColor
       webView.navigationDelegate = self
+      webView.uiDelegate = self
       webView.allowsMagnification = false
       webView.load(URLRequest(url: URL(string: server.origin)!))
       let window = NSWindow(
@@ -164,6 +216,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     window?.delegate = nil
     window?.orderOut(nil)
     webView?.navigationDelegate = nil
+    webView?.uiDelegate = nil
     webView?.stopLoading()
     webView = nil
     loadingView = nil

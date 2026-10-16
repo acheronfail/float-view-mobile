@@ -34,6 +34,7 @@ struct WebView: UIViewRepresentable {
 
     let webView = WKWebView(frame: .zero, configuration: configuration)
     webView.navigationDelegate = context.coordinator
+    webView.uiDelegate = context.coordinator
     webView.allowsLinkPreview = false
 
     #if DEBUG
@@ -61,7 +62,7 @@ struct WebView: UIViewRepresentable {
     webView.scrollView.backgroundColor = color
   }
 
-  final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+  final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     private let onContentProcessTerminated: () -> Void
     private let onLoadComplete: () -> Void
     private let onLoadFailure: () -> Void
@@ -79,6 +80,51 @@ struct WebView: UIViewRepresentable {
 
     func webView(_: WKWebView, didFinish _: WKNavigation!) {
       onLoadComplete()
+    }
+
+    func webView(_: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void)
+    {
+      // A new-window request must reach WKUIDelegate. That delegate opens
+      // eligible links externally and always returns nil, never another WebView.
+      if action.targetFrame == nil {
+        decisionHandler(.allow)
+        return
+      }
+      switch navigationDecision(for: action) {
+      case .allowBackend:
+        decisionHandler(.allow)
+      case let .openBrowser(url):
+        decisionHandler(.cancel)
+        UIApplication.shared.open(url)
+      case .cancel:
+        decisionHandler(.cancel)
+      }
+    }
+
+    func webView(_: WKWebView, decidePolicyFor response: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void)
+    {
+      decisionHandler(response.isForMainFrame && isBackendPage(response.response.url, backendURL: loadedURL)
+        ? .allow : .cancel)
+    }
+
+    func webView(_: WKWebView, createWebViewWith _: WKWebViewConfiguration,
+                 for action: WKNavigationAction, windowFeatures _: WKWindowFeatures) -> WKWebView?
+    {
+      if case let .openBrowser(url) = navigationDecision(for: action) {
+        UIApplication.shared.open(url)
+      }
+      return nil
+    }
+
+    private func navigationDecision(for action: WKNavigationAction) -> WebViewNavigationDecision {
+      webViewNavigationDecision(
+        action.request.url, backendURL: loadedURL,
+        isUserLink: action.navigationType == .linkActivated,
+        isMainFrame: action.targetFrame?.isMainFrame == true,
+        opensNewWindow: action.targetFrame == nil
+      )
     }
 
     func webView(_: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError _: Error) {
