@@ -49,22 +49,22 @@ class StoreTests(unittest.TestCase):
             return b"arm64\n"
         if args[:2] == ("xcodebuild", "-version"):
             return b"Xcode 26.0\nBuild version TEST"
-        if args[0] == "xcrun":
+        if args[0] == "xcrun" and args[1] != "swift":
             return b"26.0\n"
         if args[:3] == ("git", "rev-parse", "HEAD"):
             return b"a" * 40
         if args[:3] == ("git", "status", "--porcelain"):
             return b""
-        if args[0] in ("security", "codesign"):
+        if args[0] in ("security", "codesign") or args[:2] == ("xcrun", "swift"):
             if args[0] == "codesign" and "-R" in args:
                 self.assertTrue(args[args.index("-R") + 1].startswith("="),
                                 "codesign requires = before an inline requirement; otherwise it reads a file")
             identifier = store.EXTENSION_ID if "FloatViewLiveActivity.appex" in args[-1] else store.APP_ID
             entitlements = {"application-identifier": TEAM + "." + identifier,
                             "com.apple.developer.team-identifier": TEAM, "get-task-allow": False}
-            if args[0] == "codesign":
+            if args[0] in ("codesign", "xcrun"):
                 entitlements.update(self.signature_changes)
-                return plistlib.dumps(entitlements) if "--entitlements" in args else b""
+                return plistlib.dumps(entitlements) if args[0] == "xcrun" else b""
             profile = {"ApplicationIdentifierPrefix": [TEAM], "TeamIdentifier": [TEAM],
                        "ExpirationDate": datetime.datetime(2099, 1, 1), "Entitlements": entitlements}
             profile.update(self.profile_changes)

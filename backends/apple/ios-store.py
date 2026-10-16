@@ -80,7 +80,8 @@ def bundles(app, version, number):
 def verify_distribution(app, version, number, team):
     for bundle, identifier in bundles(app, version, number):
         run("codesign", "--verify", "--strict", "--verbose=2", "-R",
-            '=anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.4] exists', str(bundle))
+            '=anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.4] exists'
+            ' and certificate leaf[subject.OU] = "' + team + '"', str(bundle))
         profile = plistlib.loads(run("security", "cms", "-D", "-i", str(bundle / "embedded.mobileprovision"), capture=True))
         require(profile.get("TeamIdentifier") == [team], "Provisioning profile belongs to another team")
         require(profile["ExpirationDate"] > datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
@@ -90,7 +91,8 @@ def verify_distribution(app, version, number, team):
         prefix = profile["ApplicationIdentifierPrefix"][0]
         expected_id = prefix + "." + identifier
         for entitlements in [profile["Entitlements"], plistlib.loads(
-                run("codesign", "-d", "--entitlements", "-", "--xml", str(bundle), capture=True))]:
+                run("xcrun", "swift", str(ROOT / "backends/apple/signing-entitlements.swift"),
+                    str(bundle), capture=True))]:
             require(entitlements.get("application-identifier") == expected_id,
                     "Provisioning/signature application identifier mismatch")
             require(entitlements.get("com.apple.developer.team-identifier") == team,

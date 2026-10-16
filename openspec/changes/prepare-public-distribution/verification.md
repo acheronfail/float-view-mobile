@@ -175,3 +175,41 @@ Checks completed:
 - A fresh clean-source archive and real distribution export follow this fix.
   Initial build number `1` remains a local unallocated test value and no upload
   or release has occurred.
+
+
+## Verified iOS distribution export — 2026-10-17
+
+- A fresh signed archive from clean revision
+  `fae1d624e5060016d3474fb671f662474913a684` passed the corrected validator with
+  Xcode 26.0 / iOS SDK 26.0, marketing version `1.0.0` and local test build `1`.
+  Automatic provisioning supplied the app and Live Activity development profiles;
+  export then obtained the App Store profiles and used Apple distribution signing.
+- Real local App Store Connect export succeeded, without uploading, under ignored
+  `.local/ios-store/signing-check-20261017-export/`. Archive metadata is in sibling
+  `signing-check-20261017-verified/archive.json`; export metadata records the same
+  native source revision/version and final IPA hash. The certificate/private key
+  remains in the local keychain; no CI credential was provisioned.
+- IPA SHA-256:
+  `3686f0cbd48bfccceff0b96684f519abe7e2ce9bdeb2c9f0cde7eabd66283e44`.
+- Both bundles passed strict Apple distribution certificate/anchor and
+  certificate-team requirements, matched profile/signature application and team
+  identifiers, had unexpired App Store profiles (no device/enterprise scope),
+  arm64 device executables, matching version/build numbers and no debugger grant.
+  Re-extracted the IPA and repeated final distribution/team checks plus digest
+  verification successfully.
+- Xcode 26 produced DER-only signed entitlements. This Mac's codesign human
+  display reads them, but its XML display returns no XML and an entitlements-blob
+  warning. Replaced dependence on that XML display with a small Security.framework
+  reader using SecCodeCopySigningInformation and its decoded entitlements
+  dictionary. The real export exercised this reader for both bundles; signature
+  validation remains separate and required. No legacy reader/fallback was added.
+- All 18 fixture-based store-tool tests passed after adapting the signing-tool
+  mock. The actual native reader compiled and passed against both real signed
+  bundles. Strict OpenSpec and whitespace checks passed.
+- Xcode logged a nonfatal App Store Connect store-configuration authentication
+  warning during export. Local export completed; authenticated upload, protected
+  CI provisioning and TestFlight processing are still unverified. No build number
+  was allocated/consumed by Apple and no public/external beta was distributed.
+- Group 4's public-data baseline/startup work and the licensing/privacy/API/package
+  audits remain required before their planned distribution gates. Store-delivered
+  device behavior remains untested by this local export.

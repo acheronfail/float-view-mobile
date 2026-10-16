@@ -70,8 +70,9 @@ Live Activity extension. No current command uploads a build or creates a tag.
 Apple Developer membership is confirmed. On 2026-10-17 the owner installed Xcode
 26.0, registered the two identifiers below and created an Apple Distribution
 certificate. The owner also confirmed creating the iOS App Store Connect record.
-Automatic provisioning has signed the app and extension locally; complete
-archive/export verification and store uploads remain pending.
+Automatic provisioning and a local signed archive/App Store export have been
+verified for both bundles. Protected uploads and TestFlight processing remain
+pending.
 
 1. Install a supported [Xcode release](https://developer.apple.com/xcode/resources/).
    [Apple currently requires Xcode 26+ and the iOS 26+ SDK](https://developer.apple.com/news/upcoming-requirements/?id=04282026a)
@@ -167,7 +168,9 @@ an archive changed since recording. Export uses `app-store-connect` with
 `destination=export`, automatic signing and automatic version changes disabled.
 Successful verification requires both bundles to have Apple distribution
 signatures, the expected team/application identifiers, unexpired App Store
-profiles, device arm64 binaries and no debugger entitlement. A successful export
+profiles, device arm64 binaries and no debugger entitlement. Signed entitlements
+are read through Security.framework, including Xcode 26 DER-only signatures; the
+macOS 15 `codesign` XML display cannot read that representation. A successful export
 writes `export.json` with source/version and the IPA hash; a partial directory
 without that record is not a verified export. It remains local until explicitly
 uploaded later.
@@ -175,7 +178,8 @@ uploaded later.
 ### Remaining store work
 
 Protected CI key import/upload, monotonic build-number allocation and actual
-signed export/TestFlight processing remain open. Upload credentials are not
+TestFlight processing remain open. Local signed archive/export verification has
+passed; it does not establish authenticated upload or Apple processing. Upload credentials are not
 needed for the current sideload jobs or local structural checks. Before external
 beta, finish the baseline-100 storage/startup work. Before any upload, complete
 the Apple distribution-rights check and required privacy-manifest/API audit;
