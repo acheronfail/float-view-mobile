@@ -1,0 +1,70 @@
+# Tasks
+
+Implementation order: 1–2 establish repository readiness; 3 proves the largest platform risk; 4 protects external users; 5–8 prepare releases. Account verification and tester recruitment can proceed alongside repository work. No checkbox denotes work completed by writing this plan.
+
+## 1. Publisher and open-source prerequisites
+
+- [ ] 1.1 Confirm Apple Developer Program and Google Play Console enrollment, record only non-sensitive readiness status, and recruit closed testers if applicable. Keep identity documents and credentials out of Git.
+- [ ] 1.2 Complete the recorded dependency/provenance audit: inventory redistributed code/assets, preserve upstream terms, add AGPL-3.0-or-later for project-owned work and Copyright © 2026 acheronfail, plus exact corresponding-source access and bundled acknowledgements. Include Luis Prado/Noun Project rider artwork attribution and modification notes under its verified licence; do not relicense it as AGPL. Resolve Apple distribution rights without silently adding an exception. Verify notices against actual package contents.
+- [ ] 1.3 Record reserved launch version v1.0.0, price, countries, support contact and public support/privacy URL destinations. Complete applicable agreements, public-contact/trader declarations and payment/tax setup where required; do not assume Australian execution means Australia-only availability.
+- [ ] 1.4 Document current official certificate fingerprints, app/extension identifiers and minimum OS support without exposing secrets; verify identifier availability before creating store records.
+
+## 2. Repository cleanup and production entry points
+
+- [ ] 2.1 Reconcile README/CONTRIBUTING/backend docs with current stable/nightly builds; remove stale marker/archive numbers and misleading “no release version” claims. Preserve the development-data policy until the explicit boundary in group 4.
+- [ ] 2.2 Guard Mac test/browser-host modes and frontend/root/port overrides with explicit development/conformance configurations; audit iOS/Android fixture/reset/inspection paths too. Add focused checks proving stable Release packages ignore/reject test options and contributor/conformance builds still work.
+- [ ] 2.3 Replace Android backup/data-extraction sample templates with explicit cloud/device-transfer rules matching the chosen policy; document backup/export scope and verify supported Android OS behavior, including transfer where software checks cannot establish it.
+- [ ] 2.4 Audit remaining TODO/FIXME/pre-release statements in active source/docs/specs. Classify actionable release issues separately from valid firmware compatibility, disposable views, fixture behavior and historical migration evidence; retain a short resolved/deferred inventory.
+
+## 3. macOS sandbox feasibility and direct-download installation
+
+- [ ] 3.1 Produce an experimental sandboxed Release package using the existing shared owner; determine minimal Bluetooth, client/server networking and user-selected-file entitlements. Verify WebView HTTP/WebSocket loopback, persistence, import/export file leases and restart under sandbox before finalizing store packaging.
+- [ ] 3.2 Validate affected Bluetooth/location permission presentation, speech and native file dialogs on a supported Mac; record device/OS and observed results. Check both supported executable architectures in packaging checks.
+- [ ] 3.3 Define and document bundle identity, container paths, direct/store switching and single-owner behavior; test existing direct storage versus sandbox storage with supported archive transfer. State settings/profile/association transfer limits explicitly.
+- [ ] 3.4 Provision Developer ID direct-distribution signing, hardened runtime, notarization and stapling in protected jobs; keep the universal ZIP. Validate codesign, Gatekeeper assessment and a quarantined download on a clean Mac; replace quarantine-removal instructions only after validation. Verify transition from the current signer and note any permission regrant.
+
+## 4. Public data baseline before external beta
+
+- [ ] 4.1 Record baseline storage marker 100 for the v1.0.0 candidate, its source and independently numbered archive format (currently 4). Inventory recognised historical development markers/layouts and owned databases/settings/boards/tunes/caches/recordings plus disposable web/native hints. Keep actual OS permission history/grants intact. Add minimal baseline fixtures and increment/upgrade policy for 101 onward before external betas.
+- [ ] 4.2 Replace unconditional mismatch deletion with a bounded, restartable reset only for recognised pre-v1 development storage; initialize at 100 without migrating records, preserve 100 on subsequent launches, and preserve/reject unknown/newer/malformed/missing-marker nonempty roots. Test actual old-device data reset, repeat launch, interrupted reset, I/O/corruption and byte-preservation failures. Do not delete exported files, committed fixtures, vendor databases or unrelated paths.
+- [ ] 4.3 Replace Apple fallible startup force-unwraps with an actionable non-destructive failure/recovery presentation; audit Android startup failure handling. Test both host consumers. If the shared public error/state contract must change, update contract/client/mock/native bindings/conformance together.
+- [ ] 4.4 Add regression cases for baseline storage open/recovery, published archive import, hostile/unsupported archive rejection and future-marker/downgrade refusal. Keep tests focused on observable data preservation and bounded recovery, not just marker constants.
+- [ ] 4.5 Replace disposable-until-first-release/v1.0 policy in AGENTS.md, OpenSpec config and current documentation. Reconcile active test-stage clauses in backend-contract, platform-hosts, shared-rust-backend-service, session-location-recording and refloat-telemetry-pipeline with the new public baseline; preserve archived evidence. Validate affected spec edits and document no promise to recover earlier development data.
+
+## 5. Versioning, signing and independent store jobs
+
+- [ ] 5.1 Replace workflow-name-dependent build numbering with one documented monotonic allocation strategy covering sideload, store and upload retries. Test duplicate/consumed builds, workflow changes, newer nightlies, concurrency and corrected resubmissions; retain native-number continuity through the cleanup. Configure explicit v1.0.0-nightly targeting/count semantics before the first stable tag and normal next-patch targeting afterward; test the no-tags state and v1.0.0 transition.
+- [ ] 5.2 Add explicitly invoked protected store build/upload paths with least-privilege credentials and exact revision/version/artifact records. Keep existing IPA/APK/ZIP GitHub jobs and local commands functional without store-upload credentials. Verify missing credentials and one store failure do not block GitHub or unrelated submissions.
+- [ ] 5.3 Configure the publishing Apple team consistently for iOS app and Live Activity extension; add archive/export/distribution profiles and TestFlight upload. Check Release metadata, extension embedding, signatures and provisioned entitlements while retaining the unsigned AltStore IPA.
+- [ ] 5.4 Audit existing Android signing-key suitability/custody and enroll a compatible app-signing identity with Play; provision a separate upload key. Build/sign the Release AAB, validate 16 KB native library/bundle compatibility and upload to internal testing. Test official APK↔Play replacement with increasing versions where supported; document any unavoidable key transition.
+- [ ] 5.5 Complete Mac store category, copyright, signing/provisioning and uploadable package from the sandbox proof; validate store-package signatures and metadata without substituting the self-signed ZIP.
+- [ ] 5.6 Update contributor/release docs with build versus upload versus public release commands, credential prerequisites, retry behavior and all sideload paths. Validate documented local packaging commands and focused release-tooling checks.
+- [ ] 5.7 Perform the explicitly approved one-time pre-v1 GitHub cleanup: enumerate exact releases/assets and matching local/remote version tags, record the manifest, pause publication/drain jobs, remove the enumerated old releases/tags (including v0.x entries labelled stable), verify remaining refs/history and resume the rolling nightly. Do not rewrite commits, delete unrelated refs or create the stable v1.0.0 tag; verify fresh preparation IPA/APK/ZIP publication afterward.
+
+## 6. Privacy, permissions and package audit
+
+- [ ] 6.1 Inventory actual shipped data/network/backup/log/export behavior, including map tiles and speech services. Check tile-provider usage policy and attribution. Publish accurate privacy/support content and add accessible in-app links; verify URLs and affected frontend interactions.
+- [ ] 6.2 Audit required-reason API usage across shipped Swift, Rust and third-party code; add justified privacy manifests to the applicable Apple bundles and inspect the resulting archive privacy report. Audit encryption/export declarations and current SDK submission requirements.
+- [ ] 6.3 Evaluate Android background-location necessity and foreground-service types against actual ride behavior and current Play policy; remove unnecessary declarations or implement required disclosure/consent/declaration/video. Test permission denial/recovery and affected foreground/background lifecycle behavior.
+- [ ] 6.4 Audit iOS Bluetooth/location/audio background declarations and usage strings; verify actual behavior and include clear reviewer explanations. Complete Apple App Privacy, Google Data safety and applicable content/age/access declarations from the audited implementation.
+- [ ] 6.5 Inspect final store and stable sideload packages for test resources, fixture entry points, debug flags, private logs, signing metadata, icons, manifest entries and required notices. Ensure normal telemetry behavior remains the same across routes.
+
+## 7. Store listings and beta programme
+
+- [ ] 7.1 Prepare required platform/device screenshots, descriptions, categories, compatibility information, support links and release notes; distinguish screenshots/marketing previews from reviewer evidence. Verify available listing dimensions/metadata in each console at submission time.
+- [ ] 7.2 Record physical Apple-device pairing/hardware interaction video and precise supported firmware/connection steps; provide review access to history/offline surfaces and required Google permission/foreground-service videos. Assess reviewability; if a demo product experience is needed, scope a separate explicit change instead of exposing test controls.
+- [ ] 7.3 Distribute through TestFlight and Play internal/closed tracks after group 4 is complete. Owner: meet account-specific personal Google testing requirements (currently 12 continuously opted-in closed testers for 14 days for qualifying accounts), collect actual feedback and apply for production access.
+- [ ] 7.4 Validate store-delivered packages on affected devices: install/update, BLE and reconnect, denied permissions, background/screen-lock recording, optional routes, speech, iOS Live Activity, Android notifications, export/import and startup/storage failure. Record exact builds/devices/OS/results and outstanding issues.
+- [ ] 7.5 Update README installation sections for iOS, Android and macOS with verified live iOS App Store, Google Play and Mac App Store listing URLs alongside AltStore IPA, signed APK, direct universal Mac and source-build instructions. Add the open-source/AGPL source and licence links and explain that paid app purchases support ongoing development, developer memberships and distribution fees. Retain nightly/update/switching guidance, downgrade limitations and export-before-uninstall advice. Check all links, route completeness and wording; add individual store links as their listings become available, without placeholder IDs or claiming all purchase proceeds reach the developer.
+
+## 8. Final integration and launch
+
+- [ ] 8.1 Run relevant release-tooling, Rust/consumer, frontend, native packaging and canonical conformance checks for the implemented changes; report actual results. Broaden only for unresolved cross-cutting impact; do not treat historical migration gates as mandatory recurring checks.
+- [ ] 8.2 Review required physical evidence from groups 3, 6 and 7, fix launch blockers and explicitly record unavailable required coverage. Verify baseline preservation and independent GitHub publication on the final candidate.
+- [ ] 8.3 After candidate acceptance, create/push the reserved stable v1.0.0 tag using the verified release flow. Owner: review completed store submissions, submit each independently and retain controlled release until ready. Record review outcomes, resolve feedback, verify live listings, then update README/store links without removing sideload instructions.
+
+## Workflow follow-up
+
+- Commit reviewed planning artifacts before implementation; keep implementation/task updates in coherent verified commits.
+- Before sync/archive, ensure any additional active spec changes identified in 4.5 are represented coherently in the change's delta specs and validate them.
+- After implementation and relevant verification, sync specs and archive together under the repository workflow. Do not mark external submissions/testing complete based on local builds alone.
