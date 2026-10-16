@@ -27,14 +27,23 @@ Foundation's tile service. Requests include the map tile coordinates and zoom
 level, your IP address and normal HTTP request metadata. The requested tiles
 can reveal the area you are viewing, including precise locations at high zoom.
 The app does not send the complete recording or a list of route coordinates to
-the tile service. Map requests are made when viewing maps, rather than to
-record a ride.
+the tile service. A map can appear automatically when you open a ride or session
+view that includes a route. Tile requests are for displaying that map; recording
+a ride alone does not need them.
 
-The provider may process and retain request logs under its
-[privacy policy](https://osmfoundation.org/wiki/Privacy_Policy). Its tile servers
-use a global network of caches. Avoid opening maps if you do not want to make
-these requests. Telemetry and route recording do not require tile downloads.
-Map imagery is best-effort and is not provided as an offline download service.
+The provider processes request logs for service operation/security and describes
+anonymised aggregate usage analysis and published tile/app statistics. See its
+[privacy policy](https://osmfoundation.org/wiki/Privacy_Policy) and
+[tile policy](https://operations.osmfoundation.org/policies/tiles/). Float View does
+not add an analytics SDK or send these requests to a developer-operated server.
+The provider's tile servers use a global network of caches; the app also uses
+normal on-device HTTP caching to avoid repeatedly downloading unchanged images.
+
+Avoid views displaying maps if you do not want these requests. Hiding a map stops
+its updates in that view; requests already started may still finish. Disabling
+location recording does not prevent maps of existing or imported routes from
+loading. Telemetry and route recording do not require tile downloads. Map imagery
+is best-effort and is not provided as an offline download service.
 
 ## Speech and platform services
 

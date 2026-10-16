@@ -26,21 +26,54 @@ Check both URLs anonymously before submission.
 
 Do not answer “Data Not Collected” solely because there is no developer server.
 The app manifest conservatively declares precise location and other data (IP and
-HTTP request metadata) for map functionality, linked and not used for tracking.
-This accounts for the tile provider's retained IP/request logs without promising
-anonymity. Review the matching App Privacy answers in the console before release;
-there are no advertising/tracking domains and no ATT request is needed for the
-audited functionality. Purely on-device board/ride records are not listed as
+HTTP request metadata), linked and not used for tracking. Purposes include App
+Functionality for tile delivery/operation and Analytics for the provider's stated
+aggregate usage analysis. Logs can be linked to an IP before later aggregation;
+no anonymity is promised. This includes requests for old/imported routes even
+when current location recording is off. Review the matching App Privacy answers
+in the console before release; there are no advertising/tracking domains and no
+ATT request is needed for the audited functionality. Purely on-device board/ride records are not listed as
 off-device collection. Support and TestFlight disclosures remain explicit.
 
-OSMF requires visible attribution, application identification, normal HTTP cache
-behavior and no bulk/offline tile downloads. The existing map retains visible
-attribution and uses normal WebKit HTTP caching; the iOS user-agent now includes
-FloatView/version. No prefetch/offline feature or cache-bypass headers exist.
-Check actual provider headers/cache behavior on an iOS device before completing
-the map-service checkpoint. OSMF offers no availability guarantee. Sources:
-[tile policy](https://operations.osmfoundation.org/policies/tiles/),
+OSMF requires attribution, identifiable requests and normal HTTP caching. The map
+uses its standard HTTPS raster endpoint with no offline download feature. Leaflet
+loads the viewport's tile range; its small buffer retains previously loaded
+images rather than prefetching surrounding areas. Its world-wrap/zoom behavior
+must remain bounded to ordinary interactive map use. Both app and tile requests
+use normal WebKit caching; iOS appends FloatView/version to its user-agent.
+Attribution remains in the map, including “OpenStreetMap contributors”.
+
+For regression checks, intercept public tile requests with synthetic responses;
+never pan/zoom against the live provider in automated suites. Inspect outbound
+paths/headers for credentials, identifiers or raw route uploads and check narrow
+layout attribution. Playwright request routing disables caching and can inject
+no-cache headers: it cannot establish the native host's cache behavior. Probe
+native WebKit separately with a controlled cacheable image endpoint, including
+WebView recreation. Retain detailed request/cache captures locally. A provider
+HEAD check can inspect cache directives/validators without downloading route tiles.
+
+OSMF offers no availability guarantee. Sources: [tile policy](https://operations.osmfoundation.org/policies/tiles/),
 [provider privacy policy](https://osmfoundation.org/wiki/Privacy_Policy).
+
+### App Privacy worksheet
+
+| Collected type | Reason | Purposes | Linked | Tracking |
+| --- | --- | --- | --- | --- |
+| Precise Location | High-zoom tile coordinates can reveal precise viewed route areas; the raw GPS track stays local. | App Functionality; Analytics (provider aggregate usage) | Yes | No |
+| Other Data Types | Provider-retained IP/user-agent/request metadata; no app account, Bluetooth identity or backend token is sent. | App Functionality; Analytics (provider aggregate usage) | Yes | No |
+
+Use this worksheet for App Store Connect's data-collection questions; publishing
+a manifest does not save console answers. This is the interpretation of the
+current map integration and the provider's stated processing, not a claim that
+the developer receives map logs. No tracking/ATT prompt is needed for these
+purposes. Purely local settings, board/ride data and speech are not declared as
+off-device collection. Apple handles its own TestFlight data; public support and
+source pages open in the external browser. Reassess optional support disclosures
+if an in-app collection channel is added.
+
+Apple guidance: [collection, purposes and linkage](https://developer.apple.com/app-store/app-privacy-details/),
+including its WebView/off-device and IP-address guidance. Review/save the answers
+in App Store Connect before submission; they remain a console prerequisite.
 
 ## Required-reason APIs and manifests
 
@@ -193,8 +226,9 @@ Do not submit these notes while those specific review inputs are missing.
 - Support: https://github.com/acheronfail/float-view-mobile/issues
 - No app account, advertising, analytics SDK, tracking domains or ATT prompt.
 - App Privacy draft follows the audit above: map-provider precise location and
-  request metadata for app functionality, linked, no tracking. The owner must
-  review/save the console answers; an embedded manifest does not fill them in.
+  request metadata, linked, no tracking, for App Functionality and the provider's
+  aggregate Analytics. The owner must review/save the console answers; an embedded
+  manifest does not fill them in.
 - The reviewed encryption declaration is embedded in Info.plist. Resolve any
   Apple processing questions on the actual uploaded build.
 
