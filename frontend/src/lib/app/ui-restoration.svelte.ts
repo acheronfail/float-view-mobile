@@ -15,6 +15,8 @@ export function uiRoute(routeId: string | null, params: Record<string, string | 
       return { kind: 'bms' };
     case '/sessions':
       return { kind: 'sessions' };
+    // The read-only notices page restores to its parent, without a wire-contract change.
+    case '/settings/licences':
     case '/settings':
       return { kind: 'settings' };
     case '/sessions/boards/[savedDeviceId]':

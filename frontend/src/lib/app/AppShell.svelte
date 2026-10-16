@@ -208,6 +208,8 @@
         return { title: 'Live board', subtitle: 'Recovering connection…' };
       case '/bms':
         return { title: 'Battery management system', subtitle: 'Recovering connection…' };
+      case '/settings/licences':
+        return { title: 'Licences and notices', backHref: '#/settings', backLabel: 'Settings' };
       case '/sessions/[sessionId]':
         return { title: 'Session', backHref: '#/sessions', backLabel: 'Sessions' };
       case '/sessions/boards/[savedDeviceId]':

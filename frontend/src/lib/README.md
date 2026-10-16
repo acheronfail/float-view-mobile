@@ -271,6 +271,12 @@ return context in the hash query: Live uses `from=live`, board history uses `boa
 and Sessions uses neither. Recording updates never choose the return destination.
 The process-memory checkpoint retains this context across WebView restoration.
 
+Settings keeps a compact open-source summary and links to `/settings/licences`
+for complete offline project/artwork/dependency notices. That read-only page
+uses the app header's Settings return link and scrolls independently of the
+Settings content. Its process-restoration destination is the parent Settings
+route, without adding a backend wire route kind.
+
 `ui/back-dismissal.ts` owns Escape and native Back dismissal of the topmost visible
 surface. Surface owners register their existing Done/Cancel handler, so save errors
 and busy guards apply to every dismissal path. Android forwards system Back to

@@ -272,7 +272,7 @@
   <PageFooter label="Application version">
     <p>Float View · {buildInfo.version ?? 'Development build'}</p>
     {#if buildInfo.revision}
-      <p class="mt-1 font-mono">{buildInfo.revision}</p>
+      <p class="mt-1 font-mono break-all">{buildInfo.revision}</p>
     {/if}
   </PageFooter>
 </section>

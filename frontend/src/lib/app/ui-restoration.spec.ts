@@ -10,6 +10,11 @@ const checkpoint = (kind: 'settings' | 'sessions'): UiCheckpoint => ({
   surface: null,
 });
 describe('UI restoration', () => {
+  it('restores read-only licences to Settings without extending the wire route', () => {
+    expect(uiRoute('/settings/licences', {}, new URL('https://example.test/#/settings/licences'))).toEqual({
+      kind: 'settings',
+    });
+  });
   it('round trips the session entry route independently of recording state', () => {
     for (const [query, returnTo, savedDeviceId] of [
       ['', 'sessions', null],
