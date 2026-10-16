@@ -202,14 +202,22 @@ and Live Activities are enabled in iOS Settings. Standalone BMS connections do
 not start one. The compact/minimal Dynamic Island shows the primary gauge's
 winning drive-load percentage; the expanded Island and Lock Screen also show
 distance in the selected units, battery charge and pack voltage to one decimal
-place. The header shows the highest available temperature (whole degrees in the
-selected units), labelled “Temp”. Its colour matches the temperature bars: green
+place. The summary uses stable headings above the values and secondary details:
+Load / percentage / Duty, Motor or Battery; Distance / number / km or mi;
+Battery / charge / voltage; and Temp / temperature / hottest component.
+When stopped, the first section shows Board / Stopped instead of load.
+Four columns switch to a two-by-two grid when space is tight or text is large.
+The grid moves the footpad indicator beside Load or Board and omits the app heading.
+Text scaling is bounded by role to keep the grid within ActivityKit's height limit,
+with the main values scaling up to XXXL. Temperature is shown in white, rounded to
+whole degrees in the selected units, beside a coloured thermometer in the Temp heading.
+The icon colour matches the temperature bars: green
 at 30°C or below, through orange to red at 60°C (45°C for battery cells).
 Missing readings stay neutral; VoiceOver also names the sensor. Selection matches the in-app highest
 temperature widget, excluding detached or five-second-old BMS observations.
 In Xcode, open `ios/FloatViewLiveActivity/FloatViewLiveActivity.swift` and enable
 the Canvas for Lock Screen previews of riding, stopped, imperial and unavailable
-readings, plus expanded Island and stale-reading previews.
+readings, plus expanded Island, stale-reading and narrow-width/default/XXXL previews.
 
 The dark gauge palette is shared visually: duty yellow, motor pink, battery current green. Charge uses the
 same estimate/controller-reported selection as the frontend power widget.

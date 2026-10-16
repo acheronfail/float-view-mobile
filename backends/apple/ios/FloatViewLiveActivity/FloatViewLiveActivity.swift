@@ -7,7 +7,6 @@ struct FloatViewLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: RideActivityAttributes.self) { context in
       RideSummary(state: context.state, stale: context.isStale)
-        .padding(16)
         .activityBackgroundTint(Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255))
         .activitySystemActionForegroundColor(.white)
         .environment(\.colorScheme, .dark)
@@ -55,49 +54,143 @@ struct FloatViewLiveActivity: Widget {
 private struct RideSummary: View {
   let state: RideActivityAttributes.ContentState
   let stale: Bool
+  @Environment(\.dynamicTypeSize) private var typeSize
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack {
-        Label("Float View", systemImage: "bolt.circle.fill").font(.caption.bold())
-        FootpadIndicator(state: state, stale: stale).frame(width: 28, height: 16)
-        Spacer()
-        if stale {
-          Text("Waiting for telemetry").font(.caption).foregroundStyle(.secondary)
-        } else {
-          Text("Temp · \(state.temperatureText)")
-            .font(.caption).monospacedDigit().foregroundStyle(state.temperatureColor)
-            .accessibilityLabel(
-              "Temperature, \(state.temperatureSource ?? "sensor"), \(state.temperatureText == "—" ? "unavailable" : state.temperatureText)"
-            )
-        }
-      }
-      HStack(alignment: .firstTextBaseline, spacing: 16) {
-        metric(
-          state.status == nil ? state.loadLabel : "Board",
-          value: stale ? "—" : (state.status ?? state.loadText),
-          color: state.status == nil ? state.loadColor : .white
-        )
-        Spacer(minLength: 0)
-        metric("Distance", value: stale ? "—" : state.distanceText)
-        Spacer(minLength: 0)
-        VStack(alignment: .leading, spacing: 3) {
-          metric("Battery", value: stale ? "—" : state.batteryText)
-          Text(stale ? "—" : state.voltageText)
-            .font(.caption).monospacedDigit()
-            .accessibilityLabel("Battery voltage \(stale ? "unavailable" : state.voltageText)")
+    Group {
+      if typeSize >= .xxLarge {
+        grid
+      } else {
+        ViewThatFits(in: .horizontal) {
+          fourColumns
+          grid
         }
       }
     }
     .foregroundStyle(.white)
+    .padding(typeSize >= .xxLarge ? 10 : 12)
   }
 
-  private func metric(_ title: String, value: String, color: Color = .white) -> some View {
-    VStack(alignment: .leading, spacing: 3) {
-      Text(title).font(.caption2).foregroundStyle(color.opacity(0.85))
-      Text(value).font(.title3.bold()).monospacedDigit().foregroundStyle(color)
-        .lineLimit(1).minimumScaleFactor(0.7)
+  private var fourColumns: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 6) {
+        if stale {
+          Text("Waiting for telemetry").font(.caption2).foregroundStyle(.secondary)
+        } else {
+          Label("Float View", systemImage: "bolt.circle.fill").font(.caption2.bold())
+        }
+        footpads
+        Spacer(minLength: 0)
+      }
+      HStack(alignment: .top, spacing: 4) {
+        load()
+        Spacer(minLength: 0)
+        distance
+        Spacer(minLength: 0)
+        battery
+        Spacer(minLength: 0)
+        temperature
+      }
     }
+  }
+
+  private var grid: some View {
+    Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 4) {
+      GridRow {
+        load(showFootpads: true).frame(maxWidth: .infinity, alignment: .leading)
+        distance.frame(maxWidth: .infinity, alignment: .leading)
+      }
+      GridRow {
+        battery
+        temperature
+      }
+    }
+  }
+
+  private var footpads: some View {
+    FootpadIndicator(state: state, stale: stale).frame(width: 24, height: 14)
+  }
+
+  private func load(showFootpads: Bool = false) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      HStack(spacing: 6) {
+        title(state.status == nil ? "Load" : "Board")
+        if showFootpads {
+          footpads
+        }
+      }
+      value(stale ? "—" : (state.status ?? state.loadText), color: state.status == nil ? state.loadColor : .white)
+      if stale {
+        detail("No telemetry")
+      } else if state.status == nil {
+        detail(state.loadLabel)
+      }
+    }
+    .fixedSize(horizontal: true, vertical: false)
+    .accessibilityElement(children: .combine)
+  }
+
+  private var distance: some View {
+    metric(
+      "Distance",
+      value: stale ? "—" : state.distanceMeters.map {
+        String(format: "%.2f", $0 / (state.imperial ? 1609.344 : 1000))
+      } ?? "—",
+      detail: state.imperial ? "mi" : "km"
+    )
+    .accessibilityLabel("Ride distance \(stale ? "unavailable" : state.distanceText)")
+  }
+
+  private var battery: some View {
+    metric("Battery", value: stale ? "—" : state.batteryText, detail: stale ? "—" : state.voltageText)
+      .accessibilityLabel(
+        "Battery \(stale ? "unavailable" : state.batteryText), voltage \(stale ? "unavailable" : state.voltageText)"
+      )
+  }
+
+  private var temperature: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      HStack(spacing: 4) {
+        Image(systemName: "thermometer.medium")
+          .foregroundStyle(stale ? .secondary : state.temperatureColor)
+          .accessibilityHidden(true)
+        title("Temp")
+      }
+      .font(.caption2)
+      .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+      value(stale ? "—" : state.temperatureText)
+      detail(stale ? "—" : (state.temperatureSource ?? "—"))
+    }
+    .fixedSize(horizontal: true, vertical: false)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      "Temperature, \(stale ? "sensor" : state.temperatureSource ?? "sensor"), \(stale || state.temperatureText == "—" ? "unavailable" : state.temperatureText)"
+    )
+  }
+
+  private func title(_ text: String) -> some View {
+    // Bound secondary text so the three-line grid fits ActivityKit's 160-point height.
+    Text(text).font(.caption2).foregroundStyle(.white.opacity(0.85))
+      .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+  }
+
+  private func value(_ text: String, color: Color = .white) -> some View {
+    Text(text).font(.headline).monospacedDigit().foregroundStyle(color)
+      .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+  }
+
+  private func detail(_ text: String) -> some View {
+    Text(text).font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+      .dynamicTypeSize(...DynamicTypeSize.xLarge)
+  }
+
+  private func metric(_ title: String, value: String, detail: String) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      self.title(title)
+      self.value(value)
+      self.detail(detail)
+    }
+    .fixedSize(horizontal: true, vertical: false)
     .accessibilityElement(children: .combine)
   }
 }
@@ -156,9 +249,11 @@ private struct FootpadIndicator: View {
   private extension RideActivityAttributes {
     static let preview = RideActivityAttributes(generation: 1)
 
-    static func previewState(status: String? = nil, imperial: Bool = false) -> ContentState {
+    static func previewState(status: String? = nil, imperial: Bool = false,
+                             distanceMeters: Double = 12340) -> ContentState
+    {
       ContentState(
-        source: "duty", percentage: 42, distanceMeters: 12340,
+        source: "duty", percentage: 42, distanceMeters: distanceMeters,
         batteryPercent: 67, batteryVoltage: 75.6,
         highestTemperatureC: 54, temperatureSource: "Motor",
         status: status, footpadLeft: "active", footpadRight: "active",
@@ -186,7 +281,21 @@ private struct FootpadIndicator: View {
 
   #Preview("Stale readings") {
     RideSummary(state: RideActivityAttributes.previewState(), stale: true)
-      .padding(16)
+      .background(Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255))
+      .environment(\.colorScheme, .dark)
+  }
+
+  #Preview("Narrow · four columns") {
+    RideSummary(state: RideActivityAttributes.previewState(imperial: true, distanceMeters: 1986666), stale: false)
+      .frame(width: 343)
+      .background(Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255))
+      .environment(\.colorScheme, .dark)
+  }
+
+  #Preview("Narrow · XXXL") {
+    RideSummary(state: RideActivityAttributes.previewState(imperial: true, distanceMeters: 1986666), stale: false)
+      .frame(width: 343)
+      .dynamicTypeSize(.xxxLarge)
       .background(Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255))
       .environment(\.colorScheme, .dark)
   }
