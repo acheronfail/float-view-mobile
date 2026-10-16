@@ -26,6 +26,7 @@ export type AppHeaderPatch = {
   menuLabel?: string;
   menuPresentation?: 'overlay';
   menuUnavailable?: boolean;
+  menuWarning?: string;
   menu?: AppHeaderAction[];
 };
 

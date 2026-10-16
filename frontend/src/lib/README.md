@@ -55,6 +55,9 @@ when recording is off or unavailable, and success text when enabled. The panel k
 deliberately disabled recording neutral and marks blocked recording as a warning.
 Neither status nor the modal changes the live widget layout. Guests have no
 ride-location controls.
+Guest connections tint the Board actions button as a warning and show the
+unsaved-data notice at the top of that overlay, leaving the live widgets free
+of the warning banner.
 
 The connected-board action overlay uses the same full-page modal pattern as the
 live box picker, with scrollable two-column buttons grouped into View, Refloat,

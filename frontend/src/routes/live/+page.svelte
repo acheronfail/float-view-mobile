@@ -200,6 +200,8 @@
           : 'text-sm capitalize text-warning',
       menuLabel: 'Board actions',
       menuPresentation: 'overlay',
+      menuWarning:
+        connection.trackingMode === 'guest' ? 'Guest connection — live data will not be saved or tracked.' : undefined,
       menuUnavailable: flywheelOverlayVisible(connection),
       menu: [
         {

@@ -30,14 +30,6 @@
     aria-label="Live board widgets"
     class="nonselectable-surface flex h-full min-h-0 flex-col gap-2 overflow-y-auto"
   >
-    {#if connection.trackingMode === 'guest'}
-      <p
-        class="flex shrink-0 items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
-        role="status"
-      >
-        <span>Guest connection — live data will not be saved or tracked.</span>
-      </p>
-    {/if}
     <div class="live-widgets min-h-0 flex-1">
       <div
         class:opacity-45={dimmed}

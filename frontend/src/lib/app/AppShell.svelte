@@ -299,6 +299,7 @@
       actions={appHeader.menu}
       menuPresentation={appHeader.menuPresentation}
       menuUnavailable={appHeader.menuUnavailable}
+      menuWarning={appHeader.menuWarning}
       bind:menuOpen
     />
 

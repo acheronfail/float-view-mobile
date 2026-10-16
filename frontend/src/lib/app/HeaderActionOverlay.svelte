@@ -15,6 +15,7 @@
     subtitle,
     actions,
     unavailable = false,
+    warning,
     button = $bindable(),
     open = $bindable(false),
   }: {
@@ -22,6 +23,7 @@
     subtitle: string;
     actions: AppHeaderAction[];
     unavailable?: boolean;
+    warning?: string;
     button?: HTMLButtonElement;
     open?: boolean;
   } = $props();
@@ -87,7 +89,8 @@
 <button
   bind:this={button}
   type="button"
-  class="grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full border border-outline bg-surface disabled:opacity-50"
+  class={`grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full border disabled:opacity-50 ${warning ? 'border-warning/40 bg-warning/10 text-warning' : 'border-outline bg-surface'}`}
+  title={warning}
   aria-label={label}
   aria-haspopup="dialog"
   aria-expanded={open}
@@ -126,6 +129,11 @@
     </header>
     <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3">
       <div class="space-y-4">
+        {#if warning}
+          <p class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm" role="status">
+            {warning}
+          </p>
+        {/if}
         {#each groups as group, index (group)}
           <section aria-labelledby={`${titleId}-${index}`}>
             <h3 id={`${titleId}-${index}`} class="mb-2 text-xs font-semibold tracking-widest text-muted uppercase">

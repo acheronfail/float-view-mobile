@@ -69,6 +69,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const heading = page.getByRole('heading', { level: 1 });
       const location = page.getByRole('button', { name: /^Ride location:/ });
       const menu = page.getByRole('button', { name: 'Board actions', exact: true });
+      assert.equal(await menu.evaluate((el) => el.classList.contains('text-warning')), false);
       const panel = page.getByRole('dialog', { name: 'Ride location', exact: true });
       const gauge = page.getByRole('group', { name: 'Live speed and drive load gauge' });
       await gauge.waitFor();
@@ -228,9 +229,32 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.goto(`${endpoint.origin}/#/live`);
       await gauge.waitFor();
       assert.equal(await location.count(), 0, 'guests have no ride-location header control');
-      await menu.tap();
-      await page.getByRole('dialog', { name: 'Board actions', exact: true }).waitFor();
-      assert.equal(await page.getByRole('button', { name: 'Ride location…', exact: true }).count(), 0);
+      const guestWarning = 'Guest connection — live data will not be saved or tracked.';
+      assert.equal(await page.getByText(guestWarning, { exact: true }).isVisible(), false);
+      assert.equal(await menu.getAttribute('title'), guestWarning);
+      assert.equal(await menu.evaluate((el) => el.classList.contains('text-warning')), true);
+      await menu.click({ button: 'right' });
+      await menu.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
+      await menu.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
+      assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+      const actions = page.getByRole('dialog', { name: 'Board actions', exact: true });
+      for (const activation of ['touch', 'keyboard']) {
+        if (activation === 'touch') await menu.tap();
+        else {
+          await menu.focus();
+          await page.keyboard.press('Enter');
+        }
+        await actions.waitFor();
+        const warning = actions.getByRole('status');
+        assert.equal(await warning.textContent().then((text) => text?.trim()), guestWarning);
+        const warningBounds = (await warning.boundingBox())!;
+        const groupBounds = (await actions.locator('section').first().boundingBox())!;
+        assert.ok(warningBounds.y + warningBounds.height <= groupBounds.y, 'guest warning precedes action groups');
+        assert.equal(await page.getByRole('button', { name: 'Ride location…', exact: true }).count(), 0);
+        await page.keyboard.press('Escape');
+        await actions.waitFor({ state: 'hidden' });
+        assert.equal(await menu.evaluate((el) => el === document.activeElement), true);
+      }
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

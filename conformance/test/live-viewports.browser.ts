@@ -145,10 +145,10 @@ for (const [engineName, engine] of Object.entries({ chromium, webkit })) {
             boardName = scenario === 'bms' ? 'ExtremelyLongBoardNameWithoutSpacesToStressHeaderTruncation' : longName;
             await page.waitForFunction(
               ({ bms, guest, title }) => {
-                const region = document.querySelector('[aria-label="Live board widgets"]');
                 return (
                   document.querySelector('h1')?.textContent === title &&
-                  !!region?.textContent?.includes('Guest connection') === guest &&
+                  !!document.querySelector('[aria-label="Board actions"]')?.classList.contains('text-warning') ===
+                    guest &&
                   !!document.querySelector('[aria-label="Battery cells temperature"]') === bms
                 );
               },
@@ -189,8 +189,7 @@ for (const [engineName, engine] of Object.entries({ chromium, webkit })) {
             await page.screenshot({ path: path.join(output, engineName, `${key}.png`) });
             const issues: string[] = [];
             if (metrics.horizontalOverflow) issues.push('horizontal overflow');
-            const shortFallback =
-              viewport.viewport.height <= 320 || (scenario === 'guest' && viewport.viewport.height < 640);
+            const shortFallback = viewport.viewport.height <= 320;
             if (!shortFallback && metrics.live.scrollHeight > metrics.live.clientHeight + 1)
               issues.push(`unexpected live scrolling (${metrics.live.scrollHeight}/${metrics.live.clientHeight}px)`);
             if (!shortFallback && metrics.battery.bottom > metrics.live.y + metrics.live.clientHeight + 1)

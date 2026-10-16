@@ -20,6 +20,7 @@
     actions,
     menuPresentation,
     menuUnavailable = false,
+    menuWarning,
     menuOpen = $bindable(false),
     backHref,
     backLabel = 'Back',
@@ -38,6 +39,7 @@
     actions?: AppHeaderAction[];
     menuPresentation?: 'overlay';
     menuUnavailable?: boolean;
+    menuWarning?: string;
     menuOpen?: boolean;
     backHref?: string;
     backLabel?: string;
@@ -95,6 +97,7 @@
           subtitle={title}
           {actions}
           unavailable={menuUnavailable}
+          warning={menuWarning}
           bind:button
           bind:open={menuOpen}
         />
