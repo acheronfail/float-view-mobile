@@ -242,7 +242,7 @@
               },
             ]
           : []),
-        ...(connection.trackingMode === 'saved'
+        ...(connection.trackingMode === 'saved' && backendState.snapshot?.location.status !== 'authorized'
           ? [
               {
                 label: 'Ride location…',

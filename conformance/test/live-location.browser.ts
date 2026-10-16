@@ -161,9 +161,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await panel.getByText('Recording enabled', { exact: true }).waitFor();
       assert.equal(methods.filter((method) => method === 'settings.update').length, 1);
       assert.equal(methods.filter((method) => method === 'location.requestPermission').length, 1);
-      await panel.getByRole('button', { name: 'Done' }).tap();
+      await location.waitFor({ state: 'detached' });
+      await page.keyboard.press('Escape');
       await panel.waitFor({ state: 'hidden' });
+      assert.equal(await menu.evaluate((el) => el === document.activeElement), true);
       assert.deepEqual(await gauge.boundingBox(), originalGauge, 'enabling location cannot resize the gauge');
+      await menu.tap();
+      assert.equal(await page.getByRole('button', { name: 'Ride location…', exact: true }).count(), 0);
+      await page.keyboard.press('Escape');
 
       override = {
         status: 'notDetermined',
@@ -171,12 +176,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         backgroundCapture: 'unavailable',
         reason: 'Allow location access to record your route.',
       };
+      await location.waitFor();
       await location.tap();
       await panel.getByRole('button', { name: 'Allow', exact: true }).waitFor();
       await panel.getByRole('button', { name: 'Allow', exact: true }).focus();
       await page.keyboard.press('Enter');
       await panel.getByText('Recording enabled', { exact: true }).waitFor();
       assert.equal(methods.filter((method) => method === 'location.requestPermission').length, 2);
+      await location.waitFor({ state: 'detached' });
       await page.keyboard.press('Escape');
       await panel.waitFor({ state: 'hidden' });
 

@@ -21,7 +21,7 @@
   const titleId = $props.id();
   const presentation = $derived(rideLocationPresentation(backendState.snapshot?.location));
   let dialog: HTMLDialogElement;
-  let button: HTMLButtonElement;
+  let button = $state<HTMLButtonElement>();
   let fromHeader = false;
   let pending = $state(false);
   let error = $state<string | null>(null);
@@ -46,9 +46,9 @@
     dialog.close();
     open = false;
     if (keyboard) {
-      if (fromHeader) button.focus();
+      if (fromHeader && button?.isConnected) button.focus();
       else onclose();
-    } else button.blur();
+    } else button?.blur();
     fromHeader = false;
   }
 
@@ -80,22 +80,24 @@
   }
 </script>
 
-<button
-  bind:this={button}
-  type="button"
-  class={`relative grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full border disabled:opacity-50 ${presentation.enabled ? 'border-outline bg-surface text-success' : 'border-warning/40 bg-warning/10 text-warning'}`}
-  aria-label={presentation.label}
-  title={presentation.label}
-  aria-haspopup="dialog"
-  aria-expanded={open}
-  disabled={unavailable}
-  onpointerdown={(event) => activateFromPointer(event, show)}
-  onclick={(event) => activateFromKeyboardOrAssistiveClick(event, show)}
->
-  <Icon name={presentation.off ? 'map-pin-off' : 'map-pin'} class="text-xl" />
-  {#if presentation.warning}<span class="absolute top-1 right-1 h-2 w-2 rounded-full bg-warning" aria-hidden="true"
-    ></span>{/if}
-</button>
+{#if !presentation.enabled}
+  <button
+    bind:this={button}
+    type="button"
+    class="relative grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full border border-warning/40 bg-warning/10 text-warning disabled:opacity-50"
+    aria-label={presentation.label}
+    title={presentation.label}
+    aria-haspopup="dialog"
+    aria-expanded={open}
+    disabled={unavailable}
+    onpointerdown={(event) => activateFromPointer(event, show)}
+    onclick={(event) => activateFromKeyboardOrAssistiveClick(event, show)}
+  >
+    <Icon name={presentation.off ? 'map-pin-off' : 'map-pin'} class="text-xl" />
+    {#if presentation.warning}<span class="absolute top-1 right-1 h-2 w-2 rounded-full bg-warning" aria-hidden="true"
+      ></span>{/if}
+  </button>
+{/if}
 
 <dialog
   use:backDismissal={{ close: () => close(true), enabled: open }}
