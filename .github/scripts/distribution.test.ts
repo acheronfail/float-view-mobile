@@ -126,6 +126,7 @@ test('nightly preparation, publish and unchanged skip preserve bounded assets', 
   const f = fixture();
   assert.equal(f.run('prepare').status, 0);
   assert.match(f.output(), /skip=false/);
+  const publicationStarted = Date.now();
   assert.equal(f.run('publish').status, 0);
   let state = f.state();
   assert.equal(state.releases.length, 1);
@@ -137,6 +138,10 @@ test('nightly preparation, publish and unchanged skip preserve bounded assets', 
     assetNames(f.metadata.version)
   );
   assert.match(state.releases[0]!.body!, new RegExp(f.sha));
+  const updated = /^\*\*Last updated:\*\* (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC)\n\n/.exec(state.releases[0]!.body!);
+  assert.ok(updated);
+  const updatedAt = Date.parse(updated[1]!);
+  assert.ok(updatedAt >= Math.floor(publicationStarted / 1000) * 1000 && updatedAt <= Date.now());
   assert.match(state.releases[0]!.body!, /## App\n\n- Show live telemetry/);
   assert.ok(state.releases[0]!.body!.includes(`v0.1.49...${f.metadata.version}`));
   assert.doesNotMatch(state.releases[0]!.body!, /AltStore|notarized|from commit/);
@@ -211,6 +216,7 @@ test('stable publication resumes a failed draft and never clobbers a published r
   assert.equal(state.refs?.['v0.1.50-nightly.0.gabcdef012345'], f.sha);
   assert.ok(!state.actions.some(action => action.startsWith('DELETE git/refs/tags/')));
   assert.match(state.releases[0]!.body!, /v0\.1\.49\.\.\.v0\.2\.0/);
+  assert.doesNotMatch(state.releases[0]!.body!, /Last updated:/);
   const uploads = state.actions.filter((a) => a.startsWith('upload')).length;
   assert.equal(f.run('publish', overrides).status, 0);
   assert.equal(f.state().actions.filter((a) => a.startsWith('upload')).length, uploads);
@@ -289,6 +295,9 @@ test('a newer nightly retains release identity while advancing its version tag a
   const f = fixture();
   assert.equal(f.run('publish').status, 0);
   const initial = f.state().releases[0]!;
+  const previous = f.state();
+  previous.releases[0]!.body = '**Last updated:** 2000-01-01 00:00:00 UTC\n\nPrevious notes';
+  f.save(previous);
   git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'next nightly'], f.cwd);
   const commit = git(['rev-parse', 'HEAD'], f.cwd);
   git(['update-ref', 'refs/remotes/origin/master', commit], f.cwd);
@@ -302,6 +311,8 @@ test('a newer nightly retains release identity while advancing its version tag a
   assert.equal(state.releases.length, 1);
   assert.equal(state.releases[0]!.id, initial.id);
   assert.equal(state.releases[0]!.tag_name, next.version);
+  assert.match(state.releases[0]!.body!, /^\*\*Last updated:\*\* /);
+  assert.doesNotMatch(state.releases[0]!.body!, /2000-01-01|Previous notes/);
   assert.deepEqual(
     state.releases[0]!.assets.map((asset) => asset.name),
     assetNames(next.version)

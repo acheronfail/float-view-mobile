@@ -136,13 +136,15 @@ Keep the same workflow path, counter and offset; native
 build numbers must not reset on a minor/major bump. Reruns reuse the original
 identity; a future store upload needing a new build identifier needs a fresh run.
 Release notes list non-merge commit titles, grouped by `app:`, `apple:`, `android:`,
-`windows:`, `linux:` and `repo:` under App, Apple, Android, Windows, Linux and Repository.
+`windows:` and `linux:` under App, Apple, Android, Windows and Linux.
+`repo:` commits are excluded because they do not describe changes to the released apps.
 Windows and Linux areas are reserved for the planned hosts; sections appear only when they have entries.
 Unprefixed or unrecognized
 titles appear under Other changes. Entries link to their commits and include a full
 changelog link. Stable notes compare against the previous stable ancestor tag;
 Nightly compares against the latest stable ancestor. A first release includes all
-reachable non-merge commits. Empty ranges are stated explicitly.
+reachable non-merge commits except `repo:` entries. Ranges with no included changes are stated explicitly.
+Nightly descriptions begin with a UTC date and time refreshed on each successful publication.
 Hidden source/version comments support nightly skip and asset verification.
 Stable tags select Release configuration, while nightlies use Debug for mobile.
 Current downloads remain AltStore/sideload/self-signed packages, not store

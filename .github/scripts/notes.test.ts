@@ -40,15 +40,26 @@ test('direct commits are grouped by area with commit links and a stable comparis
   f.commit('linux: Integrate Linux permissions');
   f.commit('app: Record rides');
   const notes = f.notes();
-  for (const heading of ['App', 'Apple', 'Android', 'Windows', 'Linux', 'Repository'])
+  for (const heading of ['App', 'Apple', 'Android', 'Windows', 'Linux'])
     assert.ok(notes.includes(`## ${heading}\n`));
   assert.match(notes, /## Windows\n\n- Support Windows Bluetooth/);
   assert.match(notes, /## Linux\n\n- Integrate Linux permissions/);
   assert.ok(notes.includes(`- Show speed ([${app.slice(0, 7)}](https://github.com/test/repo/commit/${app}))`));
   assert.ok(notes.indexOf('Show speed') < notes.indexOf('Record rides'));
-  assert.ok(notes.indexOf('## App\n') < notes.indexOf('## Repository\n'));
   assert.ok(notes.includes('https://github.com/test/repo/compare/v0.1.0...v0.2.0'));
-  assert.doesNotMatch(notes, /Previous release|app:|## Other changes/);
+  assert.doesNotMatch(notes, /Previous release|app:|## Other changes|Repository|Fix release counter/);
+});
+
+test('repository-only changes are excluded from stable and first-release notes', () => {
+  const f = fixture();
+  const repositoryCommit = f.commit('repo: Update build tooling');
+  f.commit('repo:Update documentation');
+  assert.match(f.notes(), /No changes since the previous stable release/);
+  for (const notes of [f.notes(), f.notes(null)]) {
+    assert.doesNotMatch(notes, /Repository|repo:|Update build tooling|Update documentation/);
+    assert.ok(!notes.includes(`/commit/${repositoryCommit}`));
+  }
+  assert.ok(f.notes().includes('https://github.com/test/repo/compare/v0.1.0...v0.2.0'));
 });
 
 test('unknown titles remain visible and Markdown in titles is escaped', () => {

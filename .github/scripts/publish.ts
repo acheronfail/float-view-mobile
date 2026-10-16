@@ -55,7 +55,8 @@ if (stable && release && !release.draft) {
   if (!release) throw new Error('GitHub did not return a release');
   // Upload the replacement set first. Previous nightly assets survive any failed upload.
   execFileSync('gh', ['release', 'upload', release.tag_name, ...files, '--clobber'], { stdio: 'inherit' });
-  const body = `${notes}\n\n${sourceMarker(commit)}\n${versionMarker(version)}`;
+  const updated = stable ? '' : `**Last updated:** ${new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')}\n\n`;
+  const body = `${updated}${notes}\n\n${sourceMarker(commit)}\n${versionMarker(version)}`;
   api(`releases/${release.id}`, 'PATCH', {
     tag_name: tag,
     // The existing tag owns source identity. Reset API target metadata so rolling

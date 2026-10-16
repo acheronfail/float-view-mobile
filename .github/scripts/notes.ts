@@ -6,7 +6,6 @@ const areas = [
   ['android', 'Android'],
   ['windows', 'Windows'],
   ['linux', 'Linux'],
-  ['repo', 'Repository'],
   ['other', 'Other changes'],
 ] as const;
 
@@ -30,6 +29,7 @@ export function releaseNotes(
     const separator = line.indexOf('\t');
     const sha = line.slice(0, separator);
     const title = line.slice(separator + 1);
+    if (title.startsWith('repo:')) continue;
     const match = /^([a-z]+): (.+)$/.exec(title);
     const area = areas.some(([prefix]) => prefix !== 'other' && prefix === match?.[1]) ? match![1]! : 'other';
     const entries = groups.get(area) ?? [];
