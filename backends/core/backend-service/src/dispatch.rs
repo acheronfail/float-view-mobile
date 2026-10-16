@@ -355,7 +355,7 @@ impl BackendService {
                     .ok_or(Failure::InvalidState)?;
                 store::validate_tune_values(&tune.identity, &tune.values, schema)
                     .map_err(store_failure)?;
-                let mut values = self
+                let values = self
                     .runtime
                     .snapshot()
                     .application
@@ -365,27 +365,7 @@ impl BackendService {
                 if values.revision != base_revision {
                     return Err(Failure::Conflict);
                 }
-                values
-                    .values
-                    .extend(tune.values.into_iter().map(|(name, value)| {
-                        (
-                            name,
-                            match value {
-                                store::TuneValue::Double(value) => {
-                                    c::configuration_codec::ConfigurationValue::Decimal(value)
-                                }
-                                store::TuneValue::Integer(value) => {
-                                    c::configuration_codec::ConfigurationValue::Integer(value)
-                                }
-                                store::TuneValue::Boolean(value) => {
-                                    c::configuration_codec::ConfigurationValue::Boolean(value)
-                                }
-                                store::TuneValue::String(value) => {
-                                    c::configuration_codec::ConfigurationValue::String(value)
-                                }
-                            },
-                        )
-                    }));
+                let values = merge_tune_values(values.values, tune.values);
                 return self.kernel_request(
                     owner,
                     PendingKind::Write,
@@ -396,7 +376,7 @@ impl BackendService {
                         fingerprint: tune.identity.schema_fingerprint,
                         wire_signature: tune.identity.wire_signature,
                         base_revision,
-                        values: values.values,
+                        values,
                         now_ms: now,
                     },
                 );
@@ -892,6 +872,35 @@ fn store_values(v: BTreeMap<String, f::ConfigurationValue>) -> store::TuneValues
         })
         .collect()
 }
+fn merge_tune_values(
+    current: c::configuration_codec::ConfigurationValues,
+    tune: store::TuneValues,
+) -> c::configuration_codec::ConfigurationValues {
+    // ConfigurationValues is a sequence; merge by name before encoding so each
+    // field appears once and the board's non-Tune settings remain intact.
+    let mut merged: BTreeMap<_, _> = current.into_iter().collect();
+    merged.extend(tune.into_iter().map(|(name, value)| {
+        (
+            name,
+            match value {
+                store::TuneValue::Double(value) => {
+                    c::configuration_codec::ConfigurationValue::Decimal(value)
+                }
+                store::TuneValue::Integer(value) => {
+                    c::configuration_codec::ConfigurationValue::Integer(value)
+                }
+                store::TuneValue::Boolean(value) => {
+                    c::configuration_codec::ConfigurationValue::Boolean(value)
+                }
+                store::TuneValue::String(value) => {
+                    c::configuration_codec::ConfigurationValue::String(value)
+                }
+            },
+        )
+    }));
+    merged.into_iter().collect()
+}
+
 fn codec_values(
     v: BTreeMap<String, f::ConfigurationValue>,
 ) -> c::configuration_codec::ConfigurationValues {
@@ -996,4 +1005,74 @@ fn tune(t: &store::Tune) -> Result<f::Tune, Failure> {
         created_at: p::date(t.created_at_ms),
         updated_at: p::date(t.updated_at_ms),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use c::configuration_codec::{decode_qt_compressed, decode_values, encode_values};
+    use std::path::Path;
+
+    #[test]
+    fn applying_tunes_replaces_fields_and_preserves_board_settings_for_every_schema() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/refloat-configuration");
+        for version in [
+            "1.0.0", "1.0.1", "1.1.0", "1.1.1", "1.1.2", "1.2.0", "1.2.1", "1.2.2", "1.2.3",
+            "1.3.0",
+        ] {
+            let schema = decode_qt_compressed(
+                &std::fs::read(root.join(format!("schemas/{version}.qcompress"))).unwrap(),
+            )
+            .unwrap();
+            let current = decode_values(
+                &std::fs::read(root.join(format!("values/{version}-current.bin"))).unwrap(),
+                &schema,
+            )
+            .unwrap();
+            let saved = decode_values(
+                &std::fs::read(root.join(format!("values/{version}-write.bin"))).unwrap(),
+                &schema,
+            )
+            .unwrap();
+            let tune: store::TuneValues = saved
+                .iter()
+                .filter(|(name, _)| store::is_tune_field(name, &schema))
+                .map(|(name, v)| {
+                    let v = match value(v) {
+                        f::ConfigurationValue::Double(v) => store::TuneValue::Double(v),
+                        f::ConfigurationValue::Integer(v) => store::TuneValue::Integer(v),
+                        f::ConfigurationValue::Boolean(v) => store::TuneValue::Boolean(v),
+                        f::ConfigurationValue::String(v) => store::TuneValue::String(v),
+                    };
+                    (name.clone(), v)
+                })
+                .collect();
+            assert!(!tune.is_empty(), "{version}");
+            assert!(
+                saved.iter().any(|(name, v)| {
+                    tune.contains_key(name)
+                        && current.iter().any(|(n, before)| n == name && before != v)
+                }),
+                "fixture must change a Tune value: {version}"
+            );
+            let merged = merge_tune_values(current.clone(), tune.clone());
+            let encoded = encode_values(&merged, &schema)
+                .unwrap_or_else(|error| panic!("{version}: {error}"));
+            let readback = decode_values(&encoded, &schema).unwrap();
+            assert_eq!(merged.len(), current.len(), "{version}");
+            for (name, before) in &current {
+                let expected = if tune.contains_key(name) {
+                    &saved.iter().find(|(n, _)| n == name).unwrap().1
+                } else {
+                    before
+                };
+                assert_eq!(
+                    &readback.iter().find(|(n, _)| n == name).unwrap().1,
+                    expected,
+                    "{version}: {name}"
+                );
+            }
+        }
+    }
 }

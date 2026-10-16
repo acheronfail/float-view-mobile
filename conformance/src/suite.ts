@@ -1057,7 +1057,7 @@ export async function exerciseRefloatConfiguration(
   });
 
   const tuneValues = Object.fromEntries(
-    fields.filter((field) => field.tunable).map((field) => [field.name, draftValues[field.name]!])
+    fields.filter((field) => field.tunable).map((field) => [field.name, current.values[field.name]!])
   );
   assert.ok(Object.keys(tuneValues).length > 0, 'Refloat schema has no portable Tune fields');
 
@@ -1106,6 +1106,10 @@ export async function exerciseRefloatConfiguration(
         baseRevision: written.revision,
       });
       assert.deepEqual(applied.identity, current.identity);
+      const expectedApplied = { ...written.values, ...updated.values };
+      assert.deepEqual(applied.values, expectedApplied, 'Tune application must replace only portable Tune fields');
+      const readback = await client.request('refloat.configuration.read', { source: 'current' });
+      assert.deepEqual(readback.values, expectedApplied, 'Applied Tune must persist on the controller');
     } finally {
       if (requireAvailable) {
         // Physical writes must leave the fixture's complete original configuration restored,
