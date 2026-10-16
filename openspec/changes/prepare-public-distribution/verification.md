@@ -258,3 +258,26 @@ Checks completed:
 - Next focused packaging check: exercise manual signing/export locally with the
   already provisioned App Store profiles and Distribution identity, without
   simulating a hosted runner or importing a private key on the workstation.
+
+
+## Manual-profile prerequisite and signing environment — 2026-10-17
+
+- The real local manual-signing check selected the existing App Store profiles
+  and Distribution identity but Xcode refused the profiles: they are automatically
+  managed (`IsXcodeManaged=true`), while CI uses manual signing. No signed manual
+  candidate/export was produced and no upload occurred. The previous successful
+  automatic local export remains valid evidence for that separate route.
+- Added an explicit CI preflight rejection of Xcode-managed profiles and included
+  it in the negative profile fixture cases. All 23 signing-tool tests pass; the
+  owner needs to create/download two manual App Store Connect profiles in the
+  developer portal before the manual/hosted check can proceed. No profile bytes
+  were modified and no private key was exported.
+- Created GitHub environment `ios-store-signing` with the authenticated owner as
+  required reviewer, self-review allowed for the solo workflow, and a custom
+  deployment policy permitting only branch `master`. Read-back confirmed the
+  required-reviewer and branch-policy protection types and `master` allowlist.
+  Signing secrets/readiness were not set and no workflow was dispatched.
+- Owner requested profile-creation instructions; exact app/extension IDs, suggested
+  profile names and secret commands are in the Apple guide. Manual signing and
+  hosted iOS store execution remain pending those inputs. Upload authentication,
+  consumed-build checks, privacy/rights/data-baseline gates remain separate work.

@@ -235,6 +235,8 @@ def ci_build(args):
                 path.write_bytes(base64.b64decode("".join(encoded.pop(name).split()), validate=True))
                 path.chmod(0o600)
                 profile = plistlib.loads(run("security", "cms", "-D", "-i", str(path), capture=True))
+                require(not profile.get("IsXcodeManaged", False),
+                        "CI manual signing requires profiles created in the developer portal, not Xcode-managed profiles")
                 team = os.environ.get("APPLE_TEAM_ID")
                 require(profile.get("TeamIdentifier") == [team], "Profile belongs to another team")
                 require(profile["Entitlements"].get("application-identifier") ==

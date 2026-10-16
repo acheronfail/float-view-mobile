@@ -194,9 +194,9 @@ A rerun keeps its native number. Use a new workflow run for corrected binaries;
 a future upload retry must check whether Apple already received that number.
 
 Configure [the repository's environments](https://github.com/acheronfail/float-view-mobile/settings/environments)
-before enabling this job. Create `ios-store-signing`, restrict deployment to
-`master`, and require a trusted reviewer. Keep its secrets scoped to that
-environment. The job refuses to proceed until environment variable
+before enabling this job. The `ios-store-signing` environment was created with
+owner review and a `master`-only deployment policy; secrets/readiness remain unset.
+Keep its secrets scoped to that environment. The job refuses to proceed until environment variable
 `IOS_STORE_SIGNING_READY` is `true`; set it only after protection and secrets
 are configured. The existing repository `APPLE_TEAM_ID` variable is reused.
 
@@ -204,8 +204,20 @@ Export **only** the selected Apple Distribution identity and private key as an
 encrypted PKCS12 in Keychain Access. Create/download two **App Store Connect**
 distribution profiles in the [Apple developer portal](https://developer.apple.com/account/resources/profiles/list),
 selecting that certificate and the registered app/extension IDs. These profiles
-contain no device list; development/ad-hoc profiles are rejected. Place these
-files under ignored `.local/ios-store/ci-signing/` and set the secrets yourself:
+contain no device list; development/ad-hoc and Xcode-managed profiles are rejected.
+To create them in the portal:
+
+1. Open Profiles and click **+**. Under Distribution choose **App Store Connect**.
+2. Select `fail.acheron.floatview`, then the Apple Distribution certificate created
+   for this team. Name it **Float View App Store**, generate it and download it.
+3. Repeat for `fail.acheron.floatview.live-activity`, selecting the same certificate.
+   Name it **Float View Live Activity App Store**, generate it and download it.
+
+Xcode's automatic local export creates managed profiles, which Xcode refuses in
+this manual CI route. Keep those managed profiles for automatic local signing;
+create the two portal-managed profiles separately. Place the downloaded files
+under ignored `.local/ios-store/ci-signing/` as `app.mobileprovision` and
+`live-activity.mobileprovision`, then set the secrets yourself:
 
 ```sh
 base64 < .local/ios-store/ci-signing/distribution.p12 | \
@@ -242,8 +254,8 @@ secret names; there is no change to the Mac signer or trust policy.
 
 ### Remaining store work
 
-Owner provisioning of the protected CI environment and an actual hosted store
-build remain unverified. Protected upload/authentication, Apple-consumed build
+The protected CI environment exists, but manual profiles, signing secrets and
+an actual hosted store build remain pending. Protected upload/authentication, Apple-consumed build
 checks and actual TestFlight processing remain open. Local signed archive/export verification has
 passed; it does not establish authenticated upload or Apple processing. Upload credentials are not
 needed for the current sideload jobs or local structural checks. Before external

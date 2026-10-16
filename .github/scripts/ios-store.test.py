@@ -306,6 +306,7 @@ class StoreTests(unittest.TestCase):
 
     def test_ci_rejects_wrong_team_identity_or_development_profiles(self):
         changes = [
+            lambda p: p.update(IsXcodeManaged=True),
             lambda p: p.update(TeamIdentifier=["OTHERTEAM1"]),
             lambda p: p.update(DeveloperCertificates=[b"wrong certificate"]),
             lambda p: p.update(ProvisionedDevices=["test-device"]),
