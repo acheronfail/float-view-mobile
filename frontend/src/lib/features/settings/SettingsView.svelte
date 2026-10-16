@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { accentPresets } from '$lib/app/theme';
+  import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import AppHeaderSubtitle from '$lib/app/AppHeaderSubtitle.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
   import PageFooter from '$lib/ui/PageFooter.svelte';
@@ -42,6 +44,52 @@
           value={backendState.settings.themePreference}
           onchange={(themePreference: ThemePreference) => backendState.updateSessionSettings({ themePreference })}
         />
+      </div>
+      <div class="mt-3 space-y-1 text-sm text-muted">
+        <p>Accent color</p>
+        <div role="group" aria-label="Accent color" class="flex justify-center gap-3 py-1">
+          {#each accentPresets as preset (preset.value)}
+            <button
+              type="button"
+              aria-label={preset.label}
+              title={preset.label}
+              aria-pressed={backendState.settings.accentPreference === preset.value}
+              class="flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-full border-2 border-transparent p-1 text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent aria-pressed:border-foreground"
+              onpointerdown={(event) =>
+                activateFromPointer(
+                  event,
+                  () => {
+                    void backendState.updateSessionSettings({ accentPreference: preset.value });
+                  },
+                  { scrollable: true }
+                )}
+              onclick={(event) =>
+                activateFromKeyboardOrAssistiveClick(event, () => {
+                  void backendState.updateSessionSettings({ accentPreference: preset.value });
+                })}
+            >
+              <span
+                aria-hidden="true"
+                class="flex size-full items-center justify-center rounded-full"
+                style:background={preset.swatch}
+              >
+                {#if backendState.settings.accentPreference === preset.value}
+                  <svg
+                    viewBox="0 0 24 24"
+                    class="size-5 text-white"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="m6 12 4 4 8-8" />
+                  </svg>
+                {/if}
+              </span>
+            </button>
+          {/each}
+        </div>
       </div>
       <div class="mt-3 space-y-1 text-sm text-muted">
         <p>Units</p>

@@ -1,15 +1,28 @@
+import type { AccentPreference } from '$lib/backend/contract';
 import { describe, expect, it, vi } from 'vitest';
-import { ThemeController, isThemePreference, resolveTheme, type EffectiveTheme, type ThemeEnvironment } from './theme';
+import {
+  ThemeController,
+  isAccentPreference,
+  isThemePreference,
+  resolveTheme,
+  type EffectiveTheme,
+  type ThemeEnvironment,
+} from './theme';
 
-function environment(hint: unknown, systemDark = false) {
+function environment(hint: unknown, systemDark = false, accentHint: unknown = null) {
   let dark = systemDark;
   let listener: ((value: boolean) => void) | undefined;
   const applied: EffectiveTheme[] = [];
+  const accents: AccentPreference[] = [];
   const written: string[] = [];
   const value: ThemeEnvironment = {
     systemDark: () => dark,
-    apply: (theme) => applied.push(theme),
+    apply: (theme, accent) => {
+      applied.push(theme);
+      accents.push(accent);
+    },
     readHint: () => hint,
+    readAccentHint: () => accentHint,
     writeHint: (preference) => written.push(preference),
     subscribe: (next) => {
       listener = next;
@@ -19,6 +32,7 @@ function environment(hint: unknown, systemDark = false) {
   return {
     value,
     applied,
+    accents,
     written,
     changeSystem(value: boolean) {
       dark = value;
@@ -63,5 +77,29 @@ describe('theme resolution', () => {
     expect(test.applied).toEqual(['light']);
     controller.reconcile('system');
     expect(test.applied.at(-1)).toBe('dark');
+  });
+});
+
+describe('accent preferences', () => {
+  it('accepts only the five presets', () => {
+    expect(['purple', 'blue', 'teal', 'amber', 'rose'].every(isAccentPreference)).toBe(true);
+    for (const value of [null, 1, 'orange', '']) expect(isAccentPreference(value)).toBe(false);
+  });
+
+  it('reconciles the startup hint and preserves the accent on system theme changes', () => {
+    const test = environment('system', false, 'rose');
+    const controller = new ThemeController(test.value);
+    controller.start();
+    expect(test.accents).toEqual(['rose']);
+    controller.reconcile('system', 'teal');
+    test.changeSystem(true);
+    expect(test.accents).toEqual(['rose', 'teal', 'teal']);
+    expect(test.applied.at(-1)).toBe('dark');
+  });
+
+  it('uses purple for an invalid startup hint', () => {
+    const test = environment('dark', false, 'orange');
+    new ThemeController(test.value).start();
+    expect(test.accents).toEqual(['purple']);
   });
 });

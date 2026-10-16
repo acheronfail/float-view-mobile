@@ -57,8 +57,10 @@
       (() => {
         const key = 'float-view-theme';
         let stored = null;
+        let accent = null;
         try {
           stored = localStorage?.getItem(key);
+          accent = localStorage?.getItem('float-view-accent');
         } catch {
           // Theme persistence is optional and must not prevent application startup.
         }
@@ -69,6 +71,9 @@
               ? 'dark'
               : 'light'
             : preference;
+        document.documentElement.dataset.accent = ['purple', 'blue', 'teal', 'amber', 'rose'].includes(accent)
+          ? accent
+          : 'purple';
         document.documentElement.dataset.theme = effective;
         document.documentElement.style.colorScheme = effective;
         document

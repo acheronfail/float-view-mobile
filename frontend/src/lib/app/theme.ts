@@ -1,4 +1,16 @@
-import type { ThemePreference } from '$lib/backend/contract';
+import type { AccentPreference, ThemePreference } from '$lib/backend/contract';
+
+export const accentPresets: { value: AccentPreference; label: string; swatch: string }[] = [
+  { value: 'purple', label: 'Purple', swatch: '#4f46e5' },
+  { value: 'blue', label: 'Blue', swatch: '#1d4ed8' },
+  { value: 'teal', label: 'Teal', swatch: '#0f766e' },
+  { value: 'amber', label: 'Amber', swatch: '#92400e' },
+  { value: 'rose', label: 'Rose', swatch: '#be185d' },
+];
+
+export function isAccentPreference(value: unknown): value is AccentPreference {
+  return accentPresets.some((preset) => preset.value === value);
+}
 
 export type EffectiveTheme = 'light' | 'dark';
 
@@ -12,14 +24,16 @@ export function resolveTheme(preference: ThemePreference, systemDark: boolean): 
 
 export interface ThemeEnvironment {
   systemDark(): boolean;
-  apply(theme: EffectiveTheme): void;
+  apply(theme: EffectiveTheme, accent: AccentPreference): void;
   readHint(): unknown;
-  writeHint(preference: ThemePreference): void;
+  readAccentHint(): unknown;
+  writeHint(preference: ThemePreference, accent: AccentPreference): void;
   subscribe(listener: (systemDark: boolean) => void): () => void;
 }
 
 export class ThemeController {
   private preference: ThemePreference = 'system';
+  private accent: AccentPreference = 'purple';
   private systemDark = false;
   private unsubscribe: (() => void) | null = null;
 
@@ -28,6 +42,8 @@ export class ThemeController {
   start() {
     const hint = this.environment.readHint();
     this.preference = isThemePreference(hint) ? hint : 'system';
+    const accentHint = this.environment.readAccentHint();
+    this.accent = isAccentPreference(accentHint) ? accentHint : 'purple';
     this.systemDark = this.environment.systemDark();
     this.apply();
     this.unsubscribe = this.environment.subscribe((systemDark) => {
@@ -40,14 +56,15 @@ export class ThemeController {
     };
   }
 
-  reconcile(preference: ThemePreference) {
+  reconcile(preference: ThemePreference, accent: AccentPreference = 'purple') {
     this.preference = preference;
-    this.environment.writeHint(preference);
+    this.accent = accent;
+    this.environment.writeHint(preference, accent);
     this.apply();
   }
 
   private apply() {
-    this.environment.apply(resolveTheme(this.preference, this.systemDark));
+    this.environment.apply(resolveTheme(this.preference, this.systemDark), this.accent);
   }
 }
 
@@ -55,7 +72,8 @@ export function browserThemeEnvironment(): ThemeEnvironment {
   const media = window.matchMedia('(prefers-color-scheme: dark)');
   return {
     systemDark: () => media.matches,
-    apply: (theme) => {
+    apply: (theme, accent) => {
+      document.documentElement.dataset.accent = accent;
       document.documentElement.dataset.theme = theme;
       document.documentElement.style.colorScheme = theme;
       document
@@ -69,9 +87,17 @@ export function browserThemeEnvironment(): ThemeEnvironment {
         return null;
       }
     },
-    writeHint: (preference) => {
+    readAccentHint: () => {
+      try {
+        return localStorage?.getItem('float-view-accent');
+      } catch {
+        return null;
+      }
+    },
+    writeHint: (preference, accent) => {
       try {
         localStorage?.setItem('float-view-theme', preference);
+        localStorage?.setItem('float-view-accent', accent);
       } catch {
         // Theme persistence is optional.
       }

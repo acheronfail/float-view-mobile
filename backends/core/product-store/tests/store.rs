@@ -151,6 +151,35 @@ fn symlinks_and_hardlinks_never_authorize_reset_or_catalog_access() {
     assert!(root.0.join("session-keep.sqlite").exists());
 }
 #[test]
+fn accent_presets_validate_and_survive_reopening() {
+    let root = Root::new();
+    let mut store = root.open();
+    assert_eq!(store.settings().unwrap().accent_preference, "purple");
+    for (revision, accent) in ["purple", "blue", "teal", "amber", "rose"]
+        .iter()
+        .enumerate()
+    {
+        let updated = store
+            .update_settings(
+                revision as u64,
+                &format!(r#"{{"accentPreference":"{accent}"}}"#),
+            )
+            .unwrap();
+        assert_eq!(updated.accent_preference, *accent);
+    }
+    for invalid in [
+        r#"{"accentPreference":"orange"}"#,
+        r#"{"accentPreference":null}"#,
+        r#"{"accentPreference":1}"#,
+    ] {
+        assert_eq!(store.update_settings(5, invalid), Err(Error::InvalidInput));
+        assert_eq!(store.settings().unwrap().revision, 5);
+    }
+    drop(store);
+    assert_eq!(root.open().settings().unwrap().accent_preference, "rose");
+}
+
+#[test]
 fn settings_validate_atomically_and_cas_across_connections() {
     let root = Root::new();
     let mut a = root.open();

@@ -346,6 +346,7 @@ pub(crate) fn settings(v: &store::Settings) -> f::Settings {
         reconnect_duration_ms: v.reconnect_duration_ms,
         minimum_session_distance: v.minimum_session_distance,
         theme_preference: v.theme_preference.clone(),
+        accent_preference: v.accent_preference.clone(),
         unit_preference: v.unit_preference.clone(),
         live_widget_slots: v.live_widget_slots.clone(),
         session_display_options: v.session_display_options.clone(),

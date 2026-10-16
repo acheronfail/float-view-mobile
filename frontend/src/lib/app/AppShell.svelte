@@ -194,7 +194,7 @@
     window.addEventListener('floatview:session-imported', handleNativeImport);
     window.addEventListener('floatview:session-import-failed', handleNativeImportFailure);
     const preference = backendState.settings?.themePreference;
-    if (preference) themeController.reconcile(preference);
+    if (preference) themeController.reconcile(preference, backendState.settings!.accentPreference);
     void resume();
     return () => {
       stopKeyboardNavigation();
@@ -212,7 +212,7 @@
   $effect(() => {
     const preference = backendState.snapshot?.settings?.themePreference;
     if (!preference) return;
-    themeController?.reconcile(preference);
+    themeController?.reconcile(preference, backendState.snapshot!.settings.accentPreference);
   });
 
   $effect(() => {

@@ -201,6 +201,7 @@ async function exerciseProductMethods(
     patch: {
       minimumSessionDistance: 100,
       themePreference: 'dark',
+      accentPreference: 'teal',
       unitPreference: 'imperial',
       sessionDisplayOptions: { bothFootpadsOff: true, oneFootpadOff: false },
       liveWidgetSlots: ['empty', 'headlights', 'leds', 'elapsedMs', 'distanceM'],
@@ -231,6 +232,13 @@ async function exerciseProductMethods(
   }
   assert.equal(settings.minimumSessionDistance, 100);
   assert.equal(settings.themePreference, 'dark');
+  assert.equal(settings.accentPreference, 'teal');
+  for (const accentPreference of ['orange', '', null, 1]) {
+    await expectError(
+      client.request('settings.update', { expectedRevision: settings.revision, patch: { accentPreference } } as never),
+      'invalid_request'
+    );
+  }
   assert.equal(settings.unitPreference, 'imperial');
   assert.deepEqual(settings.liveWidgetSlots, ['empty', 'headlights', 'leds', 'elapsedMs', 'distanceM']);
   for (const invalid of [[], ['speedKph'], ['speedKph', 'powerW', 'motorTempC', 'unknown', 'distanceM'], null]) {
@@ -245,6 +253,7 @@ async function exerciseProductMethods(
   assert.deepEqual((await client.request('state.get', {})).settings.liveWidgetSlots, settings.liveWidgetSlots);
   if (recreateFrontend) {
     await recreateFrontend();
+    assert.equal((await client.request('state.get', {})).settings.accentPreference, settings.accentPreference);
     assert.deepEqual(
       (await client.request('state.get', {})).settings.sessionDisplayOptions,
       settings.sessionDisplayOptions
@@ -633,6 +642,10 @@ async function createCompletedSession(
   if (recreateFrontend) {
     const beforeRecreation = await client.request('state.get', {});
     await recreateFrontend();
+    assert.equal(
+      (await client.request('state.get', {})).settings.accentPreference,
+      beforeRecreation.settings.accentPreference
+    );
     assert.deepEqual(
       (await client.request('state.get', {})).settings.sessionDisplayOptions,
       beforeRecreation.settings.sessionDisplayOptions
@@ -1193,6 +1206,7 @@ export function assertState(state: AppState) {
     assert.ok(board.summary.totalDistanceM === null || Number.isFinite(board.summary.totalDistanceM));
   }
   assert.deepEqual(Object.keys(state.settings).sort(), [
+    'accentPreference',
     'announcements',
     'historyGapThresholdSeconds',
     'idlePersistIntervalMs',
@@ -1216,6 +1230,7 @@ export function assertState(state: AppState) {
   );
   assert.ok(['available', 'foregroundOnly', 'unavailable'].includes(state.location.backgroundCapture));
   assert.ok(['system', 'light', 'dark'].includes(state.settings.themePreference));
+  assert.ok(['purple', 'blue', 'teal', 'amber', 'rose'].includes(state.settings.accentPreference));
   assert.ok(['metric', 'imperial'].includes(state.settings.unitPreference));
   assert.equal(state.settings.liveWidgetSlots.length, 5);
   assert.ok(state.settings.liveWidgetSlots.every((field) => liveWidgetFields.includes(field)));

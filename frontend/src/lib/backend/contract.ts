@@ -778,6 +778,7 @@ export interface SessionPrunePreview {
   skipReason: string | null;
 }
 
+export type AccentPreference = 'purple' | 'blue' | 'teal' | 'amber' | 'rose';
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type UnitPreference = 'metric' | 'imperial';
 
@@ -858,6 +859,7 @@ export interface Settings {
   reconnectDurationMs: number;
   minimumSessionDistance: number;
   themePreference: ThemePreference;
+  accentPreference: AccentPreference;
   unitPreference: UnitPreference;
   /** Layout used only for guest connections; saved boards use BoardProfileValues. */
   liveWidgetSlots: LiveWidgetSlots;

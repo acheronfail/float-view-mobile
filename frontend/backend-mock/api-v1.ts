@@ -329,6 +329,7 @@ export class MockBackend {
       reconnectDurationMs: 300_000,
       minimumSessionDistance: 100,
       themePreference: 'system',
+      accentPreference: 'purple',
       unitPreference: 'metric',
       sessionDisplayOptions: { bothFootpadsOff: false, oneFootpadOff: false },
       liveWidgetSlots: [...defaultLiveWidgetSlots],
@@ -837,6 +838,7 @@ export class MockBackend {
           'reconnectDurationMs',
           'minimumSessionDistance',
           'themePreference',
+          'accentPreference',
           'unitPreference',
           'liveWidgetSlots',
           'sessionDisplayOptions',
@@ -871,6 +873,8 @@ export class MockBackend {
         if (
           !Object.keys(patch).length ||
           Object.keys(patch).some((key) => !allowed.has(key)) ||
+          ('accentPreference' in patch &&
+            !['purple', 'blue', 'teal', 'amber', 'rose'].includes(patch.accentPreference as string)) ||
           ('themePreference' in patch && !['system', 'light', 'dark'].includes(String(patch.themePreference))) ||
           ('sessionDisplayOptions' in patch &&
             (!patch.sessionDisplayOptions ||

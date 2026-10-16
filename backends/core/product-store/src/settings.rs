@@ -16,6 +16,7 @@ pub struct Settings {
     pub reconnect_duration_ms: u64,
     pub minimum_session_distance: f64,
     pub theme_preference: String,
+    pub accent_preference: String,
     pub unit_preference: String,
     pub live_widget_slots: [String; 5],
     pub history_gap_threshold_seconds: Option<f64>,
@@ -78,6 +79,7 @@ impl Default for Settings {
             reconnect_duration_ms: 300_000,
             minimum_session_distance: 100.,
             theme_preference: "system".into(),
+            accent_preference: "purple".into(),
             unit_preference: "metric".into(),
             live_widget_slots: ["empty", "powerW", "elapsedMs", "odometerM", "distanceM"]
                 .map(str::to_owned),
@@ -125,6 +127,11 @@ impl ProductStore {
                 "minimumSessionDistance" => clamp_float(&mut value, 0., 1_000_000.)?,
                 "historyGapThresholdSeconds" if value.is_null() => {}
                 "historyGapThresholdSeconds" => clamp_float(&mut value, 0.1, 3_600.)?,
+                "accentPreference"
+                    if matches!(
+                        value.as_str(),
+                        Some("purple" | "blue" | "teal" | "amber" | "rose")
+                    ) => {}
                 "themePreference"
                     if matches!(value.as_str(), Some("system" | "light" | "dark")) => {}
                 "sessionDisplayOptions"
@@ -174,6 +181,10 @@ fn read(db: &rusqlite::Connection) -> Result<Settings> {
         || value.reconnect_duration_ms > 3_600_000
         || !value.minimum_session_distance.is_finite()
         || !(0.0..=1_000_000.0).contains(&value.minimum_session_distance)
+        || !matches!(
+            value.accent_preference.as_str(),
+            "purple" | "blue" | "teal" | "amber" | "rose"
+        )
         || !matches!(value.theme_preference.as_str(), "system" | "light" | "dark")
         || !value
             .live_widget_slots

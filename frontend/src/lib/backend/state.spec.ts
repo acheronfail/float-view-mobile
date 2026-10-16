@@ -66,6 +66,7 @@ const initial: AppState = {
     reconnectDurationMs: 300_000,
     minimumSessionDistance: 100,
     themePreference: 'system',
+    accentPreference: 'purple',
     unitPreference: 'metric',
     sessionDisplayOptions: { bothFootpadsOff: false, oneFootpadOff: false },
     liveWidgetSlots: ['fieldWeakeningCurrentA', 'motorCurrentA', 'batteryCurrentA', 'powerW', 'distanceM'],
