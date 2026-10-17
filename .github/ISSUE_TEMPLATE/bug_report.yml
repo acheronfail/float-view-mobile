@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible problem with Float View.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check existing issues first. Issues and attachments are public.
+        Do not attach routes, private screenshots, credentials or complete ride exports.
+        You can save a diagnostic ZIP from Settings → Diagnostics → Export diagnostics.
+        Nothing is uploaded by the app. Attach the saved ZIP manually below if it helps explain the bug.
+  - type: input
+    id: summary
+    attributes:
+      label: Short description
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include what you did before the problem and whether it happens consistently.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: App and hardware details
+      description: App version, OS, controller and firmware, Refloat version, motor and battery. Unknown details are fine. Exclude serial numbers and Bluetooth addresses.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic logs
+      description: Manually attach the diagnostic ZIP here. You can also paste its summary. If diagnostics are unavailable, describe that instead. Review before submitting; attachments are public.

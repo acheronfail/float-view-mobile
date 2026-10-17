@@ -1,0 +1,64 @@
+# Verification
+
+Implementation provides Settings → Diagnostics → Export diagnostics, native ZIP
+presentation, independent bounded local incidents, and manual GitHub reporting
+instructions. There is no issue prefill, composer launch, submission or upload.
+
+## Passed software checks
+
+- Shared Rust backend tests: the affected library run passed 85 tests, followed
+  by focused runs including all 16 diagnostic/initial-connection regressions as
+  final cases were added. Coverage includes saved/guest failure before recording,
+  closed privacy fields, journal reopen/expiry, unknown versions/corruption,
+  symlink/hardlink rejection, reserved cleanup admission, immutable ZIP contents,
+  original incident compatibility facts, handle ownership/replacement, clear
+  races and disconnected preparation.
+- `cargo test --locked --offline -p float-view-loopback-server -p
+float-view-product-store -p float-view-session-sqlite`: passed outside the
+  sandbox, including transport authentication and frozen baseline reopen/import
+  and historical archive tests. Two existing scale benchmarks remain ignored.
+- Warnings-denied Clippy for changed Rust crates and all their targets, and Rust
+  formatting: passed. Baseline 100, archive format 4 and frozen fixtures remain
+  unchanged.
+- Frontend tests: 409 tests passed inside the sandbox; the four authentication
+  tests requiring local listeners passed outside it. Final focused diagnostics,
+  client and mock tests passed again (39 tests).
+- Frontend Svelte/type checks, production build, changed-file ESLint/Prettier,
+  and conformance TypeScript checks: passed. The production build retains its
+  existing large-bundle advisory.
+- Canonical direct and mock conformance: passed, followed by focused diagnostic
+  conformance on both targets after lifecycle/handle fixes.
+- Chromium and WebKit production-UI diagnostic checks: passed for desktop/touch,
+  non-primary rejection, keyboard activation, immutable preview, native
+  presentation simulation, manual-only Issues link and clear. Mobile full-page
+  visual inspection completed. Browser tests ran outside the macOS sandbox.
+- Apple host tests (`just test apple`): passed. Focused diagnostics conformance
+  through the freshly linked macOS host: passed. The attempted full macOS suite
+  timed out at the unrelated `location.requestPermission` step; focused coverage
+  avoids prompting for unrelated OS permissions.
+- Android host/JNI tests: passed using installed OpenJDK 21, including an explicit
+  `./gradlew --offline testDebugUnitTest --rerun-tasks` so the tests execute with
+  the rebuilt native library rather than relying on Gradle's external-library
+  up-to-date result.
+- Third-party notice regeneration/check for pinned `zip` 6.0.0 and resolved
+  dependencies: passed. Existing `getrandom` and SQLite dependencies are reused.
+- Strict OpenSpec validation and `git diff --check`: passed.
+
+## Remaining native presentation checkpoint
+
+Task 6.3 remains open. No Android device was attached and no Apple simulator was
+booted during this session. Real iOS/Android save/share UI, and real-device
+background/file-protection behavior of the new diagnostic directory, have not
+been physically validated. The macOS diagnostic contract and native host tests
+are software validation, not evidence of an interactive save-panel check.
+
+On the relevant native installations, mark a problem, preview it, save the ZIP,
+verify the three named members open, cancel/retry sharing, and follow the plain
+Issues-list link. Verify that no issue is prefilled/submitted, that clearing does
+not break an already open presentation, and that interrupted/protected-storage
+captures report their limitations after reopening. No motor movement, new
+firmware interoperability or expanded radio matrix is needed. Keep detailed
+physical evidence and device inventories in ignored local testing directories.
+
+The implementation is committed with this limitation explicit; keep the change
+active until the scoped native checkpoint can be completed, then sync/archive.

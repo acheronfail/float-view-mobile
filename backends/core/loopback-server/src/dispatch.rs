@@ -165,11 +165,116 @@ impl Backend {
                 json!({"id":id.unwrap_or(0),"result":result})
             }
             Ok(_) => json!({"id":id.unwrap_or(0),"error":projection::error(&Failure::Unavailable)}),
-            Err(failure) => json!({"id":id.unwrap_or(0),"error":projection::error(&failure)}),
+            Err(failure) => {
+                if let Some(method) = request.get("method").and_then(Value::as_str)
+                    && let Ok(mut service) = self.service.lock()
+                {
+                    service.record_operation_failure(method, &failure);
+                }
+                json!({"id":id.unwrap_or(0),"error":projection::error(&failure)})
+            }
         }
     }
     async fn dispatch(&self, client: u64, method: &str, p: Params<'_>) -> Result<Value, Failure> {
         let operation = match method {
+            "diagnostics.list" => {
+                p.only(&[])?;
+                return Ok(self
+                    .service
+                    .lock()
+                    .map_err(|_| Failure::Internal)?
+                    .diagnostic_list());
+            }
+            "diagnostics.capture" => {
+                p.only(&[])?;
+                return self
+                    .service
+                    .lock()
+                    .map_err(|_| Failure::Internal)?
+                    .diagnostic_capture();
+            }
+            "diagnostics.uiError" => {
+                let error = serde_json::from_value(
+                    serde_json::to_value(p.0).map_err(|_| Failure::InvalidRequest)?,
+                )
+                .map_err(|_| Failure::InvalidRequest)?;
+                self.service
+                    .lock()
+                    .map_err(|_| Failure::Internal)?
+                    .diagnostic_ui_error(client, error)?;
+                return Ok(json!({"accepted":true}));
+            }
+            "diagnostics.prepare" => {
+                p.only(&["incidentId", "replaceReportId"])?;
+                if !p.0.contains_key("incidentId") {
+                    return Err(Failure::InvalidRequest);
+                }
+                let id = p.nullable("incidentId")?;
+                if let Some(replace) = p.0.get("replaceReportId") {
+                    let id = replace.as_str().ok_or(Failure::InvalidRequest)?;
+                    self.service
+                        .lock()
+                        .map_err(|_| Failure::Internal)?
+                        .replace_diagnostic_report(client, id)?;
+                }
+                let work = self
+                    .service
+                    .lock()
+                    .map_err(|_| Failure::Internal)?
+                    .begin_diagnostic_report(client, id.as_deref())?;
+                let completed = tokio::task::spawn_blocking(move || work.run())
+                    .await
+                    .map_err(|_| Failure::Internal)??;
+                let preview = self
+                    .service
+                    .lock()
+                    .map_err(|_| Failure::Internal)?
+                    .complete_diagnostic_report(completed)?;
+                return serde_json::to_value(preview).map_err(|_| Failure::Internal);
+            }
+            "diagnostics.export" => {
+                p.only(&["reportId"])?;
+                let (transfer, name, reply) = {
+                    let mut s = self.service.lock().map_err(|_| Failure::Internal)?;
+                    let (transfer, name) = s.diagnostic_export(client, &p.text("reportId")?)?;
+                    let reply = s
+                        .present_file(client, transfer, &name)
+                        .map_err(|_| Failure::Unavailable)?;
+                    (transfer, name, reply)
+                };
+                let presented = tokio::time::timeout(crate::limits::IO_TIMEOUT, reply)
+                    .await
+                    .map_err(|_| Failure::Unavailable)?
+                    .map_err(|_| Failure::Unavailable)?;
+                if !presented {
+                    let _ = self
+                        .service
+                        .lock()
+                        .map_err(|_| Failure::Internal)?
+                        .cancel_file_transfer(client, transfer);
+                    return Err(Failure::Unavailable);
+                }
+                return Ok(json!({"fileName":name,"delivery":"presented"}));
+            }
+            "diagnostics.clear" => {
+                p.only(&[])?;
+                let reply = self
+                    .service
+                    .lock()
+                    .map_err(|_| Failure::Internal)?
+                    .diagnostic_clear()?;
+                let ok = tokio::task::spawn_blocking(move || {
+                    reply
+                        .recv_timeout(std::time::Duration::from_secs(2))
+                        .unwrap_or(false)
+                })
+                .await
+                .map_err(|_| Failure::Unavailable)?;
+                if !ok {
+                    return Err(Failure::Unavailable);
+                }
+                return Ok(json!({"accepted":true}));
+            }
             "diagnostics.report" => {
                 p.only(&[
                     "snapshots",

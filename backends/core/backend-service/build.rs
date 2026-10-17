@@ -1,4 +1,15 @@
 fn main() {
+    println!("cargo:rerun-if-env-changed=FLOAT_VIEW_VERSION");
+    let version = std::env::var("FLOAT_VIEW_VERSION")
+        .ok()
+        .filter(|s| {
+            s.len() <= 96
+                && s.starts_with('v')
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'+'))
+        })
+        .unwrap_or_else(|| "unknown".into());
+    println!("cargo:rustc-env=FLOAT_VIEW_DIAGNOSTIC_VERSION={version}");
     println!("cargo:rerun-if-changed=../../../.git/HEAD");
     if let Ok(output) = std::process::Command::new("git")
         .args(["rev-parse", "--symbolic-full-name", "HEAD"])

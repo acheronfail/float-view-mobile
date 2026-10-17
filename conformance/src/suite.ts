@@ -62,6 +62,19 @@ export async function runAutoConnectConformance(target: Target) {
   }
 }
 
+export async function runDiagnosticsConformance(target: Target) {
+  let client: ConformanceClient | undefined;
+  try {
+    const endpoint = await target.start();
+    client = await ConformanceClient.open(endpoint.url, endpoint.origin);
+    await exerciseDiagnostics(client);
+    return { target: target.name, revision: (await client.request('state.get', {})).revision };
+  } finally {
+    client?.close();
+    await target.stop();
+  }
+}
+
 export async function runConformance(target: Target) {
   let client!: ConformanceClient;
   try {
@@ -85,6 +98,7 @@ export async function runConformance(target: Target) {
         max_handler_ms: 0,
       })
     );
+    await exerciseDiagnostics(client);
     assertState(initial);
     await expectError(
       client.request('settings.update', {
@@ -1568,12 +1582,48 @@ function required<T>(value: T | null | undefined, message: string): T {
   return value;
 }
 
+async function exerciseDiagnostics(client: ConformanceClient) {
+  const initial = await client.request('state.get', {});
+  await client.request('diagnostics.clear', {});
+  assert.equal((await client.request('diagnostics.list', {})).incidents.length, 0);
+  const captured = await client.request('diagnostics.capture', {});
+  await expectError(client.request('diagnostics.capture', {}), 'unavailable');
+  const report = await client.request('diagnostics.prepare', { incidentId: captured.incidentId });
+  assert.ok(report.summary.length < 8192);
+  assert.equal(report.complete, false);
+  assert.match(report.summary, /Excludes routes/);
+  await expectError(
+    client.request('diagnostics.uiError', {
+      category: 'exception',
+      feature: 'app',
+      line: null,
+      column: null,
+      message: 'PRIVATE',
+    } as never),
+    'invalid_request'
+  );
+  await expectError(client.request('diagnostics.prepare', { incidentId: '999999' }), 'not_found');
+  const after = await client.request('state.get', {});
+  assert.equal(after.revision, initial.revision);
+  assert.equal(after.sessionCatalogRevision, initial.sessionCatalogRevision);
+  assert.equal(after.activeConnection, null);
+  await client.request('diagnostics.clear', {});
+  await expectError(client.request('diagnostics.export', { reportId: report.reportId }), 'not_found');
+  assert.equal((await client.request('diagnostics.list', {})).incidents.length, 0);
+}
+
 export const mandatoryMethods: BackendMethod[] = [
   'permissions.recover',
   'state.get',
   'uiState.get',
   'uiState.set',
   'diagnostics.report',
+  'diagnostics.list',
+  'diagnostics.capture',
+  'diagnostics.prepare',
+  'diagnostics.export',
+  'diagnostics.clear',
+  'diagnostics.uiError',
   'bluetooth.requestPermission',
   'location.requestPermission',
   'location.openSettings',

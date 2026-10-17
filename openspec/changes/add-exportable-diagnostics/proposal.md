@@ -10,11 +10,11 @@ Controller, motor, firmware and platform combinations will exceed the hardware a
 - Preserve recent context around detected failures and a manual “Mark a problem” action, retaining a small number of incidents across restarts.
 - Record sanitized environment, discovered compatibility facts, connection/protocol/configuration failures, native lifecycle/queue metrics, storage failures and structured frontend errors. Represent unavailable hardware facts as unknown.
 - Add a previewable, versioned diagnostic ZIP containing `report.md`, `events.jsonl` and `manifest.json`, with report-local aliases and explicit capture/loss limits. Exclude routes, device identifiers, packet payloads, configurations and full telemetry.
-- Add one shared “Report a problem” flow from Settings and relevant error surfaces: select/capture an incident, preview, save/share, then open a prefilled GitHub bug-report form and attach the ZIP manually.
+- Add one shared “Export diagnostics” flow from Settings and relevant error surfaces: select/capture an incident, preview, save/share, then show instructions and the public GitHub Issues destination so users manually write an issue and attach the ZIP.
 - Add mandatory authenticated diagnostic methods across the frontend, mock, shared server and both native host integrations; keep diagnostic history out of complete application snapshots.
 - Replace the recording-session dependency and duplicate capture sink for new diagnostic collection, retaining supported session schemas and historical archive contents.
 
-Non-goals: automatic uploads, a developer telemetry service, GitHub authentication inside the app, automatic issue submission or attachment upload, full crash-dump collection, startup-recovery UI when the shared service cannot start, arbitrary packet capture, raw exception strings/stacks, full configuration export, or an exhaustive hardware compatibility matrix. A separate opt-in detailed protocol capture mode is deferred.
+Non-goals: automatic uploads, a developer telemetry service, GitHub authentication inside the app, prefilled issue handoff, automatic issue submission or attachment upload, full crash-dump collection, startup-recovery UI when the shared service cannot start, arbitrary packet capture, raw exception strings/stacks, full configuration export, or an exhaustive hardware compatibility matrix. A separate opt-in detailed protocol capture mode is deferred.
 
 ## Capabilities
 

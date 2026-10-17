@@ -243,6 +243,7 @@ impl BackendService {
         self.policy.exchange.epoch = envelope.epoch_ms;
         let now = envelope.monotonic_ms;
         let epoch = envelope.epoch_ms;
+        self.diagnostics.generation = self.policy.active.as_ref().map_or(0, |a| a.generation);
         match &envelope.fact {
             Fact::Timer { id } => {
                 if let Some(timer) = self.policy.timers.get(id) {
@@ -267,6 +268,17 @@ impl BackendService {
                 serde_json::json!({"generation":generation,"state":state}),
                 true,
             ),
+            Fact::Bluetooth {
+                radio,
+                scan,
+                connect,
+            } => self.diagnostics.event(
+                now,
+                epoch,
+                "bluetooth",
+                serde_json::json!({"radio":radio,"scan":scan,"connect":connect}),
+                true,
+            ),
             Fact::Foreground { foreground } => self.diagnostics.event(
                 now,
                 epoch,
@@ -275,6 +287,16 @@ impl BackendService {
                 true,
             ),
             _ => {}
+        }
+        if matches!(
+            &envelope.fact,
+            Fact::Link {
+                state: LinkState::Failed,
+                ..
+            }
+        ) {
+            self.diagnostics
+                .capture(now, epoch, "connection_failure", false);
         }
         self.diagnostics.tick(now, epoch);
         let scan_before = self.policy.scan;
@@ -1297,7 +1319,21 @@ impl BackendService {
                             .remove_schema(&cache_identity(identity))
                             .map_err(crate::store_failure)?,
                     },
-                    c::Effect::Failure(c::Failure::Discovery(_)) => {}
+                    c::Effect::Failure(c::Failure::Discovery(issue)) => {
+                        self.diagnostics.event(
+                            self.policy.exchange.now,
+                            self.policy.exchange.epoch,
+                            "failure",
+                            serde_json::json!({"code":issue.code.as_str()}),
+                            true,
+                        );
+                        self.diagnostics.capture(
+                            self.policy.exchange.now,
+                            self.policy.exchange.epoch,
+                            "connection_failure",
+                            true,
+                        );
+                    }
                     c::Effect::Mutation(event) => match event {
                         c::MutationEvent::Idempotent | c::MutationEvent::Confirmed(_) => {
                             self.complete_mutation(true)
@@ -1313,15 +1349,40 @@ impl BackendService {
                         );
                         self.fail_kernel_requests();
                     }
-                    c::Effect::Failure(_) => self.fail_kernel_requests(),
+                    c::Effect::Failure(_) => {
+                        self.diagnostics.event(
+                            self.policy.exchange.now,
+                            self.policy.exchange.epoch,
+                            "failure",
+                            serde_json::json!({"code":"telemetry"}),
+                            true,
+                        );
+                        self.diagnostics.capture(
+                            self.policy.exchange.now,
+                            self.policy.exchange.epoch,
+                            "protocol_failure",
+                            false,
+                        );
+                        self.fail_kernel_requests();
+                    }
                     c::Effect::Diagnostic(value) => {
                         self.diagnostics.event(
                             self.policy.exchange.now,
                             self.policy.exchange.epoch,
                             "protocol_diagnostic",
-                            serde_json::json!({"code":format!("{value:?}")}),
+                            serde_json::json!({"code":match value {
+                                c::Diagnostic::StaleEvent=>"StaleEvent",c::Diagnostic::UnexpectedResponse=>"UnexpectedResponse",c::Diagnostic::MalformedResponse(_)=>"MalformedResponse",c::Diagnostic::Scheduler(_)=>"Scheduler",c::Diagnostic::Telemetry(_)=>"telemetry",c::Diagnostic::Bms(_)=>"bms",c::Diagnostic::EnqueueRejected=>"EnqueueRejected",c::Diagnostic::Mutation(_)=>"Mutation",c::Diagnostic::ConfigurationStale=>"ConfigurationStale"
+                            }}),
                             true,
                         );
+                        if matches!(value, c::Diagnostic::MalformedResponse(_)) {
+                            self.diagnostics.capture(
+                                self.policy.exchange.now,
+                                self.policy.exchange.epoch,
+                                "protocol_failure",
+                                false,
+                            );
+                        }
                     }
                     c::Effect::PublishBmsState(_) => {}
                     c::Effect::Write(_) => return Err(Failure::Internal),
@@ -1451,18 +1512,10 @@ impl BackendService {
                     .map_err(|_| Failure::Internal)?;
             }
         }
-        if session_started {
-            let id = &a.session.as_ref().ok_or(Failure::Internal)?.session_id;
-            if let Ok(lease) = self.store.lease_session(id) {
-                self.diagnostics.start(lease, self.policy.exchange.now, self.policy.exchange.epoch, serde_json::json!({
-                    "build":env!("FLOAT_VIEW_BUILD_REVISION"), "firmware_major":facts.selected.identity.major,
-                    "firmware_minor":facts.selected.identity.minor, "package":facts.refloat_version.to_string(),
-                    "riding_poll_ms":telemetry::RIDING_INTERVAL_MS, "idle_poll_ms":self.policy.settings.idle_probe_interval_ms,
-                    "riding_persist_ms":self.policy.settings.riding_persist_interval_ms, "idle_persist_ms":self.policy.settings.idle_persist_interval_ms,
-                    "foreground":self.policy.foreground, "percentiles":"last_256_observations_per_window", "row_limit":5000
-                }));
-            }
-        }
+        self.diagnostics.metadata(self.policy.exchange.now,self.policy.exchange.epoch,serde_json::json!({
+            "firmware_major":facts.selected.identity.major,"firmware_minor":facts.selected.identity.minor,"package":facts.refloat_version.to_string(),"hardware":facts.selected.identity.hardware_name,"route":if facts.selected.route.can_id().is_some(){"can"}else{"direct"},
+            "riding_poll_ms":telemetry::RIDING_INTERVAL_MS,"idle_poll_ms":self.policy.settings.idle_probe_interval_ms
+        }));
         self.diagnostics.event(
             self.policy.exchange.now,
             self.policy.exchange.epoch,
@@ -1588,6 +1641,37 @@ mod tests {
             ),
             Err(Failure::InvalidRequest)
         ));
+    }
+    #[test]
+    fn failed_initial_transport_captures_diagnostics_without_saved_or_guest_recordings() {
+        for saved in [false, true] {
+            let mut t = Test::new();
+            t.discover();
+            let revision = t.service.catalog_revision();
+            t.service.connect("test-device", saved).unwrap();
+            let generation = t.service.policy.active.as_ref().unwrap().generation;
+            t.fact(
+                Fact::Link {
+                    generation,
+                    state: LinkState::Failed,
+                },
+                4,
+            )
+            .unwrap();
+            assert!(!t.service.snapshot().session_attached);
+            assert_eq!(t.service.catalog_revision(), revision);
+            let list = t.service.diagnostic_list();
+            let incidents = list["incidents"].as_array().unwrap();
+            assert!(!incidents.is_empty());
+            let id = incidents[0]["incidentId"].as_str().unwrap();
+            let work = t.service.begin_diagnostic_report(1, Some(id)).unwrap();
+            let preview = t
+                .service
+                .complete_diagnostic_report(work.run().unwrap())
+                .unwrap();
+            assert!(!preview.complete);
+            assert!(preview.summary.contains("Excludes routes"));
+        }
     }
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     struct Test {

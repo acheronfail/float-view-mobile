@@ -239,9 +239,12 @@ function createWebSocketServer(
     clearTimeout(telemetryTimer);
     if (activeMockBackend === backend) activeMockBackend = undefined;
   });
+  let diagnosticClient = 0;
   value.on('connection', (webSocket) => {
+    const owner = ++diagnosticClient;
+    webSocket.on('close', () => backend.disconnectClient(owner));
     webSocket.on('message', (data) => {
-      webSocket.send(JSON.stringify(backend.handlePayload(data.toString())));
+      webSocket.send(JSON.stringify(backend.handlePayload(data.toString(), owner)));
     });
   });
   return value;

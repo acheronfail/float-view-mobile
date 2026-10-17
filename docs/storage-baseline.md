@@ -50,6 +50,16 @@ Android PermissionBroker preferences record permission-resolution history and
 must remain intact, as must operating-system permission decisions on all hosts.
 Do not clear all WebView/OS preferences or revoke grants to simulate a data reset.
 
+## Independent diagnostics
+
+The service's bounded diagnostic root is a sibling of this product root:
+`Application Support/FloatView/Diagnostics` on Apple and
+`files/float-view/diagnostics` on Android. It is not part of product baseline/reset
+handling. Diagnostic format version 1 and ZIP reports are independent of archive
+format 4. Unknown or corrupt diagnostics never authorize a product reset; existing
+session diagnostic rows and baseline fixtures remain supported. See
+[diagnostic collection and exports](diagnostics.md).
+
 ## Frozen regression evidence
 
 [The synthetic baseline fixtures](../backends/fixtures/public-baseline/100/README.md)

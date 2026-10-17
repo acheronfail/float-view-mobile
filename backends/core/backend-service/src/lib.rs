@@ -50,7 +50,14 @@ impl BackendService {
         // recreation borrows this owner and must not clear these checkpoints.
         store.clear_refloat_editor_drafts()?;
         let mut service = Self {
-            diagnostics: diagnostics::Diagnostics::default(),
+            diagnostics: diagnostics::Diagnostics::open(&match root
+                .file_name()
+                .and_then(|n| n.to_str())
+            {
+                Some("Sessions") => root.with_file_name("Diagnostics"),
+                Some("logs") => root.with_file_name("diagnostics"),
+                _ => root.with_extension("diagnostics"),
+            }),
             runtime: ApplicationRuntime::new(),
             stopping: false,
             ui_checkpoint: None,

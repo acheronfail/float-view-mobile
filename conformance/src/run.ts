@@ -1,5 +1,5 @@
 import { directTarget } from '../targets/direct.ts';
-import { runConformance, runAutoConnectConformance } from './suite.ts';
+import { runConformance, runAutoConnectConformance, runDiagnosticsConformance } from './suite.ts';
 import { externalTarget } from '../targets/external.ts';
 import { mockTarget } from '../targets/mock.ts';
 import { macosTarget } from '../targets/macos.ts';
@@ -43,7 +43,11 @@ const target =
             ? androidTarget
             : externalTarget(name, `FLOAT_VIEW_${name.toUpperCase()}_WS_URL`);
 const result = await (
-  process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'auto-connect' ? runAutoConnectConformance : runConformance
+  process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'diagnostics'
+    ? runDiagnosticsConformance
+    : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'auto-connect'
+      ? runAutoConnectConformance
+      : runConformance
 )(target);
 console.log(`Conformance passed: ${result.target} revision=${result.revision}`);
 

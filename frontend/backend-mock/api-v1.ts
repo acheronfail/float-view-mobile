@@ -1,3 +1,4 @@
+import { MockDiagnostics } from './diagnostics.ts';
 import { validRefloatEditorDraft } from '../src/lib/backend/refloat-editor-draft.ts';
 import type { RefloatEditorDraft } from '../src/lib/backend/contract.ts';
 import { validUiCheckpoint } from '../src/lib/backend/ui-checkpoint.ts';
@@ -270,6 +271,7 @@ export function detailedSeriesValues(overrides: Record<string, number>): Record<
 }
 
 export class MockBackend {
+  private readonly diagnostics = new MockDiagnostics();
   private refloatDrafts = new Map<string, RefloatEditorDraft>();
   private uiCheckpoint: UiCheckpoint | null = null;
   private rideMarkers = new Map<string, SessionRideMarker[]>();
@@ -372,7 +374,11 @@ export class MockBackend {
     this.stepAutoConnect();
   }
 
-  handlePayload(payload: string): Response {
+  disconnectClient(owner: number) {
+    this.diagnostics.disconnect(owner);
+  }
+
+  handlePayload(payload: string, owner = 0): Response {
     if (Buffer.byteLength(payload, 'utf8') > MAX_MESSAGE_BYTES) {
       return failure(0, 'invalid_request', 'Message is too large');
     }
@@ -382,10 +388,10 @@ export class MockBackend {
     } catch {
       return failure(0, 'invalid_request', 'Invalid JSON');
     }
-    return this.handle(value);
+    return this.handle(value, owner);
   }
 
-  handle(value: unknown): Response {
+  handle(value: unknown, owner = 0): Response {
     if (!value || typeof value !== 'object') {
       return failure(0, 'invalid_request', 'Request must be an object');
     }
@@ -397,6 +403,8 @@ export class MockBackend {
     const params = asObject(request.params);
     if (!params) return failure(id, 'invalid_request', 'Params must be an object');
 
+    if (request.method.startsWith('diagnostics.') && request.method !== 'diagnostics.report')
+      return this.diagnostics.handle(id, request.method, params, owner);
     switch (request.method as BackendMethod) {
       case 'diagnostics.report': {
         const limits = {
@@ -888,7 +896,12 @@ export class MockBackend {
         ]);
         if ('autoConnectSavedDeviceId' in patch && patch.autoConnectSavedDeviceId !== null) {
           const target = patch.autoConnectSavedDeviceId;
-          if (typeof target !== 'string' || !target.length || Buffer.byteLength(target, 'utf8') > 128 || target.includes('\0'))
+          if (
+            typeof target !== 'string' ||
+            !target.length ||
+            Buffer.byteLength(target, 'utf8') > 128 ||
+            target.includes('\0')
+          )
             return failure(id, 'invalid_request', 'Invalid auto-connect board');
           const board = this.state.savedDevices.find((board) => board.savedDeviceId === target);
           if (!board) return failure(id, 'not_found', 'Saved board was not found');

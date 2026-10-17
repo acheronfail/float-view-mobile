@@ -12,6 +12,7 @@
   import Permissions from './Permissions.svelte';
   import Announcements from './Announcements.svelte';
   import LegalNotices from './LegalNotices.svelte';
+  import Diagnostics from './Diagnostics.svelte';
 
   const trackedDistanceM = $derived(
     backendState.savedDevices.reduce((total, device) => total + (device.summary.totalDistanceM ?? 0), 0)
@@ -267,6 +268,7 @@
   {/if}
   {#if backendState.error}<p role="alert" class="text-warning">{backendState.error}</p>{/if}
 
+  <Diagnostics />
   <LegalNotices />
 
   <PageFooter label="Application version">

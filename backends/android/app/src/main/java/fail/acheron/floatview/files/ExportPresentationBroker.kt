@@ -23,7 +23,7 @@ class ExportPresentationBroker(private val application: FloatViewApplication) {
             try {
                 current.startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT)
                     .addCategory(Intent.CATEGORY_OPENABLE)
-                    .setType(if (value.fileName.endsWith(".csv")) "text/csv" else "application/octet-stream")
+                    .setType(if (value.fileName.endsWith(".csv")) "text/csv" else if (value.fileName.endsWith(".zip")) "application/zip" else "application/octet-stream")
                     .putExtra(Intent.EXTRA_TITLE, value.fileName), REQUEST_CODE)
             } catch (_: Exception) { finishPending() }
         }

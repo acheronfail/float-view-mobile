@@ -937,7 +937,53 @@ export interface UiCheckpoint {
 export const MAX_UI_CHECKPOINT_BYTES = 4096;
 export const MAX_UI_TARGET_BYTES = 512;
 
+export type DiagnosticReason =
+  | 'manual'
+  | 'configuration_failure'
+  | 'protocol_failure'
+  | 'connection_failure'
+  | 'storage_failure'
+  | 'ui_failure'
+  | 'request_delay'
+  | 'telemetry_gap'
+  | 'slow_storage'
+  | 'native_queue'
+  | 'reconnect'
+  | 'ride_marker';
+export interface DiagnosticIncident {
+  incidentId: string;
+  reason: DiagnosticReason;
+  complete: boolean;
+  clipped: boolean;
+  ageMs: number;
+}
+export interface DiagnosticList {
+  persistence: 'available' | 'memoryOnly';
+  droppedRecords: number;
+  incidents: DiagnosticIncident[];
+}
+export interface DiagnosticPreview {
+  reportId: string;
+  summary: string;
+  complete: boolean;
+  clipped: boolean;
+  droppedRecords: number;
+  expiresInMs: number;
+}
+export interface DiagnosticUiError {
+  category: 'exception' | 'rejection' | 'protocol' | 'request';
+  feature: 'app' | 'connection' | 'configuration' | 'sessions' | 'storage';
+  line: number | null;
+  column: number | null;
+}
+
 export interface BackendMethods {
+  'diagnostics.list': { params: EmptyParams; result: DiagnosticList };
+  'diagnostics.capture': { params: EmptyParams; result: { incidentId: string; capturing: boolean } };
+  'diagnostics.prepare': { params: { incidentId: string | null; replaceReportId?: string }; result: DiagnosticPreview };
+  'diagnostics.export': { params: { reportId: string }; result: ExportResult };
+  'diagnostics.clear': { params: EmptyParams; result: Accepted };
+  'diagnostics.uiError': { params: DiagnosticUiError; result: Accepted };
   'state.get': { params: EmptyParams; result: AppState };
   'uiState.get': { params: EmptyParams; result: UiCheckpoint | null };
   'uiState.set': { params: { checkpoint: UiCheckpoint | null }; result: Accepted };

@@ -32,17 +32,40 @@ enum State {
         cancel: FileCancellation,
         live: Weak<()>,
     },
-    Export(StagedFile),
-    Presenting(StagedFile),
+    Export(ExportFile),
+    Presenting(ExportFile),
 }
-struct Permit(Arc<AtomicUsize>);
+enum ExportFile {
+    Product(StagedFile),
+    Diagnostic(std::sync::Arc<crate::diagnostics::ReportFile>),
+}
+impl From<StagedFile> for ExportFile {
+    fn from(f: StagedFile) -> Self {
+        Self::Product(f)
+    }
+}
+impl ExportFile {
+    fn path(&self) -> &std::path::Path {
+        match self {
+            Self::Product(f) => f.path(),
+            Self::Diagnostic(f) => f.path(),
+        }
+    }
+    fn read(&self, offset: u64, target: &mut [u8]) -> Result<usize> {
+        match self {
+            Self::Product(f) => f.read(offset, target),
+            Self::Diagnostic(f) => f.read(offset, target),
+        }
+    }
+}
+pub(crate) struct Permit(Arc<AtomicUsize>);
 impl Drop for Permit {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
 impl Files {
-    fn permit(&self) -> Result<Permit> {
+    pub(crate) fn permit(&self) -> Result<Permit> {
         self.workers
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |v| {
                 if v < 2 { Some(v + 1) } else { None }
@@ -210,6 +233,24 @@ impl BackendService {
             live,
         })
     }
+    pub(crate) fn adopt_diagnostic_file(
+        &mut self,
+        owner: u64,
+        file: std::sync::Arc<crate::diagnostics::ReportFile>,
+    ) -> Result<u64> {
+        let id = self.files.admit()?;
+        self.files.entries.insert(
+            id,
+            Transfer {
+                owner,
+                deadline: self.policy.exchange.now.saturating_add(IDLE_MS),
+                cancelled: false,
+                presentation_reply: None,
+                state: State::Export(ExportFile::Diagnostic(file)),
+            },
+        );
+        Ok(id)
+    }
     pub fn begin_export(
         &mut self,
         owner: u64,
@@ -278,7 +319,7 @@ impl BackendService {
                     .and_then(|s| s.to_str())
                     .ok_or(Error::UnsafePath)?
                     .to_owned();
-                transfer.state = State::Export(file);
+                transfer.state = State::Export(file.into());
                 transfer.deadline = now_ms.saturating_add(IDLE_MS);
                 self.files.entries.insert(completion.id, transfer);
                 Ok(FileResult::Exported {
@@ -407,6 +448,7 @@ impl BackendService {
         Ok(())
     }
     pub fn disconnect_file_client(&mut self, owner: u64) {
+        self.diagnostics.disconnect_client(owner);
         let ids: Vec<_> = self
             .files
             .entries

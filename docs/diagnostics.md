@@ -1,0 +1,66 @@
+# Diagnostic logs and manual bug reports
+
+In Settings, select **Export diagnostics**. Choose an incident or **Mark a problem**
+when something looks wrong. A mark collects available context before the mark and
+up to ten seconds afterward. Refresh and prepare another preview for follow-up
+context; an existing preview never changes silently. Select **Save/share ZIP**
+and save it using the system file chooser or share sheet.
+
+Nothing is uploaded automatically. First check the project's
+[existing GitHub issues](https://github.com/acheronfail/float-view-mobile/issues).
+For a reproducible bug that has not been reported, manually write an issue with
+steps, expected and actual behavior, and known hardware/firmware details. Unknown
+motor or battery details are fine. Attach the saved diagnostic ZIP in the issue's
+attachment area and review your issue before submitting. The app does not prefill
+or submit issues. GitHub issues and attachments are public. Do not include route
+files, private screenshots or credentials.
+
+Reports contain `report.md`, `events.jsonl` and `manifest.json`. They include
+available build/firmware facts, connection generations, failure categories,
+request outcomes and timing/queue counters. Unrecognized text is omitted. Raw
+packets, exception messages/stacks, names, addresses, UUIDs, stable board IDs,
+location coordinates (including board GNSS), configurations and telemetry values
+are excluded. Report-local generation numbers cannot identify a device.
+
+Diagnostics are independent of ride retention and available before successful
+controller setup, including guest connections. Local storage keeps at most three
+incidents, each at most 1 MiB, for seven days; the journal and incidents together
+are bounded to 8 MiB. The memory context is bounded to 256 records/30 seconds,
+so busy windows can be shorter. Repeated errors coalesce within 60 seconds.
+Manual marks are limited to one per ten seconds. Loss, clipping and incomplete
+post-windows are disclosed; these logs are not a complete process crash report.
+
+A prepared report belongs to its connected frontend, expires after ten minutes
+and occupies one of two slots. ZIPs are bounded to 5 MiB; native presentations
+retain their file lease through completion. Closing or recreating the frontend
+requires preparing a new preview. Clearing retained diagnostics invalidates old
+unpresented previews, does not interrupt a native share already underway and does
+not delete saved/shared copies. Collection can resume afterward.
+
+The shared Rust service owns the typed vocabulary, background writer, journal,
+incident policy and report preparation. Native adapters supply OS facts and
+present service-issued files. Diagnostic persistence failure degrades to bounded
+memory collection without blocking recording. Export requires usable diagnostic
+storage. Native recovery remains responsible when the service cannot start.
+
+The private diagnostic root is beside product storage: Apple
+`Application Support/FloatView/Diagnostics`, Android
+`files/float-view/diagnostics`. Test roots use a unique `.diagnostics` sibling.
+Version 1 diagnostic files are independent of product baseline 100 and recording
+archive format 4. Unknown versions, malformed committed files and unexpected
+layouts remain untouched and make diagnostic storage unavailable. A torn final
+journal append is reported as incomplete; earlier valid data is preserved.
+
+The existing authenticated control channel exposes `diagnostics.list` and
+`diagnostics.capture` with empty parameters, `diagnostics.prepare` with
+`{ "incidentId": null }` for recent context or a listed incident ID,
+`diagnostics.export` with its prepared `reportId`, and `diagnostics.clear` with
+empty parameters. Preparing another preview can explicitly release the previous
+owned handle with `replaceReportId`; native presentation leases remain pinned.
+`diagnostics.uiError` accepts only closed category/feature
+codes and optional numeric source positions, with per-client/service rate limits.
+`diagnostics.report` continues accepting bounded UI timing aggregates. Responses
+use existing error envelopes; unknown fields/invalid input fail with
+`invalid_request`, missing/foreign/expired handles with `not_found`, and capacity
+or unavailable storage with `unavailable`. Diagnostic operations do not advance
+product revisions or expose event streams in application state.

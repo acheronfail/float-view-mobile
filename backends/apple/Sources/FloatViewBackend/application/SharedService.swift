@@ -239,7 +239,7 @@ public final class SharedService: @unchecked Sendable {
       let failures = diagnosticFailures
       diagnosticFailures = 0
       fact(["fact": "native_diagnostics", "platform": platform,
-            "os_version": String(ProcessInfo.processInfo.operatingSystemVersionString.prefix(128)),
+            "os_version": "\(ProcessInfo.processInfo.operatingSystemVersion.majorVersion).\(ProcessInfo.processInfo.operatingSystemVersion.minorVersion).\(ProcessInfo.processInfo.operatingSystemVersion.patchVersion)",
             "callbacks": diagnosticCallbacks, "max_queue_delay_ms": min(86_400_000, diagnosticQueueDelay),
             "max_queue_depth": min(64, diagnosticQueueDepth), "overflows": overflows,
             "exchange_failures": min(1_000_000, failures)])

@@ -146,6 +146,14 @@ export class BackendState {
     }
   }
 
+  async diagnosticRequest<M extends import('./contract').BackendMethod>(
+    method: M,
+    params: import('./contract').BackendParams<M>
+  ): Promise<import('./contract').BackendResult<M>> {
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    return this.client.request(method, params, 35_000);
+  }
+
   async getUiCheckpoint(): Promise<UiCheckpoint | null> {
     if (!this.client?.isOpen) throw new Error('Backend is not connected');
     return this.client.request('uiState.get', {});

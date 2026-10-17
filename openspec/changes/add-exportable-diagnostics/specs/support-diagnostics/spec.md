@@ -139,14 +139,14 @@ Settings and relevant error surfaces SHALL offer the same report flow on desktop
 - **WHEN** the user clears diagnostics during a ride
 - **THEN** retained journal/incidents and unpresented prepared reports are cleared while recording, connections and product revisions remain unchanged; later events can begin new diagnostics
 
-### Requirement: GitHub issue handoff
+### Requirement: Manual GitHub reporting instructions
 
-After preview, the flow SHALL let users save/share the ZIP and open the repository's GitHub bug-report form with a sanitized environment/error summary and report ID. It SHALL explain that issues and attachments are public and that ZIP attachment is manual. It SHALL NOT upload, submit issues, require app-held GitHub credentials or put diagnostic event streams in URLs.
+After export, the flow SHALL explain where and how users can manually report a reproducible bug and attach the ZIP on the repository's GitHub Issues page. It SHALL explain public visibility and checking existing issues. It SHALL NOT prefill issues, launch an issue composer, upload files, submit issues or require app-held GitHub credentials.
 
-#### Scenario: Create bug report
+#### Scenario: Manual bug report
 
-- **WHEN** the user chooses Open GitHub issue
-- **THEN** the system browser opens the fixed project issue-form destination with the bounded reviewed summary; the user supplies reproduction steps, optional motor/battery details, attaches the saved ZIP and submits on GitHub
+- **WHEN** a user finishes exporting diagnostics
+- **THEN** instructions identify the public repository Issues page and explain checking duplicates, writing reproduction steps and expected/actual behavior, adding optional hardware details and manually attaching the ZIP; any link opens only the Issues list
 
 #### Scenario: Browser or sign-in unavailable
 

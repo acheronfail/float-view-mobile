@@ -18,7 +18,7 @@ See [proposal.md](proposal.md) for motivation and scope. `backend-service/src/di
 
 Refactor the existing diagnostics owner inside `backend-service`, without adding a workspace crate or second application runtime. Initialize its in-memory ring and independent best-effort writer when the service starts, before connection work. Keep the current metrics, request/operation correlation and anomaly signals; replace the session lease with a diagnostic-store lease. Collection stays active for saved and guest connections, after disconnect, and without a WebView.
 
-Hosts supply a fixed private diagnostic directory alongside, rather than inside, the product-store root: Apple `Application Support/FloatView/Diagnostics`; Android `files/float-view/diagnostics`. Root setup, file protection and platform facts remain native capabilities; journal encoding, validation, retention and report policy remain Rust-owned. Diagnostic file work uses the existing shared file-worker/presentation machinery generalized for service-issued diagnostic files, without acquiring a session lease or consulting the catalog. The directory must have exclusive ownership and reject links, path escapes and unrecognized layouts. Diagnostic initialization failure degrades to memory-only collection and never prevents an otherwise valid product service from starting.
+Derive a fixed private diagnostic directory from the protected root supplied by the native host, alongside rather than inside product storage: Apple `Application Support/FloatView/Diagnostics`; Android `files/float-view/diagnostics`. Root setup, file protection and platform facts remain native capabilities; journal encoding, validation, retention and report policy remain Rust-owned. Diagnostic file work uses the existing shared file-worker/presentation machinery generalized for service-issued diagnostic files, without acquiring a session lease or consulting the catalog. The directory must have exclusive ownership and reject links, path escapes and unrecognized layouts. Diagnostic initialization failure degrades to memory-only collection and never prevents an otherwise valid product service from starting.
 
 This isolates running-service storage failures from diagnostic staging. It does not promise a working frontend when product-service construction itself fails. Keeping the journal in each session was rejected because it loses exactly the pre-session evidence this feature needs; a second native logger was rejected because it duplicates policy and diverges across hosts.
 
@@ -40,22 +40,22 @@ Use independently versioned structured diagnostic files, not another product SQL
 
 Enforce these initial limits centrally and test admission before allocation:
 
-| Resource | Limit / policy |
-| --- | --- |
-| Recent in-memory context | 30 seconds, at most 256 events, each at most 1,024 bytes |
-| Background writer admission | Eight batches of at most 32 records; nonblocking send and dropped-record counter |
-| Journal rotation | Two segments, at most 2 MiB each |
-| Retained incidents | Three, at most 1 MiB each; journal + incidents + metadata at most 8 MiB |
-| Retention age | Seven days, checked on startup and maintenance |
-| Incident window | Available 30 seconds before trigger and ten seconds afterward |
-| Incident concurrency | One open capture; automatic repeats within 60 seconds coalesce; manual admission once per ten seconds |
-| Timing metrics | Existing 24 metric keys and last 256 observations per metric |
-| UI error ingestion | Ten per minute per client; 30 per minute service-wide; ten pending UI events |
-| Prepared reports | Two globally; client-owned; ten-minute TTL; preview at most 32 KiB, summary at most 8 KiB |
-| Output | At most 5 MiB per ZIP; two staged/preparing/presenting report slots totaling at most 10 MiB |
-| Whole diagnostic directory | At most 20 MiB including journal, incidents, staging, metadata and temporary files |
-| Worker execution | Reuse the existing two-worker file limit; one diagnostic preparation at a time; existing stricter transfer limits apply |
-| Diagnostic writer retry / shutdown | At most three attempts; at most 5 ms between retries; shutdown join at most two seconds |
+| Resource                           | Limit / policy                                                                                                                                                   |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Recent in-memory context           | 30 seconds, at most 256 events, each at most 1,024 bytes                                                                                                         |
+| Background writer admission        | Eight data jobs (event batches of at most 32 records or one bounded incident snapshot), plus one reserved clear job; nonblocking send and dropped-record counter |
+| Journal rotation                   | Two segments, at most 2 MiB each                                                                                                                                 |
+| Retained incidents                 | Three, at most 1 MiB each; journal + incidents + metadata at most 8 MiB                                                                                          |
+| Retention age                      | Seven days, checked on startup and maintenance                                                                                                                   |
+| Incident window                    | Available 30 seconds before trigger and ten seconds afterward                                                                                                    |
+| Incident concurrency               | One open capture; automatic repeats within 60 seconds coalesce; manual admission once per ten seconds                                                            |
+| Timing metrics                     | Existing 24 metric keys and last 256 observations per metric                                                                                                     |
+| UI error ingestion                 | Ten per minute per client; 30 per minute service-wide; ten pending UI events                                                                                     |
+| Prepared reports                   | Two globally; client-owned; ten-minute TTL; preview at most 32 KiB, summary at most 8 KiB                                                                        |
+| Output                             | At most 5 MiB per ZIP; two staged/preparing/presenting report slots totaling at most 10 MiB                                                                      |
+| Whole diagnostic directory         | At most 20 MiB including journal, incidents, staging, metadata and temporary files                                                                               |
+| Worker execution                   | Reuse the existing two-worker file limit; at most two diagnostic preparations within the existing worker limit; existing stricter transfer limits apply          |
+| Diagnostic writer retry / shutdown | At most three attempts; at most 5 ms between retries; shutdown join at most two seconds                                                                          |
 
 Rotate before appending, evict oldest eligible finalized incidents before admitting another, and reserve room for metadata before writing output. Existing native presentation leases pin output; capacity fails with `unavailable` instead of evicting pinned files. Journal bytes are sanitized but still private app files. No indefinite collection extension follows repeated errors: coalesce counts/reasons without extending the original ten-second post-window. A manual mark during an open window joins that capture and returns its ID; requests exceeding the manual rate limit fail before mutation.
 
@@ -65,7 +65,7 @@ Clearing increments an internal diagnostic generation, drains/invalidates old qu
 
 ### 4. Explicit report preparation separates preview from sharing
 
-Add the methods in the backend-contract delta. `diagnostics.prepare` freezes either a selected incident's available boundary or current recent context. It never waits for post-window completion: an early preview explicitly reports that limitation. It builds the sanitized ZIP in a bounded file worker and returns only the report handle, preview and metadata. Preparing again creates a distinct report. A report is bound to the requesting transport client, and lost/expired handles require a new preview.
+Add the methods in the backend-contract delta. `diagnostics.prepare` freezes either a selected incident's available boundary or current recent context. It never waits for post-window completion: an early preview explicitly reports that limitation. It builds the sanitized ZIP in a bounded file worker and returns only the report handle, preview and metadata. Preparing again creates a distinct report. The UI explicitly supplies its previous `replaceReportId` to release that preview before preparing another; a pinned native presentation keeps its slot until completion. A report is bound to the requesting transport client, and lost/expired handles require a new preview.
 
 `diagnostics.export` presents those exact bytes using the existing correlated export lease; it cannot silently rebuild from newer context. Extend service-issued staging ownership to the diagnostic root without exposing paths to the frontend. Reuse native save/share completion handling and its existing idle/presentation deadlines. Clients cannot choose output filenames, roots or arbitrary GitHub destinations. Reject path inputs, unknown params, foreign handles and excessive work through existing stable errors; retain only bounded error codes/messages.
 
@@ -75,15 +75,15 @@ The ZIP has three fixed root members:
 - `events.jsonl`: validated chronological event records with report-local aliases and relative times.
 - `manifest.json`: report schema version, report ID, included categories, exact capture boundary, incomplete/clipped flags, aggregate loss counts and privacy omissions.
 
-Use a maintained Rust ZIP writer with default features disabled and stored entries; select and pin the compatible release during implementation and update licensing notices. The new dependency replaces bespoke ZIP header, CRC and directory encoding. Compression and ZIP reading are unnecessary for these bounded text bundles; existing gzip helpers do not produce ZIP archives. No crash, network or analytics dependency is added.
+Use the pinned Rust `zip` 6.0.0 writer with default features disabled and stored entries; update licensing notices for its resolved dependency graph. The new dependency replaces bespoke ZIP header, CRC and directory encoding. Compression and ZIP reading are unnecessary for these bounded text bundles; existing gzip helpers do not produce ZIP archives. No crash, network or analytics dependency is added.
 
-### 5. Shared reporting UI with a browser GitHub handoff
+### 5. Export UI and instructions for manual GitHub reporting
 
-Provide one frontend feature reached from Settings and appropriate connection/configuration/storage errors. It lists the three retained incidents, offers Mark a problem or current-context capture, shows a prepared report preview, explains its inclusions/omissions and offers Save/share report, Copy summary and Open GitHub issue. Unknown hardware remains unknown. Users add reproduction steps and optional motor/battery descriptions on GitHub, keeping free-form private content outside the automatically generated diagnostic bundle.
+Provide one frontend feature reached from Settings and appropriate connection/configuration/storage errors. It lists the three retained incidents, offers Mark a problem or current-context capture, shows a prepared report preview, explains its inclusions/omissions and offers Save/share report and Copy summary, followed by manual reporting instructions. Unknown hardware remains unknown. Users add reproduction steps and optional motor/battery descriptions on GitHub, keeping free-form private content outside the automatically generated diagnostic bundle.
 
 Before sharing, display: “GitHub issues and attachments are public. This report excludes routes and device identifiers. Review the summary before sharing.” Show capture/storage limitations and never imply that a report includes unsaved or unavailable evidence. All controls use native button/link semantics, primary Pointer Events with cancellation, guarded keyboard/assistive clicks and appropriate touch-action.
 
-Add `.github/ISSUE_TEMPLATE/bug_report.yml` with stable field IDs: `summary`, `steps`, `expected`, `actual`, `hardware`, `diagnostics`. Require useful reproduction/expected/actual descriptions while allowing unknown hardware and a report unavailable explanation. Explain manual ZIP attachment and public visibility. The app opens the fixed repository issue destination with `template=bug_report.yml` and only a sanitized compact summary/report ID in the `diagnostics` field. Keep the URL at most 8 KiB after encoding; shorten generated summary at field boundaries and offer Copy summary for the full preview. Use existing system-browser link behavior. No event stream, token, personal path or ZIP bytes enter the URL.
+Add `.github/ISSUE_TEMPLATE/bug_report.yml` with stable field IDs: `summary`, `steps`, `expected`, `actual`, `hardware`, `diagnostics`. Require useful reproduction/expected/actual descriptions while allowing unknown hardware and a report unavailable explanation. Explain manual ZIP attachment and public visibility. Show the fixed repository Issues URL with guidance to check existing issues, write reproduction steps and expected/actual results, and manually attach the ZIP if the problem is a reproducible bug. Do not prefill issue fields or launch a new-issue composer. An ordinary link to the Issues list is sufficient; opening it never submits anything. This intentional friction lets the user decide whether a submission is warranted.
 
 Browser failure/sign-in does not lose the local export. Never describe native presentation as a completed upload or issue submission. `PRIVACY.md` documents local diagnostic collection, retention, deletion and user-initiated public sharing. Reference GitHub's [file attachment](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files) and [issue URL](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-an-issue) behavior; no GitHub API integration is needed.
 

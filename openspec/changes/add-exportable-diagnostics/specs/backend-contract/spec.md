@@ -32,7 +32,7 @@ Every supported backend SHALL implement authenticated `diagnostics.list`, `diagn
 
 ### Requirement: Prepared diagnostic report contract
 
-`diagnostics.prepare` SHALL accept a nullable incident ID, with null selecting current context, and return an opaque report ID, sanitized Markdown summary, inclusion/completeness metadata and expiry. The immutable report SHALL be client-owned, expire after ten minutes, and obey a global capacity of two prepared reports. Preview results SHALL occupy at most 32,768 UTF-8 bytes; summary text at most 8,192 bytes.
+`diagnostics.prepare` SHALL accept a nullable incident ID, with null selecting current context, an optional owned `replaceReportId` to release the prior preview, and return an opaque report ID, sanitized Markdown summary, inclusion/completeness metadata and expiry. The immutable report SHALL be client-owned, expire after ten minutes, and obey a global capacity of two prepared reports. Preview results SHALL occupy at most 32,768 UTF-8 bytes; summary text at most 8,192 bytes.
 
 #### Scenario: Prepare incomplete incident
 

@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { navigationLink } from '$lib/ui/navigation-link';
+  import { installUiErrorReporting } from '$lib/backend/ui-errors';
   import { createMotion, MOTION_CONTEXT } from '$lib/ui/motion';
   import { onMount, setContext } from 'svelte';
   import { ApiRequestError } from '$lib/backend/client';
@@ -31,6 +33,7 @@
   setContext(UI_RESTORATION, restoration);
   let starting = $state(true);
   let safetyCleared = $state(false);
+  onMount(() => installUiErrorReporting((error) => backendState.diagnosticRequest('diagnostics.uiError', error)));
   let safetyBusy = $state(false);
   let safetyError = $state('');
 
@@ -357,6 +360,15 @@
           operation={backendState.snapshot?.sessionOperation}
           oncancel={(operationId) => backendState.cancelSessionPrune(operationId)}
         />
+        {#if page.route.id !== '/settings' && (backendState.error || backendState.snapshot?.activeConnection?.connectionIssue)}
+          <p class="px-4 py-2 text-sm text-muted">
+            If this problem persists, <a
+              class="touch-manipulation text-accent underline"
+              href="#/settings"
+              use:navigationLink={{ scrollable: true }}>export diagnostic logs in Settings</a
+            >.
+          </p>
+        {/if}
         {@render children()}
       {/if}
     </div>

@@ -54,6 +54,23 @@ engine are governed by the platform or engine provider's settings and policies.
 Live Activities and notifications display ride information through the platform;
 Float View does not use remote push notifications or a push server.
 
+## Local diagnostic logs
+
+Float View keeps bounded structured diagnostic logs on your device, including
+failed connections before recording begins. These contain available app/build
+and firmware facts, failure categories, connection/lifecycle events and timing
+counts. They exclude routes, coordinates, names, device identifiers, raw packets,
+full configurations, telemetry values and raw exception messages/stacks. Unknown
+hardware facts remain unknown. Up to three incidents are retained for seven days,
+within an 8 MiB journal/incident budget; recent memory context is bounded.
+
+Settings → Diagnostics lets you preview and save/share a diagnostic ZIP and clear
+retained logs. Nothing is automatically uploaded or submitted to GitHub. You
+choose whether to manually write a GitHub issue and attach the file. Issues and
+attachments are public. Clearing diagnostics does not remove exported copies or
+revoke a share already in progress. Capture may be incomplete after interruption
+or storage failure. See [diagnostic instructions](docs/diagnostics.md).
+
 ## Files you share and support requests
 
 Exports can contain board information, ride telemetry and precise route data.

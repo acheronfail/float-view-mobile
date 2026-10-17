@@ -126,6 +126,12 @@ Source: https://crates.io/crates/digest/0.11.3
   LICENSE-APACHE: document e8541ea93f027a6c
   LICENSE-MIT: document c8d7f4fd612a2da8
 
+Rust: equivalent 1.0.2
+Licence: Apache-2.0 OR MIT
+Source: https://crates.io/crates/equivalent/1.0.2
+  LICENSE-APACHE: document 954f335b8baf5e1a
+  LICENSE-MIT: document 4428cd87371acbd4
+
 Rust: fallible-iterator 0.3.0
 Licence: MIT/Apache-2.0
 Source: https://crates.io/crates/fallible-iterator/0.3.0
@@ -202,6 +208,12 @@ Source: https://crates.io/crates/hashbrown/0.15.5
   LICENSE-APACHE: document 954f335b8baf5e1a
   LICENSE-MIT: document ae9791f02f2bbe0c
 
+Rust: hashbrown 0.17.1
+Licence: MIT OR Apache-2.0
+Source: https://crates.io/crates/hashbrown/0.17.1
+  LICENSE-APACHE: document 954f335b8baf5e1a
+  LICENSE-MIT: document ae9791f02f2bbe0c
+
 Rust: hashlink 0.10.0
 Licence: MIT OR Apache-2.0
 Source: https://crates.io/crates/hashlink/0.10.0
@@ -251,6 +263,12 @@ Rust: hyper-util 0.1.20
 Licence: MIT
 Source: https://crates.io/crates/hyper-util/0.1.20
   LICENSE: document e7d622e4783e8c97
+
+Rust: indexmap 2.14.0
+Licence: Apache-2.0 OR MIT
+Source: https://crates.io/crates/indexmap/2.14.0
+  LICENSE-APACHE: document 954f335b8baf5e1a
+  LICENSE-MIT: document 4f2ac128e429d964
 
 Rust: itoa 1.0.18
 Licence: MIT OR Apache-2.0
@@ -573,6 +591,11 @@ Source: https://crates.io/crates/zerocopy/0.8.57
   LICENSE-BSD: document 47248d1ec833e077
   LICENSE-MIT: document a03d4daa4f46496a
 
+Rust: zip 6.0.0
+Licence: MIT
+Source: https://crates.io/crates/zip/6.0.0
+  LICENSE: document 04dc52136d82400b
+
 Rust: zmij 1.0.23
 Licence: MIT
 Source: https://crates.io/crates/zmij/1.0.23
@@ -766,6 +789,34 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+========================================================================
+Document 04dc52136d82400b
+========================================================================
+The MIT License (MIT)
+
+Copyright (c) 2014 Mathijs van de Nes
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Some files in the "tests/data" subdirectory of this repository are under other
+licences; see files named LICENSE.*.txt for details.
 
 ========================================================================
 Document 0578c028f1f06acd
@@ -2210,6 +2261,35 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ========================================================================
+Document 4428cd87371acbd4
+========================================================================
+Copyright (c) 2016--2023
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+========================================================================
 Document 47248d1ec833e077
 ========================================================================
 Copyright 2019 The Fuchsia Authors.
@@ -2923,6 +3003,35 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+========================================================================
+Document 4f2ac128e429d964
+========================================================================
+Copyright (c) 2016--2017
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 
 ========================================================================
 Document 51f778ffff2c0705

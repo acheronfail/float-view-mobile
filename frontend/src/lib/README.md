@@ -381,3 +381,13 @@ settings updates, not Board Profile values. Foreground discovery and its
 route; Home keeps ordinary discovery. Existing connection navigation opens Live
 from Home while preserving restored non-live destinations, with no replayed
 connection request.
+
+## Support diagnostics
+
+Settings owns the Export diagnostics flow. The shared service owns bounded local
+incident collection, immutable sanitized ZIP preparation and native presentation;
+error surfaces link to Settings rather than building their own logger. Diagnostic
+windows never enter AppState. Global frontend error reporting sends closed codes
+only, with a bounded memory queue and recursion protection. Users manually write
+GitHub issues and attach saved ZIPs; the app never prefills or submits issues.
+See [diagnostic instructions](../../../docs/diagnostics.md).
