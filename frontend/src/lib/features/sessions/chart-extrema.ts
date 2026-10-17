@@ -1,6 +1,20 @@
 import type { SessionSeriesColumn } from '$lib/backend/session-data';
 import type { SessionChartGroup } from './session-fields';
 import type { Viewport } from './viewport';
+import { finiteDomain } from './history-geometry';
+
+/** Hidden lines and excluded time must not influence automatic axis bounds. */
+export function chartDomain(
+  group: SessionChartGroup,
+  columns: Readonly<Record<string, SessionSeriesColumn>> | null | undefined,
+  hidden: ReadonlySet<string>,
+  viewport: Viewport,
+  intervals?: readonly Viewport[]
+) {
+  if (group.fields.every((field) => hidden.has(field.name))) return null;
+  const extrema = chartExtrema(group, columns, hidden, viewport, intervals);
+  return finiteDomain(extrema ? [extrema.min, extrema.max] : [], group.axis);
+}
 
 export function chartShowsMinimum(group: SessionChartGroup): boolean {
   return !['load', 'speedKph', 'erpm', 'distanceM', 'odometerM', 'charge', 'energy'].includes(group.id);

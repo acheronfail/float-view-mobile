@@ -11,10 +11,10 @@
   import { backendState } from '$lib/backend/state.svelte';
   import { reportFrontendPerformance } from '$lib/backend/performance-log';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
-  import { axisTicks, finiteDomain, zeroReference, type NumericDomain } from './history-geometry';
+  import { axisTicks, zeroReference, type NumericDomain } from './history-geometry';
   import { historyTrend } from './history-trend';
   import { ENERGY_COUNTERS, loadSessionEnergy } from './session-energy';
-  import { chartExtrema, chartShowsMinimum } from './chart-extrema';
+  import { chartDomain, chartExtrema, chartShowsMinimum } from './chart-extrema';
   import { buildChartTooltipEntries } from './chart-tooltip';
   import { chartTouchInspection } from './chart-touch-inspection';
   import {
@@ -255,11 +255,6 @@
     return chartGroups.filter((chartGroup) => chartGroupRequestIndex(chartGroup) === index);
   }
 
-  function chartDomain(chartGroup: SessionChartGroup) {
-    const values = chartGroup.fields.flatMap((field) => result?.columns[field.name]?.values ?? []);
-    return finiteDomain(values, chartGroup.axis);
-  }
-
   function chartTooltipEntries(chartGroup: SessionChartGroup, domain: NumericDomain) {
     return buildChartTooltipEntries(chartGroup, result?.columns, hiddenFields, inspectionMs, domain, {
       width: CHART_WIDTH,
@@ -285,7 +280,7 @@
     >();
 
     chartGroups.forEach((chartGroup) => {
-      const domain = chartDomain(chartGroup);
+      const domain = chartDomain(chartGroup, result?.columns, hiddenFields, visibleViewport, chartIntervals);
       const paths = new SvelteMap<string, string[]>();
       const bands = new SvelteMap<string, string[]>();
       if (domain) {
@@ -891,6 +886,7 @@
             {@const domain = chartModel?.domain ?? { min: 0, max: 1 }}
             {@const hasColumns = chartModel?.hasColumns ?? false}
             {@const hasFiniteValues = chartModel?.hasFiniteValues ?? false}
+            {@const allHidden = chartGroup.fields.every((field) => hiddenFields.has(field.name))}
             {@const yTicks = chartModel?.yTicks ?? []}
             {@const yTickLabels = chartModel?.yTickLabels ?? []}
             {@const zero = chartModel?.zero ?? null}
@@ -1132,7 +1128,8 @@
                   </div>
                 </div>
                 <p class="mt-1 min-h-4 text-xs text-muted">
-                  {#if !hasColumns}Loading readings…
+                  {#if allHidden}All lines hidden.
+                  {:else if !hasColumns}Loading readings…
                   {:else if !hasFiniteValues}No readings in this range.
                   {/if}
                 </p>

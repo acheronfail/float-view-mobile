@@ -22,7 +22,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         if (value.kind === 'series') {
           for (const column of Object.values(value.columns)) {
             Object.assign(column as object, {
-              elapsedMs: [0, 60000],
+              elapsedMs: [value.range.startElapsedMs, value.range.endElapsedMs],
               sequence: [1, 2],
               generations: [0, 0],
               values: [1, 2],
