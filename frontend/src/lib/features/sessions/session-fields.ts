@@ -1,4 +1,5 @@
 export type KnownSessionFieldName =
+  | 'refloat.data_recording'
   | 'packVoltageV'
   | 'dutyCycle'
   | 'motorLoad'
@@ -106,6 +107,12 @@ export interface SessionChartGroup {
  * Order of fields in the same group determines their order rendered on the chart.
  */
 export const sessionFieldMetadata = {
+  // Refloat's onboard diagnostic buffer status is independent of session recording.
+  'refloat.data_recording': {
+    displayName: 'Refloat diagnostic recording',
+    unit: '',
+    chartable: false,
+  },
   batteryLevel: {
     displayName: 'Controller-reported battery level',
     unit: '%',

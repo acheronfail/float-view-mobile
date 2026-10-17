@@ -83,7 +83,7 @@ describe('session chart field metadata', () => {
     ]);
   });
 
-  it('charts every stable field except the intentionally hidden booster contribution', () => {
+  it('charts every metadata field except those intentionally hidden', () => {
     const fields = Object.keys(sessionFieldMetadata).map((name) => ({ name }));
     const chartedNames = new Set(
       sessionChartGroups(fields).flatMap((group) => group.fields.map((field) => field.name))
@@ -101,6 +101,13 @@ describe('session chart field metadata', () => {
     expect(field.group).toBe('extensionLate');
     expect(field.displayName).toBe('extensionLate');
     expect(groups[0]?.fields).toHaveLength(1);
+  });
+
+  it('hides Refloat diagnostic recording from session charts while retaining other extensions', () => {
+    expect(sessionFieldIsChartable('refloat.data_recording')).toBe(false);
+    expect(
+      sessionChartGroups([{ name: 'refloat.data_recording' }, { name: 'extensionLate' }]).map((g) => g.id)
+    ).toEqual(['extensionLate']);
   });
 
   it('keeps duty cycle as a ratio while formatting it as a percentage', () => {
