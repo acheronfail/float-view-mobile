@@ -32,6 +32,14 @@ def apple_tool(*arguments, env, timeout=60):
                             capture_output=True, timeout=timeout)
     require(result.returncode == 0, "Apple tool failed; inspect the app/build status before retrying")
     require(len(result.stdout) + len(result.stderr) <= 4_194_304, "Apple tool output exceeded bounds")
+    # Some altool validation failures return exit zero with structured errors.
+    for stream in [result.stdout, result.stderr]:
+        try:
+            report = json.loads(stream)
+        except (ValueError, UnicodeDecodeError):
+            continue
+        require(not (isinstance(report, dict) and report.get("product-errors")),
+                "Apple reported product errors; inspect the app/build status before retrying")
     return (result.stdout + result.stderr).decode(errors="replace")
 
 

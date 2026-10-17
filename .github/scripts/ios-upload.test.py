@@ -215,6 +215,17 @@ class UploadTests(unittest.TestCase):
             self.assertEqual(api.bearer(), token)
             self.assertEqual(tool.call_count, 1)
 
+    def test_apple_structured_product_errors_fail_even_with_exit_zero(self):
+        from types import SimpleNamespace
+        for report in [{'product-errors':[{'message':'Validation failed'}]}, {'product-errors':[]}]:
+            result=SimpleNamespace(returncode=0,stdout=json.dumps(report).encode(),stderr=b'')
+            with patch.object(upload.subprocess,'run',return_value=result):
+                if report['product-errors']:
+                    with self.assertRaisesRegex(ValueError,'product errors'):
+                        upload.apple_tool('--validate-app','fixture.pkg',env={})
+                else:
+                    self.assertIn('product-errors',upload.apple_tool('--validate-app','fixture.pkg',env={}))
+
     def test_upload_readiness_and_host_guards_run_before_key_use(self):
         args = ["ios-upload.py", str(self.root), str(self.output), "--prior-receipts", str(self.prior)]
         hosted = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_OS": "macOS",
