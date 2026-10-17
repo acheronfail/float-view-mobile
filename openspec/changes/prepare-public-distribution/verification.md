@@ -26,6 +26,7 @@ existing Git history; this policy does not require rewriting earlier commits.
 | [iOS nightly 82 / run 38986380948](https://github.com/acheronfail/float-view-mobile/actions/runs/38986380948), [source fae1971](https://github.com/acheronfail/float-view-mobile/tree/fae1971b4f947215dad7ef962c6a1702686dae2a) | CI succeeded. Owner confirmed build 82 passed all scoped iOS device acceptance checks, including storage, Bluetooth/permissions, locked-screen recording, announcements, Live Activity, import/export and licence/browser navigation. | Sideload acceptance; detailed results remain local. Does not establish App Store signing, Apple processing or TestFlight-delivered behavior. |
 | [iOS local signed preflight / source fae1814](https://github.com/acheronfail/float-view-mobile/tree/fae1814f9696b56071755d33784f0e233cc34bac) | Distribution export, app/extension signatures/profiles/entitlements, corrected full notices, manifests, permission text, development-hook exclusion and anonymous exact-source comparison passed. Release iPad simulator rotation and browser resizing checks passed. | Local test number, not an upload allocation. Does not establish hosted candidate upload, Apple processing or TestFlight delivery; detailed artifacts stay local. |
 | [iOS candidate v1.0.0-rc.1, build 86 / run 38990541780](https://github.com/acheronfail/float-view-mobile/actions/runs/38990541780), [source fae1651](https://github.com/acheronfail/float-view-mobile/tree/fae16516d2565b59c747203e17712bc3affdd222) | Hosted signing/export and independent IPA validation passed: app/extension distribution signatures, profiles, entitlements, full notices, manifests, permission text, iPad orientations, source/build identity and development-hook exclusion. Anonymous exact-source comparison passed. All three sideload packages published as a separate GitHub prerelease. Protected Apple upload passed; matching receipt and independent API check confirm VALID processing and no non-exempt encryption. | Owner confirmed installation through TestFlight and all scoped iOS device checks passed. Settings shows the numeric v1.0.0 without the candidate suffix; the display correction needs a subsequent build. External beta review remains open. |
+| [iOS candidate v1.0.0-rc.2, build 88 / run 38992628964](https://github.com/acheronfail/float-view-mobile/actions/runs/38992628964), [source fae11a5](https://github.com/acheronfail/float-view-mobile/tree/fae11a5d0f1b1774e340ffcaad2e7c7280b381d8) | Hosted signing/export, independent IPA distribution/package checks, anonymous exact-source comparison, all sideload builds/publication and protected Apple upload/processing passed. The exact packaged frontend displays v1.0.0-rc.2 in Settings under WebKit. | Owner confirmed build 88 installed through TestFlight and Settings displays v1.0.0-rc.2. This packaging-only correction does not reopen unaffected BLE/background acceptance from build 86. Production and TestFlight hardware/video review notes are verified saved; remaining listing work and external beta review remain open. |
 
 ## Unpublished checks
 
@@ -35,14 +36,17 @@ brief result against the committed build after the relevant checks pass.
 
 ## Open release gates
 
-- Repeat package/source gates for each new candidate. Build 86 passes the hosted
+- Repeat package/source gates for each new candidate. Build 88 passes the hosted
   export and independent package/source checks.
 - Complete remaining console metadata and review materials. The owner confirmed
   completion of the iOS App Privacy questionnaire; private TestFlight contact
-  fields are configured. Beta text and review fields are saved; final content review and hardware review
-  evidence remain open before external beta review.
-- Owner-reported TestFlight device acceptance passed for build 86. Verify the
-  candidate-version display correction in a subsequent build. Upload readiness
+  fields are configured. Hardware details and video are verified in both
+  production and TestFlight review notes. Final listing/assets, account declarations and external beta
+  review remain open; detailed review materials stay local and in private
+  console fields.
+- Owner-reported TestFlight device acceptance passed for build 86; the scoped
+  candidate-version display check also passed through TestFlight in build 88.
+  Upload readiness
   remains enabled behind protected environment review; external beta review is
   still pending.
 - Complete remaining Android/Mac-specific tasks and the candidate-gated historical

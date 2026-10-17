@@ -272,19 +272,25 @@ keep detailed device results, video files and private links out of Git.
 
 ## Production listing draft
 
-Proposed copy for owner review, not a claim that these console fields are saved.
+Owner-approved copy, not a claim that these console fields are saved.
 Keep first-release screenshots and final categories/age rating as separate
 submission checks. Source: [Apple product-page guidance](https://developer.apple.com/app-store/product-page/).
 
-The pre-upload read-only console check found an iOS draft at version `1.0`,
-release after approval selected, and no description, keywords, support URL or
-screenshots saved. Align the production version to `1.0.0`, save the reviewed
-listing/assets and choose manual release before submitting for App Review.
-These production fields do not establish or block first-owner TestFlight delivery.
+Read-only console verification confirms the description/subtitle, Utilities
+category, support/privacy URLs, completed age questionnaire (Apple calculated
+4+), version `1.0.0` and manual release. Production and TestFlight reviewer
+contacts and hardware/video notes are saved. Build selection, final content-rights
+review and screenshot upload remain open. Availability and business completion
+are not established by this API verification.
+
+The Developer-role API key cannot edit these listing fields or beta review notes
+(HTTP 403). Enter remaining fields through the owner's App Store Connect session;
+keep the upload key scoped to its existing role. Private handoffs and hardware
+review materials remain local. Saving draft fields does not submit review.
 
 - Name: Float View
 - Subtitle: VESC telemetry and ride logs
-- Suggested primary category: Utilities; owner to confirm.
+- Primary category: Utilities (saved and independently verified).
 - Keywords: Refloat,Bluetooth,electric board,battery,controller,route,session
 - Support/privacy URLs: use the reviewed URLs above.
 
@@ -317,8 +323,9 @@ https://github.com/acheronfail/float-view-mobile
 - Confirm price, availability, agreements, banking/tax and applicable trader
   declarations privately in App Store Connect.
 - Review iPhone/iPad compatibility availability on Apple-silicon Macs before
-  public release. Decide whether to test and offer that build while the native
-  macOS store app is pending, or opt out in Pricing and Availability. This is a
+  public release. The owner selected opting out in Pricing and Availability
+  while the native macOS store app is pending; console state still needs owner
+  confirmation. This is a
   separate setting from publishing the native macOS app. See
   [Apple's Mac availability guide](https://developer.apple.com/help/app-store-connect/manage-your-apps-availability/manage-availability-of-iphone-and-ipad-apps-on-macs-with-apple-silicon/).
 - Complete the age-rating questionnaire from the actual app content. Board
@@ -329,6 +336,13 @@ https://github.com/acheronfail/float-view-mobile
   [Apple's age-rating guide](https://developer.apple.com/help/app-store-connect/manage-app-information/set-an-app-age-rating/).
 - Select manual production release and the accepted processed build when ready
   for App Review; candidate upload alone must not submit review or release the app.
+
+Eight labelled sample-data screenshot drafts are available in local readiness
+records for owner review: four views each at iPhone 1179 × 2556 and iPad
+2048 × 2732. They render the actual shared UI in WebKit with synthetic data;
+compare them with the native app and approve final assets before upload. No
+screenshots are recorded as saved in the console. Verify the console's current
+accepted slots against [Apple's screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/).
 
 ## Device acceptance procedure
 
