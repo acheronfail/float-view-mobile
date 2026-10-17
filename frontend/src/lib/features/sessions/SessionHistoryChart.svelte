@@ -149,7 +149,7 @@
     distance: number;
     ratio: number;
     pixelWidth: number;
-    startElapsedMs: number;
+    clientX: number;
   } | null = null;
   let gestureMode = $state<InteractionMode | null>(null);
   let gestureStartedAt: number | null = null;
@@ -566,7 +566,9 @@
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     const values = [...pointers.values()];
     const touchPointer = isTouchPointer(event);
-    const mode = rightMousePan ? 'pan' : interactionMode;
+    // Mouse hover already inspects; dragging selects a zoom range independently
+    // of the touch-only mode switch.
+    const mode = rightMousePan ? 'pan' : event.pointerType === 'mouse' ? 'zoom' : interactionMode;
     gestureMode = mode;
     gestureStartedAt ??= globalThis.performance?.now() ?? Date.now();
     panEdge = null;
@@ -595,7 +597,7 @@
         distance: 0,
         ratio: 0.5,
         pixelWidth: bounds.width,
-        startElapsedMs: start,
+        clientX: event.clientX,
       };
       if (mode === 'zoom') {
         selectionStartElapsedMs = start;
@@ -615,7 +617,7 @@
         distance,
         ratio,
         pixelWidth: bounds.width,
-        startElapsedMs: visibleViewport.startElapsedMs + ratio * span,
+        clientX: midpoint,
       };
       selectionStartElapsedMs = null;
       selectionEndElapsedMs = null;
@@ -663,10 +665,12 @@
       reportGesturePreview();
       return;
     }
-    const bounds = (event.currentTarget as SVGElement).getBoundingClientRect();
     if (mode === 'pan') {
-      const currentElapsedMs = elapsedAtClientX(values[0]!.x, bounds);
-      const requestedDelta = gestureStart.startElapsedMs - currentElapsedMs;
+      // Use the original scale throughout the drag; the preview viewport moves
+      // with the pointer and must not feed back into the next delta.
+      const requestedDelta =
+        ((gestureStart.clientX - values[0]!.x) / Math.max(1, gestureStart.pixelWidth)) *
+        (gestureStart.viewport.endElapsedMs - gestureStart.viewport.startElapsedMs);
       previewViewport = panViewport(gestureStart.viewport, requestedDelta, duration);
       panEdge =
         requestedDelta < 0 && previewViewport.startElapsedMs === 0
@@ -678,6 +682,7 @@
       return;
     }
     if (mode === 'zoom') {
+      const bounds = (event.currentTarget as SVGElement).getBoundingClientRect();
       selectionEndElapsedMs = elapsedAtClientX(values[0]!.x, bounds);
       reportGesturePreview();
     }
@@ -1164,52 +1169,40 @@
       {/each}
     </div>
   {:else if !loading && !filterByMap}<p class="mt-2 text-sm text-muted">No recorded readings available.</p>{/if}
-
-  {#if !touchDevice && isZoomed}
-    <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
-      <div class="flex gap-2">
-        <button
-          type="button"
-          class="rounded-lg bg-accent px-4 py-2 text-on-accent"
-          disabled={filterByMap}
-          title={filterByMap ? 'Map controls the chart range' : 'Reset chart zoom'}
-          onpointerdown={(event) => activateFromPointer(event, reset)}
-          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, reset)}>Reset Zoom</button
-        >
-      </div>
-    </div>
-  {/if}
 </div>
 
-{#if touchDevice}
+{#if touchDevice || isZoomed}
   <div class="fixed right-4 bottom-4 z-20 flex flex-col items-center gap-2">
     {#if isZoomed}
       <button
         type="button"
-        class="flex size-14 touch-manipulation flex-col items-center justify-center rounded-full border border-outline bg-accent text-[10px] font-bold tracking-[0.12em] text-on-accent uppercase shadow-xl"
+        class="flex size-14 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-full border border-outline bg-accent text-[10px] font-bold tracking-[0.12em] text-on-accent uppercase shadow-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
         aria-label="Reset chart zoom"
         disabled={filterByMap}
         title={filterByMap ? 'Map controls the chart range' : 'Reset chart zoom'}
         onpointerdown={(event) => activateFromPointer(event, reset)}
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, reset)}
       >
+        <Icon name="rotate-cw" class="size-5" />
         <span aria-hidden="true">Reset</span>
       </button>
     {/if}
 
-    <button
-      type="button"
-      class="chart-mode flex size-14 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-full border border-current text-[10px] font-bold tracking-[0.12em] uppercase shadow-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-      data-mode={interactionMode}
-      aria-label={`Chart mode: ${interactionMode}. Switch to ${nextInteractionMode()} mode`}
-      title={filterByMap ? 'Map controls the chart range' : `Switch to ${nextInteractionMode()} mode`}
-      disabled={filterByMap}
-      onpointerdown={(event) => activateFromPointer(event, cycleInteractionMode)}
-      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, cycleInteractionMode)}
-    >
-      <Icon name={MODE_ICONS[interactionMode]} class="size-5" />
-      <span aria-hidden="true">{interactionMode}</span>
-    </button>
+    {#if touchDevice}
+      <button
+        type="button"
+        class="chart-mode flex size-14 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-full border border-current text-[10px] font-bold tracking-[0.12em] uppercase shadow-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+        data-mode={interactionMode}
+        aria-label={`Chart mode: ${interactionMode}. Switch to ${nextInteractionMode()} mode`}
+        title={filterByMap ? 'Map controls the chart range' : `Switch to ${nextInteractionMode()} mode`}
+        disabled={filterByMap}
+        onpointerdown={(event) => activateFromPointer(event, cycleInteractionMode)}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, cycleInteractionMode)}
+      >
+        <Icon name={MODE_ICONS[interactionMode]} class="size-5" />
+        <span aria-hidden="true">{interactionMode}</span>
+      </button>
+    {/if}
   </div>
 {/if}
 

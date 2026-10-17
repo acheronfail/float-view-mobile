@@ -250,7 +250,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           assert.ok(box);
           await svg.hover({ position: { x: box.width * 0.25, y: box.height / 2 } });
           await page
-            .locator('svg line[stroke-dasharray="3 2"]')
+            .locator('[data-history-inspection]')
             .first()
             .waitFor({ state: 'attached' })
             .catch(async (error) => {
