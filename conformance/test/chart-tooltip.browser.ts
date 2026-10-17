@@ -11,7 +11,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     const endpoint = getMockBootstrap(port);
     const browser = await engine.launch();
     try {
-      const page = await browser.newPage({ viewport: { width: 1100, height: 760 } });
+      const page = await browser.newPage({ viewport: { width: 1100, height: 760 }, deviceScaleFactor: 2 });
       page.setDefaultTimeout(5000);
       if (name === 'chromium')
         await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
@@ -41,8 +41,18 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.waitForFunction(() =>
         document.querySelector('svg[aria-label="Current over elapsed time"] path[stroke]')
       );
+      await page.mouse.move(0, 0);
+      const chartBox = (await chart.boundingBox())!;
+      // Round outward so screenshot clipping retains the last column on fractional layouts.
+      const clip = {
+        x: Math.floor(chartBox.x),
+        y: Math.floor(chartBox.y),
+        width: Math.ceil(chartBox.x + chartBox.width) - Math.floor(chartBox.x),
+        height: Math.ceil(chartBox.y + chartBox.height) - Math.floor(chartBox.y),
+      };
+      const baseline = (await page.screenshot({ clip })).toString('base64');
       // Enter/leave both ends of a short segment and cross an internal gap.
-      for (const ratio of [0.3, 0.1, 0.3, 0.5, 0.7, 0.9, 0.7, 0.5]) {
+      for (const ratio of [0.3, 0.1, 0.3, 0.5, 0.7, 0.9, 0.7, 0.5, 0.0001, 0.9999]) {
         const box = (await chart.boundingBox())!;
         await page.mouse.move(box.x + box.width * ratio, box.y + box.height / 2);
         await page.waitForFunction(
@@ -59,9 +69,55 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(await cursor.count(), 1, 'one cursor spans the entire plot');
         const bounds = (await cursor.boundingBox())!;
         assert.ok(Math.abs(bounds.y - box.y) < 1 && Math.abs(bounds.height - box.height) < 1);
+        assert.equal(await cursor.evaluate((node) => getComputedStyle(node).left), '0px');
+        assert.match(await cursor.evaluate((node) => getComputedStyle(node).transform), /^matrix3?d?\(/);
         const hasReading = ratio === 0.3 || ratio === 0.7;
         assert.equal(await plot.getByRole('status').count(), hasReading ? 1 : 0);
         assert.equal((await plot.locator('[data-history-point]').count()) > 0, hasReading);
+        if (!hasReading) {
+          // Bounds alone pass even when WebKit paints the cursor in two pieces.
+          const hovered = (await page.screenshot({ clip })).toString('base64');
+          const paint = await page.evaluate(
+            async ({ baseline, hovered, ratio }) => {
+              const decode = async (base64: string) => {
+                const image = new Image();
+                image.src = `data:image/png;base64,${base64}`;
+                await image.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext('2d')!;
+                context.drawImage(image, 0, 0);
+                return context.getImageData(0, 0, image.width, image.height);
+              };
+              const before = await decode(baseline);
+              const after = await decode(hovered);
+              const bands = Array.from({ length: 12 }, () => false);
+              let strayPixels = 0;
+              for (let y = 0; y < after.height; y++) {
+                for (let x = 0; x < after.width; x++) {
+                  const offset = (y * after.width + x) * 4;
+                  if (
+                    ![0, 1, 2].some(
+                      (channel) => Math.abs(before.data[offset + channel]! - after.data[offset + channel]!) > 24
+                    )
+                  )
+                    continue;
+                  if (Math.abs(x - ratio * after.width) <= 6)
+                    bands[Math.min(11, Math.floor((y / after.height) * 12))] = true;
+                  else strayPixels++;
+                }
+              }
+              return { bands, strayPixels };
+            },
+            { baseline, hovered, ratio: (box.x - clip.x + box.width * ratio) / clip.width }
+          );
+          assert.ok(
+            paint.bands.every(Boolean),
+            `cursor paints at the hovered x throughout its height at ${ratio}: ${JSON.stringify(paint)}`
+          );
+          assert.equal(paint.strayPixels, 0, 'no stale cursor fragments remain elsewhere in the plot');
+        }
       }
       await page.mouse.move(0, 0);
       await plot.locator('[data-history-inspection]').waitFor({ state: 'detached' });

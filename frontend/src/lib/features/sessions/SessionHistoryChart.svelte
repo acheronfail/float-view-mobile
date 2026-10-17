@@ -1042,15 +1042,17 @@
                         />
                       {/if}
                     </svg>
-                    <!-- A separate composited overlay avoids partial SVG repaints in WebKit
-                         when the tooltip disappears as inspection crosses a data gap. -->
+                    <!-- Move the whole overlay with a compositor transform. Updating left
+                         can leave partially repainted cursors in WebKit across data gaps.
+                         Clip the full-width layer so it cannot widen the scroll area. -->
                     {#if inspectionVisible}
-                      <span
-                        data-history-inspection
-                        aria-hidden="true"
-                        class="pointer-events-none absolute inset-y-0 w-0 transform-gpu border-l border-dashed border-accent"
-                        style:left={`${(axis.ratioAt(inspectionMs) ?? 0) * 100}%`}
-                      ></span>
+                      <span aria-hidden="true" class="pointer-events-none absolute inset-0 overflow-hidden">
+                        <span
+                          data-history-inspection
+                          class="absolute inset-0 border-l border-dashed border-accent will-change-transform"
+                          style:transform={`translate3d(min(${(axis.ratioAt(inspectionMs) ?? 0) * 100}%, calc(100% - 1px)), 0, 0)`}
+                        ></span>
+                      </span>
                     {/if}
                     <!-- Keep dots in CSS pixels: the plot SVG stretches each axis independently. -->
                     {#each tooltipEntries as entry (entry.field.name)}
