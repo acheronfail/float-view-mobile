@@ -22,6 +22,10 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     showFrontend()
   }
 
+  @objc func openHelp(_: Any?) {
+    NSWorkspace.shared.open(URL(string: "https://github.com/acheronfail/float-view-mobile#readme")!)
+  }
+
   func applicationDidBecomeActive(_: Notification) {
     runtime?.setForeground(true)
   }
