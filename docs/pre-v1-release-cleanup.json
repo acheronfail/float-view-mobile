@@ -1,5 +1,5 @@
 {
-  "status": "planned; do not apply until candidate checks pass",
+  "status": "applied; deletion and preservation verified; workflow restored; fresh nightly publication pending",
   "repository": "acheronfail/float-view-mobile",
   "capturedAt": "2026-10-17T09:48:04+10:30",
   "preserve": [
@@ -1166,5 +1166,33 @@
     "delete selected releases/assets and local/remote tags only; never rewrite commits",
     "preserve rolling Nightly and verify remaining refs",
     "re-enable workflow and verify next nightly"
-  ]
+  ],
+  "execution": {
+    "startedAt": "2026-10-17T06:09:42.699212+00:00",
+    "finishedAt": "2026-10-17T06:10:49.042373+00:00",
+    "removedReleaseCount": 49,
+    "removedAssetCount": 70,
+    "removedRemoteTagCount": 50,
+    "removedLocalTagCount": 51,
+    "preservedReleaseTags": [
+      "v1.0.0-rc.6",
+      "v1.0.0-rc.5",
+      "v1.0.0-rc.4",
+      "v1.0.0-rc.3",
+      "v1.0.0-rc.2",
+      "v1.0.0-rc.1",
+      "v1.0.0-nightly.653.gfae18a56b0ad"
+    ],
+    "verified": true,
+    "workflowRestored": true,
+    "freshNightlyPublicationVerified": false,
+    "postCleanupWorkflow": {
+      "url": "https://github.com/acheronfail/float-view-mobile/actions/runs/39009005958",
+      "conclusion": "success",
+      "source": "fae18a56b0ad7a92b24e93111bbd94cd08d5b482",
+      "nightlyVersion": "v1.0.0-nightly.653.gfae18a56b0ad",
+      "unchangedSourceSkipped": true,
+      "storeJobsSkipped": true
+    }
+  }
 }

@@ -3,6 +3,7 @@
 FloatView-*.ipa
 FloatView-*.apk
 .local/android-signing/
+.local/android-store/
 .local/macos-signing/
 .local/ios-store/
 .local/physical-testing/

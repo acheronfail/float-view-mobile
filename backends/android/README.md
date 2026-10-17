@@ -70,8 +70,9 @@ ducking/restoration, real headset routes or locked-screen BLE delivery.
 
 ## GitHub Actions APK builds
 
-The [app workflow](../../.github/workflows/build-apps.yml) builds a signed Debug APK
-on Ubuntu for every push to `master` and manual run. It builds the shared
+The [app workflow](../../.github/workflows/build-apps.yml) builds a signed APK
+on Ubuntu: Debug for ordinary master/nightly runs and Release for stable or
+numbered candidate tags. It builds the shared
 frontend and packages the Rust runtime for all four supported ABIs using Java 17,
 API 36, NDK `28.2.13676358` and the repository-pinned Rust toolchain. Locked Cargo
 dependencies are fetched before Gradle's offline Rust build. CI caches Gradle's
@@ -82,18 +83,18 @@ state from that cache to reduce transfer overhead. Local builds retain their
 usual incremental settings. A new cache format or dependency set needs a cold
 build before later runs benefit.
 
-Successful pushes publish `FloatView-build-<ten-digit run number>.apk` alongside
-the IPA and macOS app in the same numbered GitHub release after all three builds
-succeed. Manual runs build all three platforms without publishing a release:
-select **Actions → Build apps → Run workflow**, then download
-`FloatView-apk-<run number>` from the run summary. Workflow artifacts are retained
+Successful publishing runs retain the versioned `FloatView-<version>.apk`
+alongside the IPA and macOS app after all three sideload builds succeed.
+Master builds use the rolling Nightly; stable/candidate tags use their own
+releases. Manual run behavior follows the selected ref and release inputs;
+download build artifacts from the run summary. Workflow artifacts are retained
 for 14 days.
 
 The APK can be sideloaded on Android 10/API 29 or newer. CI signs every published
 APK with the same persistent key, allowing subsequent CI builds to update the app
-without removing local data. These remain Debug builds. Locally built APKs use
-the local debug key and cannot replace a CI installation unless signed with the
-same CI key.
+without removing supported local data. Locally built Debug APKs use the local
+debug key and cannot replace a CI installation unless signed with the same
+official key.
 
 Repository Actions secrets `ANDROID_SIGNING_KEYSTORE_BASE64` (base64-encoded
 PKCS12 keystore) and `ANDROID_SIGNING_PASSWORD` (both store and key password)
@@ -103,6 +104,11 @@ keystore after signing. Keep a secure backup of the keystore and password;
 GitHub secret values cannot be downloaded later. The local provisioning backup
 is in the ignored `.local/android-signing/` directory. Do not rotate this key
 casually: a different key prevents ordinary updates to existing installations.
+
+The planned Play enrollment uses a separate upload key while retaining the
+official app-signing identity.
+See [Android distribution signing](../../docs/android-distribution.md) for
+enrollment, custody and the pending store-delivered replacement checks.
 
 ## Ride notifications and Live Updates
 

@@ -49,9 +49,26 @@ brief result against the committed build after the relevant checks pass.
   Upload readiness
   remains enabled behind protected environment review; external beta review is
   still pending.
-- Complete remaining Android/Mac-specific tasks and the candidate-gated historical
-  release cleanup. No historical release/tag deletion or stable v1.0.0 tagging
-  has been performed as part of this checkpoint.
+- Complete remaining Android/Mac-specific tasks. The approved historical v0
+  release/tag cleanup is applied and preservation verified; fresh nightly
+  publication remains to be checked. No stable v1.0.0 tag was created.
 
 The implementation checklist is 8/38 complete. Local checks do not close
 cross-platform tasks or external submission gates.
+
+## Historical development release cleanup
+
+Applied the exact [cleanup manifest](../../../docs/pre-v1-release-cleanup.json)
+with Build apps disabled and no active runs: 49 releases/70 assets, 50 remote
+tags and 51 local tags removed. All six v1.0.0 candidate releases/tags, the
+rolling Nightly/assets, other refs and HEAD commit history were preserved.
+Build apps is active again. Fresh nightly publication remains an explicit check;
+this cleanup does not establish Android Play or Mac App Store readiness.
+
+[Post-cleanup master run 39009005958](https://github.com/acheronfail/float-view-mobile/actions/runs/39009005958)
+passed release-tooling checks and resolved the preserved nightly version with
+store signing/upload disabled. Since that source already had complete Nightly
+assets, packaging/publication correctly skipped. All 28 focused local version
+and distribution tests passed, including cleanup/count continuity. A fresh
+nightly from the next source push remains pending; unchanged-source reuse is
+not evidence of a newly published artifact set.
