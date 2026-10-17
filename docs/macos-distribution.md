@@ -160,10 +160,16 @@ manifest and icon. The Mac build is assigned to the owner's internal TestFlight
 group. Detailed receipts, hashes, screenshots and extracted evidence remain local.
 
 The [Mac source/API and map audit](macos-distribution-audit.md) is implemented and
-verified in that signed candidate. Still required: TestFlight installation/runtime
-acceptance, optional location and speech checks, actual direct/store transfer
-checks, final Mac listing/screenshot completion and owner-controlled review/release.
-Apple processing does not establish physical runtime or App Review acceptance.
+verified in that signed candidate. The owner confirmed the requested Mac
+TestFlight installation/runtime checks passed for build 106. Detailed physical
+results stay local. The owner completed the Mac listing and six screenshots;
+read-only verification confirms all six processed, Utilities, a 4+ age rating,
+privacy/support URLs, review-contact presence and manual release. Before review,
+remove iOS-only Live Activities claims from the description/review notes, supply
+a Mac hardware demonstration, and select the final production build. The saved
+video currently demonstrates iPhone hardware interaction. Pricing/availability
+require owner verification because the Developer API key cannot read them. The
+owner will handle stable release and submission; neither has occurred.
 
 ## Shared protected Apple upload
 

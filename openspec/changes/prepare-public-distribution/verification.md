@@ -53,7 +53,7 @@ brief result against the committed build after the relevant checks pass.
   release/tag cleanup and subsequent fresh nightly publication are verified.
   No stable v1.0.0 tag was created.
 
-The implementation checklist is 10/38 complete. Local checks do not close
+The implementation checklist is 13/38 complete. Local checks do not close
 cross-platform tasks or external submission gates.
 
 ## Historical development release cleanup
@@ -163,4 +163,19 @@ receipts are retained locally. The downloaded Mac PKG independently passed the
 signature/profile/entitlement/resource/source audit, including the corrected
 non-root permissions. Its internal TestFlight group contains build 106. The
 ordinary master run still skipped all store signing/upload jobs with readiness
-enabled. Store-delivered physical acceptance and production review remain open.
+enabled. The owner subsequently confirmed the requested Mac TestFlight checks
+passed for build 106. This is owner-reported physical acceptance; detailed results
+remain local. Production review and remaining platform checks remain open.
+
+
+## Mac listing handoff
+
+The owner completed the Mac listing and six desktop screenshots. Read-only
+verification confirms all six assets processed, Utilities, 4+, privacy/support
+URLs, review-contact presence and manual release. No production build is selected.
+The description/review notes still include iOS-only Live Activities wording; the
+hardware video currently demonstrates the iPhone app. Corrected copy and private
+handoff remain ignored locally. Mac video, final build selection, owner-only
+pricing/availability confirmation and production submission remain with the
+owner, who explicitly requested holding stable release/submission. No stable tag
+or App Review submission was created.
