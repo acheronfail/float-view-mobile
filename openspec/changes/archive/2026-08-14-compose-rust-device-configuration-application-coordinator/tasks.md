@@ -35,10 +35,12 @@
 
 ## Verification Evidence
 
-- Focused Rust evidence passed: `connection-application-coordinator` 6 unit, 9 adversarial, 7 composition, and 2 lifecycle-vector tests; `device-mutation-coordinator` 2 unit, 13 adversarial, and 1 lifecycle-vector test; `refloat-configuration-service` 1 unit, 3 adversarial, and 4 service tests.
-- Formatting, warnings-denied workspace linting, the three focused ownership/copied-logic/bridge audits, strict OpenSpec validation, native-host diff isolation, and `git diff --check` passed.
-- The complete escalated `just verify` gate exited 0 with both native application owners still selected, including frontend, Rust workspace, Android, Apple/macOS, iOS simulator/device, ABI, black-box conformance, and repository audits.
-- macOS passed all 16 ESP32 scenarios on `/dev/cu.usbmodem111401`: identity, direct, direct legacy, direct/CAN control and configuration, all shutdown cases, routing/ambiguity, all BMS cases, ride, and unexpected-disconnect recovery. One initial pre-assertion identity connection dropped and the clean full retry passed.
-- Android device `1cfb7634120d7ece` passed all 17 scenarios, including background BLE/session persistence and foreground recovery, across resumable runner shards. Five ESP32 `ADVERTISE_FAILED` restarts occurred before BLE connection while the backend remained healthy and scanning; every affected scenario passed after a clean fixture teardown.
-- iOS device `00008101-00195021268B001E` passed the first 16 scenarios in one run. In `background`, the lifecycle XCTest itself passed with zero failures, and BLE telemetry remained continuous for more than 140 seconds and 310 fixture responses; only the known parent `xcodebuild` lifecycle process failed to exit before the 120-second harness bound and was interrupted during cleanup.
-- `FLOAT_VIEW_DEFER_PHYSICAL_LOCATION=1` deferred only automated location authorization/fix acquisition on Android and iOS, as requested. Background lifecycle recovery, continuous BLE telemetry, session growth, and persistence boundaries remained asserted and passed.
+
+Software verification passed. Applicable macOS/Android fixture checkpoints and iOS foreground scenarios passed; iOS background BLE/session observations passed.
+Mobile location acquisition remained deferred. Where the iOS XCTest passed but its parent process timed out, the parent run is not recorded as a clean pass.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae1953f](https://github.com/acheronfail/float-view-mobile/commit/fae1953f9f9bcf026dae0bdf1b159c6566790e35)
+(historical record, not a verified binary hash).

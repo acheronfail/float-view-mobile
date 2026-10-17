@@ -31,7 +31,12 @@
 
 ## Verification Evidence
 
-- Focused coordinator, Refloat telemetry, and VESC BMS tests passed together; the coordinator contributed 15 unit, vector, and adversarial tests, and the dependency/isolation audit passed.
-- `just verify` passed with the native Apple and Android application owners unchanged.
-- The ESP32 matrix passed all 16 macOS scenarios and all 17 Android scenarios. Android location acquisition produced no sample during the bounded dwell and remains deferred to manual verification.
-- iOS passed all 16 non-background scenarios. Its focused background XCTest passed in 0.608 seconds while the fixture observed more than 310 telemetry responses in the background; location acquisition remains deferred. The already-passed XCTest parent then exhibited the documented `xcodebuild` exit hang, so the retained evidence is the XCTest result and continuous fixture traffic rather than the parent exit status.
+
+Software verification passed. Applicable macOS/Android fixture checkpoints and iOS foreground scenarios passed; iOS background BLE/session observations passed.
+Mobile location acquisition remained deferred. Where the iOS XCTest passed but its parent process timed out, the parent run is not recorded as a clean pass.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae10028](https://github.com/acheronfail/float-view-mobile/commit/fae10028ad5abb26cc2f415d19ad8012470e7e34)
+(historical record, not a verified binary hash).

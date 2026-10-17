@@ -54,21 +54,12 @@ Android runs were sequential.
 
 ## Physical checkpoint remains incomplete
 
-The user identified `/dev/cu.usbmodem101` as the ESP32 fixture and authorized
-deleting the existing Android app to resolve an incompatible signing certificate.
-The old app and its local data were removed and the current Debug build installed.
 
-The scoped Android auto-connect scenario successfully initialized the fixture and
-started real Bluetooth discovery, but the phone did not discover the expected
-`FloatView Test VESC` advertisement within the bounded discovery attempts. It
-observed another UART discovery; no fixture connection or automatic reconnection
-was established. The run failed rather than claiming physical success.
+The scoped Android auto-connect fixture run failed to discover the expected
+advertisement within its bounded attempts. No fixture connection or automatic
+reconnection was established; cleanup completed without actuation.
 
-Fixture cleanup sent RESET, observed READY, turned the diagnostic LED off, closed
-serial, stopped the app, and removed loopback forwarding. No controller control,
-configuration write, shutdown, or motor actuation was performed.
-
-iOS physical devices were reported unavailable by device discovery. Physical
-macOS activation/window behavior, first-use permission presentation, and the
-remaining Android/iOS BLE lifecycle cases are unverified. Task 5.3 stays open;
-this change must not be archived as fully verified yet.
+iOS hardware was unavailable. macOS activation, first-use permission presentation
+and remaining mobile lifecycle cases are unverified. Task 5.3 remains open.
+Detailed device results and execution/setup history are retained locally under
+`.local/physical-testing/`; this is not physical acceptance.

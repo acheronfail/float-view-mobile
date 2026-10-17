@@ -93,11 +93,10 @@ An extra sandboxed whole-workspace Rust test invocation hit loopback bind
 restrictions; the same transport tests passed inside the approved full gate.
 The final focused backend-service run passed all 26 tests without network access.
 
-macOS physical acceptance passed six selected scenarios: identity, guest, direct,
-control-direct, control-can and unexpected-disconnect. Both write routes included
-configuration readback/restoration. Initial second-launch radio initialization
-stayed unknown; a clean full retry passed. Actual first-write evidence was
-with-response, negotiated 512, shared cap 244. Android and iOS subsequently passed their seven selected checkpoints, including background continuity. Final generation-qualified disconnect regressions passed on all three hosts. Fixture-side maximum write measurements were 244 bytes on macOS/iOS and 20 on Android. Full reports and explicit coverage limits are in `conformance/physical-checkpoints/2026-09-29-share-ble-transport-policy.md`.
+Selected physical BLE checkpoints and final cancellation regressions passed on
+all hosts. See the [historical summary](../../../../conformance/physical-checkpoints/2026-09-29-share-ble-transport-policy.md)
+for scope and limits. Detailed run reports are retained locally.
+
 
 ## Requirement evidence
 

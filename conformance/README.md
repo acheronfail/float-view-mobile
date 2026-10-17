@@ -151,8 +151,11 @@ unavailable; do not replace them with weaker software assertions. The ESP32
 firmware stays a byte bridge—scenario composition and VBMS interpretation remain
 in this directory.
 
-Retained observations live under `physical-checkpoints/`. The Thor301/VBMS32
-capture is recorded in `physical-checkpoints/2026-08-06-thor301-vbms32.md`.
+Reusable procedures and brief historical outcomes live under
+[`physical-checkpoints/`](physical-checkpoints/README.md), including the
+Thor301/VBMS32 compatibility summary. Keep detailed device results and raw
+reports under ignored `.local/physical-testing/`; do not commit completed
+local result templates.
 
 `npm run direct` runs the canonical suite against the production Rust service
 constructor with conformance-owned protocol simulation and synthetic OS facts.
@@ -194,6 +197,10 @@ measurements were found in the repository during the 2026-09-30 implementation.
 These synthetic results establish deterministic stability and accounting, not
 measured absolute SOC accuracy. Initial 30-second smoothing/settling and
 120-second correction constants remain unchanged; no empirical tuning is claimed.
+
+`npm run measure` writes its synthetic performance report to ignored
+`.local/physical-testing/software-measurements.json` by default. Pass an explicit
+local output filename as its argument when retaining separate runs.
 
 ## Auto-connect checkpoint
 

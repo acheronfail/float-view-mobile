@@ -1,5 +1,8 @@
 # Refloat configuration physical checkpoint
 
+Copy this template to ignored `.local/physical-testing/` and fill it in there.
+Do not commit completed device records or raw evidence.
+
 Date: YYYY-MM-DD  
 Native target: Apple or Android, device/build identifier  
 BLE fixture: ESP32 serial identifier  

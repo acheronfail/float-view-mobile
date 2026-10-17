@@ -29,7 +29,7 @@ Cross-owner and native-decoder tests remain in `../test/`.
 Flash the fixture firmware, then run these in separate terminals:
 
 ```sh
-just fixture dev /dev/cu.usbmodemXXXX
+just fixture dev <fixture-port>
 just dev macos
 ```
 

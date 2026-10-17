@@ -10,7 +10,7 @@ const output =
   process.argv[2] ??
   resolve(
     import.meta.dirname,
-    '../../openspec/changes/performance-session-visualisations/evidence/software-measurements.json'
+    '../../.local/physical-testing/software-measurements.json'
   );
 
 const source: ReferenceSample[] = Array.from({ length: SAMPLE_COUNT }, (_, index) => ({

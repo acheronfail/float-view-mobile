@@ -77,20 +77,17 @@ or create a tag; protected CI delivery is described separately below.
 
 ### Account and signing setup
 
-Apple Developer membership is confirmed. On 2026-10-17 the owner installed Xcode
-26.0, registered the two identifiers below and created an Apple Distribution
-certificate. The owner also confirmed creating the iOS App Store Connect record.
-Automatic provisioning and a local signed archive/App Store export have been
-verified for both bundles. A separate manual-profile archive/export has also
-passed with the portal-created profiles intended for CI. Protected uploads and
-TestFlight processing remain pending.
+Configure the publishing account, app record and signing identities before
+archiving. Keep account enrollment and credential provisioning history local.
+See the [release verification summary](../../openspec/changes/prepare-public-distribution/verification.md)
+for completed build checks; signing/export success is not TestFlight acceptance.
 
 1. Install a supported [Xcode release](https://developer.apple.com/xcode/resources/).
    [Apple currently requires Xcode 26+ and the iOS 26+ SDK](https://developer.apple.com/news/upcoming-requirements/?id=04282026a)
    for uploads. The deployment target remains iOS/iPadOS 17; building with a newer
    SDK does not require raising that target. Set `DEVELOPER_DIR` for individual
-   commands if keeping multiple Xcode installations; the owner installed 26.0 at
-   `/Applications/Xcode-26.0.0.app`, so use
+   commands if keeping multiple Xcode installations. For example, if installed at
+   `/Applications/Xcode-26.0.0.app`, use
    `export DEVELOPER_DIR=/Applications/Xcode-26.0.0.app/Contents/Developer`.
 2. In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list),
    select the publishing team and register two **explicit App IDs**, after checking
@@ -205,10 +202,9 @@ A rerun keeps its native number. Use a new workflow run for corrected binaries;
 the delivery job queries Apple before considering a retry of that number.
 
 Configure [the repository's environments](https://github.com/acheronfail/float-view-mobile/settings/environments)
-before enabling this job. The `ios-store-signing` environment was created with
-owner review and a tag-only `v*` deployment policy. The preparation and Python
+before enabling this job. Use owner review and a tag-only `v*` deployment policy
+for `ios-store-signing`. The preparation and Python
 validators additionally require an exact stable `vX.Y.Z` ref, excluding nightlies.
-The owner configured the signing secrets and readiness; the first hosted signing/export passed on 2026-10-17.
 Keep its secrets scoped to that environment. The job refuses to proceed until environment variable
 `IOS_STORE_SIGNING_READY` is `true`; set it only after protection and secrets
 are configured. The existing repository `APPLE_TEAM_ID` variable is reused.
@@ -284,9 +280,8 @@ key; signing and sideload jobs do not receive it. A Developer-role team key can
 access the team's apps, so keep its one-time `.p8` download and backups private.
 Store `ASC_API_PRIVATE_KEY_BASE64` as an environment secret and `ASC_API_KEY_ID`,
 `ASC_API_ISSUER_ID`, and the numeric `ASC_APP_ID` as environment variables.
-The repository's `APPLE_TEAM_ID` is reused. Live authentication, exact-app lookup
-and consumed-number queries passed in build 77, attempt 2, on 2026-10-17.
-Upload readiness remains disabled.
+The repository's `APPLE_TEAM_ID` is reused. Validate authentication, exact-app
+lookup and consumed-number queries with a read-only delivery check before upload.
 
 For an existing stable release, request a fresh candidate and read-only check
 using its actual tag (replace `vX.Y.Z`):
@@ -573,11 +568,9 @@ The shared Rust service owns load/speed eligibility and timing. The service-owne
 installed system voice, leaving the utterance voice unset for the system default.
 The default reported to apps may differ from the Spoken Content selection; voices
 must be downloaded and exposed by iOS to be available to this adapter.
-iOS and macOS do not expose the Voice settings action. On iOS 18.7.8, the tested
-undocumented Settings links only launched Settings without navigating when it was
-not already open; apparent navigation was retained Settings state. The UI includes
-the manual Spoken Content (Read & Speak) → Voices path and download instructions.
-The connected iPhone audibly used Lee after its download completed.
+iOS and macOS do not expose the Voice settings action. Use the manual Spoken
+Content (Read & Speak) → Voices path and download instructions; undocumented
+Settings links do not reliably navigate to the required screen.
 iOS declares background audio and uses a short playback voice-prompt session per
 utterance. “Lower other audio while speaking” selects
 ducking/spoken-content interruption or mix-only behavior; all terminal paths
@@ -587,9 +580,9 @@ Calls, route changes and unavailable audio can skip an announcement; successful
 call playback is not guaranteed. The main-queue adapter owns one injected
 `SpeechDriver` boundary for deterministic engine/session failure tests; the native
 driver retains AVSpeechSynthesizer and iOS audio-session calls. Tests establish
-resource cleanup, not audible behavior on every player or route. Completed phone
-observations and optional user-owned manual checks are retained in conformance
-physical-checkpoint evidence.
+resource cleanup, not audible behavior on every player or route. Brief phone
+outcomes and reusable procedures are retained in conformance physical-checkpoint
+summaries; detailed device results remain local.
 
 Foreground auto-connect uses the existing OS foreground facts: iOS scene
 activation/background and macOS application activation/deactivation. Closing a

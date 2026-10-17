@@ -25,6 +25,12 @@
 
 ## Verification Evidence
 
-- 2026-08-14: Android physical conformance passed all 17 scenarios against `/dev/cu.usbmodem111401` on connected device `1cfb7634120d7ece`. Rapid consecutive fixture resets exposed an ESP32 advertise/termination race, so affected scenarios were rerun in isolated clean harness invocations. Background BLE/session assertions passed; location was authorized and available but produced no sample during the bounded dwell, so location persistence remains deferred.
-- 2026-08-14: macOS physical conformance passed all 16 applicable scenarios against the same ESP32 fixture in one run.
-- 2026-08-14: iOS physical conformance passed all 16 foreground scenarios against the same fixture on connected device `00008101-00195021268B001E`. During the isolated background checkpoint, location authorization acquisition exceeded its bounded wait and remains deferred; `FloatViewLifecycleTests.testBackground` passed in 0.568 seconds and production BLE telemetry continued from response 160 through response 430 while backgrounded. The already-documented `xcodebuild` parent-process hang then reached the harness timeout after XCTest success, so the passed XCTest and continuous fixture evidence are recorded as the non-location background result.
+
+Applicable macOS/Android fixture checkpoints and iOS foreground scenarios passed; iOS background BLE/session observations passed.
+Mobile location acquisition remained deferred. Where the iOS XCTest passed but its parent process timed out, the parent run is not recorded as a clean pass.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae18c7d](https://github.com/acheronfail/float-view-mobile/commit/fae18c7d10fb0556015b48d886655c8c46246d6e)
+(historical record, not a verified binary hash).

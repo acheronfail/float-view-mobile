@@ -12,11 +12,10 @@ exports retain a service-issued lease until the scoped destination copy closes
 or the native picker is dismissed. Neither native host imports catalog SQL.
 
 Android canonical software conformance passed at revision 691, including Activity
-recreation. Linked JVM tests and both instrumented boundary tests passed on the
-connected Samsung SM-G965F running Android 10 (the supported API-29 minimum).
+recreation. Linked JVM tests and instrumented boundary tests passed, including physical
+coverage at the supported API-29 minimum.
 Clean four-ABI Debug/Release packaging and the complete `just verify` gate
-passed after the final fixes. The dedicated Android emulator needed its empty
-test partition recreated at 8 GiB after APK installation ran out of space.
+passed after the final fixes. Detailed environment/setup history is retained locally.
 
 Two Android platform constraints were found by running production bindings:
 
@@ -36,41 +35,17 @@ or user-data migration is supported by this pre-release change.
 
 ## Physical checkpoints
 
-- macOS: the original 16-scenario matrix passed using production CoreBluetooth
-  and the ESP32. This covers identity, direct and supported older firmware wire
-  formats, direct/CAN configuration and controls, shutdown/no-op, CAN selection,
-  ambiguity, BMS, recording and reconnect. Added guest and ride/presentation
-  checkpoints also passed on the final presentation protocol. The native CSV
-  Save panel was inspected and cancelled through computer use; the harness
-  verified that its staged file lease was then removed. Evidence:
-  `/tmp/float-view-shared-macos-physical.json` and
-  `/tmp/float-view-shared-macos-presentation.json`, with matching logs.
-- Android: all 18 scenarios passed on the connected Android 10 Samsung. The
-  background checkpoint recorded location rows and committed sequence 0 → 1
-  with authorized/available background capture. The scoped save picker appeared
-  and dismissed in both ride and background scenarios. After adding the explicit
-  presentation acceptance reply, the affected ride/background scenarios passed
-  again. Evidence: `/tmp/float-view-shared-android-physical.json` and
-  `/tmp/float-view-shared-android-presentation.json`, with matching logs.
-- iOS: all 18 scenarios passed after renewing provisioning and trusting the
-  developer profile. Native file presentation and cancellation passed in ride
-  and background scenarios. Authorized background capture persisted location
-  rows and committed sequence 0 → 2. Evidence: `evidence/ios-physical.json`;
-  the matching diagnostic log is `/tmp/float-view-shared-ios-physical.log`.
 
-Physical conformance explicitly checks guest telemetry without catalog/session
-creation, native file presentation and dismissal, and a persisted location
-observation during background dwell. A zero-observation run no longer silently
-claims background-location acceptance. No physical coverage has been deferred by the user. The final no-op publication
-fix also passed guest/ride/background reruns on both phones and guest/ride
-on macOS; see `evidence/*-publication.json`.
+Production BLE fixture acceptance passed on macOS, Android and iOS, including
+guest telemetry, native export presentation/cancellation, reconnect and applicable
+background persistence with new mobile location samples. Final publication
+regressions passed on all hosts; no required physical coverage was deferred.
+Detailed device, run and presentation reports are retained locally under
+`.local/physical-testing/`.
 
-The shared export result now waits for a correlated native acceptance reply
-before reporting `presented`; rejection reports `staged`. Pending acceptance is
-bounded to 30 seconds, accepted presentation to 24 hours. Duplicate, foreign,
-expired and late replies are covered. Private file-UI completion does not advance
-public snapshot revisions. Swift host conformance includes duplicate native
-completion, and the publication regression covers cleanup between state reads.
+The export result waits for correlated native acceptance before reporting
+`presented`; rejection remains `staged`. Acceptance and presentation lifetimes
+are bounded and stale/duplicate replies have software coverage.
 
 ## Ownership and invariant audit
 
@@ -107,5 +82,5 @@ capabilities, storage capacity observations, stale timers and unchanged discover
 ticks no longer invent public revisions. Regression tests verify complete
 snapshot stability and that actual scan expiry still publishes. Android and
 macOS physical guest/recording/presentation reruns pass this final behavior;
-the iPhone rerun also passes, including native-sheet cleanup and background
-location sequence 0 → 2. Warnings-denied Rust lint passes on the final fix.
+the iPhone rerun also passes, including native-sheet cleanup and persisted background
+location. Warnings-denied Rust lint passes on the final fix.

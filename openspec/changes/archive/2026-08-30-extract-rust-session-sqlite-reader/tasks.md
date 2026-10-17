@@ -40,8 +40,12 @@
 
 ## Verification Evidence
 
-- 2026-08-30: `openspec validate extract-rust-session-sqlite-reader --strict`, `git diff --check`, the locked offline session SQLite tests/audit, warnings-denied workspace linting, and the complete `FLOAT_VIEW_ANDROID_EMULATOR=emulator-5554 just verify` gate passed with exit code 0. The root gate included frontend/conformance tests, complete Rust/Swift/Kotlin tests, Apple and Android packaging, macOS/iOS-simulator/Android execution, and repository audits.
-- 2026-08-30: macOS passed all 16 canonical ESP32 scenarios against `/dev/cu.usbmodem111401` in one run, including identity, direct/legacy, direct/CAN configuration and control, shutdown, routing, every BMS topology, ride, reconnect, session persistence, and cleanup.
-- 2026-08-30: Android device `1cfb7634120d7ece` passed all 17 ESP32 scenarios cumulatively across resumable runs. Three fixture `ADVERTISE_FAILED` setup errors occurred before application assertions; each run resumed at the interrupted scenario. Background BLE telemetry, native session accumulation, foreground recovery, persistence, and cleanup passed. Timed location acquisition alone was explicitly deferred and reported disabled with unchanged location rows/sequences.
-- 2026-08-30: iOS device `00008101-00195021268B001E` passed all 17 ESP32 scenarios in one run. Background BLE telemetry continued through response 100, the native session remained available through foreground recovery, and cleanup passed. Timed location acquisition alone was explicitly deferred and reported disabled with unchanged location rows/sequences.
-- 2026-08-30: `git diff --name-only HEAD -- backends/apple backends/android frontend backends/sql ':(exclude)backends/apple/ios/float-view.xcodeproj/project.pbxproj'` was empty. The excluded Xcode project file was an existing user-owned working-tree change and is not part of this implementation. No production host/frontend/SQL source, host package input, bridge crate, or generated binding changed.
+
+Software verification passed. Applicable macOS and mobile fixture matrices passed, including background BLE/session continuity.
+Mobile timed location acquisition remained deferred; these checks do not establish a new background GPS fix.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae1c832](https://github.com/acheronfail/float-view-mobile/commit/fae1c8326c73176176caf338d5a287c7517f9792)
+(historical record, not a verified binary hash).

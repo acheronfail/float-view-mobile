@@ -36,8 +36,12 @@
 
 ## Verification Evidence
 
-- 2026-09-03: Focused session-pruning, reader, writer, and history-kernel tests; locked offline audits; warnings-denied workspace linting; strict OpenSpec validation; `git diff --check`; and the complete `just verify` software gate passed. The gate covered 44 frontend checks, 180 frontend tests, 172 conformance tests, Apple release/device/simulator builds, 140 Swift tests, Android builds/tests, the complete Rust workspace, and macOS/iOS-simulator/Android-emulator conformance.
-- 2026-09-03: macOS passed all 16 canonical ESP32 scenarios against `/dev/cu.usbmodem111401`: identity, direct and legacy routing, both control routes, all shutdown paths, explicit/ambiguous/gateway routing, all BMS arrangements, ride telemetry, reconnect, persistence, and cleanup.
-- 2026-09-03: iOS device `00008101-00195021268B001E` passed all 17 canonical ESP32 scenarios in one run. Its background lifecycle scenario continued BLE telemetry and session persistence while backgrounded and returned successfully to the foreground. Timed location authorization/acquisition alone was explicitly deferred and reported unchanged location rows/sequences.
-- 2026-09-03: No physical Android handset was available after repeated USB, ADB, and wireless-discovery checks; ADB exposed only `emulator-5554`. Per explicit maintainer direction, no emulator result is claimed as physical evidence and the complete Android ESP32/background matrix is deferred to the migration-final gate before any Rust runtime selection.
-- 2026-09-03: The production-isolation diff from proposal commit `fae1db6820940f77b4beaea293f04b2f0d72d1df` contained no Apple, Android, frontend, or canonical SQL production source/package input. The pre-existing user-owned Xcode project change remained excluded and untouched.
+
+Software verification passed. Applicable macOS and iOS fixture matrices passed, including iOS background BLE/session continuity.
+iOS location acquisition remained deferred. No physical Android handset was available; its matrix remained deferred to migration-final acceptance.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae1acbc](https://github.com/acheronfail/float-view-mobile/commit/fae1acbce600675c87a93a438480cdb639a071bf)
+(historical record, not a verified binary hash).

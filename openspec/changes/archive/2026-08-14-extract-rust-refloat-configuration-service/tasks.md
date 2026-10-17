@@ -29,7 +29,12 @@
 
 ## Verification evidence
 
-- 2026-08-14: Android physical conformance passed all 17 applicable scenarios against `/dev/cu.usbmodem111401` on connected device `1cfb7634120d7ece` through the unchanged selected Kotlin configuration service. Background BLE/session assertions passed; location was authorized and available but produced no sample during the bounded 10-second dwell, so only location persistence remains deferred to manual coverage. One fixture `ADVERTISE_FAILED` occurred before any app assertion and the affected scenario passed on a clean retry.
-- 2026-08-14: macOS physical conformance passed all 16 applicable scenarios against the same fixture through the unchanged selected Swift configuration service. CAN-preference scenarios were paired with identity in fresh-storage runs, and every BLE, protocol, configuration schema/current/default/write/readback, BMS, control, telemetry, session, shutdown, reconnect, and cleanup assertion passed.
-- 2026-08-14: iOS physical conformance passed all 17 applicable scenarios against the same fixture on connected device `00008101-00195021268B001E` through the unchanged selected Swift configuration service. Bluetooth authorization was granted before the matrix. Background BLE/session accumulation, foreground recovery, persistence boundaries, and cleanup passed; location authorization remained unresolved during its bounded wait and the location checkpoint stayed at `rows 0->0`, `sequence 0->0`, so only location coverage remains deferred to manual verification as requested.
-- 2026-08-14: Focused service tests, warnings-denied linting, structural audits, strict change validation, and the complete `just verify` software gate passed in the final implementation state. The candidate remains absent from production packages and call paths for separate host-cutover changes.
+
+Software verification passed. Applicable macOS/Android fixture checkpoints and iOS foreground scenarios passed; iOS background BLE/session observations passed.
+Mobile location acquisition remained deferred; background BLE/session continuity passed.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae18b2d](https://github.com/acheronfail/float-view-mobile/commit/fae18b2da048343e572b9ed23fa930cc055b9ea7)
+(historical record, not a verified binary hash).

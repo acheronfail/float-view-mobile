@@ -33,6 +33,12 @@
 
 ## Physical evidence
 
-- Android device `1cfb7634120d7ece` and ESP32 `/dev/cu.usbmodem111401`: all 17 matrix scenarios passed across resumed runs after transient fixture `ADVERTISE_FAILED` setup errors. The background scenario passed BLE logging, session, lifecycle, and cleanup assertions; location was authorized/background-capable but produced no sample during the bounded 10-second dwell, so only sample persistence is deferred.
-- iOS device `00008101-00195021268B001E`: focused `identity,direct-legacy,control-direct,control-can,bms-direct-controller,bms-express,bms-standalone,ride,unexpected-disconnect,background` passed. Background BLE/session behavior passed and location persisted two samples.
-- macOS host: focused `identity,direct-legacy,control-direct,control-can,bms-direct-controller,bms-express,bms-standalone,ride,unexpected-disconnect` passed.
+
+Android canonical and focused iOS/macOS fixture checkpoints passed; background BLE/session continuity passed.
+Android acquired no new background location sample; that location coverage remains deferred. iOS persisted background samples.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae19a90](https://github.com/acheronfail/float-view-mobile/commit/fae19a906b17cdc2f0ca4682ae7b1c3643b0e0b7)
+(historical record, not a verified binary hash).

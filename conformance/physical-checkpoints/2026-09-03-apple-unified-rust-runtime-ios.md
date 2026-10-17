@@ -1,25 +1,10 @@
-# Apple unified Rust runtime iOS checkpoint
+# Apple unified Rust runtime: historical result
 
-Date: 2026-09-03
+Historical record revision: [fae1a2f9](https://github.com/acheronfail/float-view-mobile/commit/fae1a2f9211ff4bc3bb6b89abb4660758d92f8b6). This identifies the recorded checkpoint, not an independently verified binary hash.
 
-The canonical physical suite ran on the connected iPhone against the flashed
-ESP32 fixture after Apple selected the unified Rust application runtime. Android
-physical conformance was intentionally skipped for this host-only cutover.
+Result: All 17 iOS fixture scenarios passed after selecting the unified runtime.
 
-Command:
+Limits: Location authorization/acquisition was deferred; the disabled/unavailable path preserved unchanged location boundaries. Android physical testing was outside this Apple-only checkpoint.
 
-```sh
-FLOAT_VIEW_DEFER_PHYSICAL_LOCATION=1 just conformance-physical ios \
-  /dev/cu.usbmodem111401 00008101-00195021268B001E
-```
-
-All 17 scenarios passed: identity, direct, direct-legacy, control-direct,
-control-can, shutdown-direct, shutdown-can, shutdown-no-op, explicit-can,
-generic-gateway, ambiguous, bms-direct-controller, bms-express, bms-standalone,
-ride, unexpected-disconnect, and background.
-
-Location authorization/acquisition was deferred because the connected device
-had foreground-only permission. The background scenario exercised the bounded
-disabled/unavailable checkpoint and confirmed no rows or sequences were
-invented; full background location acquisition remains a manual permission
-checkpoint rather than an automated claim.
+Detailed device records and execution history are retained locally under
+`.local/physical-testing/`. See [recording guidance](README.md) for future checks.

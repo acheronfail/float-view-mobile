@@ -102,7 +102,20 @@ See [conformance/README.md](conformance/README.md) for checkpoint procedures.
 Supported BMS identities are deliberately exact: stock VESC BMS 6.00/type 1
 and VESC Express `VBMS32` 6.06/type 2. See `backends/README.md` for the
 compatibility and future-version audit policy and `conformance/physical-checkpoints/`
-for retained hardware observations.
+for reusable procedures and brief historical outcomes. Detailed device records
+and raw reports are retained locally.
+
+### Release-readiness records
+
+Keep reusable test procedures, open requirements and brief build/source-linked
+results in the public repository. Include tested scope, pass/fail/pending status
+and material limits. Keep detailed execution history, device/OS/firmware records,
+tester reports, screenshots/logs and account/approval history in ignored local
+records under `.local/physical-testing/` (or `.local/ios-store/readiness/` for
+distribution-specific records). Do not force-add these records;
+arrange a private backup when needed. Publish only sanitized actionable failures,
+without private routes, identifiers or contact details. This changes where detail
+is retained, not which acceptance checks must pass.
 
 ## App releases
 

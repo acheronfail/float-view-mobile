@@ -31,8 +31,12 @@
 
 ## Verification Evidence
 
-- Focused Rust evidence: 2 unit, 13 adversarial, and 16 source-derived lifecycle vectors passed; locked offline warnings-denied Clippy, crate audit, formatting, strict OpenSpec validation, and `git diff --check` passed.
-- Full software gate: `just verify` passed with the native Apple and Android mutation/application owners unchanged.
-- macOS physical: all 16 canonical ESP32 scenarios passed in one complete run after transient fixture retries.
-- Android physical: all 17 canonical scenarios passed across resumable canonical matrix segments; BLE, session logging, reconnect, controls, shutdown, BMS, and background telemetry passed. Only automated location authorization/acquisition was deferred. The fixture intermittently returned `ADVERTISE_FAILED` before selected scenarios, so already-passed segments were not repeated.
-- iOS physical: scenarios 1–16 passed. `FloatViewLifecycleTests.testBackground` passed in 0.616 seconds with zero failures, followed by more than 300 continuous background telemetry responses. The documented parent `xcodebuild` exit hang recurred and the harness stopped it at its 120-second bound. Only automated location authorization/acquisition was deferred.
+
+Software verification passed. Applicable macOS/Android fixture checkpoints and iOS foreground scenarios passed; iOS background BLE/session observations passed.
+Mobile location acquisition remained deferred. Where the iOS XCTest passed but its parent process timed out, the parent run is not recorded as a clean pass.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae1582e](https://github.com/acheronfail/float-view-mobile/commit/fae1582e2cd5875672a868109b38af8b51b5ada1)
+(historical record, not a verified binary hash).

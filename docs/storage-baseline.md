@@ -62,7 +62,15 @@ to make an incompatible change pass.
 
 Apple startup now presents a native retry/recovery message instead of terminating
 on a fallible database/service initialization. Retrying never offers a destructive
-reset or changes the storage policy. This needs scoped UI failure/retry evidence;
-the Rust storage tests do not establish native OS presentation. Android startup
-was audited and still throws before activity creation on a service failure; its
-nonfatal presentation remains a separate Android readiness item.
+reset or changes the storage policy. The Rust storage tests alone do not establish
+native OS presentation. Android's nonfatal startup presentation remains a separate
+readiness item.
+
+For native failure/retry verification, use a disposable test container with
+synthetic unsupported storage. Confirm that startup explains the failure and
+Retry preserves every file. Then use a recognised development marker to verify
+one-time reset and frontend recovery; reopen a baseline fixture to verify
+settings and saved-board preservation across process launches. Never manipulate
+real user databases to provoke failure. Keep detailed execution and device
+results local; public build-linked outcomes belong in the release verification
+summary. Real BLE/background behavior requires its separately scoped device check.

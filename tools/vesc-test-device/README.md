@@ -33,9 +33,9 @@ PlatformIO installs the pinned ESP-IDF toolchain and handles the device:
 just fixture setup
 just fixture build
 just fixture ports
-just fixture flash /dev/cu.usbmodemXXXX
-just fixture monitor /dev/cu.usbmodemXXXX
-just fixture dev /dev/cu.usbmodemXXXX
+just fixture flash <fixture-port>
+just fixture monitor <fixture-port>
+just fixture dev <fixture-port>
 ```
 
 Only PlatformIO Core (`pio`) must already be installed; ESP-IDF does not need to

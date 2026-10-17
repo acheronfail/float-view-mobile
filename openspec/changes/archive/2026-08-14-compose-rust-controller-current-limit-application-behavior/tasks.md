@@ -27,8 +27,12 @@
 
 ## Verification Evidence
 
-- Focused verification passed: coordinator tests (including three dedicated current-limit tests), offline locked workspace Clippy with warnings denied, formatting, dependency/copy/production-isolation audit, strict change validation, and `git diff --check`.
-- `just verify` passed completely, including frontend, conformance, Apple, Android, locked Rust workspace, ABI, packaging, and audit gates.
-- macOS physical conformance passed all 16 scenarios against `/dev/cu.usbmodem111401` after one clean retry of a pre-state identity disconnect.
-- Android physical conformance passed all 17 scenarios on `1cfb7634120d7ece`. The ESP32 repeatedly reported `ADVERTISE_FAILED` on a second scenario after Android cleanup, so already-passed work was preserved and remaining scenarios ran in clean resumable shards; every scenario that reached the app passed. Background BLE/telemetry passed while location acquisition was explicitly deferred.
-- iOS physical conformance passed the first 16 scenarios on `00008101-00195021268B001E`. In the final background scenario, `FloatViewLifecycleTests.testBackground` passed in 0.590 seconds with zero failures and BLE continued for 140 seconds with more than 310 telemetry responses; only the parent `xcodebuild` failed to exit within the harness's 120-second bound. This is recorded as a harness-only timeout, not an application regression. Location acquisition was explicitly deferred.
+
+Software verification passed. Applicable macOS/Android fixture checkpoints and iOS foreground scenarios passed; iOS background BLE/session observations passed.
+Mobile location acquisition remained deferred. Where the iOS XCTest passed but its parent process timed out, the parent run is not recorded as a clean pass.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae14a95](https://github.com/acheronfail/float-view-mobile/commit/fae14a95dd6699f495ee7ae18ba4068fcb4e2a6a)
+(historical record, not a verified binary hash).

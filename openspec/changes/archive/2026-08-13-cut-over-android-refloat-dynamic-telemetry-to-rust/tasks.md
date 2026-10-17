@@ -31,6 +31,12 @@
 
 ## Verification evidence
 
-- 2026-08-13: Android physical conformance passed all 17 scenarios against `/dev/cu.usbmodem111401` on connected device `1cfb7634120d7ece`. The ESP32's rapid identity-to-direct re-advertisement failed twice before any app assertion, so the same scenario matrix was completed with harness-supported one-scenario process isolation. Background BLE/session assertions passed; location was authorized and available but produced no sample during the bounded 10-second dwell, so only location persistence remains deferred to manual coverage.
-- 2026-08-13: iOS physical conformance passed all 17 scenarios against the same fixture on connected device `00008101-00195021268B001E`; background BLE/session assertions passed and two location rows were persisted during the background checkpoint.
-- 2026-08-13: macOS physical conformance passed all 16 applicable scenarios against the same fixture through the unchanged Apple Rust dynamic-telemetry bridge.
+
+Android/iOS canonical and applicable macOS fixture checkpoints passed; background BLE/session continuity passed.
+Android acquired no new background location sample; that location coverage remains deferred. iOS persisted background samples.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae1e112](https://github.com/acheronfail/float-view-mobile/commit/fae1e112f69edd9fe4db17530ba2de75617c923b)
+(historical record, not a verified binary hash).

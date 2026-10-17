@@ -1,6 +1,6 @@
 # iOS package notices and corresponding source
 
-Audit date: 2026-10-17. Scope: the downloaded Release IPA 1.0.0 (77), source
+Reference package: Release IPA 1.0.0 (77), source
 `fae17d3206174adfd1c432bb64d7df370e9a005f`, and the subsequent notice fixes.
 This is an inventory and packaging audit, not Apple processing acceptance.
 
@@ -66,11 +66,11 @@ reviewed replacement notices. Full toolchain/compiler tools are not shipped.
 
 ## Exact source access
 
-The anonymous GitHub source archive for build 77's full commit was downloaded
-and every one of its 1,685 tracked file blobs matched `git ls-tree` identities,
-including licence files, native/shared/frontend sources, SQL, assets, lockfiles,
-toolchain pins and build scripts. Archive SHA-256:
-`551e73d8a6684a382d347b86d5f45ab31e1e3da72c0748a7e15ceecb288451a3`.
+For each release candidate, compare the anonymous exact-commit source archive
+against all tracked Git blob identities, including licence files, build inputs,
+lockfiles, assets and toolchain pins. Build 77 passed this check; its brief
+result is in the [verification summary](../openspec/changes/prepare-public-distribution/verification.md).
+Keep download/digest comparison logs local.
 
 [Exact source tree](https://github.com/acheronfail/float-view-mobile/tree/fae17d3206174adfd1c432bb64d7df370e9a005f)
 and [source archive](https://github.com/acheronfail/float-view-mobile/archive/fae17d3206174adfd1c432bb64d7df370e9a005f.tar.gz)
@@ -92,10 +92,9 @@ revision after these changes are committed and published.
 
 iOS inventory/source-access checks are complete for the inspected revision and
 the identified runtime-notice gap is fixed in source. Software checks verify the
-updated offline page and packaging gate. A real unsigned Release archive using
-Xcode 26.0 also passed with the corrected full texts in the app bundle. Evidence
-is under ignored `.local/ios-store/notices-archive-check-20261017/`; its local
-build number 1 is unallocated and its dirty source makes it unsuitable for upload.
+updated offline page and packaging gate. Unsigned Release packaging checks also
+passed with corrected full texts. These local checks do not certify a clean signed
+candidate; retain detailed logs locally.
 A fresh release-tag signed candidate
 must still pass those gates before upload; build 77 is not grandfathered in.
 Android's additional upstream copyright/NOTICE collection and final AAB review,

@@ -25,7 +25,8 @@
 
 ### Verification evidence (2026-08-13)
 
-- Software: focused candidate tests, warnings-denied linting, native compatibility checks, ownership and isolation audits, Android and Apple packaging, strict OpenSpec validation, and `just verify` passed.
-- Android: all 17 fixture scenarios passed across clean isolated runs after the continuous runner encountered a reset/re-advertisement startup timeout between its first two scenarios. Background BLE, lifecycle, logging, and persistence assertions passed; location was authorized and available but produced no sample during the bounded dwell, so only that sample remains deferred to manual verification.
-- iOS: all 17 fixture scenarios passed in one continuous run, including background BLE logging and two persisted location samples (`rows 0->2`, `sequence 0->2`).
-- macOS: all 16 applicable fixture scenarios passed in one continuous run.
+
+Software checks and the applicable Android/iOS/macOS fixture matrices passed.
+Android background location acquired no new sample and remains deferred; iOS
+persisted background samples. Detailed runs and device records are retained
+locally under `.local/physical-testing/`.

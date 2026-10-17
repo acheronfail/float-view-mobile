@@ -133,6 +133,13 @@ relevant platforms, routes and scenarios; do not require unaffected devices or
 the entire physical matrix. A UI change alone does not require physical BLE
 verification. Keep fixture safety and restore checks when running hardware tests.
 
+Keep detailed physical-testing history, device/OS/firmware inventories and raw
+reports in ignored `.local/physical-testing/` (or `.local/ios-store/readiness/`
+for distribution checks). Public documents retain reusable procedures, brief
+build/source-linked outcomes and material coverage limits. Do not force-add
+local evidence or publish private device identifiers/routes. Preserve existing
+historical evidence locally when shortening public records.
+
 Briefly report checks run and their results. Explain omitted relevant coverage
 or unavailable required hardware; do not claim unrun or software-only checks as
 physical validation. No separate hardware-skip justification is needed for an

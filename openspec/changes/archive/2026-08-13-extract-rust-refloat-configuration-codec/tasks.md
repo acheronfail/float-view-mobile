@@ -32,6 +32,12 @@
 
 ## Verification evidence
 
-- 2026-08-13: Android physical conformance passed all 17 scenarios against `/dev/cu.usbmodem111401` on connected device `1cfb7634120d7ece` through the unchanged selected Kotlin configuration codec. The ESP32 reported `ADVERTISE_FAILED` twice during rapid suite re-advertisement before any app assertion, so the matrix resumed from the next unexecuted scenario in clean harness invocations. Background BLE/session assertions passed; location was authorized and available but produced no sample during the bounded 10-second dwell, so only location persistence remains deferred to manual coverage.
-- 2026-08-13: iOS physical conformance passed all 17 scenarios against the same fixture on connected device `00008101-00195021268B001E` through the unchanged selected Swift configuration codec. Background BLE/session assertions passed and two location rows were persisted during the background checkpoint (`rows 0->2`, `sequence 0->2`).
-- 2026-08-13: macOS physical conformance passed all 16 applicable scenarios against the same fixture through the unchanged selected Swift configuration codec.
+
+Android/iOS canonical and applicable macOS fixture checkpoints passed; background BLE/session continuity passed.
+Android acquired no new background location sample; that location coverage remains deferred. iOS persisted background samples.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae140e9](https://github.com/acheronfail/float-view-mobile/commit/fae140e9cf7995123dfc19c4aaf58895734bd2d3)
+(historical record, not a verified binary hash).

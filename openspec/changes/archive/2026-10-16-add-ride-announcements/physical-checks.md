@@ -1,44 +1,13 @@
-# Physical announcement evidence and optional manual checks
+# Announcement physical procedure and historical scope
 
-Closeout decision (2026-10-16): the user removed all remaining physical checks
-from this change and will perform further manual testing independently. The
-procedure below is optional reference material, not an archive gate. Unchecked
-items mean unverified, not failed or required by this change.
-
-Status: core Android speaker/music/BLE checks passed on a Samsung Galaxy S9+
-(Android 10) on 2026-10-16; see the [physical evidence](../../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md).
-Core iOS speaker/music/BLE checks also passed on an iPhone 12 (iOS 18.7.8);
-see the [iOS physical evidence](../../../../conformance/physical-checkpoints/2026-10-16-ios-announcements.md).
-macOS and the remaining cases below are pending. Emulator, simulator and JVM
-results do not establish physical audio effects.
-
-## Android results
-
-- [x] Production BLE fixture negotiation and fresh telemetry.
-- [x] Audible combined test and offline English speech with Wi-Fi/mobile data off.
-- [x] Duty/motor/battery winning-source speech, combined speed and load, roughly
-      five-second repeats without overlap, and below-threshold silence.
-- [x] Speech volume 100% / 50% / 0%, music lowering/restoration between phrases
-      and normal music while muted.
-- [x] More than one minute locked, continued speech/BLE/session growth, and
-      disabling with clean audio restoration.
-- [x] Physical BLE disconnect/reconnect and fresh speech recovery without a burst.
-- [x] Captured settings restored, ESP32 RESET/READY verified, app/tunnel cleanup.
-- [ ] Headset routing/disconnection; genuine focus interruption/denial and call
-      fallback; missing completion cleanup; genuine missing-voice recovery without
-      restart; telemetry-only stalls; imperial spoken units; manual device-volume
-      edits during speech; Android 15+ audio-focus/foreground restrictions.
+Core Android/iOS speaker, music, BLE and locked-screen checks passed within the
+limits in the [Android summary](../../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md)
+and [iOS summary](../../../../conformance/physical-checkpoints/2026-10-16-ios-announcements.md).
+Remaining manual checks were removed from the historical archive gate; they are
+unverified, not failed or newly required. macOS audible behavior was not established.
+Detailed device records and execution history are local.
 
 ## Full cross-platform procedure
-
-iOS now has confirmed combined/winning-load speech, repeats, 100%/50%/0% gain,
-test-speech lowering on/off with music restoration, a locked-screen minute with
-continued BLE/recording, imperial wording, offline speech and clean disabling.
-Headset/call/interruption cases, unavailable-voice recovery, independent
-below-threshold/stale-telemetry cancellation, automatic mix-only playback and
-changing lowering/system volume during speech remain pending. The USB controller
-needed fresh connections after backgrounding; cleanup was independently verified
-as recorded in the evidence.
 
 Use one real iPhone and one real Android phone (prefer Android 15/API 35 or newer
 for its foreground audio-focus restrictions), a connected board or approved
@@ -63,3 +32,23 @@ Ordinary protocol, load arithmetic, persisted-session interpretation and unrelat
 permission/file flows do not need another physical regression for this feature.
 Native fake-engine/focus tests are separate software coverage; physical checks
 must not be used to claim those unimplemented tests exist.
+
+## Android harness
+
+
+Use the existing physical direct scenario first, then the interactive harness:
+
+```sh
+cd conformance
+FLOAT_VIEW_PHYSICAL_SCENARIOS=direct FLOAT_VIEW_PHYSICAL_REFLOAT_VERSION=1.3.0 \
+  npm run physical -- android <fixture-port> <adb-serial>
+node --strip-types src/announcements-physical.ts <fixture-port> <adb-serial>
+```
+
+The harness announces its bounded commands, preserves the settings it changes,
+uses the production BLE adapter, and resets the fixture on normal exit, signals
+or its 20-minute session limit. `stop` ends the run. Human listening is required;
+`finished` alone does not establish audible speech. If the device's app uses a
+CI signing key, supply a matching signed APK through
+`FLOAT_VIEW_ANDROID_PHYSICAL_APK=/absolute/path/to/test.apk`; do not uninstall an
+existing product installation without authorization.

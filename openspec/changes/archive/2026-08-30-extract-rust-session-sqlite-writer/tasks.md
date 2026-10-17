@@ -39,8 +39,12 @@
 
 ## Verification Evidence
 
-- 2026-08-30: Focused writer tests, warnings-denied workspace linting, ownership/dependency/schema audits, strict OpenSpec validation, `git diff --check`, and every constituent of `just verify` passed. The complete root gate needed the repository Android AVD to be started before its Android conformance constituent could pass; the final audit then passed.
-- 2026-08-30: macOS passed all 16 applicable ESP32 scenarios against `/dev/cu.usbmodem111401`. A transient pre-assertion BLE disconnect interrupted the first continuous run during `direct`; the canonical runner resumed at `direct`, and every remaining identity, protocol, routing, control, BMS, ride, reconnect, session, and cleanup assertion passed.
-- 2026-08-30: Android device `1cfb7634120d7ece` passed all 17 ESP32 scenarios across clean resumable runs after two fixture `ADVERTISE_FAILED` setup errors. Background BLE telemetry, session persistence, lifecycle recovery, and cleanup passed. Timed location acquisition alone was explicitly deferred and remained disabled for that checkpoint.
-- 2026-08-30: iOS device `00008101-00195021268B001E` passed all 17 canonical ESP32 scenarios in one signed-runner invocation. The background lifecycle runner moved the application to the background and foreground successfully while BLE telemetry continued through response 90, session state remained available, and cleanup passed. Timed location acquisition alone was explicitly deferred and reported `status=disabled`, `background=unavailable`, and unchanged location rows/sequences.
-- 2026-08-30: `git diff --name-only fae172a -- backends/apple backends/android frontend backends/sql` and the focused host package-input diff were empty, while `git diff --check` passed. The change is production-isolated and ready for implementation commit, canonical spec sync, and archive.
+
+Software verification passed. Applicable macOS and mobile fixture matrices passed, including background BLE/session continuity.
+Mobile timed location acquisition remained deferred; these checks do not establish a new background GPS fix.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae1a175](https://github.com/acheronfail/float-view-mobile/commit/fae1a1752633323233745e1e043ad0f45aa7a9f6)
+(historical record, not a verified binary hash).

@@ -126,21 +126,13 @@ scenario audit are complete.
 
 ## Android physical checkpoint follow-up (2026-10-16)
 
-Core Android hardware observations now pass on a Samsung Galaxy S9+ / Android 10
-with the ESP32 fixture and production BLE adapter. See the
-[retained physical evidence](../../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md)
-for actual values, manual listening confirmations, cleanup and remaining scope.
-The run exposed Samsung's ISO 639-2 `eng` voice identifiers; the selector now
-accepts both `en` and `eng`, with regression tests. All 31 JVM tests pass in each
-variant, all builds/lint pass, and all four instrumentation tests pass on the
-phone. The new interactive physical harness is type-checked, and the eight host
-target tests pass. A matching signed physical APK can be supplied explicitly
-without overwriting Gradle outputs or discarding installed app data.
 
-Task 6.2 remains unchecked because iOS/macOS and the listed remaining native
-audio cases have not been exercised. Do not interpret the earlier “No physical
-validation” note as current status; it describes the 2026-10-15 checkpoint.
-Native fake-engine/focus tests and the final scenario audit remain outstanding.
+Core Android speaker/music/BLE checks passed within the limits in the
+[historical summary](../../../../conformance/physical-checkpoints/2026-10-16-android-announcements.md).
+The native selector was fixed for both en/eng English identifiers. Detailed
+listening observations and execution/setup history are retained locally.
+This checkpoint alone did not establish all original native fault/audio cases;
+the final closeout below defines the accepted scope.
 
 ## 7. Verification refinements: wording and system voice settings
 
@@ -155,26 +147,19 @@ Chromium/WebKit checks cover conditional visibility, primary/touch/keyboard
 activation, errors and draft preservation. Direct/mock conformance and conformance
 type checks pass. Apple speech/shared-server tests and the arm64 iOS simulator
 build pass. Android Debug/Release/Conformance builds, JVM tests and lint pass.
-Three native voice-selection instrumentation tests pass on the physical Samsung,
+Native voice-selection instrumentation tests passed on physical Android,
 covering standard and ISO-3 English locales, preferred selection and rejected
-network/missing/non-English voices. The user confirmed the installed Android
-Voice settings button works. This does not establish audible voice changes,
+network/missing/non-English voices. The Android Voice settings round trip passed. This does not establish audible voice changes,
 Google-engine physical playback or the outstanding original acceptance cases.
 Android host conformance passes at revision 502. The same three native selection
 tests pass on the API 36 Google emulator, whose standard TTS settings activity
 also opens successfully.
 
-The iPhone 12 / iOS 18.7.8 initially lacked signing/provisioning; the user
-configured Xcode signing and trusted the profile. The signed device build and
-signature verification then passed. Physical combined/winning-load speech,
-repeats, volume 100%/50%/0%, test lowering on/off with music restoration, a
-locked-screen minute with BLE/recording growth, imperial wording, offline speech
-and clean disabling are confirmed. See the
-[iOS evidence](../../../../conformance/physical-checkpoints/2026-10-16-ios-announcements.md)
-for exact scope and the USB controller's stale-connection cleanup limitation.
-Settings restoration was independently read back, fixture RESET/READY verified,
-and app/tunnel stopped. Tasks 3.1/3.2/6.2 retain their remaining original criteria;
-do not treat this checkpoint as completion of native fault tests or all routes.
+Core iOS speech/music/locked-screen BLE checks passed within the limits in the
+[historical summary](../../../../conformance/physical-checkpoints/2026-10-16-ios-announcements.md).
+This does not establish every audio route or native fault case. Detailed device,
+provisioning, listening and cleanup history is retained locally.
+
 
 ## Closeout scope decision (2026-10-16)
 

@@ -32,9 +32,12 @@
 
 ## Verification evidence
 
-- 2026-08-14: `just core-session-history-kernel-audit` passed the locked offline candidate tests, workspace formatting, warnings-denied linting, dependency/ownership checks, shared vectors, and adversarial bounds. Strict OpenSpec validation and `git diff --check` passed.
-- 2026-08-14: the complete escalated `just verify` gate passed with exit code 0, including frontend and conformance checks/tests, all Rust workspace tests, Swift and Kotlin tests, Apple and Android packaging, canonical macOS/iOS-simulator/Android execution, fixture software tests, and repository audits.
-- 2026-08-14: macOS physical conformance passed all 16 applicable scenarios against `/dev/cu.usbmodem111401`. The first identity attempt disconnected before authoritative application state; a clean full retry passed identity, direct/legacy, direct/CAN configuration and control, shutdown, routing, BMS, ride, unexpected-disconnect recovery, session, and cleanup assertions.
-- 2026-08-14: Android physical conformance passed all 17 scenarios on connected device `1cfb7634120d7ece` across clean harness runs. Scenarios 1–12 passed before the fixture returned `ADVERTISE_FAILED` while preparing scenario 13, before any application assertion; scenarios 13–17 then passed in a fresh process. Background BLE telemetry, session accumulation, lifecycle recovery, persistence boundaries, and cleanup passed. Automated location authorization/fix acquisition alone was deferred with `FLOAT_VIEW_DEFER_PHYSICAL_LOCATION=1`.
-- 2026-08-14: iOS physical conformance passed all 16 foreground scenarios on connected device `00008101-00195021268B001E`. In the background checkpoint, `FloatViewLifecycleTests.testBackground` passed in 0.579 seconds with zero failures and production BLE telemetry continued beyond response 300 while backgrounded. The already-documented parent `xcodebuild` post-test hang reached the harness timeout after XCTest success; automated location acquisition alone was deferred.
-- 2026-08-14: `git diff --name-only -- backends/apple backends/android frontend backends/sql` was empty after all gates. No production host, frontend, SQL schema, bridge crate, or package input changed; the candidate remains unselected.
+
+Software verification passed. Applicable macOS/Android fixture checkpoints and iOS foreground scenarios passed; iOS background BLE/session observations passed.
+Mobile location acquisition remained deferred. Where the iOS XCTest passed but its parent process timed out, the parent run is not recorded as a clean pass.
+
+Detailed execution history and device records are retained locally under
+`.local/physical-testing/`. This summary applies only to the archived change.
+
+Recorded change revision: [fae1678f](https://github.com/acheronfail/float-view-mobile/commit/fae1678f8755795a2b2d5ef4862318eaf6a3f9ac)
+(historical record, not a verified binary hash).

@@ -32,13 +32,18 @@ Intentional convergence: discovery name becomes Software VESC (Android previousl
 
 ## Real BLE checkpoint
 
-ESP32 `/dev/cu.usbmodem111401`, iPhone `00008101-00195021268B001E`, Android `1cfb7634120d7ece`. Each platform passed `identity,direct,unexpected-disconnect`: discovery/identity, saved riding telemetry, and loss/reconnect continuity. Reports are in `evidence/*-physical.json`. Physical target launchers build ordinary hosts and start no software relay; ESP32 WRITE/NOTIFY traffic and OS adapter disconnect diagnostics establish the physical path. No physical coverage was deferred.
+
+Production BLE identity, direct telemetry and unexpected-disconnect checkpoints
+passed on all three hosts. No physical coverage was deferred. Detailed reports
+and device inventories are retained locally under `.local/physical-testing/`.
 
 ## Selection, formatting and validation
 
-Injected unreachable software credentials were ignored while real ESP32 telemetry passed on macOS Release and ordinary physical iOS/Android. Reports: `evidence/macos-release-selection.json`, `evidence/ios-selection.json`, `evidence/android-selection.json`. The first Release activation probe overlapped an existing software host on the fixed backend port; it was rerun successfully after that host exited (no timeout increase).
 
-`openspec validate share-conformance-simulation --strict` and `git diff --check`: pass. Scoped Prettier checks and native Swift formatting: pass. Whole-repository Prettier reports 40 pre-existing/generated files outside this change (archived specs, existing main specs, `conformance/src/client.ts`, one historical physical report and generated HTML); these were not reformatted. The Linux adapter contract is documented in `conformance/fixture/RELAY.md`.
+Ordinary physical iOS/Android and Release macOS ignored injected unreachable
+software credentials while real fixture telemetry passed. Strict validation,
+changed-file formatting and whitespace checks passed. Existing unrelated
+whole-repository formatting findings remained outside this change.
 
 ## Final software gate
 
