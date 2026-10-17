@@ -224,7 +224,10 @@ def package(args):
                 and os.environ["MAC_INSTALLER_IDENTITY"] in signature, "Installer signer/chain mismatch")
         require(run("git", "rev-parse", "HEAD", capture=True) == commit
                 and not run("git", "status", "--porcelain", capture=True), "Source changed during packaging")
-    record = {"schema": 1, "purpose": "store" if signed else "unsigned-check", "commit": commit,
+    if ci:
+        ci.update(buildJob=os.environ.get("GITHUB_JOB"), buildAttempt=os.environ.get("GITHUB_RUN_ATTEMPT"))
+    record = {"schema": 1, "purpose": "store" if signed else "unsigned-check", "configuration": "Release",
+              "team": team if signed else None, "commit": commit,
               "dirty": dirty, "version": version, "sourceVersion": tag, "buildNumber": number,
               "bundleIdentifier": STORE_ID, "checks": checks, "toolchain": tools,
               "package": pkg.name if pkg else None,

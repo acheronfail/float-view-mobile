@@ -138,9 +138,9 @@ def verify_export(ipa, record):
         store.verify_distribution(apps[0], record["version"], record["buildNumber"], record["team"])
 
 
-def existing_build(api, app, record):
+def existing_build(api, app, record, *, platform="IOS"):
     response = api.get("/v1/builds", {"filter[app]": app, "filter[version]": record["buildNumber"],
-                                   "filter[preReleaseVersion.platform]": "IOS",
+                                   "filter[preReleaseVersion.platform]": platform,
                                    "include": "preReleaseVersion", "limit": "2"})
     values = response["data"]
     require(len(values) <= 1 and not response.get("links", {}).get("next"), "Ambiguous consumed build number")
@@ -152,7 +152,7 @@ def existing_build(api, app, record):
                 if v.get("type") == "preReleaseVersions" and v.get("id") == relation]
     require(value["attributes"]["version"] == record["buildNumber"] and len(versions) == 1
             and versions[0]["attributes"]["version"] == record["version"]
-            and versions[0]["attributes"]["platform"] == "IOS",
+            and versions[0]["attributes"]["platform"] == platform,
             "Apple build has a different marketing version/platform; use a fresh CI run")
     return {"id": value["id"], "processingState": value["attributes"]["processingState"]}
 
@@ -163,20 +163,21 @@ def write_receipt(path, receipt):
     temporary.replace(path)
 
 
-def transfer(api, record, ipa, output, prior, *, sleep=time.sleep, polls=20, check_only=False):
+def transfer(api, record, ipa, output, prior, *, sleep=time.sleep, polls=20, check_only=False,
+             bundle_id=APP_ID, platform="IOS", hash_field="ipaSHA256"):
     app = os.environ.get("ASC_APP_ID", "")
     require(re.fullmatch(r"[1-9][0-9]{0,19}", app), "Set ASC_APP_ID to the numeric app record ID")
     response = api.get("/v1/apps/" + app)
-    require(response["data"]["id"] == app and response["data"]["attributes"]["bundleId"] == APP_ID,
-            "App Store Connect record does not match Float View's iOS bundle ID")
+    require(response["data"]["id"] == app and response["data"]["attributes"]["bundleId"] == bundle_id,
+            "App Store Connect record does not match the approved bundle ID")
     output.mkdir(parents=True, exist_ok=True)
-    receipt = {"schema": 1, "appId": app, "bundleId": APP_ID, "commit": record["commit"],
+    receipt = {"schema": 1, "appId": app, "bundleId": bundle_id, "commit": record["commit"],
                "version": record["version"], "buildNumber": record["buildNumber"],
-               "ipaSHA256": record["ipaSHA256"], "runId": record["ci"]["runId"],
+               hash_field: record[hash_field], "runId": record["ci"]["runId"],
                "attempt": os.environ.get("GITHUB_RUN_ATTEMPT"), "status": "checked"}
     path = output / "upload-receipt.json"
     write_receipt(path, receipt)
-    existing = existing_build(api, app, record)
+    existing = existing_build(api, app, record, platform=platform)
     if check_only:
         receipt.update(status="checkedOnly", appleBuild=existing)
         write_receipt(path, receipt)
@@ -188,7 +189,7 @@ def transfer(api, record, ipa, output, prior, *, sleep=time.sleep, polls=20, che
         for file in list(prior.rglob("upload-receipt.json"))[:100]:
             old = json.loads(file.read_text())
             trusted |= (old.get("transportAccepted") is True and all(old.get(k) == receipt[k]
-                        for k in ["appId", "commit", "version", "buildNumber", "ipaSHA256", "runId"]))
+                        for k in ["appId", "commit", "version", "buildNumber", hash_field, "runId"]))
         require(trusted, "Number already consumed without a matching prior transport receipt; inspect Apple and use a fresh run")
     else:
         require(os.environ.get("GITHUB_RUN_ATTEMPT") == "1",
@@ -199,7 +200,7 @@ def transfer(api, record, ipa, output, prior, *, sleep=time.sleep, polls=20, che
         receipt.update(status="transportAccepted", transportAccepted=True)
         write_receipt(path, receipt)
     for _ in range(polls):
-        state = existing or existing_build(api, app, record)
+        state = existing or existing_build(api, app, record, platform=platform)
         if state:
             receipt["appleBuild"] = state
             write_receipt(path, receipt)

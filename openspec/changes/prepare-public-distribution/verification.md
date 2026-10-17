@@ -99,12 +99,42 @@ package commands, plus an independently gated signing/artifact job. Universal
 Release structure, resources and full bundled legal-text checks passed locally;
 profile/source/release-routing and dual-identity cleanup tests pass. The owner
 confirmed signing-material backups, and the separate Mac app record was verified
-read-only. Protected hosted signing and Apple processing/install acceptance are
-still pending. Shared apple-store-signing reviewer/tag protection, expected secret names and per-platform readiness are verified; the Mac enable switch remains off. No Mac upload
-or review submission occurred. Detailed records and setup commands remain local.
+read-only. Shared apple-store-signing reviewer/tag protection, expected secret
+names and per-platform readiness were verified before enabling Mac signing.
+Subsequent hosted results appear below. No Mac upload or review submission occurred. Detailed records and setup commands remain local.
 
 A clean checkout of source `fae1c3c` passed the complete universal Release
 store-package command, Apple Distribution app-signature/entitlement checks,
 full bundled legal-text checks and Mac Installer Distribution package signing.
-The temporary signing keychain was removed. This was a local signing check;
-GitHub secret values, hosted signing and Apple processing/install remain unverified.
+The temporary signing keychain was removed. That local check did not verify
+GitHub secret values, hosted signing or Apple processing/install acceptance.
+
+
+[Mac store candidate v1.0.0-rc.7, build 102](https://github.com/acheronfail/float-view-mobile/actions/runs/39022207820),
+source `fae1a3a`, passed protected hosted signing. Independent downloaded-installer
+inspection passed Apple installer/app signatures, shared source/build record and
+package hash, embedded profile/signer match, exact sandbox entitlements, universal
+executable and development-entry-point exclusion, source-matching privacy/icon
+and complete bundled legal text. The shared environment's Mac signing credentials
+are now exercised; iOS is verified separately. No Mac Apple upload occurred, and
+processing, store installation and affected runtime acceptance remain open.
+Detailed logs, hashes and extracted-package evidence remain local.
+
+
+## Mac privacy and protected delivery implementation
+
+The [Mac source/map audit](../../../docs/macos-distribution-audit.md) records the
+shared data behavior and Mac-specific required-reason/API differences. Native
+WebKit checks verify the app user agent, HTTP cache reuse and actual registration
+of both navigation-policy callbacks; the audit fixed an SDK callback-signature
+mismatch. Focused native navigation/startup/theme checks, intercepted map browser
+checks, privacy/resource packaging checks and release/upload tooling tests pass.
+Detailed logs remain local.
+
+Mac protected delivery uses the shared `apple-store-upload` environment and team
+API key, with separate app IDs/readiness. It independently verifies the signed
+PKG and uses processing receipts before any retry. Mac upload readiness remains
+off. Shared-key presence, tag-only protection, separate app IDs and read-only
+Apple authentication/platform queries are verified. A new signed candidate,
+hosted read-only verification, Apple processing and store-delivered physical acceptance are still required. No Mac
+upload, tester invitation or review submission occurred in this step.

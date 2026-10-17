@@ -291,7 +291,7 @@ secret names; there is no change to the Mac signer or trust policy.
 
 ### Protected Apple delivery
 
-The separate `ios-store-upload` environment has no required reviewer and keeps a
+The shared `apple-store-upload` environment has no required reviewer and keeps a
 tag-only `v*` deployment policy. The single owner approval on
 `apple-store-signing` authorizes signing and subsequent delivery for that run.
 Exact stable/candidate tags are validated before credentials are used. Only the
@@ -299,7 +299,8 @@ delivery step receives the App Store Connect team
 key; signing and sideload jobs do not receive it. A Developer-role team key can
 access the team's apps, so keep its one-time `.p8` download and backups private.
 Store `ASC_API_PRIVATE_KEY_BASE64` as an environment secret and `ASC_API_KEY_ID`,
-`ASC_API_ISSUER_ID`, and the numeric `ASC_APP_ID` as environment variables.
+`ASC_API_ISSUER_ID`, and the numeric `ASC_IOS_APP_ID` and `ASC_MAC_APP_ID` as
+environment variables. Each delivery job maps its app ID to the helper's `ASC_APP_ID`.
 The repository's `APPLE_TEAM_ID` is reused. Validate authentication, exact-app
 lookup and consumed-number queries with a read-only delivery check before upload.
 
@@ -323,7 +324,7 @@ artifacts and delivery receipts in this public repository are not confidential.
 Keep `IOS_STORE_UPLOAD_READY` unset until package, privacy and supported-storage
 checks are accepted. Complete hardware instructions/video before external beta
 review; they need not block the initial owner-only TestFlight upload. Then the owner can set it to `true`
-in `ios-store-upload`. A new `just release ...` tag selects upload, subject to
+in `apple-store-upload`. A new `just release ...` tag selects upload, subject to
 the single signing approval; a deliberate retry uses the existing stable or candidate tag and
 `ios-delivery=upload`. This makes a fresh candidate, uploads it once, and polls Apple
 processing. It does not invite testers or submit beta/App Store review.

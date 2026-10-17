@@ -37,7 +37,7 @@ No Mac helper uploads software, creates store records or sends private keys to
 GitHub. The protected signing job is selected only by explicit stable/candidate
 release tags and retains the existing cross-platform CI build-number allocation.
 It is disabled until the repository variable `MACOS_STORE_SIGNING_ENABLED` is
-`true`. Apple upload automation remains separate work.
+`true`. Upload has its own readiness switch and does not run on ordinary master/nightly builds.
 
 ## Store packaging and protected CI
 
@@ -113,10 +113,10 @@ The signature contains only these sandbox capabilities:
 No broad filesystem exception, app group, persisted security-scoped bookmark,
 debugger entitlement or second service owner is introduced. Release builds ignore
 development frontend/storage/port overrides and exclude browser/test-host modes.
-Debug/conformance builds retain those controls. The existing Apple privacy
-inventory is packaged from the iOS manifest source because the Rust runtime and
-shared map/speech features are common; final Mac source/API and signed-package
-privacy checks remain required.
+Debug/conformance builds retain those controls. The Mac privacy manifest is packaged from
+`backends/apple/macos/Resources/PrivacyInfo.xcprivacy`. Its collection declarations
+match iOS, with an additional required-reason declaration for user-selected
+files outside the container. See the [Mac privacy/map audit](macos-distribution-audit.md).
 
 ## Storage and channel switching
 
@@ -152,19 +152,70 @@ on a rider board or of a store-delivered app. Detailed build hashes, fixture
 inventory, timing and reports remain under ignored `.local/macos-store/`.
 
 The distribution profile and installer certificate/key pairing are validated.
-A local preflight produced an Apple Distribution-signed universal app and a
-Mac Installer Distribution-signed package, with exact signed sandbox/identity
-entitlements, embedded profile, icon and privacy-manifest checks passing. This
-reused the existing test executable and frontend; it is not a clean release
-candidate, upload authorization, or store processing/install acceptance.
+[Candidate v1.0.0-rc.7, build 102](https://github.com/acheronfail/float-view-mobile/actions/runs/39022207820),
+source `fae1a3a`, passed protected hosted signing. An independent downloaded-PKG
+inspection verified installer/app Apple signatures, exact source/build identity,
+embedded profile and signer match, minimal sandbox entitlements, universal
+executable, development-entry-point exclusion, full source-matching notices,
+privacy manifest and icon. The shared signing credentials worked for this Mac
+job. Raw logs, package hashes and extracted inspection evidence remain local.
 
-The repository packaging path also passed an actual universal Release
-structure/notices check and focused profile/source/release-routing/identity
-boundary tests. Hosted protected signing has not yet been exercised.
+The Mac source/API and map audit is complete in source; the resulting changes
+require a new signed candidate. Still required: protected Apple upload,
+TestFlight processing/install acceptance, optional
+location and speech checks, actual direct/store transfer checks, Mac
+screenshots/listing and privacy answers, and owner-controlled review/release.
+Hosted package verification does not establish Apple processing, App Review or
+store-delivered runtime acceptance.
 
-Still required: clean signed release-candidate package acceptance,
-exact package/source/notices audit,
-Mac required-reason API and map-provider/user-agent audit, protected release-only
-CI signing/upload, TestFlight processing/install acceptance, optional location
-and speech checks, actual direct/store transfer checks, Mac screenshots/listing
-and privacy answers, and owner-controlled review/release.
+## Shared protected Apple upload
+
+Both Apple platforms use `apple-store-upload`, one Developer-role team API key,
+and a `v*` tag-only deployment policy. The required owner approval remains on
+`apple-store-signing`; it authorizes signing and subsequent selected delivery
+for that run. The upload environment has no additional required reviewer.
+Keep the former environment during migration until both paths are verified.
+
+Configure `ASC_API_PRIVATE_KEY_BASE64` as its sole secret. Configure
+`ASC_API_KEY_ID`, `ASC_API_ISSUER_ID`, `APPLE_TEAM_ID`, `ASC_IOS_APP_ID` and
+`ASC_MAC_APP_ID` as variables. Per-platform readiness remains independent:
+`IOS_STORE_UPLOAD_READY` and `MACOS_STORE_UPLOAD_READY`. The delivery jobs receive
+only their selected numeric app ID. Signing and sideload jobs do not receive the
+API key. Keep its download and secure backup outside public artifacts.
+
+For a new candidate containing the Mac audit and uploader changes, first request
+an explicitly read-only check on its immutable tag:
+
+```sh
+gh workflow run build-apps.yml --ref vX.Y.Z-rc.N -f mac-delivery=check --repo acheronfail/float-view-mobile
+```
+
+This selects a fresh Mac signed build and number. Review the source and approve
+`apple-store-signing`. The check verifies the exact signed PKG, embedded app and
+profile, notices, privacy manifest, team, source/run/build and digest; it then
+queries Apple's app record and consumed build number. It never uploads and can
+run while Mac upload readiness and the repository upload switch are off.
+RC7 predates these audit/record changes and must not be used to bypass validation.
+
+After that check and owner acceptance, set the environment variable
+`MACOS_STORE_UPLOAD_READY=true` and repository variable
+`MACOS_STORE_UPLOAD_ENABLED=true`. An explicit `just release ...` stable or
+candidate tag then selects Mac upload, subject to signing approval. A deliberate
+store-only retry uses the actual immutable tag with `mac-delivery=upload`;
+ordinary master/nightly builds never select this job. Neither flag is required
+for the existing direct-download ZIP.
+
+Delivery verifies the PKG again, uploads once using Apple's package transport,
+and polls processing to `VALID`. It does not invite testers, submit review or
+release the app. The receipt records the package digest, exact source/build/run,
+transport outcome and Apple processing identity for 90 days. On uncertain
+transport, inspect Apple and the receipt before retrying. A rerun never blindly
+resends an absent number; an existing number is accepted only with a matching
+prior accepted-transport receipt from that run and binary. Corrected, invalid or
+uncertain absent builds need a fresh run and number. Preserve any receipts needed
+beyond Actions retention. A Mac delivery failure does not block GitHub or iOS.
+
+After Apple processing, install through TestFlight and scope physical acceptance
+to Bluetooth/location permissions, a short recording, optional speech, native
+import/export and supported direct/store transfer. Keep detailed results local;
+public readiness notes need only the build/source outcome and coverage limits.

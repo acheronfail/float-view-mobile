@@ -519,3 +519,22 @@ test('Mac store builds use explicit release tags and independent manual retries'
   assert.match(f.output(), /macStoreBuild=false/);
   assert.match(f.output(), /storeBuild=true/);
 });
+
+test('Mac upload checks and retries remain independent and forbidden on master', () => {
+  const f = fixture();
+  for (const delivery of ['check', 'upload']) {
+    const result = f.run('prepare', { GITHUB_EVENT_NAME: 'workflow_dispatch', FLOAT_VIEW_MAC_DELIVERY: delivery });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /never master or nightly/);
+  }
+  git(['tag', 'v1.0.0-rc.1'], f.cwd);
+  const ref = { GITHUB_REF: 'refs/tags/v1.0.0-rc.1', GITHUB_EVENT_NAME: 'workflow_dispatch' };
+  for (const delivery of ['check', 'upload']) {
+    assert.equal(f.run('prepare', { ...ref, FLOAT_VIEW_MAC_DELIVERY: delivery }).status, 0);
+    assert.match(f.output(), /macStoreBuild=true/);
+    assert.match(f.output(), new RegExp(`macStoreDelivery=${delivery}`));
+    assert.match(f.output(), /storeBuild=false/);
+    assert.match(f.output(), /storeDelivery=none/);
+  }
+  assert.notEqual(f.run('prepare', { ...ref, FLOAT_VIEW_MAC_DELIVERY: 'invalid' }).status, 0);
+});
