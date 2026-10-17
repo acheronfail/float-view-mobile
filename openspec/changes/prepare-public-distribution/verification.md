@@ -51,7 +51,7 @@ brief result against the committed build after the relevant checks pass.
   still pending.
 - Complete remaining Android/Mac-specific tasks. The approved historical v0
   release/tag cleanup and subsequent fresh nightly publication are verified.
-  No stable v1.0.0 tag was created.
+  Stable v1.0.0 publication and Apple processing are recorded below.
 
 The implementation checklist is 13/38 complete. Local checks do not close
 cross-platform tasks or external submission gates.
@@ -172,10 +172,22 @@ remain local. Production review and remaining platform checks remain open.
 
 The owner completed the Mac listing and six desktop screenshots. Read-only
 verification confirms all six assets processed, Utilities, 4+, privacy/support
-URLs, review-contact presence and manual release. No production build is selected.
-The description/review notes still include iOS-only Live Activities wording; the
-hardware video currently demonstrates the iPhone app. Corrected copy and private
-handoff remain ignored locally. Mac video, final build selection, owner-only
-pricing/availability confirmation and production submission remain with the
-owner, who explicitly requested holding stable release/submission. No stable tag
-or App Review submission was created.
+URLs, review-contact presence and manual release. The owner corrected iOS-only
+Live Activities wording and recorded a Mac hardware demonstration; its new private
+review link and corrected text are verified saved. Footage recording is
+owner-reported. Build selection and owner-only pricing/availability confirmation
+remain before App Review submission. Private review materials stay local.
+
+## Stable v1.0.0 checkpoint
+
+[Stable v1.0.0 build 108](https://github.com/acheronfail/float-view-mobile/actions/runs/39028413704),
+source `fae18a46`, passed every CI job: all sideload packages, stable GitHub
+publication, both protected Apple signing jobs and both Apple uploads. Exact
+receipts and independent API checks confirm both builds processed as `VALID`.
+Downloaded Mac PKG inspection passed signatures/profile/entitlements, source/build,
+resources/notices and installed-bundle permissions. Its exact packaged Settings
+page renders `v1.0.0` in WebKit; seven focused chart regression tests also pass.
+These are software/package checks, not a new physical device acceptance report.
+Both store records retain manual release; final build selection and App Review
+submission remain owner-controlled. The broader Android/store launch gates remain
+open. Detailed artifacts and private review material stay ignored locally.

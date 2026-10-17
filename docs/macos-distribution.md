@@ -151,25 +151,26 @@ physical Mac Bluetooth checks against simulated board firmware, not validation
 on a rider board or of a store-delivered app. Detailed build hashes, fixture
 inventory, timing and reports remain under ignored `.local/macos-store/`.
 
-[Candidate v1.0.0-rc.9, build 106](https://github.com/acheronfail/float-view-mobile/actions/runs/39025585402),
-source `fae1bec2`, passed all platform builds, protected signing and shared-environment
-Apple delivery. Both Mac and iOS builds processed as `VALID`. Independent Mac
-PKG inspection verified Apple signatures/profile/entitlements, exact source/build,
-universal executable, readable installed-bundle permissions, notices, privacy
-manifest and icon. The Mac build is assigned to the owner's internal TestFlight
-group. Detailed receipts, hashes, screenshots and extracted evidence remain local.
+[Stable v1.0.0, build 108](https://github.com/acheronfail/float-view-mobile/actions/runs/39028413704),
+source `fae18a46`, passed all CI jobs, stable GitHub publication and both protected
+Apple uploads. Mac and iOS processing are independently confirmed `VALID`.
+Independent Mac PKG inspection verified Apple signatures/profile/entitlements,
+exact source/build, universal executable, readable installed-bundle permissions,
+notices, privacy manifest and icon. Its packaged Settings page displays `v1.0.0`
+in WebKit. Detailed receipts, hashes, screenshots and extracted evidence stay local.
 
-The [Mac source/API and map audit](macos-distribution-audit.md) is implemented and
-verified in that signed candidate. The owner confirmed the requested Mac
-TestFlight installation/runtime checks passed for build 106. Detailed physical
-results stay local. The owner completed the Mac listing and six screenshots;
-read-only verification confirms all six processed, Utilities, a 4+ age rating,
-privacy/support URLs, review-contact presence and manual release. Before review,
-remove iOS-only Live Activities claims from the description/review notes, supply
-a Mac hardware demonstration, and select the final production build. The saved
-video currently demonstrates iPhone hardware interaction. Pricing/availability
-require owner verification because the Developer API key cannot read them. The
-owner will handle stable release and submission; neither has occurred.
+The [Mac source/API and map audit](macos-distribution-audit.md) is implemented.
+The owner confirmed the scoped Mac TestFlight checks passed for RC9 build 106;
+that physical result is distinct from the software/package checks on build 108.
+The owner completed six screenshots and listing fields. Read-only checks confirm
+processed assets, Utilities, 4+, privacy/support URLs, review-contact presence,
+manual release, corrected Mac feature wording and the saved Mac video link. The
+video's recording is owner-reported; private links and review materials stay local.
+
+The owner can now select build 108 for version 1.0.0 and submit App Review.
+Pricing/availability require owner verification because the Developer API key
+cannot read them. Store submission, approval and controlled public store release
+remain separate from the completed stable GitHub release and Apple uploads.
 
 ## Shared protected Apple upload
 
