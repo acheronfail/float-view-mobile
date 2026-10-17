@@ -130,6 +130,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                   'on-accent',
                   'accent-soft',
                   'on-accent-soft',
+                  'warning',
+                  'on-warning',
+                  'danger',
+                  'on-danger',
                 ].map((token) => [token, style.getPropertyValue(`--app-${token}`).trim()])
               );
             });
@@ -150,6 +154,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             }
             assertContrast('on-accent', 'accent', 4.5, 'solid button / segmented control / toggle');
             assertContrast('on-accent-soft', 'accent-soft', 4.5, 'selected navigation / status / preset');
+            assertContrast('on-warning', 'warning', 4.5, 'warning confirmation / flywheel disable');
+            assertContrast('on-danger', 'danger', 4.5, 'destructive confirmation');
 
             // Resolve actual rendered classes and inherited backgrounds as well.
             const rendered = await page.evaluate(() => {
@@ -195,6 +201,36 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
           }
           assert.equal(colors.size, 5);
+          await page.goto(`${endpoint.origin}/#/sessions/session-1`);
+          for (const action of ['Prune', 'Delete session']) {
+            await page.getByRole('button', { name: 'Session actions', exact: true }).tap();
+            await page.getByRole('button', { name: action, exact: true }).tap();
+            const dialog = page.getByRole('alertdialog');
+            await dialog.waitFor();
+            const buttons = await dialog.getByRole('button').evaluateAll((elements) =>
+              elements.map((element) => {
+                let parent: Element | null = element;
+                let background = '';
+                while (parent) {
+                  background = getComputedStyle(parent).backgroundColor;
+                  if (background !== 'rgba(0, 0, 0, 0)' && background !== 'transparent') break;
+                  parent = parent.parentElement;
+                }
+                return { label: element.textContent?.trim(), foreground: getComputedStyle(element).color, background };
+              })
+            );
+            assert.equal(buttons.length, 2);
+            for (const button of buttons) {
+              assert.ok(
+                contrast(button.foreground, button.background) >= 4.5,
+                `${themePreference}: ${action} dialog ${button.label} (${button.foreground} on ${button.background}) needs 4.5:1 contrast`
+              );
+            }
+            await dialog.getByRole('button', { name: 'Cancel', exact: true }).tap();
+            await dialog.waitFor({ state: 'hidden' });
+          }
+          await page.goto(`${endpoint.origin}/#/settings`);
+          await group.waitFor();
         }
         await page.reload();
         await group.waitFor();
