@@ -162,8 +162,9 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       webView.uiDelegate = self
       webView.allowsMagnification = false
       webView.load(URLRequest(url: URL(string: server.origin)!))
+      let initialSize = NSSize(width: 1100, height: 760)
       let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: 430, height: 820),
+        contentRect: NSRect(origin: .zero, size: initialSize),
         styleMask: [.titled, .closable, .miniaturizable, .resizable],
         backing: .buffered,
         defer: false
@@ -171,7 +172,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       window.backgroundColor = MacTheme.canvasColor
       window.title = "Float View"
       window.isReleasedWhenClosed = false
-      let content = NSView(frame: NSRect(x: 0, y: 0, width: 430, height: 820))
+      let content = NSView(frame: NSRect(origin: .zero, size: initialSize))
       webView.frame = content.bounds
       webView.autoresizingMask = [.width, .height]
       webView.isHidden = true
