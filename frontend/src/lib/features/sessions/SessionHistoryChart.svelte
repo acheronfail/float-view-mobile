@@ -1007,17 +1007,6 @@
                           />
                         {/each}
                       {/if}
-                      {#if inspectionVisible}
-                        <line
-                          x1={(axis.ratioAt(inspectionMs) ?? 0) * CHART_WIDTH}
-                          x2={(axis.ratioAt(inspectionMs) ?? 0) * CHART_WIDTH}
-                          y1="0"
-                          y2={CHART_HEIGHT}
-                          stroke="var(--app-accent)"
-                          stroke-dasharray="3 2"
-                          vector-effect="non-scaling-stroke"
-                        />
-                      {/if}
                       {#if selectionRange}
                         <rect
                           x="0"
@@ -1053,6 +1042,16 @@
                         />
                       {/if}
                     </svg>
+                    <!-- A separate composited overlay avoids partial SVG repaints in WebKit
+                         when the tooltip disappears as inspection crosses a data gap. -->
+                    {#if inspectionVisible}
+                      <span
+                        data-history-inspection
+                        aria-hidden="true"
+                        class="pointer-events-none absolute inset-y-0 w-0 transform-gpu border-l border-dashed border-accent"
+                        style:left={`${(axis.ratioAt(inspectionMs) ?? 0) * 100}%`}
+                      ></span>
+                    {/if}
                     <!-- Keep dots in CSS pixels: the plot SVG stretches each axis independently. -->
                     {#each tooltipEntries as entry (entry.field.name)}
                       {#if inspectionVisible}

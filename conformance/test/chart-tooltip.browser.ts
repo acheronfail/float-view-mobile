@@ -6,6 +6,70 @@ import { startMockServer, stopMockServer, getMockBootstrap } from '../../fronten
 
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
+  test(`${name}: inspection stays full height across sparse readings and gaps`, { timeout: 60_000 }, async () => {
+    const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
+    const endpoint = getMockBootstrap(port);
+    const browser = await engine.launch();
+    try {
+      const page = await browser.newPage({ viewport: { width: 1100, height: 760 } });
+      page.setDefaultTimeout(5000);
+      if (name === 'chromium')
+        await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
+      await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      await page.route('https://tile.openstreetmap.org/**', (route) => route.abort());
+      await page.route('**/api/session-data', async (route) => {
+        const response = await route.fetch();
+        const value = await response.json();
+        if (value.kind === 'series') {
+          for (const column of Object.values(value.columns)) {
+            Object.assign(column as object, {
+              elapsedMs: [15000, 20000, 25000, 40000, 45000],
+              sequence: [1, 2, 3, 4, 5],
+              values: [1, 2, null, 2, 1],
+              generations: [0, 0, 0, 1, 1],
+            });
+          }
+        }
+        await route.fulfill({ response, json: value });
+      });
+      await page.goto(`${endpoint.origin}/#/sessions/session-1`);
+      const chart = page.getByRole('img', { name: 'Current over elapsed time', exact: true });
+      await chart.waitFor();
+      await page.getByRole('button', { name: 'Show/hide the map', exact: true }).click();
+      await chart.scrollIntoViewIfNeeded();
+      const plot = chart.locator('..');
+      await page.waitForFunction(() =>
+        document.querySelector('svg[aria-label="Current over elapsed time"] path[stroke]')
+      );
+      // Enter/leave both ends of a short segment and cross an internal gap.
+      for (const ratio of [0.3, 0.1, 0.3, 0.5, 0.7, 0.9, 0.7, 0.5]) {
+        const box = (await chart.boundingBox())!;
+        await page.mouse.move(box.x + box.width * ratio, box.y + box.height / 2);
+        await page.waitForFunction(
+          ({ ratio }) => {
+            const chart = document.querySelector('svg[aria-label="Current over elapsed time"]')!;
+            const cursor = chart.parentElement!.querySelector('[data-history-inspection]');
+            if (!cursor) return false;
+            const box = chart.getBoundingClientRect();
+            return Math.abs(cursor.getBoundingClientRect().x - (box.x + box.width * ratio)) < 1;
+          },
+          { ratio }
+        );
+        const cursor = plot.locator('[data-history-inspection]');
+        assert.equal(await cursor.count(), 1, 'one cursor spans the entire plot');
+        const bounds = (await cursor.boundingBox())!;
+        assert.ok(Math.abs(bounds.y - box.y) < 1 && Math.abs(bounds.height - box.height) < 1);
+        const hasReading = ratio === 0.3 || ratio === 0.7;
+        assert.equal(await plot.getByRole('status').count(), hasReading ? 1 : 0);
+        assert.equal((await plot.locator('[data-history-point]').count()) > 0, hasReading);
+      }
+      await page.mouse.move(0, 0);
+      await plot.locator('[data-history-inspection]').waitFor({ state: 'detached' });
+    } finally {
+      await browser.close();
+      await stopMockServer();
+    }
+  });
   test(`${name}: tooltips fit mobile charts and cover markers`, { timeout: 60_000 }, async () => {
     const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
