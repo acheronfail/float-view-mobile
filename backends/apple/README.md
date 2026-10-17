@@ -288,8 +288,11 @@ secret names; there is no change to the Mac signer or trust policy.
 
 ### Protected Apple delivery
 
-The separate `ios-store-upload` environment has owner review and a tag-only
-`v*` deployment policy; exact stable/candidate tags are validated before credentials are used. Only its delivery step receives the App Store Connect team
+The separate `ios-store-upload` environment has no required reviewer and keeps a
+tag-only `v*` deployment policy. The single owner approval on
+`ios-store-signing` authorizes signing and subsequent delivery for that run.
+Exact stable/candidate tags are validated before credentials are used. Only the
+delivery step receives the App Store Connect team
 key; signing and sideload jobs do not receive it. A Developer-role team key can
 access the team's apps, so keep its one-time `.p8` download and backups private.
 Store `ASC_API_PRIVATE_KEY_BASE64` as an environment secret and `ASC_API_KEY_ID`,
@@ -304,7 +307,8 @@ using its actual tag (replace `vX.Y.Z`):
 gh workflow run build-apps.yml --ref vX.Y.Z -f ios-store=true -f ios-delivery=check --repo acheronfail/float-view-mobile
 ```
 
-Approve the signing and delivery environment requests for that exact source.
+Approve the single `ios-store-signing` environment request for that exact source.
+After successful signing and artifact verification, delivery proceeds automatically.
 `check` independently verifies the exported signatures, profiles, privacy
 manifests, version and digest, authenticates to Apple, checks the numeric app
 record's bundle ID, and queries whether Apple already has that build number.
@@ -317,7 +321,7 @@ Keep `IOS_STORE_UPLOAD_READY` unset until package, privacy and supported-storage
 checks are accepted. Complete hardware instructions/video before external beta
 review; they need not block the initial owner-only TestFlight upload. Then the owner can set it to `true`
 in `ios-store-upload`. A new `just release ...` tag selects upload, subject to
-required review; a deliberate retry uses the existing stable or candidate tag and
+the single signing approval; a deliberate retry uses the existing stable or candidate tag and
 `ios-delivery=upload`. This makes a fresh candidate, uploads it once, and polls Apple
 processing. It does not invite testers or submit beta/App Store review.
 

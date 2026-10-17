@@ -185,8 +185,10 @@ Mac ZIPs. Local iOS Release archive/export preparation is documented in the
 uploads to a store nor changes the GitHub packages. Android App Bundles remain
 planned work. Only stable `vX.Y.Z` or numbered `vX.Y.Z-rc.N` release tags select protected App Store jobs.
 `just release ...` pushes that tag and selects iOS signing/delivery; master
-commits and rolling nightlies never select them. Owner environment review and
-explicit upload readiness are still required. A fresh manual run on an existing
+commits and rolling nightlies never select them. One owner approval on
+`ios-store-signing` covers signing and subsequent delivery; `ios-store-upload`
+retains its tag policy and credentials without a second reviewer gate. Explicit
+upload readiness is still required. A fresh manual run on an existing
 stable or candidate tag can rebuild store artifacts with `ios-store=true` or select
 `ios-delivery=check|upload`; requests on master/nightly refs are rejected.
 Published stable/candidate GitHub assets remain immutable during store retries. Check mode
