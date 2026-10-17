@@ -82,6 +82,10 @@ def bundles(app, version, number):
         require(info["CFBundleShortVersionString"] == version, "App/extension marketing version mismatch")
         require(info["CFBundleVersion"] == number, "App/extension build number mismatch")
         executable = bundle / info["CFBundleExecutable"]
+        binary = executable.read_bytes()
+        for marker in [b"FLOAT_VIEW_CONFORMANCE_RESET", b"FixtureBluetoothAdapter", b"setInspectable:",
+                       b"floatViewPerformance", b"FloatView frontend performance"]:
+            require(marker not in binary, "Release executable contains a development entry point: " + marker.decode())
         architectures = run("lipo", "-archs", str(executable), capture=True).decode().split()
         require(architectures == ["arm64"], "Expected an arm64 device executable")
         require(info.get("CFBundleSupportedPlatforms") == ["iPhoneOS"], "Expected an iOS device bundle")

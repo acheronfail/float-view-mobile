@@ -105,16 +105,18 @@ struct WebView: UIViewRepresentable {
     }
 
     func userContentController(_: WKUserContentController, didReceive message: WKScriptMessage) {
-      guard message.name == "floatViewPerformance" else { return }
-      guard
-        let body = message.body as? [String: Any],
-        let data = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]),
-        let text = String(data: data, encoding: .utf8)
-      else {
-        print("[FloatView frontend performance] \(message.body)")
-        return
-      }
-      print("[FloatView frontend performance] \(text)")
+      #if DEBUG
+        guard message.name == "floatViewPerformance" else { return }
+        guard
+          let body = message.body as? [String: Any],
+          let data = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]),
+          let text = String(data: data, encoding: .utf8)
+        else {
+          print("[FloatView frontend performance] \(message.body)")
+          return
+        }
+        print("[FloatView frontend performance] \(text)")
+      #endif
     }
   }
 }

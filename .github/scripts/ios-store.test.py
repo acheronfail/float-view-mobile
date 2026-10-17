@@ -100,6 +100,16 @@ class StoreTests(unittest.TestCase):
                     store.ci_build(argparse.Namespace(output=self.root / "output"))
             self.assertEqual(self.operations, [])
 
+    def test_release_executable_rejects_development_hooks(self):
+        executable = self.app / "executable"
+        original = executable.read_bytes()
+        for marker in [b"FLOAT_VIEW_CONFORMANCE_RESET", b"FixtureBluetoothAdapter", b"setInspectable:",
+                       b"floatViewPerformance", b"FloatView frontend performance"]:
+            executable.write_bytes(original + marker)
+            with self.subTest(marker=marker), self.assertRaisesRegex(ValueError, "development entry point"):
+                store.bundles(self.app, "1.0.0", "101")
+        executable.write_bytes(original)
+
     def test_development_profile_rejected(self):
         self.profile_changes["ProvisionedDevices"] = ["test-device"]
         with self.assertRaisesRegex(ValueError, "App Store profile"):
