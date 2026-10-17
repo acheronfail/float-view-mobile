@@ -1,5 +1,5 @@
 {
-  "status": "applied; deletion and preservation verified; workflow restored; fresh nightly publication pending",
+  "status": "applied; deletion, preservation and fresh nightly publication verified",
   "repository": "acheronfail/float-view-mobile",
   "capturedAt": "2026-10-17T09:48:04+10:30",
   "preserve": [
@@ -1185,7 +1185,7 @@
     ],
     "verified": true,
     "workflowRestored": true,
-    "freshNightlyPublicationVerified": false,
+    "freshNightlyPublicationVerified": true,
     "postCleanupWorkflow": {
       "url": "https://github.com/acheronfail/float-view-mobile/actions/runs/39009005958",
       "conclusion": "success",
@@ -1193,6 +1193,7 @@
       "nightlyVersion": "v1.0.0-nightly.653.gfae18a56b0ad",
       "unchangedSourceSkipped": true,
       "storeJobsSkipped": true
-    }
+    },
+    "freshNightlyPublicationRun": "https://github.com/acheronfail/float-view-mobile/actions/runs/39009233662"
   }
 }
