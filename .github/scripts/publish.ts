@@ -9,8 +9,8 @@ import {
   versionMarker,
   type Release,
 } from './github.ts';
-import { releaseNotes } from './notes.ts';
-import { assetNames, git, latestRelease, parseVersion, resolveVersion } from './version.ts';
+import { releaseNotes, releaseNotesBase } from './notes.ts';
+import { assetNames, git, parseVersion, resolveVersion } from './version.ts';
 import { ciBuildIdentity } from './build-record.ts';
 
 const commit = process.env.GITHUB_SHA!;
@@ -39,7 +39,7 @@ if (nightly && publishedBuild && Number(publishedBuild) > Number(identity.buildN
 } else if (!nightly && release && !release.draft) {
   console.log(`${tag} is already published; preserving its assets.`);
 } else {
-  const previousTag = latestRelease(commit, process.cwd(), nightly ? undefined : tag);
+  const previousTag = releaseNotesBase(tag, commit);
   const notes = releaseNotes(tag, commit, previousTag, process.env.GH_REPO!);
   if (nightly) {
     // Create the immutable source tag before the release so its API request never

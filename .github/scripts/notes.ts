@@ -1,4 +1,11 @@
-import { git } from './version.ts';
+import { git, isCandidateVersion, isNightlyVersion, latestRelease, latestStable, parseVersion } from './version.ts';
+
+export function releaseNotesBase(tag: string, commit: string, cwd = process.cwd()): string | null {
+  parseVersion(tag);
+  if (isNightlyVersion(tag)) return latestRelease(commit, cwd);
+  if (isCandidateVersion(tag)) return latestRelease(commit, cwd, tag);
+  return latestStable(commit, cwd, tag);
+}
 
 const areas = [
   ['app', 'App'],

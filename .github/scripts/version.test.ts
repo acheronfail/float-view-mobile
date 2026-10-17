@@ -152,6 +152,7 @@ test('release preview uses publication notes on dirty, unpushed branches without
   git(['tag', 'v0.1.49'], dir);
   git(['checkout', '-b', 'feature'], dir);
   git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'app: Show speed'], dir);
+  git(['tag', 'v0.1.50-rc.1'], dir);
   writeFileSync(join(dir, 'untracked'), 'not committed');
   const before = git(['status', '--porcelain'], dir);
   const result = preview('HEAD', dir);
@@ -169,7 +170,7 @@ test('release preview uses publication notes on dirty, unpushed branches without
   );
   assert.match(result.notes, /## App\n\n- Show speed/);
   assert.doesNotMatch(result.notes, /not committed/);
-  assert.equal(git(['tag', '--list'], dir), 'v0.1.49');
+  assert.equal(git(['tag', '--list'], dir), 'v0.1.49\nv0.1.50-rc.1');
   assert.equal(git(['status', '--porcelain'], dir), before);
   const historical = preview('master', dir);
   assert.match(historical.notes, /No changes since the previous release/);
@@ -259,7 +260,7 @@ test('note bases advance numerically through candidates and stable releases on t
   assert.equal(latestRelease('HEAD', dir, 'v1.0.0-rc.2'), 'v1.0.0-rc.1');
   assert.equal(latestRelease('HEAD', dir), 'v1.0.0-rc.10');
   assert.equal(latestRelease('HEAD', dir, 'v1.0.0'), 'v1.0.0-rc.10');
-  assert.equal(preview('HEAD', dir).previousTag, 'v1.0.0-rc.10');
+  assert.equal(preview('HEAD', dir).previousTag, 'v0.3.0');
   assert.equal(preview('HEAD', dir).version, 'v0.3.1');
   git(['tag', 'v1.0.0'], dir);
   assert.equal(latestRelease('HEAD', dir), 'v1.0.0');

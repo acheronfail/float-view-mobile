@@ -76,7 +76,7 @@ export function latestStable(commit: string, cwd = process.cwd(), before?: strin
   return candidates.find((tag) => isAncestor(tag, commit, cwd)) ?? null;
 }
 
-// Release notes advance through stable and candidate versions; nightly tags are not milestones.
+// Incremental RC/nightly notes advance through milestones; nightly tags are not milestones.
 function compareRelease(left: string, right: string): number {
   const version = compareStable(left, right);
   if (version) return version;

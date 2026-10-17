@@ -474,7 +474,7 @@ test('failed candidate publication resumes its draft without touching Nightly', 
 });
 
 
-test('publication notes include only changes since the newest stable or candidate milestone', () => {
+test('stable notes aggregate while candidate and nightly notes stay incremental', () => {
   const f = fixture();
   git(['tag', 'v1.0.0-rc.1'], f.cwd);
   git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'app: Fix candidate regression'], f.cwd);
@@ -490,8 +490,9 @@ test('publication notes include only changes since the newest stable or candidat
   assert.match(releases[0]!.body!, /Fix candidate regression/);
   assert.doesNotMatch(releases[0]!.body!, /Show live telemetry/);
   assert.match(releases[0]!.body!, /compare\/v1.0.0-rc.1\.\.\.v1.0.0-rc.2/);
-  assert.match(releases[1]!.body!, /No changes since the previous release/);
-  assert.match(releases[1]!.body!, /compare\/v1.0.0-rc.2\.\.\.v1.0.0/);
+  assert.match(releases[1]!.body!, /Show live telemetry/);
+  assert.match(releases[1]!.body!, /Fix candidate regression/);
+  assert.match(releases[1]!.body!, /compare\/v0.1.49\.\.\.v1.0.0/);
   assert.match(releases[2]!.body!, /compare\/v1.0.0\.\.\.v1.0.1-rc.1/);
   const nightly = resolveVersion(sha, null, f.cwd).version;
   for (const file of assetNames(nightly)) writeFileSync(join(f.cwd, file), 'package');
@@ -537,4 +538,23 @@ test('Mac upload checks and retries remain independent and forbidden on master',
     assert.match(f.output(), /storeDelivery=none/);
   }
   assert.notEqual(f.run('prepare', { ...ref, FLOAT_VIEW_MAC_DELIVERY: 'invalid' }).status, 0);
+});
+
+
+test('first stable publication includes app history despite earlier candidates', () => {
+  const f = fixture();
+  git(['tag', '-d', 'v0.1.49'], f.cwd);
+  git(['tag', 'v1.0.0-rc.1'], f.cwd);
+  git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'apple: Fix candidate startup'], f.cwd);
+  const sha = git(['rev-parse', 'HEAD'], f.cwd);
+  git(['update-ref', 'refs/remotes/origin/master', sha], f.cwd);
+  for (const tag of ['v1.0.0-rc.2', 'v1.0.0']) git(['tag', tag], f.cwd);
+  for (const file of assetNames('v1.0.0')) writeFileSync(join(f.cwd, file), 'package');
+  const result = f.run('publish', { GITHUB_SHA: sha, GITHUB_REF: 'refs/tags/v1.0.0', FLOAT_VIEW_VERSION: 'v1.0.0' });
+  assert.equal(result.status, 0, result.stderr);
+  const body = f.state().releases[0]!.body!;
+  assert.match(body, /Show live telemetry/);
+  assert.match(body, /Fix candidate startup/);
+  assert.match(body, /commits\/v1.0.0/);
+  assert.doesNotMatch(body, /compare\/v1.0.0-rc/);
 });

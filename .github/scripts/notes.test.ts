@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
-import { releaseNotes } from './notes.ts';
+import { releaseNotes, releaseNotesBase } from './notes.ts';
 import { git } from './version.ts';
 
 const directories: string[] = [];
@@ -90,4 +90,26 @@ test('branch commits are included once while merge titles are omitted', () => {
   const notes = f.notes();
   assert.equal(notes.match(/Add board profile/g)?.length, 1);
   assert.doesNotMatch(notes, /Merge feature/);
+});
+
+
+test('note ranges exclude target/later tags and unrelated history', () => {
+  const f = fixture();
+  f.commit('app: Add a feature before the first candidate');
+  git(['tag', 'v0.2.0-rc.1'], f.cwd);
+  f.commit('apple: Fix candidate startup');
+  git(['tag', '-a', 'v0.2.0-rc.2', '-m', 'Candidate two'], f.cwd);
+  git(['tag', 'v0.2.0'], f.cwd);
+  git(['tag', 'v0.2.1-nightly.1.gabcdef0'], f.cwd);
+  assert.equal(releaseNotesBase('v0.2.0-rc.2', 'HEAD', f.cwd), 'v0.2.0-rc.1');
+  assert.equal(releaseNotesBase('v0.2.0', 'HEAD', f.cwd), 'v0.1.0');
+  assert.equal(releaseNotesBase('v0.2.1-nightly.1.gabcdef0', 'HEAD', f.cwd), 'v0.2.0');
+  git(['tag', 'v9.0.0'], f.cwd);
+  assert.equal(releaseNotesBase('v0.2.0', 'HEAD', f.cwd), 'v0.1.0');
+  assert.equal(releaseNotesBase('v0.2.0-rc.2', 'HEAD', f.cwd), 'v0.2.0-rc.1');
+  git(['checkout', '-b', 'unrelated'], f.cwd);
+  f.commit('app: Unmerged change');
+  git(['tag', 'v0.2.1'], f.cwd);
+  git(['checkout', 'master'], f.cwd);
+  assert.equal(releaseNotesBase('v0.3.0', 'HEAD', f.cwd), 'v0.2.0');
 });
