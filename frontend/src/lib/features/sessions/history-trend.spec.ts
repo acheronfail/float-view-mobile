@@ -40,6 +40,38 @@ describe('history trend', () => {
     });
   });
 
+  it('only translates curves and bands when panning in either direction across retained readings', () => {
+    const column = {
+      elapsedMs: Array.from({ length: 11 }, (_, index) => index * 1000),
+      sequence: Array.from({ length: 11 }, (_, index) => index + 1),
+      values: [0, 8, 2, 9, 1, 6, 3, 10, 2, 7, 0],
+      generations: Array(11).fill(0),
+    };
+    const original = historyTrend(column, options, 40);
+    expect(original.smoothed).toBe(true);
+    for (const delta of [-2300, 2300, 4700]) {
+      const panned = historyTrend(
+        column,
+        {
+          ...options,
+          viewport: { startElapsedMs: delta, endElapsedMs: 10000 + delta },
+        },
+        40
+      );
+      for (const kind of ['paths', 'bands'] as const) {
+        expect(panned[kind]).toHaveLength(original[kind].length);
+        original[kind].forEach((path, index) => {
+          const before = path.match(/-?\d+\.\d+/g)!.map(Number);
+          const after = panned[kind][index].match(/-?\d+\.\d+/g)!.map(Number);
+          expect(after).toHaveLength(before.length);
+          before.forEach((coordinate, index) => {
+            expect(after[index]).toBeCloseTo(coordinate - (index % 2 === 0 ? delta / 100 : 0), 2);
+          });
+        });
+      }
+    }
+  });
+
   it('curves changing trends with continuous tangents and no invented extrema', () => {
     const result = historyTrend(
       {

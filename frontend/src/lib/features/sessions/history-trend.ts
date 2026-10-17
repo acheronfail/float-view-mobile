@@ -28,7 +28,13 @@ export function historyTrend(
     ((value - options.domain!.min) / Math.max(Number.EPSILON, options.domain!.max - options.domain!.min)) *
       (options.height - 4) -
     2;
-  const x = (time: number) => (axis.ratioAt(time) ?? 0) * options.width;
+  // Ordinary panning must translate the retained curve, including offscreen
+  // readings. Clipping/rebinning at the moving viewport edge changes its shape.
+  // Only map filtering excludes readings and concatenates separate intervals.
+  const x = (time: number) =>
+    options.intervals
+      ? (axis.ratioAt(time) ?? 0) * options.width
+      : ((time - options.viewport.startElapsedMs) / Math.max(1, duration)) * options.width;
   const point = (time: number, value: number) => `${x(time).toFixed(2)} ${y(value).toFixed(2)}`;
   function flush() {
     if (!run.length) return;
@@ -82,7 +88,7 @@ export function historyTrend(
   }
   column.values.forEach((value, index) => {
     const time = column.elapsedMs[index];
-    const interval = axis.indexAt(time);
+    const interval = options.intervals ? axis.indexAt(time) : 0;
     if (value === null || !Number.isFinite(value) || interval < 0) {
       flush();
       return;
