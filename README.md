@@ -1,16 +1,11 @@
 # Float View
 
-> [!WARNING]
-> Store releases are being prepared. Current downloads are development builds.
-> The v1.0.0 candidate resets recognised earlier development data once to
-> baseline 100, then preserves supported data. Export recordings before switching
-> installation routes, and keep backups when testing nightlies.
-
 Float View is open source under [AGPL-3.0-or-later](LICENSE).
 Buying the app through an app store supports ongoing development and helps cover
 developer memberships and distribution fees. You can also install through the
 alternative routes below or [build it yourself](CONTRIBUTING.md).
-Store links will be added here as each listing becomes available.
+
+Store links will be added here as they become available!
 
 [Privacy policy](PRIVACY.md) · [Support](https://github.com/acheronfail/float-view-mobile/issues)
 
@@ -76,18 +71,6 @@ Allow installation from this source if Android asks.
 Requires macOS 14 or later. Supports Apple Silicon and Intel.
 
 1. Download the macOS `.zip`, extract it, and move `FloatView.app` to Applications.
-2. Open FloatView. Builds produced by the Developer ID notarization pipeline have
-   Apple's notarization ticket attached and do not need a Terminal workaround.
-
-Older self-signed downloads are still unnotarized. For those builds only, run
-this once in Terminal before opening the app:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/FloatView.app
-```
-
-See [macOS release verification](backends/apple/README.md#macos-release-app) for
-signing/notarization details. Local source builds retain development signing.
 
 ## Contributing
 
