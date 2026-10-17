@@ -50,9 +50,10 @@ brief result against the committed build after the relevant checks pass.
   remains enabled behind protected environment review; external beta review is
   still pending.
 - Complete remaining Android/Mac-specific tasks. The approved historical v0
-  release/tag cleanup and subsequent fresh nightly publication are verified. No stable v1.0.0 tag was created.
+  release/tag cleanup and subsequent fresh nightly publication are verified.
+  No stable v1.0.0 tag was created.
 
-The implementation checklist is 9/38 complete. Local checks do not close
+The implementation checklist is 10/38 complete. Local checks do not close
 cross-platform tasks or external submission gates.
 
 ## Historical development release cleanup
@@ -72,3 +73,32 @@ and distribution tests passed, including cleanup/count continuity. The subsequen
 [fresh nightly run 39009233662](https://github.com/acheronfail/float-view-mobile/actions/runs/39009233662)
 succeeded for IPA/APK/notarized Mac ZIP and publication, with both store jobs
 skipped. This completes the one-time cleanup verification.
+
+## Local Mac App Store sandbox proof
+
+The universal Release feasibility package passed signature/entitlement and
+resource checks, native WebView and authenticated loopback, supported-baseline
+archive import/export, settings/recording preservation across relaunch, and
+native Save-panel export outside the container with staging-lease release.
+The connected ESP fixture passed scoped direct connection/recording and
+unexpected-disconnect recovery, including RESET/READY cleanup. These checks
+used an ad-hoc, isolated sandbox-check identity from the working source; exact
+executable hashes, dirty source status, device/fixture inventory and raw reports
+remain local. They do not establish store signing, store delivery, rider-board
+interoperability, location or speech acceptance. See
+[Mac distribution preparation](../../../docs/macos-distribution.md).
+
+The independent desktop-window change is committed as
+[fae10b1](https://github.com/acheronfail/float-view-mobile/commit/fae10b1f0e448f97b7f0733971a9cf2b7143a462).
+Its universal Release rebuild and native desktop-size/persistence checks passed;
+it does not reopen unchanged Bluetooth behavior from the sandbox proof.
+
+
+Mac store packaging now has separate structural-check and clean-source signed
+package commands, plus an independently gated signing/artifact job. Universal
+Release structure, resources and full bundled legal-text checks passed locally;
+profile/source/release-routing and dual-identity cleanup tests pass. The owner
+confirmed signing-material backups, and the separate Mac app record was verified
+read-only. Protected hosted signing and Apple processing/install acceptance are
+still pending. Shared apple-store-signing reviewer/tag protection, expected secret names and per-platform readiness are verified; the Mac enable switch remains off. No Mac upload
+or review submission occurred. Detailed records and setup commands remain local.

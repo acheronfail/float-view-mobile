@@ -5,6 +5,7 @@ FloatView-*.apk
 .local/android-signing/
 .local/android-store/
 .local/macos-signing/
+.local/macos-store/
 .local/ios-store/
 .local/physical-testing/
 FloatView-*-macos-universal.zip

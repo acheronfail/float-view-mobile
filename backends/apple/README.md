@@ -216,9 +216,12 @@ the delivery job queries Apple before considering a retry of that number.
 
 Configure [the repository's environments](https://github.com/acheronfail/float-view-mobile/settings/environments)
 before enabling this job. Use owner review and a tag-only `v*` deployment policy
-for `ios-store-signing`. The preparation and Python
+for `apple-store-signing`. The preparation and Python
 validators additionally require an exact stable `vX.Y.Z` or candidate `vX.Y.Z-rc.N` ref, excluding nightlies.
-Keep its secrets scoped to that environment. The job refuses to proceed until environment variable
+The iOS and native Mac jobs share this protected signing environment and one
+`APPLE_DISTRIBUTION_P12_BASE64` / `APPLE_DISTRIBUTION_P12_PASSWORD` pair.
+Provisioning profiles and readiness switches remain platform-specific; Mac
+installer signing uses a separate identity. Keep secrets scoped to this environment. The job refuses to proceed until environment variable
 `IOS_STORE_SIGNING_READY` is `true`; set it only after protection and secrets
 are configured. The existing repository `APPLE_TEAM_ID` variable is reused.
 
@@ -246,19 +249,19 @@ under ignored `.local/ios-store/ci-signing/` as `app.mobileprovision` and
 interactive password command on its own and enter the PKCS12 export password:
 
 ```sh
-gh secret set IOS_CODE_SIGN_P12_PASSWORD --env ios-store-signing --repo acheronfail/float-view-mobile
+gh secret set APPLE_DISTRIBUTION_P12_PASSWORD --env apple-store-signing --repo acheronfail/float-view-mobile
 ```
 
 Then run the file uploads and enable readiness:
 
 ```sh
 base64 < .local/ios-store/ci-signing/distribution.p12 | \
-  gh secret set IOS_CODE_SIGN_P12_BASE64 --env ios-store-signing --repo acheronfail/float-view-mobile
+  gh secret set APPLE_DISTRIBUTION_P12_BASE64 --env apple-store-signing --repo acheronfail/float-view-mobile
 base64 < .local/ios-store/ci-signing/app.mobileprovision | \
-  gh secret set IOS_APP_PROFILE_BASE64 --env ios-store-signing --repo acheronfail/float-view-mobile
+  gh secret set IOS_APP_PROFILE_BASE64 --env apple-store-signing --repo acheronfail/float-view-mobile
 base64 < .local/ios-store/ci-signing/live-activity.mobileprovision | \
-  gh secret set IOS_EXTENSION_PROFILE_BASE64 --env ios-store-signing --repo acheronfail/float-view-mobile
-gh variable set IOS_STORE_SIGNING_READY --body true --env ios-store-signing --repo acheronfail/float-view-mobile
+  gh secret set IOS_EXTENSION_PROFILE_BASE64 --env apple-store-signing --repo acheronfail/float-view-mobile
+gh variable set IOS_STORE_SIGNING_READY --body true --env apple-store-signing --repo acheronfail/float-view-mobile
 ```
 
 The password command prompts interactively; supply the password used for that
@@ -290,7 +293,7 @@ secret names; there is no change to the Mac signer or trust policy.
 
 The separate `ios-store-upload` environment has no required reviewer and keeps a
 tag-only `v*` deployment policy. The single owner approval on
-`ios-store-signing` authorizes signing and subsequent delivery for that run.
+`apple-store-signing` authorizes signing and subsequent delivery for that run.
 Exact stable/candidate tags are validated before credentials are used. Only the
 delivery step receives the App Store Connect team
 key; signing and sideload jobs do not receive it. A Developer-role team key can
@@ -307,7 +310,7 @@ using its actual tag (replace `vX.Y.Z`):
 gh workflow run build-apps.yml --ref vX.Y.Z -f ios-store=true -f ios-delivery=check --repo acheronfail/float-view-mobile
 ```
 
-Approve the single `ios-store-signing` environment request for that exact source.
+Approve the single `apple-store-signing` environment request for that exact source.
 After successful signing and artifact verification, delivery proceeds automatically.
 `check` independently verifies the exported signatures, profiles, privacy
 manifests, version and digest, authenticates to Apple, checks the numeric app
@@ -338,6 +341,14 @@ receipts needed for longer retention before Actions artifacts expire.
 Only GitHub publication is serialized across runs. A store environment waiting
 for approval therefore does not hold subsequent nightly builds in a queue;
 existing older-run guards still prevent stale nightly publication.
+
+### Mac App Store preparation
+
+The native Mac app will use the separate paid record and bundle ID
+`fail.acheron.floatview.macos`. The Developer ID direct-download app retains its
+current identity. See [Mac distribution preparation](../../docs/macos-distribution.md)
+for account/profile/installer-certificate setup, sandbox capability rationale,
+the local `just mac-store-sandbox-check` command and data-transfer limits.
 
 ### Remaining store work
 

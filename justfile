@@ -128,6 +128,14 @@ ios-store-archive output:
 ios-store-export archive output:
     python3 backends/apple/ios-store.py export {{ quote(archive) }} {{ quote(output) }}
 
+# Isolated, ad-hoc sandboxed Mac Release proof; never uploads.
+mac-store-sandbox-check output:
+    python3 backends/apple/mac-store.py sandbox-check {{ quote(output) }}
+
+# Universal Mac store structure/notices check with ad-hoc signing; never uploads.
+mac-store-package-check output:
+    python3 backends/apple/mac-store.py package-check {{ quote(output) }}
+
 # Build a device IPA for AltStore to sign and install; no connected device required.
 ipa: build
     #!/usr/bin/env bash

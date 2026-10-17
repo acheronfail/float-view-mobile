@@ -17,6 +17,10 @@ if (explicitlyRequested && (!isTag || event !== 'workflow_dispatch'))
   throw new Error('Manual store preparation requires a stable release tag or numbered candidate; never master or nightly');
 const storeRequested = isTag && (event === 'push' || (event === 'workflow_dispatch' && explicitlyRequested));
 const storeDelivery = storeRequested && event === 'push' ? 'upload' : delivery;
+const macExplicitlyRequested = process.env.FLOAT_VIEW_BUILD_MAC_STORE === 'true';
+if (macExplicitlyRequested && (!isTag || event !== 'workflow_dispatch'))
+  throw new Error('Manual Mac store preparation requires a stable release tag or numbered candidate; never master or nightly');
+const macStoreRequested = isTag && (event === 'push' || (event === 'workflow_dispatch' && macExplicitlyRequested));
 const identity = ciBuildIdentity();
 const existing = metadata.channel === 'nightly' ? getNightlyRelease() : getRelease(metadata.tag);
 const publishedSource = existing?.body?.match(/<!-- float-view-source:([0-9a-f]{40}) -->/)?.[1];
@@ -39,7 +43,7 @@ const skip =
           (newerNightly || newerBuild || (completeAssets && existing.body?.includes(sourceMarker(commit))))
       );
 const output = {
-  ...metadata, storeBuild: String(storeRequested), storeDelivery,
+  ...metadata, storeBuild: String(storeRequested), storeDelivery, macStoreBuild: String(macStoreRequested),
   buildNumber: identity.buildNumber, runURL: identity.runURL,
   buildRecordArtifact: `build-record-${identity.attempt}`, commit, skip: String(skip),
 };

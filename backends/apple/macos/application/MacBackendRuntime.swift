@@ -26,9 +26,8 @@ final class MacBackendRuntime: @unchecked Sendable {
       )
     #endif
     let logRoot: URL
-    let testLogRoot = ProcessInfo.processInfo.environment["FLOAT_VIEW_LOG_ROOT"]
-    if let override = testLogRoot {
-      logRoot = URL(fileURLWithPath: override, isDirectory: true)
+    if let override = MacLaunchConfiguration().storageRoot {
+      logRoot = override
     } else {
       let applicationSupport = try FileManager.default.url(
         for: .applicationSupportDirectory,
@@ -51,9 +50,7 @@ final class MacBackendRuntime: @unchecked Sendable {
     exportPresenter: (@Sendable (NativeFilePresentation) -> Bool)? = nil,
     theme: (@Sendable (ThemePreference) -> Void)? = nil
   ) throws -> LoopbackServer {
-    let port = ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_PORT"]
-      .flatMap(UInt16.init)
-      ?? PlatformLoopbackPort.macOS
+    let port = MacLaunchConfiguration().port
     try service.start(presenter: exportPresenter, theme: theme)
     return LoopbackServer(html: html, port: port, service: service)
   }

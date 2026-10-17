@@ -63,6 +63,26 @@ security set-keychain-settings -lut 21600 "$keychain_path"
 security unlock-keychain -p "$keychain_password" "$keychain_path"
 security import "$identity_path" -k "$keychain_path" -f pkcs12 \
     -P "$APPLE_CODE_SIGN_P12_PASSWORD" -T /usr/bin/codesign >/dev/null
+if [[ -n "${MAC_INSTALLER_P12_BASE64:-}${MAC_INSTALLER_P12_PASSWORD:-}" ]]; then
+    [[ "$certificate_kind" == 'Apple Distribution' ]] || { echo 'Mac store installer requires Apple Distribution app signing.' >&2; exit 2; }
+    : "${MAC_INSTALLER_P12_BASE64:?Missing Mac installer PKCS12}"
+    : "${MAC_INSTALLER_P12_PASSWORD:?Missing Mac installer password}"
+    installer_path="$working_directory/installer.p12"
+    python3 - "$installer_path" <<'PYTHON'
+import base64
+import os
+import pathlib
+import sys
+pathlib.Path(sys.argv[1]).write_bytes(base64.b64decode(''.join(os.environ['MAC_INSTALLER_P12_BASE64'].split()), validate=True))
+PYTHON
+    security import "$installer_path" -k "$keychain_path" -f pkcs12 \
+        -P "$MAC_INSTALLER_P12_PASSWORD" -T /usr/bin/productbuild >/dev/null
+    installer_identities="$(security find-identity -v -p basic "$keychain_path")"
+    MAC_INSTALLER_IDENTITY="$(printf '%s\n' "$installer_identities" | sed -n 's/.*"\(3rd Party Mac Developer Installer: .* ('"$APPLE_TEAM_ID"')\)".*/\1/p')"
+    [[ -n "$MAC_INSTALLER_IDENTITY" && "$MAC_INSTALLER_IDENTITY" != *$'\n'* ]] || { echo 'Expected exactly one Mac Installer Distribution identity for the team.' >&2; exit 1; }
+    MAC_INSTALLER_KEYCHAIN="$keychain_path"
+    export MAC_INSTALLER_IDENTITY MAC_INSTALLER_KEYCHAIN
+fi
 security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path" >/dev/null
 if [[ "${#original_keychains[@]}" -gt 0 ]]; then
     security list-keychains -d user -s "$keychain_path" "${original_keychains[@]}"
@@ -84,4 +104,5 @@ CODE_SIGN_IDENTITY="$matching"
 CODE_SIGN_KEYCHAIN="$keychain_path"
 export CODE_SIGN_IDENTITY CODE_SIGN_KEYCHAIN
 unset APPLE_CODE_SIGN_P12_BASE64 APPLE_CODE_SIGN_P12_PASSWORD
+unset MAC_INSTALLER_P12_BASE64 MAC_INSTALLER_P12_PASSWORD
 "$@"

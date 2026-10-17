@@ -499,3 +499,23 @@ test('publication notes include only changes since the newest stable or candidat
   assert.equal(result.status, 0, result.stderr);
   assert.match(f.state().releases[3]!.body!, /compare\/v1.0.1-rc.1\.\.\./);
 });
+
+test('Mac store builds use explicit release tags and independent manual retries', () => {
+  const f = fixture();
+  assert.equal(f.run('prepare').status, 0);
+  assert.match(f.output(), /macStoreBuild=false/);
+  const rejected = f.run('prepare', { GITHUB_EVENT_NAME: 'workflow_dispatch', FLOAT_VIEW_BUILD_MAC_STORE: 'true' });
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /never master or nightly/);
+  git(['tag', 'v1.0.0-rc.1'], f.cwd);
+  const ref = { GITHUB_REF: 'refs/tags/v1.0.0-rc.1', GITHUB_EVENT_NAME: 'push' };
+  assert.equal(f.run('prepare', ref).status, 0);
+  assert.match(f.output(), /macStoreBuild=true/);
+  const manual = { ...ref, GITHUB_EVENT_NAME: 'workflow_dispatch', FLOAT_VIEW_BUILD_MAC_STORE: 'true' };
+  assert.equal(f.run('prepare', manual).status, 0);
+  assert.match(f.output(), /macStoreBuild=true/);
+  assert.match(f.output(), /storeBuild=false/);
+  assert.equal(f.run('prepare', { ...manual, FLOAT_VIEW_BUILD_MAC_STORE: 'false', FLOAT_VIEW_BUILD_IOS_STORE: 'true' }).status, 0);
+  assert.match(f.output(), /macStoreBuild=false/);
+  assert.match(f.output(), /storeBuild=true/);
+});

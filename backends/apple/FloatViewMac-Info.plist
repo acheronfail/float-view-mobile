@@ -25,6 +25,10 @@
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.utilities</string>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright © 2025 acheronfail</string>
   <key>NSBluetoothAlwaysUsageDescription</key>
   <string>Float View uses Bluetooth to connect to your VESC board for live readings, ride recording and board configuration.</string>
   <key>NSBluetoothPeripheralUsageDescription</key>
