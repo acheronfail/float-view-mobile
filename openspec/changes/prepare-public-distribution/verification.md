@@ -102,3 +102,9 @@ confirmed signing-material backups, and the separate Mac app record was verified
 read-only. Protected hosted signing and Apple processing/install acceptance are
 still pending. Shared apple-store-signing reviewer/tag protection, expected secret names and per-platform readiness are verified; the Mac enable switch remains off. No Mac upload
 or review submission occurred. Detailed records and setup commands remain local.
+
+A clean checkout of source `fae1c3c` passed the complete universal Release
+store-package command, Apple Distribution app-signature/entitlement checks,
+full bundled legal-text checks and Mac Installer Distribution package signing.
+The temporary signing keychain was removed. This was a local signing check;
+GitHub secret values, hosted signing and Apple processing/install remain unverified.
