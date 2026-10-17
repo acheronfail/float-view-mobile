@@ -73,7 +73,9 @@ if an in-app collection channel is added.
 
 Apple guidance: [collection, purposes and linkage](https://developer.apple.com/app-store/app-privacy-details/),
 including its WebView/off-device and IP-address guidance. Review/save the answers
-in App Store Connect before submission; they remain a console prerequisite.
+in App Store Connect whenever the implementation changes. The owner confirmed
+completion of the questionnaire matching this worksheet; this is an owner-reported
+console result, not an independent console inspection.
 
 ## Required-reason APIs and manifests
 
@@ -227,8 +229,8 @@ Do not submit these notes while those specific review inputs are missing.
 - No app account, advertising, analytics SDK, tracking domains or ATT prompt.
 - App Privacy draft follows the audit above: map-provider precise location and
   request metadata, linked, no tracking, for App Functionality and the provider's
-  aggregate Analytics. The owner must review/save the console answers; an embedded
-  manifest does not fill them in.
+  aggregate Analytics. The owner confirmed completion of the console questionnaire
+  matching this worksheet; an embedded manifest does not fill it in.
 - The reviewed encryption declaration is embedded in Info.plist. Resolve any
   Apple processing questions on the actual uploaded build.
 
