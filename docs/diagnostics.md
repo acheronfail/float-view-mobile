@@ -1,10 +1,9 @@
 # Diagnostic logs and manual bug reports
 
-In Settings, select **Export diagnostics**. Choose an incident or **Mark a problem**
-when something looks wrong. A mark collects available context before the mark and
-up to ten seconds afterward. Refresh and prepare another preview for follow-up
-context; an existing preview never changes silently. Select **Save/share ZIP**
-and save it using the system file chooser or share sheet.
+In Settings, select **Export diagnostics** and save the ZIP using the system
+file chooser or share sheet. This single action exports the most recent retained
+incident, or recent context when no incident exists. There is no incident picker,
+preview or separate save step. Capture limitations are included in the ZIP.
 
 Nothing is uploaded automatically. First check the project's
 [existing GitHub issues](https://github.com/acheronfail/float-view-mobile/issues).
@@ -30,12 +29,13 @@ so busy windows can be shorter. Repeated errors coalesce within 60 seconds.
 Manual marks are limited to one per ten seconds. Loss, clipping and incomplete
 post-windows are disclosed; these logs are not a complete process crash report.
 
-A prepared report belongs to its connected frontend, expires after ten minutes
-and occupies one of two slots. ZIPs are bounded to 5 MiB; native presentations
-retain their file lease through completion. Closing or recreating the frontend
-requires preparing a new preview. Clearing retained diagnostics invalidates old
-unpresented previews, does not interrupt a native share already underway and does
-not delete saved/shared copies. Collection can resume afterward.
+Report preparation runs automatically before native presentation. Reports belong
+to their connected frontend, expire after ten minutes and occupy one of two
+slots. Repeated exports replace the previous prepared report while native
+presentations retain their file lease through completion. ZIPs are bounded to
+5 MiB. Saved/shared copies remain under the user's control. The backend clear
+operation invalidates unpresented reports without interrupting an active share;
+the simplified Settings UI exposes only export.
 
 The shared Rust service owns the typed vocabulary, background writer, journal,
 incident policy and report preparation. Native adapters supply OS facts and

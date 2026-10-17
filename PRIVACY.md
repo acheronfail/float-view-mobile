@@ -64,12 +64,12 @@ full configurations, telemetry values and raw exception messages/stacks. Unknown
 hardware facts remain unknown. Up to three incidents are retained for seven days,
 within an 8 MiB journal/incident budget; recent memory context is bounded.
 
-Settings → Diagnostics lets you preview and save/share a diagnostic ZIP and clear
-retained logs. Nothing is automatically uploaded or submitted to GitHub. You
-choose whether to manually write a GitHub issue and attach the file. Issues and
-attachments are public. Clearing diagnostics does not remove exported copies or
-revoke a share already in progress. Capture may be incomplete after interruption
-or storage failure. See [diagnostic instructions](docs/diagnostics.md).
+Settings → Diagnostics lets you export a diagnostic ZIP using the system
+save/share interface. Local logs expire automatically within seven days. Nothing
+is automatically uploaded or submitted to GitHub. You choose whether to manually
+write a GitHub issue and attach the file. Issues and attachments are public.
+Saved/shared copies remain under your control. Capture may be incomplete after
+interruption or storage failure. See [diagnostic instructions](docs/diagnostics.md).
 
 ## Files you share and support requests
 

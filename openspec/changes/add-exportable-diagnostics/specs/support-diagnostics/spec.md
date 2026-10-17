@@ -50,7 +50,7 @@ The service SHALL capture up to 30 seconds of available recent events and up to 
 
 #### Scenario: Undetected visible problem
 
-- **WHEN** a user activates Mark a problem without a detected error
+- **WHEN** the backend receives a manual capture request without a detected error
 - **THEN** the service captures current bounded context and returns an incident identifier without requiring an error or active controller
 
 #### Scenario: Error storm
@@ -101,9 +101,9 @@ Stored and exported diagnostics SHALL contain only allowlisted structured fields
 - **WHEN** reports are prepared separately for the same controller
 - **THEN** they contain no stable device alias or digest allowing device matching across reports
 
-### Requirement: Immutable report preview and export
+### Requirement: Immutable report preparation and export
 
-Users SHALL be able to prepare and preview an immutable sanitized report for a selected incident or current context, then export exactly that report as a ZIP of at most 5 MiB. The ZIP SHALL contain only `report.md`, `events.jsonl` and `manifest.json`, including diagnostic format version, report ID, capture bounds, omissions, loss counts and completeness. Full recording archives SHALL NOT be embedded.
+The export flow SHALL automatically prepare an immutable sanitized report for the newest retained incident or current context when none exists, then export exactly that report as a ZIP of at most 5 MiB. The ZIP SHALL contain only `report.md`, `events.jsonl` and `manifest.json`, including diagnostic format version, report ID, capture bounds, omissions, loss counts and completeness. Full recording archives SHALL NOT be embedded.
 
 #### Scenario: Context changes after preview
 
@@ -113,7 +113,7 @@ Users SHALL be able to prepare and preview an immutable sanitized report for a s
 #### Scenario: Report expired or cleared
 
 - **WHEN** export names an expired, cleared or foreign prepared-report identifier
-- **THEN** it fails with a stable bounded error and requires a new preview rather than substituting current context
+- **THEN** it fails with a stable bounded error and requires fresh preparation rather than substituting current context
 
 #### Scenario: Export with product storage failure
 
@@ -125,9 +125,9 @@ Users SHALL be able to prepare and preview an immutable sanitized report for a s
 - **WHEN** preparation/export fails, is cancelled or loses its requesting frontend
 - **THEN** partial staging is reclaimed within bounded limits; an already presented file remains valid until native completion or bounded abandonment
 
-### Requirement: User controlled reporting and deletion
+### Requirement: Single-button reporting
 
-Settings and relevant error surfaces SHALL offer the same report flow on desktop and touch. Users SHALL see the included data categories, capture limitations and public-sharing notice before export, and SHALL be able to clear retained diagnostics and unpresented prepared reports without deleting product data. Clearing SHALL NOT revoke an active native file presentation or delete external copies.
+Settings and relevant error surfaces SHALL offer the same single-button export flow on desktop and touch, without a visible preview, incident picker or additional diagnostic controls. Concise text SHALL explain privacy exclusions, manual GitHub attachment and public visibility. Capture limitations SHALL remain in the exported report. The backend clear operation SHALL remain supported without deleting product data, revoking active native file presentation or deleting external copies.
 
 #### Scenario: Primary pointer and keyboard activation
 
@@ -151,7 +151,7 @@ After export, the flow SHALL explain where and how users can manually report a r
 #### Scenario: Browser or sign-in unavailable
 
 - **WHEN** the browser cannot open GitHub or the user cannot sign in
-- **THEN** the exported ZIP and copyable summary remain usable and no diagnostic upload is attempted
+- **THEN** the exported ZIP remains usable and no diagnostic upload is attempted
 
 ### Requirement: Supported data compatibility
 

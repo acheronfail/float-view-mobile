@@ -5,7 +5,7 @@ import { chromium, webkit } from 'playwright';
 import { startMockServer, stopMockServer, getMockBootstrap } from '../../frontend/backend-mock/index.ts';
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
-  test(`${name}: diagnostics preview and manual reporting`, { timeout: 60_000 }, async () => {
+  test(`${name}: single-button diagnostics export and manual reporting`, { timeout: 60_000 }, async () => {
     const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const browser = await engine.launch();
@@ -17,30 +17,46 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       if (name === 'chromium')
         await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
-      await page.goto(`${endpoint.origin}/#/settings`);
-      const open = page.getByRole('button', { name: 'Export diagnostics', exact: true });
-      await open.waitFor();
-      await open.click({ button: 'right' });
-      assert.equal(await page.getByRole('button', { name: 'Mark a problem', exact: true }).count(), 0);
-      await open.focus();
-      await page.keyboard.press('Enter');
-      await page.getByRole('button', { name: 'Preview recent context', exact: true }).click();
-      await page.getByLabel('Diagnostic report preview').waitFor();
-      assert.match(await page.getByLabel('Diagnostic report preview').innerText(), /Excludes routes/);
+      const methods: string[] = [];
+      page.on('websocket', (socket) =>
+        socket.on('framesent', ({ payload }) => {
+          const request = JSON.parse(String(payload));
+          if (request.method?.startsWith('diagnostics.')) methods.push(request.method);
+        })
+      );
       const requests: string[] = [];
       page.on('request', (r) => {
         if (r.url().includes('github.com')) requests.push(r.url());
       });
-      await page.getByRole('button', { name: 'Save/share ZIP', exact: true }).click();
-      const link = page.getByRole('link', { name: 'GitHub Issues', exact: true });
-      await link.waitFor();
+      await page.goto(`${endpoint.origin}/#/settings`);
+      const section = page.locator('#diagnostics');
+      const open = section.getByRole('button', { name: 'Export diagnostics', exact: true });
+      await open.waitFor();
+      assert.equal(await section.getByRole('button').count(), 1);
+      await open.click({ button: 'right' });
+      assert.equal(methods.includes('diagnostics.prepare'), false);
+      await open.focus();
+      await page.keyboard.press('Enter');
+      await section.getByRole('status').waitFor();
+      assert.deepEqual(
+        methods.filter((m) => m !== 'diagnostics.report'),
+        ['diagnostics.list', 'diagnostics.prepare', 'diagnostics.export']
+      );
+      assert.equal(await page.getByLabel('Diagnostic report preview').count(), 0);
+      const link = section.getByRole('link', { name: 'GitHub Issues', exact: true });
       assert.equal(await link.getAttribute('href'), 'https://github.com/acheronfail/float-view-mobile/issues');
       assert.equal(requests.length, 0);
-      assert.match(await page.locator('#diagnostics').innerText(), /manually write an issue/);
+      assert.match(await section.innerText(), /manually create an issue/);
+      assert.match(await section.innerText(), /attachments are public/);
+      // More exports than the two-report capacity must replace previous handles.
+      for (let i = 0; i < 3; i++) {
+        await open.tap();
+        await page.waitForFunction(() => document.querySelector('#diagnostics [role="status"]') !== null);
+        assert.equal(await section.getByRole('alert').count(), 0);
+      }
+      assert.equal(methods.filter((m) => m === 'diagnostics.export').length, 4);
+      assert.equal(await section.getByRole('button').count(), 1);
       await page.screenshot({ path: `/tmp/float-view-diagnostics-${name}.png`, fullPage: true });
-      await page.getByRole('button', { name: 'Clear retained diagnostics', exact: true }).tap();
-      await page.getByRole('status').filter({ hasText: 'Retained diagnostics cleared' }).waitFor();
-      assert.equal(await page.getByLabel('Diagnostic report preview').count(), 0);
     } finally {
       await browser.close();
       await stopMockServer();

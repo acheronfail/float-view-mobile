@@ -77,11 +77,21 @@ The ZIP has three fixed root members:
 
 Use the pinned Rust `zip` 6.0.0 writer with default features disabled and stored entries; update licensing notices for its resolved dependency graph. The new dependency replaces bespoke ZIP header, CRC and directory encoding. Compression and ZIP reading are unnecessary for these bounded text bundles; existing gzip helpers do not produce ZIP archives. No crash, network or analytics dependency is added.
 
-### 5. Export UI and instructions for manual GitHub reporting
+### 5. One export button and manual reporting instructions
 
-Provide one frontend feature reached from Settings and appropriate connection/configuration/storage errors. It lists the three retained incidents, offers Mark a problem or current-context capture, shows a prepared report preview, explains its inclusions/omissions and offers Save/share report and Copy summary, followed by manual reporting instructions. Unknown hardware remains unknown. Users add reproduction steps and optional motor/battery descriptions on GitHub, keeping free-form private content outside the automatically generated diagnostic bundle.
+Settings exposes one Export diagnostics button. It automatically lists incidents,
+prepares the newest retained incident (or recent context when empty), then opens
+native save/share. There is no visible preview, incident picker, manual mark,
+refresh, copy-summary or clear control. A repeated export replaces its prior
+prepared handle; native presentation leases remain valid. Busy/error feedback
+keeps retries straightforward. Existing backend capture/clear/preview operations
+remain supported without changing the public contract.
 
-Before sharing, display: “GitHub issues and attachments are public. This report excludes routes and device identifiers. Review the summary before sharing.” Show capture/storage limitations and never imply that a report includes unsaved or unavailable evidence. All controls use native button/link semantics, primary Pointer Events with cancellation, guarded keyboard/assistive clicks and appropriate touch-action.
+Concise static copy explains that logs exclude routes/device identifiers, nothing
+is uploaded automatically, and public GitHub issues require manually writing
+reproduction steps and attaching the ZIP. Detailed capture limitations remain in
+the ZIP. All controls use primary Pointer Events with cancellation and guarded
+keyboard/assistive clicks.
 
 Add `.github/ISSUE_TEMPLATE/bug_report.yml` with stable field IDs: `summary`, `steps`, `expected`, `actual`, `hardware`, `diagnostics`. Require useful reproduction/expected/actual descriptions while allowing unknown hardware and a report unavailable explanation. Explain manual ZIP attachment and public visibility. Show the fixed repository Issues URL with guidance to check existing issues, write reproduction steps and expected/actual results, and manually attach the ZIP if the problem is a reproducible bug. Do not prefill issue fields or launch a new-issue composer. An ordinary link to the Issues list is sufficient; opening it never submits anything. This intentional friction lets the user decide whether a submission is warranted.
 
@@ -100,8 +110,8 @@ There is no change to baseline 100, catalog/session SQL, archive format 4 or fro
 - App-wide logging increases background I/O → aggregate successes, bounded queues/rotation and no blocking on telemetry or product-store locks; measure focused saturated-path behavior.
 - Diagnostic storage and product storage can fail together → degrade to bounded memory context; surface export limitations honestly. Native service-construction failure remains outside this flow.
 - Retention changes or clock anomalies can remove context → enforce independent byte/count limits and disclose oldest available boundary; users can export promptly.
-- Preview handles expire on frontend recreation → incidents remain durable; users prepare a fresh report and see its exact contents before export.
-- GitHub requires a manual attachment step → provide clear instructions, a copyable summary and a broadly supported ZIP file rather than building an authenticated upload service.
+- Preview handles expire on frontend recreation → incidents remain durable; the export button prepares a fresh report automatically.
+- GitHub requires a manual attachment step → provide clear instructions, concise instructions and a broadly supported ZIP file rather than building an authenticated upload service.
 
 ## Migration Plan
 

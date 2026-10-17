@@ -31,9 +31,9 @@
 
 ## 5. Reporting UI and GitHub form
 
-- [x] 5.1 Add the shared reporting feature to Settings and relevant connection/configuration/storage error surfaces, with incident selection/current context, manual mark, preview, save/share, copy summary and clear; verify component/mock tests cover empty/unavailable/partial/expired states and unknown hardware.
+- [x] 5.1 Add the shared reporting feature to Settings and relevant connection/configuration/storage error surfaces, with one export button that prepares the newest incident or current context and opens native save/share, concise manual reporting instructions and busy/error feedback; verify desktop/touch/keyboard activation, retries and absence of extra controls.
 - [x] 5.2 Implement primary-pointer/cancellation and guarded keyboard activation for reporting controls; build the frontend and run affected Playwright browser tests outside the macOS sandbox, verifying touch/desktop layouts, non-primary rejection and no double activation.
-- [x] 5.3 Add `.github/ISSUE_TEMPLATE/bug_report.yml` and manual reporting instructions linking only to the repository Issues list; verify YAML field IDs, duplicate-check/reproduction/unknown-hardware guidance, public attachment notice, absence of prefilled composer links and copy-summary fallback with focused tests.
+- [x] 5.3 Add `.github/ISSUE_TEMPLATE/bug_report.yml` and manual reporting instructions linking only to the repository Issues list; verify YAML field IDs, duplicate-check/reproduction/unknown-hardware guidance, public attachment notice, absence of prefilled composer links with focused tests.
 - [x] 5.4 Update `PRIVACY.md` and reusable support instructions for local retention/deletion, report exclusions, manual public attachment and unavailable reports; verify documentation links and that UI wording never claims upload or issue submission occurred.
 
 ## 6. Affected integration verification

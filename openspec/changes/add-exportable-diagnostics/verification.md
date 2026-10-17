@@ -52,7 +52,7 @@ background/file-protection behavior of the new diagnostic directory, have not
 been physically validated. The macOS diagnostic contract and native host tests
 are software validation, not evidence of an interactive save-panel check.
 
-On the relevant native installations, mark a problem, preview it, save the ZIP,
+On the relevant native installations, export diagnostics, save the ZIP,
 verify the three named members open, cancel/retry sharing, and follow the plain
 Issues-list link. Verify that no issue is prefilled/submitted, that clearing does
 not break an already open presentation, and that interrupted/protected-storage
@@ -62,3 +62,19 @@ physical evidence and device inventories in ignored local testing directories.
 
 The implementation is committed with this limitation explicit; keep the change
 active until the scoped native checkpoint can be completed, then sync/archive.
+
+## Simplified export UX follow-up
+
+Settings now has one export button, without preview, incident selection, manual
+mark, copy, refresh or clear controls. It prepares the newest retained incident
+(or current context when empty) and immediately opens native save/share. Static
+copy retains manual GitHub attachment instructions and public visibility.
+Backend methods and automatic collection are unchanged.
+
+Svelte checks, production build, changed-component lint/formatting, focused
+frontend diagnostic tests and Chromium/WebKit browser checks passed. Browser
+coverage verifies one button, primary/touch/keyboard activation, no double
+activation, repeated exports beyond the two-report capacity, no visible preview
+and the plain Issues link without automatic GitHub requests. The existing build
+size advisory remains. This UI follow-up does not establish the remaining native
+checkpoint above.
