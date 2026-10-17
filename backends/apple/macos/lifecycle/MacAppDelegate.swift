@@ -159,6 +159,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       window?.makeKeyAndOrderFront(nil)
       return
     }
+    var startupStage = MacStartupStage.data
     do {
       let runtime: MacBackendRuntime
       if let existing = self.runtime {
@@ -172,6 +173,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
           MacTheme.apply(preference, to: NSApplication.shared)
         }
       }
+      startupStage = .connection
       try server.start()
       self.server = server
       generation += 1
@@ -210,18 +212,14 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       runtime.setForeground(NSApplication.shared.isActive)
       trace("[FloatViewState] frontend state=ready generation=\(generation)")
     } catch {
-      let message = loopbackStartupFailure(
-        port: PlatformLoopbackPort.macOS,
-        error: error
-      )
-      trace("[FloatViewState] frontend state=failed \(message)")
+      trace("[FloatViewState] frontend state=failed stage=\(startupStage): \(error)")
       server?.stop()
       server = nil
       runtime?.shutdown()
       runtime = nil
       let alert = NSAlert()
-      alert.messageText = "Unable to start Float View"
-      alert.informativeText = "Float View could not open its data or start its local connection. If this data came from a newer build, install a compatible version. Otherwise check available storage and try again. Keep this installation until you have a backup."
+      alert.messageText = startupStage.title
+      alert.informativeText = startupStage.recovery
       alert.addButton(withTitle: "Try again")
       alert.addButton(withTitle: "Quit")
       if alert.runModal() == .alertFirstButtonReturn {
