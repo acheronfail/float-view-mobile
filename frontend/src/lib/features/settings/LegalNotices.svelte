@@ -37,7 +37,7 @@
       Source code and build instructions
     </a>
     <a
-      class="block min-h-11 touch-manipulation rounded-lg border border-outline bg-elevated px-3 py-2 text-foreground"
+      class="flex min-h-11 touch-manipulation items-center justify-center rounded-lg border border-outline bg-elevated px-3 py-2 text-center text-foreground"
       href="#/settings/licences"
       use:navigationLink={{ scrollable: true }}>View licences and notices</a
     >

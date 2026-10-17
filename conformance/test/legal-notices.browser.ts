@@ -30,11 +30,27 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await section.waitFor();
       assert.match(await section.innerText(), /Copyright © 2026 acheronfail/);
       assert.match(await section.innerText(), /Luis Prado/);
-      assert.equal(await section.getByRole('link', { name: 'Privacy policy', exact: true }).getAttribute('href'),
-        'https://github.com/acheronfail/float-view-mobile/blob/master/PRIVACY.md');
-      assert.equal(await section.getByRole('link', { name: 'Support', exact: true }).getAttribute('href'),
-        'https://github.com/acheronfail/float-view-mobile/issues');
+      assert.equal(
+        await section.getByRole('link', { name: 'Privacy policy', exact: true }).getAttribute('href'),
+        'https://github.com/acheronfail/float-view-mobile/blob/master/PRIVACY.md'
+      );
+      assert.equal(
+        await section.getByRole('link', { name: 'Support', exact: true }).getAttribute('href'),
+        'https://github.com/acheronfail/float-view-mobile/issues'
+      );
       const button = section.getByRole('link', { name: 'View licences and notices' });
+      await button.scrollIntoViewIfNeeded();
+      const alignment = await button.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const text = range.getBoundingClientRect();
+        return {
+          x: Math.abs(text.x + text.width / 2 - bounds.x - bounds.width / 2),
+          y: Math.abs(text.y + text.height / 2 - bounds.y - bounds.height / 2),
+        };
+      });
+      assert.ok(alignment.x < 2 && alignment.y < 2, 'licences link text is centred');
       for (const pointer of [
         { button: 2, isPrimary: true },
         { button: 0, isPrimary: false },
@@ -50,16 +66,46 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await button.tap();
       await page.getByRole('heading', { name: 'Licences and notices', exact: true }).waitFor();
       assert.ok(page.url().endsWith('#/settings/licences'));
-      const text = await page.locator('main').innerText();
-      assert.match(text, /GNU AFFERO GENERAL PUBLIC LICENSE/);
-      assert.match(text, /Volodymyr Agafonkin/);
-      assert.match(text, /Cole Bemis/);
-      assert.match(text, /Luis Prado/);
-      assert.match(text, /Apache License/);
-      assert.match(text, /Rust Standard Library/);
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      const main = page.locator('main');
+      assert.equal(await main.locator('button[aria-expanded="true"]').count(), 0);
+      assert.equal(await main.locator('pre:visible').count(), 0);
+      const project = main.getByRole('button', { name: 'Project licence', exact: true });
+      for (const pointer of [
+        { button: 2, isPrimary: true },
+        { button: 0, isPrimary: false },
+      ]) {
+        await project.dispatchEvent('pointerdown', { ...pointer, pointerId: 10 });
+        await project.dispatchEvent('pointerup', { ...pointer, pointerId: 10 });
+      }
+      await project.dispatchEvent('pointerdown', { button: 0, isPrimary: true, pointerId: 12 });
+      await project.dispatchEvent('pointercancel', { pointerId: 12 });
+      await project.dispatchEvent('pointerup', { button: 0, isPrimary: true, pointerId: 12 });
+      assert.equal(await project.getAttribute('aria-expanded'), 'false');
+      await project.tap();
+      assert.equal(await project.getAttribute('aria-expanded'), 'true');
+      assert.match(await main.innerText(), /GNU AFFERO GENERAL PUBLIC LICENSE/);
       await page.evaluate(() => window.scrollTo(0, 2000));
       assert.ok(await page.evaluate(() => window.scrollY > 0));
+      await project.focus();
+      await page.keyboard.press('Space');
+      assert.equal(await project.getAttribute('aria-expanded'), 'false');
+      await main.getByRole('button', { name: 'Project and artwork notices', exact: true }).tap();
+      assert.match(await main.innerText(), /Luis Prado/);
+      await main.getByRole('button', { name: 'Third-party notices', exact: true }).tap();
+      const frontend = main.getByRole('button', { name: 'Frontend dependencies', exact: true });
+      await frontend.focus();
+      await page.keyboard.press('Enter');
+      const leaflet = main.getByRole('button', { name: 'Frontend: leaflet 1.9.4', exact: true });
+      assert.equal(await leaflet.getAttribute('aria-expanded'), 'false');
+      await leaflet.tap();
+      assert.match(await main.innerText(), /Volodymyr Agafonkin/);
+      await main.getByRole('button', { name: 'Artwork and bundled runtimes', exact: true }).tap();
+      await main.getByRole('button', { name: /^Generated icons:/ }).tap();
+      assert.match(await main.innerText(), /Cole Bemis/);
+      await main.getByRole('button', { name: /^Rust runtime / }).tap();
+      assert.match(await main.innerText(), /Rust Standard Library/);
+      assert.match(await main.innerText(), /Apache License/);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       const back = page.getByRole('link', { name: 'Settings', exact: true });
       await back.focus();
       await page.keyboard.press('Enter');
@@ -69,6 +115,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await button.focus();
       await page.keyboard.press('Enter');
       await page.getByRole('heading', { name: 'Licences and notices', exact: true }).waitFor();
+      assert.equal(await main.locator('button[aria-expanded="true"]').count(), 0, 'returning starts collapsed');
       await page.evaluate(() => window.dispatchEvent(new Event('floatview:back')));
       await section.waitFor();
       assert.deepEqual(externalRequests, []);
