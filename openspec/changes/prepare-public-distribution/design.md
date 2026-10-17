@@ -34,7 +34,7 @@ Preserve one product implementation, both installation routes and independent pu
 
 Retain current stable/nightly GitHub lifecycle and asset names. Add explicitly invoked, protected store package/upload jobs tied to exact source/version metadata. A store failure does not prevent sideload publication. All three sideload builds still succeed before GitHub publication, as today. Select the upload track explicitly and keep public release/manual approval separate from build success.
 
-Owner refinement on 2026-10-17: store jobs run only for stable `vX.Y.Z` releases
+Store jobs run only for stable `vX.Y.Z` releases
 created by `just release ...`. Their tag push selects signing/delivery; master
 commits, manual master runs and nightlies cannot select store jobs. A manual
 retry/check must target an existing stable release tag and receives a fresh run
@@ -44,7 +44,7 @@ version tags and retain owner review; upload readiness remains a separate gate.
 Complete repository candidate checks before creating the first stable tag;
 TestFlight processing/device acceptance then precede production store release.
 
-Owner decision on 2026-10-17: tie each native build number to the GitHub Actions run that builds it. Keep the existing Build apps workflow as the sole counter owner and preserve `run_number + 60` across sideload and optional protected store jobs. Record run ID, attempt, URL and source revision, reject allocation from another workflow path, and treat a workflow-path migration as an explicit continuity change. Display-name changes are harmless. Reruns keep their number; a corrected/Apple-consumed binary needs a fresh workflow run. Upload retries must query Apple before resubmitting. Do not introduce a second workflow counter or reset native numbers during version/tag cleanup.
+Tie each native build number to the GitHub Actions run that builds it. Keep the existing Build apps workflow as the sole counter owner and preserve `run_number + 60` across sideload and optional protected store jobs. Record run ID, attempt, URL and source revision, reject allocation from another workflow path, and treat a workflow-path migration as an explicit continuity change. Display-name changes are harmless. Reruns keep their number; a corrected/Apple-consumed binary needs a fresh workflow run. Upload retries must query Apple before resubmitting. Do not introduce a second workflow counter or reset native numbers during version/tag cleanup.
 
 The owner explicitly approved removing every existing pre-v1 release (including GitHub “stable” v0.x releases), associated assets, and matching local/remote version tags. This is a one-time exception to immutable release retention; retain commit history and all later releases. Before deletion, enumerate exact release IDs/tags and record the cleanup manifest; pause publication and drain running jobs to avoid recreation races. Remove matching tags even when a GitHub release has already gone, then verify local and remote state. Resume the rolling nightly channel with fresh preparation builds; this exception does not permanently disable prereleases or nightlies.
 
@@ -93,6 +93,15 @@ State plainly that Float View is open source under AGPL-3.0-or-later, linking to
 ### 6. Verify actual channel artifacts
 
 Use focused automated checks for each changed surface and consumer. Add Release negative checks for development options, manifest/entitlement/signature checks, bundle page-size checks, storage preservation tests and store upload retry/version tests. Validate delivered TestFlight/Play artifacts on devices for affected BLE/background/permission/audio behavior. Check clean Mac download and sandbox behavior. Historical full-matrix migration gates do not become recurring release gates.
+
+Keep reusable procedures, open requirements and brief build-linked scope/results
+in public readiness documents. Keep detailed testing chronology, device/OS/firmware
+inventories, raw artifacts, tester reports and account/approval history in ignored
+local records under `.local/ios-store/readiness/`, with a private backup where
+needed. Do not publish routes, private identifiers or contact details. A short
+public result retains material limitations and actionable sanitized failures;
+local storage of detail does not weaken acceptance gates or claim unrun checks.
+Existing Git history is preserved.
 
 ## Risks / Trade-offs
 

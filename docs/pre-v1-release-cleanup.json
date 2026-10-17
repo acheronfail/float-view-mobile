@@ -1,0 +1,1170 @@
+{
+  "status": "planned; do not apply until candidate checks pass",
+  "repository": "acheronfail/float-view-mobile",
+  "capturedAt": "2026-10-17T09:48:04+10:30",
+  "preserve": [
+    "all commit history",
+    "rolling Nightly release and its current version tag/assets",
+    "all non-v0 refs"
+  ],
+  "releases": [
+    {
+      "id": 414428564,
+      "tag": "v0.3.0",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 645719246,
+          "name": "FloatView-v0.3.0-macos-universal.zip",
+          "size": 9690523
+        },
+        {
+          "id": 645719248,
+          "name": "FloatView-v0.3.0.apk",
+          "size": 31022508
+        },
+        {
+          "id": 645719247,
+          "name": "FloatView-v0.3.0.ipa",
+          "size": 3811105
+        }
+      ]
+    },
+    {
+      "id": 414360087,
+      "tag": "v0.2.2",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 645461316,
+          "name": "FloatView-v0.2.2-macos-universal.zip",
+          "size": 9683967
+        },
+        {
+          "id": 645461312,
+          "name": "FloatView-v0.2.2.apk",
+          "size": 31014316
+        },
+        {
+          "id": 645461313,
+          "name": "FloatView-v0.2.2.ipa",
+          "size": 3805747
+        }
+      ]
+    },
+    {
+      "id": 414348466,
+      "tag": "v0.2.1",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 645420910,
+          "name": "FloatView-v0.2.1-macos-universal.zip",
+          "size": 9683975
+        },
+        {
+          "id": 645420912,
+          "name": "FloatView-v0.2.1.apk",
+          "size": 31014316
+        },
+        {
+          "id": 645420905,
+          "name": "FloatView-v0.2.1.ipa",
+          "size": 3805894
+        }
+      ]
+    },
+    {
+      "id": 414316522,
+      "tag": "v0.2.0",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 645307526,
+          "name": "FloatView-v0.2.0-macos-universal.zip",
+          "size": 9684419
+        },
+        {
+          "id": 645307525,
+          "name": "FloatView-v0.2.0.apk",
+          "size": 31014316
+        },
+        {
+          "id": 645307530,
+          "name": "FloatView-v0.2.0.ipa",
+          "size": 3805794
+        }
+      ]
+    },
+    {
+      "id": 413558075,
+      "tag": "v0.1.49",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 643164613,
+          "name": "FloatView-v0.1.49-macos-universal.zip",
+          "size": 9531208
+        },
+        {
+          "id": 643164614,
+          "name": "FloatView-v0.1.49.apk",
+          "size": 57588432
+        },
+        {
+          "id": 643164615,
+          "name": "FloatView-v0.1.49.ipa",
+          "size": 9300551
+        }
+      ]
+    },
+    {
+      "id": 413483653,
+      "tag": "v0.1.48",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 642920599,
+          "name": "FloatView-v0.1.48-macos-universal.zip",
+          "size": 9531226
+        },
+        {
+          "id": 642920590,
+          "name": "FloatView-v0.1.48.apk",
+          "size": 57588432
+        },
+        {
+          "id": 642920597,
+          "name": "FloatView-v0.1.48.ipa",
+          "size": 9301657
+        }
+      ]
+    },
+    {
+      "id": 413441610,
+      "tag": "v0.1.47",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 642761883,
+          "name": "FloatView-v0.1.47-macos-universal.zip",
+          "size": 9530683
+        },
+        {
+          "id": 642761880,
+          "name": "FloatView-v0.1.47.apk",
+          "size": 57588432
+        },
+        {
+          "id": 642761886,
+          "name": "FloatView-v0.1.47.ipa",
+          "size": 9301518
+        }
+      ]
+    },
+    {
+      "id": 413398368,
+      "tag": "v0.1.46",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 642576949,
+          "name": "FloatView-v0.1.46-macos-universal.zip",
+          "size": 9530350
+        },
+        {
+          "id": 642576947,
+          "name": "FloatView-v0.1.46.apk",
+          "size": 57584336
+        },
+        {
+          "id": 642576948,
+          "name": "FloatView-v0.1.46.ipa",
+          "size": 9300701
+        }
+      ]
+    },
+    {
+      "id": 413389640,
+      "tag": "v0.1.44",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 642537610,
+          "name": "FloatView-v0.1.44-macos-universal.zip",
+          "size": 9530330
+        },
+        {
+          "id": 642537608,
+          "name": "FloatView-v0.1.44.apk",
+          "size": 57621200
+        },
+        {
+          "id": 642537609,
+          "name": "FloatView-v0.1.44.ipa",
+          "size": 9300888
+        }
+      ]
+    },
+    {
+      "id": 413380258,
+      "tag": "v0.1.43",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 642493100,
+          "name": "FloatView-v0.1.43-macos-universal.zip",
+          "size": 9527571
+        },
+        {
+          "id": 642493101,
+          "name": "FloatView-v0.1.43.apk",
+          "size": 57621200
+        },
+        {
+          "id": 642493099,
+          "name": "FloatView-v0.1.43.ipa",
+          "size": 9298519
+        }
+      ]
+    },
+    {
+      "id": 413370385,
+      "tag": "v0.1.41",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 642448418,
+          "name": "FloatView-v0.1.41.apk",
+          "size": 57621200
+        },
+        {
+          "id": 642448420,
+          "name": "FloatView-v0.1.41.ipa",
+          "size": 9298774
+        }
+      ]
+    },
+    {
+      "id": 412653523,
+      "tag": "v0.1.39",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 640212156,
+          "name": "FloatView-v0.1.39.ipa",
+          "size": 9298758
+        }
+      ]
+    },
+    {
+      "id": 412387543,
+      "tag": "v0.1.38",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 639423980,
+          "name": "FloatView-v0.1.38.ipa",
+          "size": 9298505
+        }
+      ]
+    },
+    {
+      "id": 412372751,
+      "tag": "v0.1.37",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 639366771,
+          "name": "FloatView-v0.1.37.ipa",
+          "size": 9277283
+        }
+      ]
+    },
+    {
+      "id": 412368551,
+      "tag": "v0.1.36",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 639352295,
+          "name": "FloatView-v0.1.36.ipa",
+          "size": 9276543
+        }
+      ]
+    },
+    {
+      "id": 412367448,
+      "tag": "v0.1.35",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 639347466,
+          "name": "FloatView-v0.1.35.ipa",
+          "size": 9267671
+        }
+      ]
+    },
+    {
+      "id": 412232203,
+      "tag": "v0.1.34",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 638726882,
+          "name": "FloatView-v0.1.34.ipa",
+          "size": 9268605
+        }
+      ]
+    },
+    {
+      "id": 412219679,
+      "tag": "v0.1.33",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 638670564,
+          "name": "FloatView-v0.1.33.ipa",
+          "size": 9268829
+        }
+      ]
+    },
+    {
+      "id": 412175549,
+      "tag": "v0.1.32",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 638483444,
+          "name": "FloatView-v0.1.32.ipa",
+          "size": 9264153
+        }
+      ]
+    },
+    {
+      "id": 412164732,
+      "tag": "v0.1.31",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 638440981,
+          "name": "FloatView-v0.1.31.ipa",
+          "size": 9241648
+        }
+      ]
+    },
+    {
+      "id": 411633449,
+      "tag": "v0.1.30",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 636920343,
+          "name": "FloatView-v0.1.30.ipa",
+          "size": 9240087
+        }
+      ]
+    },
+    {
+      "id": 411613887,
+      "tag": "v0.1.29",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 636861709,
+          "name": "FloatView-v0.1.29.ipa",
+          "size": 9196570
+        }
+      ]
+    },
+    {
+      "id": 411594736,
+      "tag": "v0.1.28",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 636803248,
+          "name": "FloatView-v0.1.28.ipa",
+          "size": 9192736
+        }
+      ]
+    },
+    {
+      "id": 411566417,
+      "tag": "v0.1.27",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 636719913,
+          "name": "FloatView-v0.1.27.ipa",
+          "size": 9192493
+        }
+      ]
+    },
+    {
+      "id": 411541327,
+      "tag": "v0.1.26",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 636643267,
+          "name": "FloatView-v0.1.26.ipa",
+          "size": 9193161
+        }
+      ]
+    },
+    {
+      "id": 411500677,
+      "tag": "v0.1.25",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 636528156,
+          "name": "FloatView-v0.1.25.ipa",
+          "size": 9174218
+        }
+      ]
+    },
+    {
+      "id": 411476819,
+      "tag": "v0.1.24",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 636459619,
+          "name": "FloatView-v0.1.24.ipa",
+          "size": 9170801
+        }
+      ]
+    },
+    {
+      "id": 411422996,
+      "tag": "v0.1.23",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 636302463,
+          "name": "FloatView-v0.1.23.ipa",
+          "size": 9170261
+        }
+      ]
+    },
+    {
+      "id": 411397988,
+      "tag": "v0.1.22",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 636242873,
+          "name": "FloatView-v0.1.22.ipa",
+          "size": 9171687
+        }
+      ]
+    },
+    {
+      "id": 411344173,
+      "tag": "v0.1.21",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 636093901,
+          "name": "FloatView-v0.1.21.ipa",
+          "size": 9170586
+        }
+      ]
+    },
+    {
+      "id": 411319253,
+      "tag": "v0.1.20",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 636020137,
+          "name": "FloatView-v0.1.20.ipa",
+          "size": 9170865
+        }
+      ]
+    },
+    {
+      "id": 411312025,
+      "tag": "v0.1.19",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 635994855,
+          "name": "FloatView-v0.1.19.ipa",
+          "size": 9168594
+        }
+      ]
+    },
+    {
+      "id": 411305415,
+      "tag": "v0.1.18",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 635976686,
+          "name": "FloatView-v0.1.18.ipa",
+          "size": 9168619
+        }
+      ]
+    },
+    {
+      "id": 411286042,
+      "tag": "v0.1.17",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 635922851,
+          "name": "FloatView-v0.1.17.ipa",
+          "size": 9166476
+        }
+      ]
+    },
+    {
+      "id": 411266126,
+      "tag": "v0.1.16",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 635866119,
+          "name": "FloatView-v0.1.16.ipa",
+          "size": 9165274
+        }
+      ]
+    },
+    {
+      "id": 411246192,
+      "tag": "v0.1.15",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 635818684,
+          "name": "FloatView-v0.1.15.ipa",
+          "size": 9161437
+        }
+      ]
+    },
+    {
+      "id": 411212908,
+      "tag": "v0.1.14",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 635707165,
+          "name": "FloatView-v0.1.14.ipa",
+          "size": 9082872
+        }
+      ]
+    },
+    {
+      "id": 411199886,
+      "tag": "v0.1.13",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 635665848,
+          "name": "FloatView-v0.1.13.ipa",
+          "size": 9081036
+        }
+      ]
+    },
+    {
+      "id": 411167240,
+      "tag": "v0.1.12",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 635570030,
+          "name": "FloatView-v0.1.12.ipa",
+          "size": 9082013
+        }
+      ]
+    },
+    {
+      "id": 411094702,
+      "tag": "v0.1.11",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 635356537,
+          "name": "FloatView-v0.1.11.ipa",
+          "size": 9010762
+        }
+      ]
+    },
+    {
+      "id": 411077255,
+      "tag": "v0.1.10",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 635297907,
+          "name": "FloatView-v0.1.10.ipa",
+          "size": 9010108
+        }
+      ]
+    },
+    {
+      "id": 411071580,
+      "tag": "v0.1.9",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 635272886,
+          "name": "FloatView-v0.1.9.ipa",
+          "size": 9008673
+        }
+      ]
+    },
+    {
+      "id": 410266765,
+      "tag": "v0.1.8",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 632919651,
+          "name": "FloatView-v0.1.8.ipa",
+          "size": 9010265
+        }
+      ]
+    },
+    {
+      "id": 410250545,
+      "tag": "v0.1.7",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 632877464,
+          "name": "FloatView-v0.1.7.ipa",
+          "size": 9007530
+        }
+      ]
+    },
+    {
+      "id": 410230589,
+      "tag": "v0.1.6",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 632821740,
+          "name": "FloatView-v0.1.6.ipa",
+          "size": 9005657
+        }
+      ]
+    },
+    {
+      "id": 410219081,
+      "tag": "v0.1.5",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 632798296,
+          "name": "FloatView-v0.1.5.ipa",
+          "size": 9004958
+        }
+      ]
+    },
+    {
+      "id": 409613500,
+      "tag": "v0.1.4",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 630525095,
+          "name": "FloatView-v0.1.4.ipa",
+          "size": 9003708
+        }
+      ]
+    },
+    {
+      "id": 409413119,
+      "tag": "v0.1.3",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 629773897,
+          "name": "FloatView-v0.1.3.ipa",
+          "size": 9002044
+        }
+      ]
+    },
+    {
+      "id": 409400811,
+      "tag": "v0.1.1",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "id": 629727351,
+          "name": "FloatView-v0.1.1.ipa",
+          "size": 9000646
+        }
+      ]
+    }
+  ],
+  "remoteTags": [
+    {
+      "tag": "v0.1.1",
+      "objectSHA": "fae19aa18a6807dad16714be98918c5024894cef"
+    },
+    {
+      "tag": "v0.1.10",
+      "objectSHA": "fae1f45356107b3c3f3fbb0b72789be09ee61d8d"
+    },
+    {
+      "tag": "v0.1.11",
+      "objectSHA": "fae197fe53253dfd793f4c1fce918dba4bd662a7"
+    },
+    {
+      "tag": "v0.1.12",
+      "objectSHA": "fae1cc234834735071b2a15a05bab38ffe15f741"
+    },
+    {
+      "tag": "v0.1.13",
+      "objectSHA": "fae14ac81ea61f76f9bfb83eae79b7ea26b057ac"
+    },
+    {
+      "tag": "v0.1.14",
+      "objectSHA": "fae127209ff36ff9acae5a4957c1971e9cb25ff9"
+    },
+    {
+      "tag": "v0.1.15",
+      "objectSHA": "fae143559b2f95eef9f0ac973361f4d71bfdf288"
+    },
+    {
+      "tag": "v0.1.16",
+      "objectSHA": "fae1ccb3b3bcbc7c7391670327511835094a3c78"
+    },
+    {
+      "tag": "v0.1.17",
+      "objectSHA": "fae11172934a8f7bde6d8c2f917559b31affaa19"
+    },
+    {
+      "tag": "v0.1.18",
+      "objectSHA": "fae1eb8421bada2fd64af5a1741fa198fe1fecee"
+    },
+    {
+      "tag": "v0.1.19",
+      "objectSHA": "fae1854d43e6ef00b88494582560be0cb995e1b8"
+    },
+    {
+      "tag": "v0.1.20",
+      "objectSHA": "fae1981b4f356881bba8596723c55d770232fe20"
+    },
+    {
+      "tag": "v0.1.21",
+      "objectSHA": "fae139c1cfe2481d00bdff4fcb961108b779011c"
+    },
+    {
+      "tag": "v0.1.22",
+      "objectSHA": "fae182e6e59c209c5c00d1e2958f0cf2d01e7580"
+    },
+    {
+      "tag": "v0.1.23",
+      "objectSHA": "fae1e4c27ed629a57b6829caf019bc88e3ff67a9"
+    },
+    {
+      "tag": "v0.1.24",
+      "objectSHA": "fae10687fffa8ae71ffb2e021702fe583496ddeb"
+    },
+    {
+      "tag": "v0.1.25",
+      "objectSHA": "fae1e15e2f7f43ea6c4fb6a2c752e27cf8a9ab59"
+    },
+    {
+      "tag": "v0.1.26",
+      "objectSHA": "fae15449007ee32af1871800305a026c6095fd60"
+    },
+    {
+      "tag": "v0.1.27",
+      "objectSHA": "fae1db36d58d785d603d0c3de18e16c33be60dcf"
+    },
+    {
+      "tag": "v0.1.28",
+      "objectSHA": "fae15c8b082f638c5a9457d578fc9c6809e97ed5"
+    },
+    {
+      "tag": "v0.1.29",
+      "objectSHA": "fae109559d550e7b8766e259e8ccb6f2505fd4f7"
+    },
+    {
+      "tag": "v0.1.3",
+      "objectSHA": "fae12261d7833a8b3fd220f1effea22008aceedf"
+    },
+    {
+      "tag": "v0.1.30",
+      "objectSHA": "fae1c2818656b7a0070a623472d70cc3564d453b"
+    },
+    {
+      "tag": "v0.1.31",
+      "objectSHA": "fae1b31d3c78792746765819515ce7410b6b05e9"
+    },
+    {
+      "tag": "v0.1.32",
+      "objectSHA": "fae1084b217ddd6cb9314da3d134599d410850f6"
+    },
+    {
+      "tag": "v0.1.33",
+      "objectSHA": "fae133c08b00f2fc0047235ae808d562c0bf2f55"
+    },
+    {
+      "tag": "v0.1.34",
+      "objectSHA": "fae1eabbd6bf0ea4cf1287354b450a49a78bf2be"
+    },
+    {
+      "tag": "v0.1.35",
+      "objectSHA": "fae1f5ca5c7aa3f7a5ca8edfd4ed43e99db90cbe"
+    },
+    {
+      "tag": "v0.1.36",
+      "objectSHA": "fae14050cf60674252079ef93c8386f46113f30d"
+    },
+    {
+      "tag": "v0.1.37",
+      "objectSHA": "fae1ec9ff8fd771634a066a77ebbd8c5020c1367"
+    },
+    {
+      "tag": "v0.1.38",
+      "objectSHA": "fae1f9d897a706a53af0168733c65303ad47943d"
+    },
+    {
+      "tag": "v0.1.39",
+      "objectSHA": "fae17076acd3c5daa38d1de290bd5994cc36366d"
+    },
+    {
+      "tag": "v0.1.4",
+      "objectSHA": "fae14e52826c52e2f804524608c83533893fb964"
+    },
+    {
+      "tag": "v0.1.41",
+      "objectSHA": "fae1996ab96d82b7a519fc9fae873f5fa7a62c84"
+    },
+    {
+      "tag": "v0.1.43",
+      "objectSHA": "fae1d6eda87a326cd71f6926f9626d5a7471abfe"
+    },
+    {
+      "tag": "v0.1.44",
+      "objectSHA": "fae185ab2960b216d1a57f43f75a476c88146bd5"
+    },
+    {
+      "tag": "v0.1.45",
+      "objectSHA": "fae1dd588165df25e5e539e0e7a1bf4cb8cc2f1c"
+    },
+    {
+      "tag": "v0.1.46",
+      "objectSHA": "fae1f35c6b64b3841abe2f7b53ff63b98e5fec0c"
+    },
+    {
+      "tag": "v0.1.47",
+      "objectSHA": "fae1c4faa9fd60d9596ad28ca8e4ef13a2082f74"
+    },
+    {
+      "tag": "v0.1.48",
+      "objectSHA": "fae15b0b3647a782b26305c6ede1b33e0b97a614"
+    },
+    {
+      "tag": "v0.1.49",
+      "objectSHA": "fae1b187eb13dd0381e51f207152f8945da9b375"
+    },
+    {
+      "tag": "v0.1.5",
+      "objectSHA": "fae18b82e25de72d700f7bc4677c7d813d3172b5"
+    },
+    {
+      "tag": "v0.1.6",
+      "objectSHA": "fae1c2fa9a8cc5cda9e132aff73e51b3204053a5"
+    },
+    {
+      "tag": "v0.1.7",
+      "objectSHA": "fae1830a6397d3a95f6ea1977a0b2836bd2e9802"
+    },
+    {
+      "tag": "v0.1.8",
+      "objectSHA": "fae1303df63c674a606d2a7314e69c8832e5e3c2"
+    },
+    {
+      "tag": "v0.1.9",
+      "objectSHA": "fae1eefa55589998d6c2f889e58ce26ecc3124ec"
+    },
+    {
+      "tag": "v0.2.0",
+      "objectSHA": "0c1c9860f0a6823d398b6a001e68e5116fb70fd4"
+    },
+    {
+      "tag": "v0.2.1",
+      "objectSHA": "27c340c149959fd35129dc01b1ce28d2d086ffcf"
+    },
+    {
+      "tag": "v0.2.2",
+      "objectSHA": "d472913b2e78f1dac220e48a7257cfdbdd183a52"
+    },
+    {
+      "tag": "v0.3.0",
+      "objectSHA": "3933ef59f9a712cf5d2927705bfabd08ace081ac"
+    }
+  ],
+  "localTags": [
+    {
+      "tag": "v0.1.1",
+      "objectSHA": "fae19aa18a6807dad16714be98918c5024894cef"
+    },
+    {
+      "tag": "v0.1.10",
+      "objectSHA": "fae1f45356107b3c3f3fbb0b72789be09ee61d8d"
+    },
+    {
+      "tag": "v0.1.11",
+      "objectSHA": "fae197fe53253dfd793f4c1fce918dba4bd662a7"
+    },
+    {
+      "tag": "v0.1.12",
+      "objectSHA": "fae1cc234834735071b2a15a05bab38ffe15f741"
+    },
+    {
+      "tag": "v0.1.13",
+      "objectSHA": "fae14ac81ea61f76f9bfb83eae79b7ea26b057ac"
+    },
+    {
+      "tag": "v0.1.14",
+      "objectSHA": "fae127209ff36ff9acae5a4957c1971e9cb25ff9"
+    },
+    {
+      "tag": "v0.1.15",
+      "objectSHA": "fae143559b2f95eef9f0ac973361f4d71bfdf288"
+    },
+    {
+      "tag": "v0.1.16",
+      "objectSHA": "fae1ccb3b3bcbc7c7391670327511835094a3c78"
+    },
+    {
+      "tag": "v0.1.17",
+      "objectSHA": "fae11172934a8f7bde6d8c2f917559b31affaa19"
+    },
+    {
+      "tag": "v0.1.18",
+      "objectSHA": "fae1eb8421bada2fd64af5a1741fa198fe1fecee"
+    },
+    {
+      "tag": "v0.1.19",
+      "objectSHA": "fae1854d43e6ef00b88494582560be0cb995e1b8"
+    },
+    {
+      "tag": "v0.1.20",
+      "objectSHA": "fae1981b4f356881bba8596723c55d770232fe20"
+    },
+    {
+      "tag": "v0.1.21",
+      "objectSHA": "fae139c1cfe2481d00bdff4fcb961108b779011c"
+    },
+    {
+      "tag": "v0.1.22",
+      "objectSHA": "fae182e6e59c209c5c00d1e2958f0cf2d01e7580"
+    },
+    {
+      "tag": "v0.1.23",
+      "objectSHA": "fae1e4c27ed629a57b6829caf019bc88e3ff67a9"
+    },
+    {
+      "tag": "v0.1.24",
+      "objectSHA": "fae10687fffa8ae71ffb2e021702fe583496ddeb"
+    },
+    {
+      "tag": "v0.1.25",
+      "objectSHA": "fae1e15e2f7f43ea6c4fb6a2c752e27cf8a9ab59"
+    },
+    {
+      "tag": "v0.1.26",
+      "objectSHA": "fae15449007ee32af1871800305a026c6095fd60"
+    },
+    {
+      "tag": "v0.1.27",
+      "objectSHA": "fae1db36d58d785d603d0c3de18e16c33be60dcf"
+    },
+    {
+      "tag": "v0.1.28",
+      "objectSHA": "fae15c8b082f638c5a9457d578fc9c6809e97ed5"
+    },
+    {
+      "tag": "v0.1.29",
+      "objectSHA": "fae109559d550e7b8766e259e8ccb6f2505fd4f7"
+    },
+    {
+      "tag": "v0.1.3",
+      "objectSHA": "fae12261d7833a8b3fd220f1effea22008aceedf"
+    },
+    {
+      "tag": "v0.1.30",
+      "objectSHA": "fae1c2818656b7a0070a623472d70cc3564d453b"
+    },
+    {
+      "tag": "v0.1.31",
+      "objectSHA": "fae1b31d3c78792746765819515ce7410b6b05e9"
+    },
+    {
+      "tag": "v0.1.32",
+      "objectSHA": "fae1084b217ddd6cb9314da3d134599d410850f6"
+    },
+    {
+      "tag": "v0.1.33",
+      "objectSHA": "fae133c08b00f2fc0047235ae808d562c0bf2f55"
+    },
+    {
+      "tag": "v0.1.34",
+      "objectSHA": "fae1eabbd6bf0ea4cf1287354b450a49a78bf2be"
+    },
+    {
+      "tag": "v0.1.35",
+      "objectSHA": "fae1f5ca5c7aa3f7a5ca8edfd4ed43e99db90cbe"
+    },
+    {
+      "tag": "v0.1.36",
+      "objectSHA": "fae14050cf60674252079ef93c8386f46113f30d"
+    },
+    {
+      "tag": "v0.1.37",
+      "objectSHA": "fae1ec9ff8fd771634a066a77ebbd8c5020c1367"
+    },
+    {
+      "tag": "v0.1.38",
+      "objectSHA": "fae1f9d897a706a53af0168733c65303ad47943d"
+    },
+    {
+      "tag": "v0.1.39",
+      "objectSHA": "fae17076acd3c5daa38d1de290bd5994cc36366d"
+    },
+    {
+      "tag": "v0.1.4",
+      "objectSHA": "fae14e52826c52e2f804524608c83533893fb964"
+    },
+    {
+      "tag": "v0.1.41",
+      "objectSHA": "fae1996ab96d82b7a519fc9fae873f5fa7a62c84"
+    },
+    {
+      "tag": "v0.1.43",
+      "objectSHA": "fae1d6eda87a326cd71f6926f9626d5a7471abfe"
+    },
+    {
+      "tag": "v0.1.44",
+      "objectSHA": "fae185ab2960b216d1a57f43f75a476c88146bd5"
+    },
+    {
+      "tag": "v0.1.45",
+      "objectSHA": "fae1dd588165df25e5e539e0e7a1bf4cb8cc2f1c"
+    },
+    {
+      "tag": "v0.1.46",
+      "objectSHA": "fae1f35c6b64b3841abe2f7b53ff63b98e5fec0c"
+    },
+    {
+      "tag": "v0.1.47",
+      "objectSHA": "fae1c4faa9fd60d9596ad28ca8e4ef13a2082f74"
+    },
+    {
+      "tag": "v0.1.48",
+      "objectSHA": "fae15b0b3647a782b26305c6ede1b33e0b97a614"
+    },
+    {
+      "tag": "v0.1.49",
+      "objectSHA": "fae1b187eb13dd0381e51f207152f8945da9b375"
+    },
+    {
+      "tag": "v0.1.5",
+      "objectSHA": "fae18b82e25de72d700f7bc4677c7d813d3172b5"
+    },
+    {
+      "tag": "v0.1.6",
+      "objectSHA": "fae1c2fa9a8cc5cda9e132aff73e51b3204053a5"
+    },
+    {
+      "tag": "v0.1.7",
+      "objectSHA": "fae1830a6397d3a95f6ea1977a0b2836bd2e9802"
+    },
+    {
+      "tag": "v0.1.8",
+      "objectSHA": "fae1303df63c674a606d2a7314e69c8832e5e3c2"
+    },
+    {
+      "tag": "v0.1.9",
+      "objectSHA": "fae1eefa55589998d6c2f889e58ce26ecc3124ec"
+    },
+    {
+      "tag": "v0.2.0",
+      "objectSHA": "0c1c9860f0a6823d398b6a001e68e5116fb70fd4"
+    },
+    {
+      "tag": "v0.2.1",
+      "objectSHA": "27c340c149959fd35129dc01b1ce28d2d086ffcf"
+    },
+    {
+      "tag": "v0.2.2",
+      "objectSHA": "d472913b2e78f1dac220e48a7257cfdbdd183a52"
+    },
+    {
+      "tag": "v0.3.0",
+      "objectSHA": "3933ef59f9a712cf5d2927705bfabd08ace081ac"
+    },
+    {
+      "tag": "v0.3.1-nightly.10.gfae156ab318e",
+      "objectSHA": "fae156ab318e1f5ed7af1e9213e661d76bb777e7"
+    }
+  ],
+  "executionRequirements": [
+    "wait for candidate acceptance",
+    "disable Build apps and drain active runs",
+    "re-query and match exact planned release/tag identities before deletion",
+    "delete selected releases/assets and local/remote tags only; never rewrite commits",
+    "preserve rolling Nightly and verify remaining refs",
+    "re-enable workflow and verify next nightly"
+  ]
+}
