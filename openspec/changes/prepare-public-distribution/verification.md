@@ -25,6 +25,7 @@ existing Git history; this policy does not require rewriting earlier commits.
 | [Apple navigation implementation fae1aff1](https://github.com/acheronfail/float-view-mobile/commit/fae1aff18ecb00da432fdc09a838e1a35dd75b44) | Focused native policy/startup tests and Release iOS simulator privacy/support/source browser handoff passed. | Local software/simulator verification; subsequent nightly device acceptance is recorded below. |
 | [iOS nightly 82 / run 38986380948](https://github.com/acheronfail/float-view-mobile/actions/runs/38986380948), [source fae1971](https://github.com/acheronfail/float-view-mobile/tree/fae1971b4f947215dad7ef962c6a1702686dae2a) | CI succeeded. Owner confirmed build 82 passed all scoped iOS device acceptance checks, including storage, Bluetooth/permissions, locked-screen recording, announcements, Live Activity, import/export and licence/browser navigation. | Sideload acceptance; detailed results remain local. Does not establish App Store signing, Apple processing or TestFlight-delivered behavior. |
 | [iOS local signed preflight / source fae1814](https://github.com/acheronfail/float-view-mobile/tree/fae1814f9696b56071755d33784f0e233cc34bac) | Distribution export, app/extension signatures/profiles/entitlements, corrected full notices, manifests, permission text, development-hook exclusion and anonymous exact-source comparison passed. Release iPad simulator rotation and browser resizing checks passed. | Local test number, not an upload allocation. Does not establish hosted candidate upload, Apple processing or TestFlight delivery; detailed artifacts stay local. |
+| [iOS candidate v1.0.0-rc.1, build 86 / run 38990541780](https://github.com/acheronfail/float-view-mobile/actions/runs/38990541780), [source fae1651](https://github.com/acheronfail/float-view-mobile/tree/fae16516d2565b59c747203e17712bc3affdd222) | Hosted signing/export and independent IPA validation passed: app/extension distribution signatures, profiles, entitlements, full notices, manifests, permission text, iPad orientations, source/build identity and development-hook exclusion. Anonymous exact-source comparison passed. All three sideload packages published as a separate GitHub prerelease. Protected Apple upload passed; matching receipt and independent API check confirm VALID processing and no non-exempt encryption. | Owner confirmed installation through TestFlight and all scoped iOS device checks passed. Settings shows the numeric v1.0.0 without the candidate suffix; the display correction needs a subsequent build. External beta review remains open. |
 
 ## Unpublished checks
 
@@ -34,18 +35,19 @@ brief result against the committed build after the relevant checks pass.
 
 ## Open release gates
 
-- Repeat package/source gates on the actual hosted numbered-candidate export;
-  clean local signed preflight passes.
+- Repeat package/source gates for each new candidate. Build 86 passes the hosted
+  export and independent package/source checks.
 - Complete remaining console metadata and review materials. The owner confirmed
   completion of the iOS App Privacy questionnaire; private TestFlight contact
   fields are configured. Beta text and review fields are saved; final content review and hardware review
   evidence remain open before external beta review.
-- Validate actual upload, Apple processing and TestFlight-delivered behavior.
-  Upload readiness remains disabled; no Apple upload or tester invitation is
-  recorded as complete.
+- Owner-reported TestFlight device acceptance passed for build 86. Verify the
+  candidate-version display correction in a subsequent build. Upload readiness
+  remains enabled behind protected environment review; external beta review is
+  still pending.
 - Complete remaining Android/Mac-specific tasks and the candidate-gated historical
   release cleanup. No historical release/tag deletion or stable v1.0.0 tagging
   has been performed as part of this checkpoint.
 
-The implementation checklist remains 7/38 complete. Local checks do not close
+The implementation checklist is 8/38 complete. Local checks do not close
 cross-platform tasks or external submission gates.

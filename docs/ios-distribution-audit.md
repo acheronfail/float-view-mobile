@@ -131,34 +131,37 @@ Re-audit whenever dependencies/networking change and answer any applicable
 territory-specific questions in App Store Connect. Source:
 [Apple's beta export-compliance guidance](https://developer.apple.com/help/app-store-connect/test-a-beta-version/provide-export-compliance-information-for-beta-builds/).
 
-## Gates still open before TestFlight
+## Candidate and review checkpoints
 
 Use the build-linked verification summary for completed checks. Before upload,
 verify the exact candidate rather than reusing evidence from an earlier binary.
 
 - Baseline 100 and software preservation/startup checks are implemented. Nightly
   82 passed the owner-reported scoped device checkpoint; simulator failure/retry
-  presentation checks also passed. Validate the store-delivered build next. See
+  presentation checks also passed. The owner subsequently confirmed TestFlight
+  build 86 passed all scoped iOS device checks. See
   [storage-baseline.md](storage-baseline.md) and the verification summary.
 - The [iOS package/source audit](ios-package-source-audit.md) verified exact
   public source and existing packaged texts, and fixed missing Rust runtime
   notices. The clean local signed preflight at source fae1814 passed corrected
   notices,
   manifests, entitlements, production-hook exclusions and exact-source checks.
-  Repeat the gates on the actual CI candidate before upload; build 77 predates
-  the fixes. The owner's official Apple permission is
+  The hosted candidate build 86 and its independent package/source audit also
+  passed; repeat these gates for each new candidate. Build 77 predates the
+  fixes. The owner's official Apple permission is
   recorded in licensing.md; third-party terms remain independent.
-- When upload is authorized, use `just release candidate` to create a fresh
-  signed CI candidate without publishing stable v1.0.0, and validate Apple
-  processing and encryption status. Local and read-only checks do not
-  establish transport or processing acceptance.
+- `just release candidate` created `v1.0.0-rc.1` (build 86) without publishing
+  stable v1.0.0. Protected upload and Apple processing passed for build 86,
+  including its reviewed encryption declaration. Verify each new candidate's
+  actual transport/processing result; local packaging alone is insufficient.
 - Beta description, privacy URL, feedback email and review contact/notes fields
   are saved (read-only API presence check). Review their final content and add
   build-specific what-to-test notes in App Store Connect. First tester is the owner;
   invited external users come later and need the applicable external beta review.
-- Provide real supported-hardware pairing/use instructions and review evidence;
-  test the delivered build's BLE, optional route permissions/background capture,
-  announcements, Live Activity, import/export and restart on the affected device.
+- Provide real supported-hardware pairing/use instructions and review evidence
+  before external beta review. Build 86 passed the owner-reported delivered-build
+  checkpoint; scope subsequent checks to affected behavior, including verifying
+  the candidate-version display correction in the next candidate.
 
 ## TestFlight information worksheet
 
@@ -177,6 +180,24 @@ and used as the reply-to for invitations; choose an address you are willing to
 share with them. Public support can remain GitHub Issues.
 
 Source: [Apple's test-information guide](https://developer.apple.com/help/app-store-connect/test-a-beta-version/provide-test-information/).
+
+### First owner installation
+
+After Apple successfully processes the candidate, open Apps → Float View →
+TestFlight. Under Internal Testing, create a group such as “Owner testing”,
+leaving automatic distribution disabled so builds are selected deliberately.
+Use Add Builds to select the verified version/build and enter the What to Test
+text below. Use Invite Testers to add only the owner's App Store Connect user,
+then accept the invitation in TestFlight on the device. This step sends an
+invitation; it is separate from uploading the binary. See
+[Apple's internal testing guide](https://developer.apple.com/help/app-store-connect/test-a-beta-version/add-internal-testers/).
+
+Export wanted recordings before changing signing/install channels. Do not
+uninstall the existing app to force an update without first retaining those
+exports. An installation under a different signing identity/container does not
+establish an in-place upgrade. Verify the installed TestFlight version/build,
+then run the scoped device acceptance procedure below. Successful Apple
+processing does not establish device acceptance or external beta review.
 
 ### Beta App Description
 
@@ -248,6 +269,66 @@ keep detailed device results, video files and private links out of Git.
   matching this worksheet; an embedded manifest does not fill it in.
 - The reviewed encryption declaration is embedded in Info.plist. Resolve any
   Apple processing questions on the actual uploaded build.
+
+## Production listing draft
+
+Proposed copy for owner review, not a claim that these console fields are saved.
+Keep first-release screenshots and final categories/age rating as separate
+submission checks. Source: [Apple product-page guidance](https://developer.apple.com/app-store/product-page/).
+
+The pre-upload read-only console check found an iOS draft at version `1.0`,
+release after approval selected, and no description, keywords, support URL or
+screenshots saved. Align the production version to `1.0.0`, save the reviewed
+listing/assets and choose manual release before submitting for App Review.
+These production fields do not establish or block first-owner TestFlight delivery.
+
+- Name: Float View
+- Subtitle: VESC telemetry and ride logs
+- Suggested primary category: Utilities; owner to confirm.
+- Keywords: Refloat,Bluetooth,electric board,battery,controller,route,session
+- Support/privacy URLs: use the reviewed URLs above.
+
+### Description
+
+Float View connects to compatible VESC-based boards over Bluetooth to display
+live telemetry, record rides and review session history.
+
+- View live speed, battery and controller readings.
+- Record rides and optional GPS routes, then review your sessions and charts.
+- Import and export recordings, including CSV exports.
+- Read and change supported board settings and Refloat tunes.
+- Use optional spoken announcements and Live Activities during a ride.
+
+Compatible VESC hardware and a Bluetooth connection are required for live
+features. Recorded sessions can be reviewed without a connected board. Route
+recording is optional; online maps use OpenStreetMap's tile service. No Float
+View account is required.
+
+Float View is open source under AGPL-3.0-or-later. Purchasing the app supports
+ongoing development and distribution costs. Source code and project information:
+https://github.com/acheronfail/float-view-mobile
+
+### Screenshot and console checklist
+
+- Capture the accepted candidate's live readings, recorded session/charts,
+  optional route map and Settings on the supported iPhone/iPad display classes.
+  Keep private routes/identifiers out of assets; label any illustrative/sample
+  content accurately. Marketing screenshots do not replace the hardware review video.
+- Confirm price, availability, agreements, banking/tax and applicable trader
+  declarations privately in App Store Connect.
+- Review iPhone/iPad compatibility availability on Apple-silicon Macs before
+  public release. Decide whether to test and offer that build while the native
+  macOS store app is pending, or opt out in Pricing and Availability. This is a
+  separate setting from publishing the native macOS app. See
+  [Apple's Mac availability guide](https://developer.apple.com/help/app-store-connect/manage-your-apps-availability/manage-availability-of-iphone-and-ipad-apps-on-macs-with-apple-silicon/).
+- Complete the age-rating questionnaire from the actual app content. Board
+  telemetry is not medical advice; local recordings/imports are not a public
+  social feed. External browser links do not turn the pinned app WebView into an
+  unrestricted web browser. Review each console question before selecting its
+  answer; Apple calculates the rating from those responses. See
+  [Apple's age-rating guide](https://developer.apple.com/help/app-store-connect/manage-app-information/set-an-app-age-rating/).
+- Select manual production release and the accepted processed build when ready
+  for App Review; candidate upload alone must not submit review or release the app.
 
 ## Device acceptance procedure
 
