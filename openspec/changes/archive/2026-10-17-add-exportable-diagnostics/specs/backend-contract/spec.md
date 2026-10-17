@@ -32,7 +32,7 @@ Every supported backend SHALL implement authenticated `diagnostics.list`, `diagn
 
 ### Requirement: Prepared diagnostic report contract
 
-`diagnostics.prepare` SHALL accept a nullable incident ID, with null selecting current context, an optional owned `replaceReportId` to release the prior preview, and return an opaque report ID, sanitized Markdown summary, inclusion/completeness metadata and expiry. The immutable report SHALL be client-owned, expire after ten minutes, and obey a global capacity of two prepared reports. Preview results SHALL occupy at most 32,768 UTF-8 bytes; summary text at most 8,192 bytes.
+`diagnostics.prepare` SHALL accept a nullable incident ID, with null selecting current context, an optional owned `replaceReportId` to release the prior prepared report, and return an opaque report ID, sanitized Markdown summary, inclusion/completeness metadata and expiry. The immutable report SHALL be client-owned, expire after ten minutes, and obey a global capacity of two prepared reports. Prepared-report results SHALL occupy at most 32,768 UTF-8 bytes; summary text at most 8,192 bytes.
 
 #### Scenario: Prepare incomplete incident
 
@@ -105,7 +105,7 @@ categories. Neither parameters nor arbitrary error text SHALL be logged.
 
 ### Requirement: One controller per telemetry session
 
-Live telemetry, transition events, durable samples, summaries, session-associated diagnostics, and recording exports SHALL belong to exactly one selected direct-or-CAN controller route at a time. Selecting or validating a different controller SHALL end the existing session and clear route-scoped telemetry before values from the new controller are accepted. App-wide diagnostic reports SHALL distinguish process runs, connection generations and report-local controller aliases, and SHALL NOT merge observations from different controllers into one operation or sample stream.
+Live telemetry, transition events, durable samples, summaries, session-associated diagnostics, and recording exports SHALL belong to exactly one selected direct-or-CAN controller route at a time. Selecting or validating a different controller SHALL end the existing session and clear route-scoped telemetry before values from the new controller are accepted.
 
 #### Scenario: Selected controller changes
 
@@ -115,4 +115,4 @@ Live telemetry, transition events, durable samples, summaries, session-associate
 #### Scenario: Incident spans replacement connection
 
 - **WHEN** an app-wide incident includes a failed controller attempt and a subsequent connection to another controller
-- **THEN** events identify distinct generations and aliases without changing single-controller recording ownership
+- **THEN** app-wide reports distinguish process runs, connection generations and report-local controller aliases without changing single-controller recording ownership, and SHALL NOT merge observations from different controllers into one operation or sample stream

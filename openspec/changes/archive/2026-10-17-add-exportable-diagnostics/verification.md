@@ -60,8 +60,8 @@ captures report their limitations after reopening. No motor movement, new
 firmware interoperability or expanded radio matrix is needed. Keep detailed
 physical evidence and device inventories in ignored local testing directories.
 
-The implementation is committed with this limitation explicit; keep the change
-active until the scoped native checkpoint can be completed, then sync/archive.
+The implementation was kept active with this limitation explicit. The owner
+subsequently requested sync/archive; see the archive disposition below.
 
 ## Simplified export UX follow-up
 
@@ -142,3 +142,27 @@ No frontend or native presentation code changed, so browser/device presentation
 checks were not repeated. A fresh signed/uploaded candidate has not been created
 for these corrections; local packaging-command tests are not TestFlight delivery
 evidence. The original remaining scoped presentation checkpoint remains open.
+
+## Archive disposition — 2026-10-17
+
+The owner explicitly requested syncing and archiving this change after successful
+TestFlight use and inspection of their exported iOS diagnostic ZIP. This supplies
+evidence for the iOS export path and the simplified UX; it does not establish the
+entire original native checkpoint. Task 6.3 remains unchecked in the archived
+record: macOS/Android interactive save/share and system-browser checks, and
+scoped real-device lifecycle/file-protection behavior, were not fully verified.
+Archiving is the owner's requested workflow disposition, not a claim that these
+unrun checks passed. The last metadata/timing corrections remain supported by the
+software verification recorded above; no newer candidate delivery is claimed.
+
+Main support-diagnostics and backend-contract specifications are synchronized
+with the final single Export logs button, manual GitHub reporting, request-failure
+capture and report corrections. Historical API summary/preparation remains
+supported without a visible user preview step.
+
+Archive documentation checks: the change and support-diagnostics spec pass strict
+validation. Backend-contract passes normal validation; strict mode still flags
+its existing long-requirement warnings. The sync introduces no additional
+long-requirement warnings. Requirement-block comparison verifies both deltas
+are fully reflected in main specs, and unrelated backend requirements remain
+unchanged. `git diff --check` passed. No application code changed for archival.

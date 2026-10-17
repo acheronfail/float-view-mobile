@@ -60,3 +60,10 @@
 - [x] 8.2 Use consistent nearest-rank percentiles and preserve all scheduler outcomes; verify empty, one/two-observation and bounded-window regressions plus private-value rejection.
 - [x] 8.3 Separate transport and application generation namespaces in producers and exports; verify an independent ZIP reader sees collision-free report-local aliases across protocol changes/reconnects.
 - [x] 8.4 Run affected Rust/server/host-consumer, archive/delivery and canonical diagnostic checks, update reusable documentation and record results without claiming new physical or App Store delivery evidence.
+
+## Archive disposition
+
+Synced and archived at the owner's explicit request on 2026-10-17. Task 6.3 stays
+unchecked as a coverage limitation: owner TestFlight use and an inspected iOS
+export support the iOS path, while the full listed native checkpoint was not
+completed. See verification.md for actual checks and remaining coverage.

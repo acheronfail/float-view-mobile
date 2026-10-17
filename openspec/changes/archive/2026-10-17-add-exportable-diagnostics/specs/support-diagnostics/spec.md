@@ -104,7 +104,7 @@ Stored and exported diagnostics SHALL contain only allowlisted structured fields
 #### Scenario: Adversarial private values
 
 - **WHEN** device names, firmware text, OS errors, frontend errors or protocol responses contain private sentinel strings, coordinates, credentials or control characters
-- **THEN** neither local diagnostic records, preview, ZIP, filename nor GitHub URL contains those values
+- **THEN** neither local diagnostic records, prepared summary, ZIP, filename nor GitHub URL contains those values
 
 #### Scenario: Useful hardware model
 
@@ -120,10 +120,10 @@ Stored and exported diagnostics SHALL contain only allowlisted structured fields
 
 The export flow SHALL automatically prepare an immutable sanitized report for the newest retained incident or current context when none exists, then export exactly that report as a ZIP of at most 5 MiB. The ZIP SHALL contain only `report.md`, `events.jsonl` and `manifest.json`, including diagnostic format version, report ID, capture bounds, omissions, loss counts and completeness. Full recording archives SHALL NOT be embedded.
 
-#### Scenario: Context changes after preview
+#### Scenario: Context changes after preparation
 
 - **WHEN** new failures occur after a report is prepared
-- **THEN** export uses the previewed report without silently adding subsequent events or another controller's context
+- **THEN** export uses the prepared report without silently adding subsequent events or another controller's context
 
 #### Scenario: Report expired or cleared
 
