@@ -11,6 +11,7 @@ import re
 import platform
 import plistlib
 import subprocess
+import stat
 import tempfile
 from pathlib import Path
 
@@ -35,12 +36,23 @@ def run(*args, cwd=ROOT, capture=False, env=None):
     result = subprocess.run(
         [str(a) for a in args], cwd=cwd, env=env,
         stdout=subprocess.PIPE if capture else None,
+        # Keep the signing wrapper's private-credential umask out of public artifacts.
+        umask=0o022,
     )
     require(result.returncode == 0, f"{args[0]} failed; command arguments suppressed")
     return result.stdout.decode().strip() if capture else None
 
 
+def verify_bundle_permissions(app):
+    for path in [app, *app.rglob("*")]:
+        mode = path.stat().st_mode
+        require(mode & 0o044 == 0o044, "Installer app contains files unreadable by non-root users")
+        if stat.S_ISDIR(mode) or path == app / "Contents/MacOS/FloatViewMac":
+            require(mode & 0o011 == 0o011, "Installer app contains inaccessible directories or executable")
+
+
 def inspect_app(app, version, number, architectures, identifier, expected_entitlements):
+    verify_bundle_permissions(app)
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     require(info["CFBundleIdentifier"] == identifier, "Unexpected Mac bundle identifier")
     require(info["CFBundleShortVersionString"] == version, "Version differs from build inputs")
@@ -202,6 +214,7 @@ def package(args):
     app = build_app(output, version, number, ["arm64", "x86_64"], STORE_ID, "Float View")
     if profile_bytes:
         (app / "Contents/embedded.provisionprofile").write_bytes(profile_bytes)
+        (app / "Contents/embedded.provisionprofile").chmod(0o644)
     entitlement_path = output / "entitlements.plist"
     entitlement_path.write_bytes(plistlib.dumps(expected))
     signing_keychain = os.environ.get("CODE_SIGN_KEYCHAIN") if signed else None

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Assemble a development app so Core Location sees our identity and usage text.
 set -euo pipefail
+# Shipped resources must be readable after a root-owned installer deploys them.
+umask 022
 
 executable="${1:?Usage: package-macos.sh executable destination.app [resources-directory]}"
 bundle="${2:?Usage: package-macos.sh executable destination.app [resources-directory]}"
@@ -15,5 +17,7 @@ rm -f "$contents/MacOS/FloatViewMac"
 cp "$executable" "$contents/MacOS/FloatViewMac"
 # Put SwiftPM resources in the standard app location for signing and discovery.
 cp -R "$resources/." "$contents/Resources/"
+# Source resources can have inherited restrictive build permissions.
+chmod -R a+rX "$bundle"
 /usr/bin/plutil -lint "$contents/Info.plist"
 /usr/bin/codesign --force --sign - "$bundle"

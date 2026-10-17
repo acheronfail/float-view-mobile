@@ -138,3 +138,17 @@ off. Shared-key presence, tag-only protection, separate app IDs and read-only
 Apple authentication/platform queries are verified. A new signed candidate,
 hosted read-only verification, Apple processing and store-delivered physical acceptance are still required. No Mac
 upload, tester invitation or review submission occurred in this step.
+
+
+## Candidate RC8 delivery checkpoint
+
+[RC8 build 104](https://github.com/acheronfail/float-view-mobile/actions/runs/39024530139),
+source `fae12466`, passed all platform builds, both protected signing jobs and
+GitHub prerelease publication with all three sideload artifacts. Shared-environment
+iOS upload and Apple processing passed. Independent Mac PKG inspection verified
+signatures, source/build, profile/entitlements, privacy resources and full notices.
+Mac delivery failed: Apple's validation identified root-only bundle permissions
+inherited from the credential wrapper's restrictive umask. The recorded transport
+outcome is uncertain; do not blindly resend build 104. A packaging permission
+check/fix and a fresh candidate/build number are required before Mac acceptance.
+Detailed diagnostics, receipts, screenshot assets and device results stay local.

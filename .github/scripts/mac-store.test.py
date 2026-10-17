@@ -30,6 +30,20 @@ def profile():
 
 
 class MacStoreTests(unittest.TestCase):
+    def test_rejects_root_only_bundle_files_and_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory)/'App.app'; executable = app/'Contents/MacOS/FloatViewMac'
+            executable.parent.mkdir(parents=True); executable.write_bytes(b'executable'); executable.chmod(0o755)
+            resource = app/'Contents/Info.plist'; resource.write_bytes(b'public resource'); resource.chmod(0o644)
+            store.verify_bundle_permissions(app)
+            for path, bad_mode, good_mode in [(app,0o700,0o755),(resource,0o600,0o644),
+                                               (executable.parent,0o744,0o755),(executable,0o744,0o755)]:
+                path.chmod(bad_mode)
+                with self.subTest(path=path.name), self.assertRaisesRegex(ValueError,'non-root|inaccessible'):
+                    store.verify_bundle_permissions(app)
+                path.chmod(good_mode)
+            store.verify_bundle_permissions(app)
+
     def test_profile_keeps_only_required_capabilities(self):
         expected = store.validate_profile(profile(), TEAM, IDENTITY)
         self.assertTrue(expected['com.apple.security.app-sandbox'])
@@ -109,7 +123,7 @@ class MacStoreTests(unittest.TestCase):
 
     def test_missing_reviewed_encryption_declaration_rejected_before_signing_tools(self):
         with tempfile.TemporaryDirectory() as directory:
-            app = Path(directory); (app/'Contents').mkdir()
+            app = Path(directory); app.chmod(0o755); (app/'Contents').mkdir()
             info = plistlib.loads((store.APPLE/'FloatViewMac-Info.plist').read_bytes())
             self.assertIs(info['ITSAppUsesNonExemptEncryption'], False)
             del info['ITSAppUsesNonExemptEncryption']
