@@ -1413,7 +1413,7 @@ impl BackendService {
             }
             let anomaly =
                 request.outcome == "timeout" || request.queue_ms > 500 || request.response_ms > 500;
-            self.diagnostics.event(self.policy.exchange.now, self.policy.exchange.epoch, "request", serde_json::json!({"generation":request.generation,"sequence":request.sequence,"kind":request.kind,"outcome":request.outcome,"queue_ms":request.queue_ms,"response_ms":request.response_ms}), anomaly);
+            self.diagnostics.event(self.policy.exchange.now, self.policy.exchange.epoch, "request", serde_json::json!({"application_generation":request.generation,"sequence":request.sequence,"kind":request.kind,"outcome":request.outcome,"queue_ms":request.queue_ms,"response_ms":request.response_ms}), anomaly);
             if anomaly {
                 self.diagnostics.capture(
                     self.policy.exchange.now,
@@ -1520,7 +1520,7 @@ impl BackendService {
             self.policy.exchange.now,
             self.policy.exchange.epoch,
             "activated",
-            serde_json::json!({"generation":facts.generation.0,"new_session":session_started}),
+            serde_json::json!({"application_generation":facts.generation.0,"new_session":session_started}),
             true,
         );
         a.package_version = Some(facts.refloat_version.to_string());

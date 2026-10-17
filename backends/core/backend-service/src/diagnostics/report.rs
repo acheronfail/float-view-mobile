@@ -74,12 +74,18 @@ impl ReportWork {
         if self.events.len() > 768 || self.events.iter().any(|e| !e.valid()) {
             return Err(Failure::Unavailable);
         }
-        let mut generations = BTreeMap::new();
+        let mut transport_generations = BTreeMap::new();
+        let mut application_generations = BTreeMap::new();
         for record in self.events.iter_mut().chain(self.context.iter_mut()) {
             record.run = 1;
-            if let Some(Datum::Count(g)) = record.facts.get_mut(&Key::Generation) {
-                let next = generations.len() as u64 + 1;
-                *g = *generations.entry(*g).or_insert(next);
+            for (key, aliases) in [
+                (Key::Generation, &mut transport_generations),
+                (Key::ApplicationGeneration, &mut application_generations),
+            ] {
+                if let Some(Datum::Count(g)) = record.facts.get_mut(&key) {
+                    let next = aliases.len() as u64 + 1;
+                    *g = *aliases.entry(*g).or_insert(next);
+                }
             }
         }
         let build = env!("FLOAT_VIEW_BUILD_REVISION");
@@ -111,7 +117,9 @@ impl ReportWork {
                 .collect::<Vec<_>>(),
         )
         .map_err(|_| Failure::Internal)?;
-        let summary = format!("{summary}\nAvailable environment/compatibility facts:\n{context}\n");
+        let summary = format!(
+            "{summary}\nConnection correlation: generation identifies the transport connection; application_generation identifies the controller protocol generation. Both are report-local.\n\nAvailable environment/compatibility facts:\n{context}\n"
+        );
         if summary.len() > 8192 {
             return Err(Failure::Unavailable);
         }

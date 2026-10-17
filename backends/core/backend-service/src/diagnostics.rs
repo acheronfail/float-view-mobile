@@ -50,15 +50,14 @@ impl Metric {
     fn summary(&self) -> Value {
         let mut values: Vec<_> = self.values.iter().copied().collect();
         values.sort_unstable();
-        json!([
-            self.count,
-            values.get(values.len() / 2).copied().unwrap_or(0),
+        // Nearest-rank percentiles share one convention, including tiny samples.
+        let percentile = |p: usize| {
             values
-                .get(values.len().saturating_sub(1) * 95 / 100)
+                .get((values.len() * p).div_ceil(100).saturating_sub(1))
                 .copied()
-                .unwrap_or(0),
-            self.maximum
-        ])
+                .unwrap_or(0)
+        };
+        json!([self.count, percentile(50), percentile(95), self.maximum])
     }
 }
 #[derive(Default)]
@@ -559,6 +558,91 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+    #[test]
+    fn export_namespaces_transport_and_protocol_generations_without_collisions() {
+        use std::io::Read;
+        let t = Temp::new();
+        let root = t.0.join("product");
+        fs::create_dir(&root).unwrap();
+        let mut s = BackendService::open(&root).unwrap();
+        for (transport, application) in [(9001, 9001), (9001, 9002), (9002, 9003)] {
+            s.diagnostics.generation = transport;
+            s.diagnostics.event(
+                0,
+                1000,
+                "request",
+                json!({"application_generation":application,"outcome":"sent_only"}),
+                true,
+            );
+        }
+        let completion = s.begin_diagnostic_report(1, None).unwrap().run().unwrap();
+        let preview = s.complete_diagnostic_report(completion).unwrap();
+        assert!(
+            preview
+                .summary
+                .contains("application_generation identifies")
+        );
+        let (transfer, _) = s.diagnostic_export(1, &preview.report_id).unwrap();
+        let path = s.present_export(1, transfer, 0).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(fs::read(path).unwrap())).unwrap();
+        let mut text = String::new();
+        zip.by_name("events.jsonl")
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        let records = text
+            .lines()
+            .map(|row| serde_json::from_str::<Value>(row).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 3);
+        for (record, (transport, application)) in records.iter().zip([(1, 1), (1, 2), (2, 3)]) {
+            assert_eq!(record["facts"]["generation"], transport);
+            assert_eq!(record["facts"]["application_generation"], application);
+            assert_eq!(record["facts"]["outcome"], "sent_only");
+        }
+        assert!(!text.contains("9001") && !text.contains("9002") && !text.contains("9003"));
+    }
+    #[test]
+    fn metric_percentiles_are_ordered_for_empty_small_and_bounded_samples() {
+        assert_eq!(Metric::default().summary(), json!([0, 0, 0, 0]));
+        let mut metric = Metric::default();
+        metric.add(281);
+        assert_eq!(metric.summary(), json!([1, 281, 281, 281]));
+        metric.add(5476);
+        assert_eq!(metric.summary(), json!([2, 281, 5476, 5476]));
+        for len in 1..=300_u64 {
+            let mut metric = Metric::default();
+            for value in (1..=len).rev() {
+                metric.add(value);
+            }
+            let summary = metric.summary();
+            let values = summary.as_array().unwrap();
+            assert_eq!(values[0], len);
+            let p50 = values[1].as_u64().unwrap();
+            let p95 = values[2].as_u64().unwrap();
+            assert!(p50 <= p95 && p95 <= len);
+            assert!(metric.values.len() <= 256);
+        }
+    }
+    #[test]
+    fn every_scheduler_completion_outcome_survives_the_privacy_boundary() {
+        let mut d = Diagnostics::default();
+        for outcome in [
+            "sent",
+            "response",
+            "sent_only",
+            "timeout",
+            "queue_full",
+            "cancelled",
+            "stale",
+        ] {
+            d.event(0, 1000, "request", json!({"outcome": outcome}), true);
+            let record: Value = serde_json::from_str(&d.ring.back().unwrap().1).unwrap();
+            assert_eq!(record["facts"]["outcome"], outcome);
+        }
+        d.event(0, 1000, "request", json!({"outcome":"PRIVATE"}), true);
+        assert!(!d.ring.back().unwrap().1.contains("PRIVATE"));
     }
     #[test]
     fn all_backend_failures_are_closed_correlated_and_capture_without_a_session() {

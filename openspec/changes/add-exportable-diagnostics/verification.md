@@ -109,3 +109,36 @@ Verification passed:
 
 The Export logs label is included. No new OS effect or firmware behavior was
 introduced, and the original broader native presentation checkpoint remains open.
+
+## RC6 export inspection corrections
+
+Inspection of an owner-provided RC6 export found incorrect stable/candidate
+labelling, inverted small-sample timing percentiles, stripped scheduler outcomes
+and transport/protocol generation namespace ambiguity. The owner confirmed there
+were no app-visible errors; absent backend-failure events are expected for that
+sample, while request-delay observations remain useful timing context.
+
+Corrections preserve the full candidate tag through the native store archive
+environment, use nearest-rank percentiles, allow all seven scheduler outcome codes,
+and retain separate transport/application generation fields with independent
+report-local aliases and explanatory report text. Older immutable captures retain
+their original data. Existing bounds, privacy exclusions, baseline/archive markers
+and file presentation behavior are unchanged.
+
+Passed verification:
+
+- Backend-service library: all 92 tests, including empty/small/bounded percentile
+  samples, seven scheduler outcomes/private text rejection, and independent ZIP
+  reading of generation aliases across protocol changes and transport reconnects.
+- Loopback server: 12 tests; backend BLE integration: two tests; shared host/Apple
+  FFI/Android JNI consumers: ten tests.
+- Apple store/archive tests: 32, including full candidate metadata in frontend and
+  native build environments with numeric Apple marketing/build versions retained.
+- Apple upload/delivery tests: 18; focused canonical diagnostics on direct and mock.
+- Warnings-denied Clippy for changed shared crates/all targets, Rust formatting,
+  strict OpenSpec validation and whitespace checks.
+
+No frontend or native presentation code changed, so browser/device presentation
+checks were not repeated. A fresh signed/uploaded candidate has not been created
+for these corrections; local packaging-command tests are not TestFlight delivery
+evidence. The original remaining scoped presentation checkpoint remains open.

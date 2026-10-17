@@ -84,3 +84,25 @@ HTTP failures may additionally have a generic UI failure. Deliberately cancelled
 session reads are excluded. Pending frontend evidence can be lost if its WebView
 is destroyed before reconnection. Successful tune changes and every user tap
 are not recorded as an activity history.
+
+## Reading timing and connection fields
+
+Timing summaries use `[count, p50, p95, max]`. Percentiles use the nearest-rank
+convention consistently, including one- and two-observation samples, over the
+bounded last 256 observations; count and max cover the whole summary interval.
+Scheduler outcomes include `sent`, `sent_only`, `response`, `timeout`,
+`queue_full`, `cancelled` and `stale`.
+
+New captures use `generation` for the transport connection and
+`application_generation` for the controller protocol generation. A request or
+activation carries both where available, so a protocol/controller change can be
+associated with its transport without treating the counters as one namespace.
+Exports independently rebase each namespace to report-local ordinals. Older
+captures retain their original fields; they cannot retroactively gain a missing
+outcome or separate generation namespace.
+
+Store archives preserve the full stable/candidate source tag for embedded
+frontend and Rust diagnostic metadata, while Apple's marketing version stays
+numeric. A `request_delay` incident describes a timing observation, not proof of
+an app-visible error. Partial/clipped captures and dropped records remain
+explicitly reported; the ZIP is not a complete activity history.

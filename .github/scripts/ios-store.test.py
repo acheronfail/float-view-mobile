@@ -300,6 +300,8 @@ class StoreTests(unittest.TestCase):
                 self.assertEqual(kwargs["env"]["FLOAT_VIEW_BUILD_NUMBER"], "101")
                 return b""
             if args[0] == "xcodebuild" and "archive" in args:
+                self.assertEqual(kwargs["env"]["FLOAT_VIEW_VERSION"], "v1.0.0-rc.1")
+                self.assertEqual(kwargs["env"]["FLOAT_VIEW_BUILD_NUMBER"], "101")
                 self.assertIn("MARKETING_VERSION=1.0.0", args)
                 self.assertIn("CURRENT_PROJECT_VERSION=101", args)
                 shutil.copytree(self.app, output / "FloatView.xcarchive/Products/Applications/float-view.app")

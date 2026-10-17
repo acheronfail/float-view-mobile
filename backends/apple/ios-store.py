@@ -160,8 +160,10 @@ def archive(args):
                 and os.environ.get("GITHUB_REF") == "refs/tags/" + ci.get("tag", ""),
                 "CI build record does not match the source/version/run")
     # A clean check applies before generating the ignored embedded frontend.
-    # Apple uses the numeric marketing version; the shared UI keeps the full tag.
-    run("just", "build", env=dict(os.environ, FLOAT_VIEW_VERSION=ci["tag"] if ci else version))
+    # Apple uses the numeric marketing version; frontend and Rust diagnostics
+    # retain the full source tag, including the candidate suffix.
+    build_environment = dict(os.environ, FLOAT_VIEW_VERSION=ci["tag"] if ci else version)
+    run("just", "build", env=build_environment)
     args.output.mkdir(parents=True)
     archive_path = args.output / "FloatView.xcarchive"
     command = ["xcodebuild", "-project", "backends/apple/ios/float-view.xcodeproj",
@@ -185,7 +187,7 @@ def archive(args):
             command += ["-allowProvisioningUpdates"]
     else:
         command += ["CODE_SIGNING_ALLOWED=NO"]
-    run(*command, "archive")
+    run(*command, "archive", env=build_environment)
     app = archive_path / "Products/Applications/float-view.app"
     archived_bundles = bundles(app, version[1:], number)
     if store:

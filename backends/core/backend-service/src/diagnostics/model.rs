@@ -35,7 +35,7 @@ vocabulary!(Reason {
     Native => "native_queue", Reconnect => "reconnect", Marker => "ride_marker"
 });
 vocabulary!(Key {
-    Method => "method", PackageMajor => "package_major", PackageMinor => "package_minor", PackagePatch => "package_patch",
+    ApplicationGeneration => "application_generation", Method => "method", PackageMajor => "package_major", PackageMinor => "package_minor", PackagePatch => "package_patch",
     Metric => "metric", Percentiles => "count_p50_p95_max", OsMajor => "os_major", OsMinor => "os_minor", OsPatch => "os_patch", RequestKind => "kind",
     Hardware => "hardware", Route => "route", Generation => "generation", Sequence => "sequence", PreviousSequence => "previous_sequence",
     Operation => "operation", Bytes => "bytes", SinceStart => "since_start_ms", Queue => "queue_ms",
@@ -101,6 +101,7 @@ vocabulary!(ApiMethod {
     ApiHttpSessionExport => "http.sessionExport",
 });
 vocabulary!(Code {
+    SentOnly => "sent_only", QueueFull => "queue_full", StaleRequest => "stale",
     ApiInvalidRequest => "invalid_request",
     ApiInvalidState => "invalid_state",
     ApiPermissionRequired => "permission_required",

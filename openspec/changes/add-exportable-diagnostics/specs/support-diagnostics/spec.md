@@ -44,6 +44,21 @@ Reports SHALL include available app/build/channel, platform/OS/model, compatibil
 - **WHEN** a response fails framing, CRC, extent, layout or value validation
 - **THEN** diagnostics include available command kind, byte count and closed failure category without retaining response bytes or rejected values
 
+#### Scenario: Candidate build identity
+
+- **WHEN** a store archive is built from a numbered release candidate
+- **THEN** its diagnostic report retains the full candidate tag and candidate channel while Apple's marketing version remains numeric
+
+#### Scenario: Small timing samples and scheduler outcomes
+
+- **WHEN** timing summaries have one or two observations or a request completes without a response
+- **THEN** nearest-rank p50/p95 remain ordered within the maximum and every closed scheduler outcome, including sent-only/queue-full/stale, is preserved
+
+#### Scenario: Independent connection generation namespaces
+
+- **WHEN** the controller protocol generation changes within a transport connection
+- **THEN** request and activation records retain distinct transport and application generation fields, independently rebased for export, without conflating equal numeric values across namespaces
+
 ### Requirement: Automatic and manual incidents
 
 The service SHALL capture up to 30 seconds of available recent events and up to 10 seconds of subsequent events around detected connection, protocol, configuration, storage or UI failures and a manual problem mark. Reports SHALL disclose clipping, coalescing and interrupted capture. Repeated automatic failures SHALL be coalesced within 60 seconds; manual capture SHALL admit at most one new incident per 10 seconds.

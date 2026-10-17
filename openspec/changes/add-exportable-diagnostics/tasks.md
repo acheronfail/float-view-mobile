@@ -53,3 +53,10 @@
 - [x] 7.1 Extend the central hook to every backend error code with closed method names, session HTTP failures and coalesced export coverage; verify private parameters/unknown text remain excluded.
 - [x] 7.2 Capture client transport/timeouts and HTTP failures through a bounded nonrecursive queue that survives reconnect within the current frontend; verify cancellation, retries and successful requests.
 - [x] 7.3 Update contract reason, mock, canonical scenarios and support documentation; run affected Rust/client/mock/conformance/browser checks and record results.
+
+## 8. Export inspection corrections
+
+- [x] 8.1 Preserve the candidate tag in the Rust archive build environment while keeping numeric Apple marketing versions; verify archive tests assert both frontend and native build environments.
+- [x] 8.2 Use consistent nearest-rank percentiles and preserve all scheduler outcomes; verify empty, one/two-observation and bounded-window regressions plus private-value rejection.
+- [x] 8.3 Separate transport and application generation namespaces in producers and exports; verify an independent ZIP reader sees collision-free report-local aliases across protocol changes/reconnects.
+- [x] 8.4 Run affected Rust/server/host-consumer, archive/delivery and canonical diagnostic checks, update reusable documentation and record results without claiming new physical or App Store delivery evidence.
