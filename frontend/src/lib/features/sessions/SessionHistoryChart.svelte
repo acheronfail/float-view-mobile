@@ -1208,8 +1208,8 @@
 
 <style>
   .chart-mode[data-mode='info'] {
-    color: var(--app-on-accent-soft);
-    background: var(--app-accent-soft);
+    color: var(--app-accent-purple);
+    background: color-mix(in srgb, var(--app-accent-purple) 8%, var(--app-surface));
   }
 
   .chart-mode[data-mode='zoom'] {
