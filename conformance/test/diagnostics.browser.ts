@@ -30,14 +30,18 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       });
       await page.goto(`${endpoint.origin}/#/settings`);
       const section = page.locator('#diagnostics');
-      const open = section.getByRole('button', { name: 'Export diagnostics', exact: true });
+      const open = section.getByRole('button', { name: 'Save troubleshooting file', exact: true });
       await open.waitFor();
       assert.equal(await section.getByRole('button').count(), 1);
       await open.click({ button: 'right' });
       assert.equal(methods.includes('diagnostics.prepare'), false);
       await open.focus();
       await page.keyboard.press('Enter');
-      await section.getByRole('status').waitFor();
+      await open.waitFor();
+      await page.waitForFunction(
+        () => document.querySelector<HTMLButtonElement>('#diagnostics button')?.disabled === false
+      );
+      assert.equal(await section.getByRole('status').count(), 0);
       assert.deepEqual(
         methods.filter((m) => m !== 'diagnostics.report'),
         ['diagnostics.list', 'diagnostics.prepare', 'diagnostics.export']
@@ -46,12 +50,15 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const link = section.getByRole('link', { name: 'GitHub Issues', exact: true });
       assert.equal(await link.getAttribute('href'), 'https://github.com/acheronfail/float-view-mobile/issues');
       assert.equal(requests.length, 0);
-      assert.match(await section.innerText(), /manually create an issue/);
-      assert.match(await section.innerText(), /attachments are public/);
+      assert.match(await section.innerText(), /add a new report/);
+      assert.match(await section.innerText(), /Anyone can see reports and attached files/);
       // More exports than the two-report capacity must replace previous handles.
       for (let i = 0; i < 3; i++) {
         await open.tap();
-        await page.waitForFunction(() => document.querySelector('#diagnostics [role="status"]') !== null);
+        await page.waitForFunction(
+          () => document.querySelector<HTMLButtonElement>('#diagnostics button')?.disabled === false
+        );
+        assert.equal(await section.getByRole('status').count(), 0);
         assert.equal(await section.getByRole('alert').count(), 0);
       }
       assert.equal(methods.filter((m) => m === 'diagnostics.export').length, 4);

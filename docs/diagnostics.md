@@ -1,6 +1,6 @@
 # Diagnostic logs and manual bug reports
 
-In Settings, select **Export diagnostics** and save the ZIP using the system
+In Settings → Help with a problem, select **Save troubleshooting file** and save the ZIP using the system
 file chooser or share sheet. This single action exports the most recent retained
 incident, or recent context when no incident exists. There is no incident picker,
 preview or separate save step. Capture limitations are included in the ZIP.

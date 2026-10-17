@@ -64,7 +64,7 @@ full configurations, telemetry values and raw exception messages/stacks. Unknown
 hardware facts remain unknown. Up to three incidents are retained for seven days,
 within an 8 MiB journal/incident budget; recent memory context is bounded.
 
-Settings → Diagnostics lets you export a diagnostic ZIP using the system
+Settings → Help with a problem lets you save a troubleshooting ZIP using the system
 save/share interface. Local logs expire automatically within seven days. Nothing
 is automatically uploaded or submitted to GitHub. You choose whether to manually
 write a GitHub issue and attach the file. Issues and attachments are public.
