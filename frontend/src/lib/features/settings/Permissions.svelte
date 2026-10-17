@@ -22,9 +22,12 @@
     notRequired: 'Not required',
   };
   const purposes = {
-    bluetooth: 'Discover and connect to your board.',
-    location: 'Record the route of your rides.',
-    backgroundLocation: 'Record routes in the background or with your phone locked.',
+    bluetooth:
+      'Float View uses Bluetooth to connect to your VESC board for live readings, ride recording and board configuration.',
+    location:
+      'Float View uses your location to record your ride route so you can review it on a map. Route recording is optional.',
+    backgroundLocation:
+      'Float View uses your location to continue recording your ride route while your screen is locked or you use another app. Route recording is optional.',
     notifications: 'See ride readings in notifications and on the lock screen.',
     liveUpdates: 'Show prominent ride updates on supported devices.',
   };

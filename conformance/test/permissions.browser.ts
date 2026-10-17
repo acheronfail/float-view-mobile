@@ -50,7 +50,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const location = page.locator('[data-permission="location"]');
       const button = location.getByRole('button', { name: 'Request access' });
       await button.waitFor();
-      assert.match(await location.innerText(), /Record the route of your rides/);
+      assert.match(
+        await location.innerText(),
+        /uses your location to record your ride route so you can review it on a map\. Route recording is optional/
+      );
       await button.dispatchEvent('pointerdown', { button: 2, isPrimary: true, pointerId: 2 });
       await button.dispatchEvent('pointerup', { button: 2, isPrimary: true, pointerId: 2 });
       await button.dispatchEvent('pointerdown', { button: 0, isPrimary: true, pointerId: 3 });

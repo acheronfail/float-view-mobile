@@ -26,15 +26,15 @@
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSBluetoothAlwaysUsageDescription</key>
-  <string>Float View uses Bluetooth to connect to and record data from your VESC device.</string>
+  <string>Float View uses Bluetooth to connect to your VESC board for live readings, ride recording and board configuration.</string>
   <key>NSBluetoothPeripheralUsageDescription</key>
-  <string>Float View uses Bluetooth to connect to and record data from your VESC device.</string>
+  <string>Float View uses Bluetooth to connect to your VESC board for live readings, ride recording and board configuration.</string>
   <key>NSLocationUsageDescription</key>
-  <string>Float View uses location to record optional ride routes.</string>
+  <string>Float View uses your location to record your ride route so you can review it on a map. Route recording is optional.</string>
   <key>NSLocationWhenInUseUsageDescription</key>
-  <string>Float View uses location to record optional ride routes.</string>
+  <string>Float View uses your location to record your ride route so you can review it on a map. Route recording is optional.</string>
   <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-  <string>Float View uses location to record optional ride routes while the app is in the background.</string>
+  <string>Float View uses your location to continue recording your ride route while you use another app. Route recording is optional.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSPrincipalClass</key>

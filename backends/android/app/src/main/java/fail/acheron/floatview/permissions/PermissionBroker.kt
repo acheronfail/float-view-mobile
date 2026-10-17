@@ -145,10 +145,11 @@ class PermissionBroker(private val application: FloatViewApplication) : Bluetoot
             if (rationale || permission == "backgroundLocation" && action == "openSettings") {
                 val message = if (permission == "backgroundLocation") {
                     val label = if (Build.VERSION.SDK_INT >= 30) application.packageManager.backgroundPermissionOptionLabel.toString() else "Allow all the time"
-                    "Background location is optional. To record rides while locked, open Permissions, then Location, and choose $label."
+                    "Float View uses your location to continue recording your ride route while your screen is locked or you use another app. Route recording is optional. To allow background access, open Permissions, then Location, and choose $label."
                 } else if (permission == "notifications") "Notifications show live ride readings while Float View is in the background. Bluetooth and recording work without them."
-                else if (permission == "bluetooth") "Nearby device access lets Float View discover and connect to your board."
-                else "Location records optional ride routes. Precise location also permits Bluetooth board discovery. Ride route recording is a separate optional setting."
+                else if (permission == "bluetooth") "Float View uses nearby device access to connect to your VESC board over Bluetooth for live readings, ride recording and board configuration."
+                else "Float View uses your location to record your ride route so you can review it on a map. Route recording is optional." +
+                    if (Build.VERSION.SDK_INT <= 30) " This Android version also requires precise location to discover Bluetooth boards, even when route recording is off." else ""
                 dialog = runCatching { AlertDialog.Builder(current).setTitle("Permission access").setMessage(message)
                     .setPositiveButton(if (action == "openSettings") "Open settings" else "Continue") { _, _ -> present() }
                     .setNegativeButton("Cancel") { _, _ -> finish(false) }.setOnCancelListener { finish(false) }.show() }.getOrElse { finish(false); null }

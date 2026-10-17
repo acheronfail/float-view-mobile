@@ -34,13 +34,13 @@
 		<true/>
 	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>This app uses Bluetooth to communicate with VESC devices.</string>
+	<string>Float View uses Bluetooth to connect to your VESC board for live readings, ride recording and board configuration.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>This app uses Bluetooth to communicate with VESC devices.</string>
+	<string>Float View uses Bluetooth to connect to your VESC board for live readings, ride recording and board configuration.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Float View records an optional ride route while you are riding.</string>
+	<string>Float View uses your location to record your ride route so you can review it on a map. Route recording is optional.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Float View records an optional ride route while the app is backgrounded during a ride.</string>
+	<string>Float View uses your location to continue recording your ride route while your screen is locked or you use another app. Route recording is optional.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIFileSharingEnabled</key>
