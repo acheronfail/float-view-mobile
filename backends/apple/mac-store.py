@@ -19,7 +19,7 @@ APPLE = ROOT / "backends/apple"
 STORE_ID = "fail.acheron.floatview.macos"
 PROBE_ID = STORE_ID + ".sandbox-check"
 ENTITLEMENTS = APPLE / "mac-store.entitlements"
-PRIVACY = APPLE / "ios/float-view/PrivacyInfo.xcprivacy"
+PRIVACY = APPLE / "macos/Resources/PrivacyInfo.xcprivacy"
 DEVELOPMENT_MARKERS = (
     b"--browser-host", b"--test-host", b"FLOAT_VIEW_FRONTEND_HTML",
     b"FLOAT_VIEW_LOG_ROOT", b"FLOAT_VIEW_CONFORMANCE_PORT",
@@ -47,6 +47,7 @@ def inspect_app(app, version, number, architectures, identifier, expected_entitl
     require(info["CFBundleVersion"] == number, "Build number differs from build inputs")
     require(info.get("LSApplicationCategoryType") == "public.app-category.utilities", "Missing Mac category")
     require(bool(info.get("NSHumanReadableCopyright")), "Missing copyright")
+    require(info.get("ITSAppUsesNonExemptEncryption") is False, "Missing reviewed encryption declaration")
     binary = app / "Contents/MacOS/FloatViewMac"
     actual_archs = set(run("xcrun", "lipo", "-archs", binary, capture=True).split())
     require(actual_archs == set(architectures), "Unexpected executable architectures")

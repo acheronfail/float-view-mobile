@@ -77,7 +77,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   }
 
   func webView(_: WKWebView, decidePolicyFor action: WKNavigationAction,
-               decisionHandler: @escaping (WKNavigationActionPolicy) -> Void)
+               decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void)
   {
     // A new-window request must reach WKUIDelegate. That delegate opens
     // eligible links externally and always returns nil, never another WebView.
@@ -97,7 +97,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   }
 
   func webView(_: WKWebView, decidePolicyFor response: WKNavigationResponse,
-               decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void)
+               decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void)
   {
     decisionHandler(response.isForMainFrame && isBackendPage(response.response.url, backendURL: backendURL)
       ? .allow : .cancel)
@@ -177,7 +177,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       try server.start()
       self.server = server
       generation += 1
-      let webView = WKWebView(frame: .zero)
+      let webView = WKWebView(frame: .zero, configuration: MacWebViewConfiguration.make())
       webView.underPageBackgroundColor = MacTheme.canvasColor
       webView.navigationDelegate = self
       webView.uiDelegate = self

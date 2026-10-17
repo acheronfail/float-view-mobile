@@ -119,8 +119,9 @@ processing findings; local inspection alone does not establish acceptance.
 - NSSupportsLiveActivities is enabled; frequent remote updates, push notification,
   App Group and iCloud capabilities are not requested.
 - Release WebViews no longer enable Safari inspection. Fixture adapters and
-  performance/reset hooks remain behind build conditions. Mac launch overrides
-  still need their separately tracked production-configuration work.
+  performance/reset hooks remain behind build conditions. Mac Release launch overrides
+  and test-host modes are also excluded; see the
+  [Mac-specific audit](macos-distribution-audit.md).
 
 The iOS Info.plist declares `ITSAppUsesNonExemptEncryption=false`: this app uses
 platform HTTPS for maps, platform Bluetooth security and standard hashes (SHA-1

@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import plistlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -94,6 +95,29 @@ class MacStoreTests(unittest.TestCase):
             html.write_text('<p>AGPL-3.0-or-later</p>')
             with self.assertRaisesRegex(ValueError, 'Missing or stale bundled legal text'):
                 store.verify_notices(app)
+
+    def test_mac_privacy_collection_matches_shared_map_inventory_and_file_access_scope(self):
+        mac = plistlib.loads(store.PRIVACY.read_bytes())
+        ios = plistlib.loads((store.APPLE/'ios/float-view/PrivacyInfo.xcprivacy').read_bytes())
+        self.assertEqual(mac['NSPrivacyCollectedDataTypes'], ios['NSPrivacyCollectedDataTypes'])
+        self.assertIs(mac['NSPrivacyTracking'], False)
+        reasons = {item['NSPrivacyAccessedAPIType']: set(item['NSPrivacyAccessedAPITypeReasons']) for item in mac['NSPrivacyAccessedAPITypes']}
+        self.assertEqual(reasons, {
+            'NSPrivacyAccessedAPICategoryFileTimestamp': {'C617.1', '3B52.1'},
+            'NSPrivacyAccessedAPICategorySystemBootTime': {'35F9.1'},
+            'NSPrivacyAccessedAPICategoryDiskSpace': {'E174.1'}})
+
+    def test_missing_reviewed_encryption_declaration_rejected_before_signing_tools(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory); (app/'Contents').mkdir()
+            info = plistlib.loads((store.APPLE/'FloatViewMac-Info.plist').read_bytes())
+            self.assertIs(info['ITSAppUsesNonExemptEncryption'], False)
+            del info['ITSAppUsesNonExemptEncryption']
+            info.update(CFBundleIdentifier=store.STORE_ID, CFBundleShortVersionString='1.0.0', CFBundleVersion='101')
+            (app/'Contents/Info.plist').write_bytes(plistlib.dumps(info))
+            with patch.object(store, 'run') as run, self.assertRaisesRegex(ValueError, 'encryption declaration'):
+                store.inspect_app(app, '1.0.0', '101', ['arm64', 'x86_64'], store.STORE_ID, {})
+            run.assert_not_called()
 
     def test_workflow_keeps_mac_signing_protected_and_publication_independent(self):
         text = (store.ROOT/'.github/workflows/build-apps.yml').read_text()

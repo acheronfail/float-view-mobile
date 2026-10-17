@@ -15,7 +15,5 @@ rm -f "$contents/MacOS/FloatViewMac"
 cp "$executable" "$contents/MacOS/FloatViewMac"
 # Put SwiftPM resources in the standard app location for signing and discovery.
 cp -R "$resources/." "$contents/Resources/"
-# Both Apple hosts ship the same Rust runtime and shared map/speech features.
-cp "$apple_root/ios/float-view/PrivacyInfo.xcprivacy" "$contents/Resources/PrivacyInfo.xcprivacy"
 /usr/bin/plutil -lint "$contents/Info.plist"
 /usr/bin/codesign --force --sign - "$bundle"
