@@ -472,3 +472,30 @@ test('failed candidate publication resumes its draft without touching Nightly', 
   assert.equal(f.state().releases[0]!.draft, false);
   assert.equal(f.state().refs?.nightly, f.sha);
 });
+
+
+test('publication notes include only changes since the newest stable or candidate milestone', () => {
+  const f = fixture();
+  git(['tag', 'v1.0.0-rc.1'], f.cwd);
+  git(['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'app: Fix candidate regression'], f.cwd);
+  const sha = git(['rev-parse', 'HEAD'], f.cwd);
+  git(['update-ref', 'refs/remotes/origin/master', sha], f.cwd);
+  for (const tag of ['v1.0.0-rc.2', 'v1.0.0', 'v1.0.1-rc.1']) {
+    git(['tag', tag], f.cwd);
+    for (const file of assetNames(tag)) writeFileSync(join(f.cwd, file), 'package');
+    const result = f.run('publish', { GITHUB_SHA: sha, GITHUB_REF: `refs/tags/${tag}`, FLOAT_VIEW_VERSION: tag });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  const releases = f.state().releases;
+  assert.match(releases[0]!.body!, /Fix candidate regression/);
+  assert.doesNotMatch(releases[0]!.body!, /Show live telemetry/);
+  assert.match(releases[0]!.body!, /compare\/v1.0.0-rc.1\.\.\.v1.0.0-rc.2/);
+  assert.match(releases[1]!.body!, /No changes since the previous release/);
+  assert.match(releases[1]!.body!, /compare\/v1.0.0-rc.2\.\.\.v1.0.0/);
+  assert.match(releases[2]!.body!, /compare\/v1.0.0\.\.\.v1.0.1-rc.1/);
+  const nightly = resolveVersion(sha, null, f.cwd).version;
+  for (const file of assetNames(nightly)) writeFileSync(join(f.cwd, file), 'package');
+  const result = f.run('publish', { GITHUB_SHA: sha, FLOAT_VIEW_VERSION: nightly });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(f.state().releases[3]!.body!, /compare\/v1.0.1-rc.1\.\.\./);
+});

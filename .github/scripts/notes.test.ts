@@ -54,7 +54,7 @@ test('repository-only changes are excluded from stable and first-release notes',
   const f = fixture();
   const repositoryCommit = f.commit('repo: Update build tooling');
   f.commit('repo:Update documentation');
-  assert.match(f.notes(), /No changes since the previous stable release/);
+  assert.match(f.notes(), /No changes since the previous release/);
   for (const notes of [f.notes(), f.notes(null)]) {
     assert.doesNotMatch(notes, /Repository|repo:|Update build tooling|Update documentation/);
     assert.ok(!notes.includes(`/commit/${repositoryCommit}`));
@@ -77,7 +77,7 @@ test('first releases include history and empty ranges have explicit notes', () =
   const f = fixture();
   assert.match(f.notes(null), /Previous release/);
   assert.ok(f.notes(null).includes('https://github.com/test/repo/commits/v0.2.0'));
-  assert.match(f.notes(), /No changes since the previous stable release/);
+  assert.match(f.notes(), /No changes since the previous release/);
   assert.doesNotMatch(f.notes(), /## (App|Windows|Linux)/);
 });
 

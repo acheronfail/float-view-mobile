@@ -42,7 +42,7 @@ export function releaseNotes(
     const entries = groups.get(area);
     return entries ? [`## ${heading}\n\n${entries.join('\n')}`] : [];
   });
-  if (!sections.length) sections.push('No changes since the previous stable release.');
+  if (!sections.length) sections.push('No changes since the previous release.');
   const changelog = previousTag
     ? `${url}/compare/${encodeURIComponent(previousTag)}...${encodeURIComponent(tag)}`
     : `${url}/commits/${encodeURIComponent(tag)}`;

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
-import { buildNumber, bumpVersion, git, latestStable, parseVersion, resolveVersion } from './version.ts';
+import { buildNumber, bumpVersion, git, latestRelease, latestStable, parseVersion, resolveVersion } from './version.ts';
 import { preview, release } from './release.ts';
 import { releaseNotes } from './notes.ts';
 
@@ -172,7 +172,7 @@ test('release preview uses publication notes on dirty, unpushed branches without
   assert.equal(git(['tag', '--list'], dir), 'v0.1.49');
   assert.equal(git(['status', '--porcelain'], dir), before);
   const historical = preview('master', dir);
-  assert.match(historical.notes, /No changes since the previous stable release/);
+  assert.match(historical.notes, /No changes since the previous release/);
   assert.throws(() => preview('missing-ref', dir));
 });
 
@@ -244,4 +244,29 @@ test('Apple native version consumers strip the candidate suffix without changing
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), '1.0.0 85');
+});
+
+
+test('note bases advance numerically through candidates and stable releases on the source history', () => {
+  const dir = repository();
+  assert.equal(latestRelease('HEAD', dir), null);
+  git(['tag', 'v0.3.0'], dir);
+  git(['tag', 'v1.0.0-rc.1'], dir);
+  assert.equal(latestRelease('HEAD', dir, 'v1.0.0-rc.1'), 'v0.3.0');
+  commit(dir);
+  for (const tag of ['v1.0.0-rc.2', 'v1.0.0-rc.9', 'v1.0.0-rc.10',
+    'v1.0.0-nightly.100.gabcdef0', 'v1.0.0-rc.01', 'v1.0.0-beta.1']) git(['tag', tag], dir);
+  assert.equal(latestRelease('HEAD', dir, 'v1.0.0-rc.2'), 'v1.0.0-rc.1');
+  assert.equal(latestRelease('HEAD', dir), 'v1.0.0-rc.10');
+  assert.equal(latestRelease('HEAD', dir, 'v1.0.0'), 'v1.0.0-rc.10');
+  assert.equal(preview('HEAD', dir).previousTag, 'v1.0.0-rc.10');
+  assert.equal(preview('HEAD', dir).version, 'v0.3.1');
+  git(['tag', 'v1.0.0'], dir);
+  assert.equal(latestRelease('HEAD', dir), 'v1.0.0');
+  assert.equal(latestRelease('HEAD', dir, 'v1.0.1-rc.1'), 'v1.0.0');
+  git(['checkout', '-b', 'unrelated'], dir);
+  commit(dir);
+  git(['tag', 'v2.0.0-rc.1'], dir);
+  git(['checkout', 'master'], dir);
+  assert.equal(latestRelease('HEAD', dir), 'v1.0.0');
 });

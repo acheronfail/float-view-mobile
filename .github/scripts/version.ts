@@ -76,6 +76,24 @@ export function latestStable(commit: string, cwd = process.cwd(), before?: strin
   return candidates.find((tag) => isAncestor(tag, commit, cwd)) ?? null;
 }
 
+// Release notes advance through stable and candidate versions; nightly tags are not milestones.
+function compareRelease(left: string, right: string): number {
+  const version = compareStable(left, right);
+  if (version) return version;
+  const a = candidatePattern.exec(left), b = candidatePattern.exec(right);
+  if (!a) return b ? 1 : 0;
+  if (!b) return -1;
+  return Number(a[4]) - Number(b[4]);
+}
+
+export function latestRelease(commit: string, cwd = process.cwd(), before?: string): string | null {
+  const candidates = git(['tag', '--list'], cwd).split('\n')
+    .filter(tag => (stablePattern.test(tag) || isCandidateVersion(tag)) &&
+      (!before || compareRelease(tag, before) < 0));
+  candidates.sort((a, b) => compareRelease(b, a));
+  return candidates.find(tag => isAncestor(tag, commit, cwd)) ?? null;
+}
+
 export function resolveVersion(commit: string, tag: string | null, cwd = process.cwd(), launchTarget?: string) {
   if (tag !== null) {
     if (!stablePattern.test(tag) && !isCandidateVersion(tag))

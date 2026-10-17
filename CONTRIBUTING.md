@@ -120,7 +120,7 @@ is retained, not which acceptance checks must pass.
 ## App releases
 
 `just release preview` prints the next patch release's Markdown notes from the latest
-local stable ancestor tag through `HEAD`. Pass a ref, such as `just release preview master`,
+local stable or release-candidate ancestor tag (whichever has the newer version) through `HEAD`. Pass a ref, such as `just release preview master`,
 to inspect another commit. It uses the same note generator as publication, works offline
 and on dirty or unpushed branches, and does not create tags or publish anything.
 Only committed changes appear; fetch tags first if the local release history is stale.
@@ -173,8 +173,9 @@ Release notes list non-merge commit titles, grouped by `app:`, `apple:`, `androi
 Windows and Linux areas are reserved for the planned hosts; sections appear only when they have entries.
 Unprefixed or unrecognized
 titles appear under Other changes. Entries link to their commits and include a full
-changelog link. Stable notes compare against the previous stable ancestor tag;
-Nightly compares against the latest stable ancestor. A first release includes all
+changelog link. All notes compare against the newest stable or numbered release-candidate ancestor
+tag, excluding the release being published and later versions. Nightly tags never
+serve as the comparison base. A first release includes all
 reachable non-merge commits except `repo:` entries. Ranges with no included changes are stated explicitly.
 Nightly descriptions begin with a UTC date and time refreshed on each successful publication.
 Hidden source/version comments support nightly skip and asset verification.

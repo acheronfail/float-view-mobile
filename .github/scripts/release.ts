@@ -1,11 +1,11 @@
 import { pathToFileURL } from 'node:url';
 import { releaseNotes } from './notes.ts';
-import { bumpVersion, git, latestStable, parseVersion, type Bump } from './version.ts';
+import { bumpVersion, git, latestRelease, latestStable, parseVersion, type Bump } from './version.ts';
 
 export function preview(ref = 'HEAD', cwd = process.cwd()) {
   const commit = git(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], cwd);
-  const previousTag = latestStable(commit, cwd);
-  const version = bumpVersion(previousTag ?? 'v0.0.0', 'patch');
+  const previousTag = latestRelease(commit, cwd);
+  const version = bumpVersion(latestStable(commit, cwd) ?? 'v0.0.0', 'patch');
   const notes = releaseNotes(version, commit, previousTag, process.env.GH_REPO ?? 'acheronfail/float-view-mobile', cwd);
   return { commit, previousTag, version, notes };
 }
