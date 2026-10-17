@@ -19,9 +19,9 @@ APP_ID = "fail.acheron.floatview"
 EXTENSION_ID = APP_ID + ".live-activity"
 
 
-def run(*args, capture=False):
+def run(*args, capture=False, env=None):
     return subprocess.run(
-        args, cwd=ROOT, check=True, stdout=subprocess.PIPE if capture else None
+        args, cwd=ROOT, check=True, stdout=subprocess.PIPE if capture else None, env=env
     ).stdout
 
 
@@ -160,7 +160,8 @@ def archive(args):
                 and os.environ.get("GITHUB_REF") == "refs/tags/" + ci.get("tag", ""),
                 "CI build record does not match the source/version/run")
     # A clean check applies before generating the ignored embedded frontend.
-    run("just", "build")
+    # Apple uses the numeric marketing version; the shared UI keeps the full tag.
+    run("just", "build", env=dict(os.environ, FLOAT_VIEW_VERSION=ci["tag"] if ci else version))
     args.output.mkdir(parents=True)
     archive_path = args.output / "FloatView.xcarchive"
     command = ["xcodebuild", "-project", "backends/apple/ios/float-view.xcodeproj",
