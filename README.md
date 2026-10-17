@@ -95,7 +95,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development and verification instruct
 
 ## Licence and credits
 
-Copyright © 2026 acheronfail. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Copyright © 2025 acheronfail. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 The rider artwork is adapted from [“onewheel” by Luis Prado, Noun Project](https://thenounproject.com/icon/onewheel-4260841/),
 under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
 Third-party software and artwork retain their own terms; see

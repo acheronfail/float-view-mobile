@@ -28,7 +28,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.goto(`${endpoint.origin}/#/settings`);
       const section = page.getByRole('region', { name: 'Open source and licences' });
       await section.waitFor();
-      assert.match(await section.innerText(), /Copyright © 2026 acheronfail/);
+      assert.match(await section.innerText(), /Copyright © 2025 acheronfail/);
       assert.match(await section.innerText(), /Luis Prado/);
       assert.equal(
         await section.getByRole('link', { name: 'Privacy policy', exact: true }).getAttribute('href'),

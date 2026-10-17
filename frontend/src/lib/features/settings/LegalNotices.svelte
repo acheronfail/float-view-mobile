@@ -13,7 +13,7 @@
   <SectionTitle title="Open source and licences" />
   <div class="mt-3 space-y-3 text-sm text-muted">
     <p>Float View is open source under AGPL-3.0-or-later.</p>
-    <p>Copyright © 2026 acheronfail.</p>
+    <p>Copyright © 2025 acheronfail.</p>
     <p>
       <a
         class="touch-manipulation text-accent underline"

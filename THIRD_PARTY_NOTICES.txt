@@ -616,7 +616,7 @@ Source: https://github.com/lucide-icons/lucide/blob/main/LICENSE
 Rider artwork: onewheel by Luis Prado, Noun Project 4260841
 Licence: CC-BY-3.0
 Source: https://thenounproject.com/icon/onewheel-4260841/
-  Attribution and modifications: document 47fb5dce755ec26e
+  Attribution and modifications: document 0578c028f1f06acd
   CC BY 3.0: document 11dbf7126ae9794e
 
 Bundled SQLite 3.50.2 (libsqlite3-sys)
@@ -766,6 +766,41 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+========================================================================
+Document 0578c028f1f06acd
+========================================================================
+Float View
+Copyright © 2025 acheronfail
+
+Except where another licence or attribution is identified, project-owned code
+is licensed under the GNU Affero General Public License, version 3 or (at your
+option) any later version (SPDX: AGPL-3.0-or-later). See LICENSE for the full
+terms, including the warranty disclaimer. Preserve existing third-party notices.
+
+Source and build instructions:
+https://github.com/acheronfail/float-view-mobile
+See CONTRIBUTING.md for building from source. Published builds identify their
+source revision in Settings. Use that revision, rather than the latest branch,
+when obtaining the corresponding source for a particular build.
+
+Artwork
+-------
+The rider artwork is adapted from “onewheel” by Luis Prado, Noun Project,
+image 4260841, under Creative Commons Attribution 3.0 Unported (CC BY 3.0).
+Source: https://thenounproject.com/icon/onewheel-4260841/
+Licence: https://creativecommons.org/licenses/by/3.0/
+Full licence: LICENSES/CC-BY-3.0.txt
+
+Float View adaptations include colours, backgrounds, cropping, silhouettes and
+platform-specific raster/vector formats. This credit covers tools/icon/icon.svg
+and the generated app icons, loading symbols and map rider symbol. The artwork
+retains its own licence; it is not relicensed as AGPL. No endorsement is implied.
+
+Third-party software and generated Lucide/Feather icons retain their respective
+licences. See THIRD_PARTY_NOTICES.txt and LICENSES/Lucide.txt. Vendor submodules
+and source-derived test fixtures retain their upstream terms and provenance;
+the project licence does not replace those terms.
 
 ========================================================================
 Document 05f344491a7d18e1
@@ -2201,41 +2236,6 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-========================================================================
-Document 47fb5dce755ec26e
-========================================================================
-Float View
-Copyright © 2026 acheronfail
-
-Except where another licence or attribution is identified, project-owned code
-is licensed under the GNU Affero General Public License, version 3 or (at your
-option) any later version (SPDX: AGPL-3.0-or-later). See LICENSE for the full
-terms, including the warranty disclaimer. Preserve existing third-party notices.
-
-Source and build instructions:
-https://github.com/acheronfail/float-view-mobile
-See CONTRIBUTING.md for building from source. Published builds identify their
-source revision in Settings. Use that revision, rather than the latest branch,
-when obtaining the corresponding source for a particular build.
-
-Artwork
--------
-The rider artwork is adapted from “onewheel” by Luis Prado, Noun Project,
-image 4260841, under Creative Commons Attribution 3.0 Unported (CC BY 3.0).
-Source: https://thenounproject.com/icon/onewheel-4260841/
-Licence: https://creativecommons.org/licenses/by/3.0/
-Full licence: LICENSES/CC-BY-3.0.txt
-
-Float View adaptations include colours, backgrounds, cropping, silhouettes and
-platform-specific raster/vector formats. This credit covers tools/icon/icon.svg
-and the generated app icons, loading symbols and map rider symbol. The artwork
-retains its own licence; it is not relicensed as AGPL. No endorsement is implied.
-
-Third-party software and generated Lucide/Feather icons retain their respective
-licences. See THIRD_PARTY_NOTICES.txt and LICENSES/Lucide.txt. Vendor submodules
-and source-derived test fixtures retain their upstream terms and provenance;
-the project licence does not replace those terms.
 
 ========================================================================
 Document 4b05c4b43039d82b

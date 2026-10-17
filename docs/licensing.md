@@ -1,6 +1,6 @@
 # Licensing and attribution
 
-Float View's project-owned code is **AGPL-3.0-or-later**, copyright © 2026
+Float View's project-owned code is **AGPL-3.0-or-later**, copyright © 2025
 acheronfail. [LICENSE](../LICENSE) contains the full terms and [NOTICE](../NOTICE)
 identifies the project and artwork. This does not replace third-party terms.
 Vendor submodules and source-derived fixtures retain their upstream licences.
