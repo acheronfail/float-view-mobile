@@ -938,6 +938,7 @@ export const MAX_UI_CHECKPOINT_BYTES = 4096;
 export const MAX_UI_TARGET_BYTES = 512;
 
 export type DiagnosticReason =
+  | 'backend_request_failure'
   | 'manual'
   | 'configuration_failure'
   | 'protocol_failure'

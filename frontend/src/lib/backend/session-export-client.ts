@@ -1,3 +1,4 @@
+import { reportSessionRequestFailure } from './request-failures';
 import { bootstrapSessionExportUrl, type BootstrapDocument } from './bootstrap';
 
 export type SessionExportFormat = 'float-view-archive' | 'csv';
@@ -22,24 +23,26 @@ export class SessionExportClient {
   }
 
   async download(sessionId: string, format: SessionExportFormat): Promise<SessionExportDownload> {
-    const response = await this.fetcher(this.endpoint, {
-      method: 'POST',
-      body: JSON.stringify({ sessionId, format }),
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/octet-stream, text/csv',
-        'Content-Type': 'application/json',
-        'X-Float-View-Token': this.token,
-      },
+    return reportSessionRequestFailure(async () => {
+      const response = await this.fetcher(this.endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, format }),
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/octet-stream, text/csv',
+          'Content-Type': 'application/json',
+          'X-Float-View-Token': this.token,
+        },
+      });
+      if (!response.ok) throw new Error(`Session export download failed: HTTP ${response.status}`);
+      return {
+        fileName: fileNameFromContentDisposition(
+          response.headers.get('Content-Disposition'),
+          fallbackFileName(sessionId, format)
+        ),
+        blob: await response.blob(),
+      };
     });
-    if (!response.ok) throw new Error(`Session export download failed: HTTP ${response.status}`);
-    return {
-      fileName: fileNameFromContentDisposition(
-        response.headers.get('Content-Disposition'),
-        fallbackFileName(sessionId, format)
-      ),
-      blob: await response.blob(),
-    };
   }
 }
 

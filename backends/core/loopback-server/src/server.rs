@@ -293,10 +293,31 @@ async fn authenticate(State(app): State<Arc<App>>, request: Request, next: Next)
     {
         return status(StatusCode::FORBIDDEN);
     }
-    match tokio::time::timeout(IO_TIMEOUT, next.run(request)).await {
+    let method = match request.uri().path() {
+        "/api/session-data" => "http.sessionData",
+        "/api/session-import" => "http.sessionImport",
+        "/api/session-export" => "http.sessionExport",
+        _ => "unknown",
+    };
+    let response = match tokio::time::timeout(IO_TIMEOUT, next.run(request)).await {
         Ok(response) => response,
         Err(_) => status(StatusCode::REQUEST_TIMEOUT),
+    };
+    if response.status().is_client_error() || response.status().is_server_error() {
+        use float_view_backend_service::operations::Failure;
+        let failure = match response.status() {
+            StatusCode::BAD_REQUEST | StatusCode::PAYLOAD_TOO_LARGE => Failure::InvalidRequest,
+            StatusCode::FORBIDDEN | StatusCode::UNAUTHORIZED => Failure::PermissionRequired,
+            StatusCode::NOT_FOUND => Failure::NotFound,
+            StatusCode::CONFLICT => Failure::Conflict,
+            StatusCode::INTERNAL_SERVER_ERROR => Failure::Internal,
+            _ => Failure::Unavailable,
+        };
+        if let Ok(mut service) = app.backend.service.lock() {
+            service.record_operation_failure(method, &failure);
+        }
     }
+    response
 }
 fn constant_equal(left: &[u8], right: &[u8]) -> bool {
     left.len() == right.len()

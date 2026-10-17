@@ -77,6 +77,30 @@ Every supported backend SHALL implement authenticated `diagnostics.list`, `diagn
 - **WHEN** diagnostic ingestion is unavailable, rate limited or disconnected
 - **THEN** the frontend handles that failure without another diagnostic submission and continues normal recovery
 
+### Requirement: Central backend request failure capture
+
+Every failed authenticated control request SHALL record a closed operation name
+and stable error code and trigger a bounded diagnostic incident, including handled
+invalid-request, invalid-state, permission, not-found and conflict responses.
+Unknown method names SHALL be represented as unknown. Diagnostic requests SHALL
+be excluded to prevent recursion. Session HTTP failures SHALL use fixed route
+categories. Neither parameters nor arbitrary error text SHALL be logged.
+
+#### Scenario: Handled tune failure
+
+- **WHEN** applying a saved tune returns an error that the frontend handles
+- **THEN** its operation and stable failure code enter diagnostic logs without tune identifiers or values
+
+#### Scenario: Missing backend response
+
+- **WHEN** a control request times out or loses its connection
+- **THEN** the frontend queues a closed failure category within ten pending/ten-per-minute limits, retries on ordinary requests or reconnect, and never reports diagnostic failures recursively
+
+#### Scenario: Failure after incident completion
+
+- **WHEN** another backend request fails within the sixty-second coalescing interval after the follow-up window
+- **THEN** its bounded failure record remains exportable in the coalesced incident without extending the follow-up window
+
 ## MODIFIED Requirements
 
 ### Requirement: One controller per telemetry session

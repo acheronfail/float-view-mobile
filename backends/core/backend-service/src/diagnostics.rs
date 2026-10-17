@@ -225,7 +225,11 @@ impl Diagnostics {
                 } else if let Some(v) = value.as_bool() {
                     Some(Datum::Flag(v))
                 } else {
-                    value.as_str().and_then(Code::parse).map(Datum::Code)
+                    value.as_str().and_then(|value| {
+                        Code::parse(value)
+                            .map(Datum::Code)
+                            .or_else(|| ApiMethod::parse(value).map(Datum::Method))
+                    })
                 };
                 if let Some(value) = value {
                     facts.insert(key, value);
@@ -297,7 +301,13 @@ impl Diagnostics {
                 self.flush();
             }
         }
-        if self.capture_until.is_some_and(|until| now <= until)
+        // Keep coalesced API failures in the exported incident even after its
+        // follow-up window has closed. Do not extend that window or its budget.
+        let coalesced_failure = kind == Kind::ApiRequestFailure
+            && self
+                .last_capture
+                .is_some_and(|at| now.saturating_sub(at) < 60_000);
+        if (self.capture_until.is_some_and(|until| now <= until) || coalesced_failure)
             && let Some(i) = self.incidents.back_mut()
         {
             if i.events.len() < 768 {
@@ -477,32 +487,25 @@ impl Diagnostics {
 }
 impl BackendService {
     pub fn record_operation_failure(&mut self, method: &str, failure: &Failure) {
-        if method.starts_with("diagnostics.")
-            || !matches!(failure, Failure::Internal | Failure::Unavailable)
-        {
+        if method.starts_with("diagnostics.") {
             return;
         }
-        let feature = if method.starts_with("session.") {
-            "storage"
-        } else if method.starts_with("refloat.") {
-            "configuration"
-        } else {
-            "connection"
-        };
-        self.diagnostics.event(self.policy.exchange.now,self.policy.exchange.epoch,"failure",json!({"feature":feature,"code":if matches!(failure,Failure::Internal){"Internal"}else{"Unavailable"}}),true);
-        self.diagnostics.capture(
-            self.policy.exchange.now,
-            self.policy.exchange.epoch,
-            if feature == "storage" {
-                "storage_failure"
-            } else if feature == "configuration" {
-                "configuration_failure"
-            } else {
-                "connection_failure"
-            },
-            false,
+        // Method strings come from untrusted envelopes; retain only known API
+        // names, never parameters, peer text, IDs or formatted error messages.
+        let method = ApiMethod::parse(method).unwrap_or(ApiMethod::Unknown);
+        let now = self.policy.exchange.now;
+        let epoch = self.policy.exchange.epoch;
+        self.diagnostics.event(
+            now,
+            epoch,
+            "backend_request_failure",
+            json!({"method": method, "code": failure}),
+            true,
         );
+        self.diagnostics
+            .capture(now, epoch, "backend_request_failure", false);
     }
+
     pub fn record_snapshot_timing(&mut self, duration_us: u64) {
         self.diagnostics.metric("snapshot_us", duration_us);
     }
@@ -556,6 +559,89 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+    #[test]
+    fn all_backend_failures_are_closed_correlated_and_capture_without_a_session() {
+        let t = Temp::new();
+        let root = t.0.join("product");
+        fs::create_dir(&root).unwrap();
+        let mut s = BackendService::open(&root).unwrap();
+        for failure in [
+            Failure::InvalidRequest,
+            Failure::InvalidState,
+            Failure::PermissionRequired,
+            Failure::NotFound,
+            Failure::Conflict,
+            Failure::Unavailable,
+            Failure::Internal,
+        ] {
+            s.record_operation_failure("refloat.tune.apply", &failure);
+        }
+        s.record_operation_failure("PRIVATE-123", &Failure::InvalidRequest);
+        let records = s
+            .diagnostics
+            .ring
+            .iter()
+            .map(|(_, row)| serde_json::from_str::<Value>(row).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 8);
+        assert_eq!(records[0]["kind"], "backend_request_failure");
+        assert_eq!(records[0]["facts"]["method"], "refloat.tune.apply");
+        assert_eq!(records[4]["facts"]["code"], "conflict");
+        assert_eq!(records[7]["facts"]["method"], "unknown");
+        assert!(!serde_json::to_string(&records).unwrap().contains("PRIVATE"));
+        assert_eq!(s.diagnostics.incidents.len(), 1);
+        assert!(s.diagnostics.incidents[0].valid());
+        let before = s.diagnostics.ring.len();
+        s.record_operation_failure("diagnostics.prepare", &Failure::Internal);
+        assert_eq!(s.diagnostics.ring.len(), before);
+        // A method added to the public API must be added to the closed vocabulary.
+        let contract = include_str!("../../../../frontend/src/lib/backend/contract.ts");
+        for line in contract
+            .split("export interface BackendMethods {")
+            .nth(1)
+            .unwrap()
+            .lines()
+        {
+            let Some(method) = line
+                .trim()
+                .strip_prefix('\'')
+                .and_then(|line| line.split("':").next())
+            else {
+                continue;
+            };
+            if !method.starts_with("diagnostics.") {
+                assert!(ApiMethod::parse(method).is_some(), "missing {method}");
+            }
+        }
+    }
+    #[test]
+    fn coalesced_backend_failure_remains_exportable_after_the_post_window() {
+        let mut d = Diagnostics::default();
+        d.event(
+            0,
+            1000,
+            "backend_request_failure",
+            json!({"method":"refloat.tune.apply","code":"conflict"}),
+            true,
+        );
+        d.capture(0, 1000, "backend_request_failure", false);
+        d.tick(11_000, 12_000);
+        assert!(d.capture_until.is_none());
+        d.event(
+            20_000,
+            21_000,
+            "backend_request_failure",
+            json!({"method":"refloat.tune.apply","code":"invalid_state"}),
+            true,
+        );
+        d.capture(20_000, 21_000, "backend_request_failure", false);
+        assert_eq!(d.incidents.len(), 1);
+        assert!(d.capture_until.is_none());
+        assert_eq!(
+            serde_json::to_value(&d.incidents[0].events.last().unwrap().facts[&Key::Code]).unwrap(),
+            "invalid_state"
+        );
     }
     #[test]
     fn privacy_boundary_rebuilds_closed_facts_and_caps_context() {

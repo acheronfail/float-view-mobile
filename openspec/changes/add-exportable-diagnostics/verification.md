@@ -78,3 +78,34 @@ activation, repeated exports beyond the two-report capacity, no visible preview
 and the plain Issues link without automatic GitHub requests. The existing build
 size advisory remains. This UI follow-up does not establish the remaining native
 checkpoint above.
+
+## Central request failure capture follow-up
+
+The shared dispatch boundary now records every non-diagnostic backend error code
+with a closed API method name, including handled validation/state/permission,
+not-found and conflict failures. Authenticated session HTTP errors use fixed
+route categories. Unknown method text becomes unknown. Coalesced request failures
+remain exportable after the follow-up window without extending it. The frontend
+queues closed categories for transport/timeouts and session HTTP/body failures,
+with ten admissions per minute and ten pending. Diagnostic failures do not recurse;
+deliberately cancelled session reads do not create incidents. Raw request data,
+error text, URLs, tune names and values are excluded.
+
+Verification passed:
+
+- Backend-service library: 89 tests, including all error codes, method allowlist
+  coverage against the frontend contract, private sentinel rejection and late
+  coalesced failure exportability.
+- Loopback server: 12 tests, including an authenticated HTTP failure inspected in
+  the exported ZIP, with private body/query sentinels excluded.
+- Shared host, Apple FFI and Android JNI consumers: 10 tests.
+- Frontend: all 416 tests, including caught timeout capture, diagnostic recursion
+  prevention, queue bounds, reconnect retry and deliberate cancellation.
+- Focused canonical diagnostics on direct and mock targets, plus Chromium and
+  WebKit one-button export/browser checks.
+- Svelte checks (zero errors/warnings), production build (existing size advisory),
+  changed frontend lint/formatting, conformance TypeScript, warnings-denied Clippy,
+  Rust formatting, strict OpenSpec validation and diff whitespace checks.
+
+The Export logs label is included. No new OS effect or firmware behavior was
+introduced, and the original broader native presentation checkpoint remains open.

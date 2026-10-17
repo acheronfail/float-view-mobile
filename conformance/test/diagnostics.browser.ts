@@ -30,7 +30,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       });
       await page.goto(`${endpoint.origin}/#/settings`);
       const section = page.locator('#diagnostics');
-      const open = section.getByRole('button', { name: 'Save troubleshooting file', exact: true });
+      const open = section.getByRole('button', { name: 'Export logs', exact: true });
       await open.waitFor();
       assert.equal(await section.getByRole('button').count(), 1);
       await open.click({ button: 'right' });

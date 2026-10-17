@@ -1610,6 +1610,21 @@ async function exerciseDiagnostics(client: ConformanceClient) {
   await client.request('diagnostics.clear', {});
   await expectError(client.request('diagnostics.export', { reportId: report.reportId }), 'not_found');
   assert.equal((await client.request('diagnostics.list', {})).incidents.length, 0);
+  // A handled error must be captured even when no frontend exception is raised.
+  await expectError(
+    client.request('refloat.tune.apply', {
+      tuneId: 'PRIVATE-REQUEST-PARAMETER',
+      expectedRevision: 1,
+      baseRevision: 1,
+    }),
+    'not_found'
+  );
+  const failed = await client.request('diagnostics.list', {});
+  assert.equal(failed.incidents[0]?.reason, 'backend_request_failure');
+  const failedReport = await client.request('diagnostics.prepare', { incidentId: failed.incidents[0]!.incidentId });
+  assert.match(failedReport.summary, /backend_request_failure/);
+  assert.ok(!failedReport.summary.includes('PRIVATE-REQUEST-PARAMETER'));
+  await client.request('diagnostics.clear', {});
 }
 
 export const mandatoryMethods: BackendMethod[] = [

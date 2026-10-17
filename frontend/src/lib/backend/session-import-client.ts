@@ -1,3 +1,4 @@
+import { reportSessionRequestFailure } from './request-failures';
 import { bootstrapSessionImportUrl, type BootstrapDocument } from './bootstrap';
 import { MAX_SESSION_IMPORT_BYTES } from './contract';
 import { reportFrontendPerformance } from './performance-log';
@@ -21,29 +22,31 @@ export class SessionImportClient {
   }
 
   async upload(file: Blob): Promise<SessionImportResult> {
-    reportFrontendPerformance('session-import-start', { bytes: file.size, type: file.type || 'unknown' });
-    if (file.size > MAX_SESSION_IMPORT_BYTES) {
-      throw new Error('Session archive exceeds the 128 MiB import limit');
-    }
-    const response = await this.fetcher(this.endpoint, {
-      method: 'POST',
-      body: file,
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/octet-stream',
-        'X-Float-View-Token': this.token,
-      },
+    return reportSessionRequestFailure(async () => {
+      reportFrontendPerformance('session-import-start', { bytes: file.size, type: file.type || 'unknown' });
+      if (file.size > MAX_SESSION_IMPORT_BYTES) {
+        throw new Error('Session archive exceeds the 128 MiB import limit');
+      }
+      const response = await this.fetcher(this.endpoint, {
+        method: 'POST',
+        body: file,
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/octet-stream',
+          'X-Float-View-Token': this.token,
+        },
+      });
+      if (!response.ok) {
+        reportFrontendPerformance('session-import-response', { status: response.status });
+        throw new Error(`Session import failed: HTTP ${response.status}`);
+      }
+      const result = (await response.json()) as Partial<SessionImportResult>;
+      if (typeof result.sessionId !== 'string' || !result.sessionId) {
+        throw new Error('Session import returned an invalid session identifier');
+      }
+      reportFrontendPerformance('session-import-complete', { sessionId: result.sessionId });
+      return { sessionId: result.sessionId };
     });
-    if (!response.ok) {
-      reportFrontendPerformance('session-import-response', { status: response.status });
-      throw new Error(`Session import failed: HTTP ${response.status}`);
-    }
-    const result = (await response.json()) as Partial<SessionImportResult>;
-    if (typeof result.sessionId !== 'string' || !result.sessionId) {
-      throw new Error('Session import returned an invalid session identifier');
-    }
-    reportFrontendPerformance('session-import-complete', { sessionId: result.sessionId });
-    return { sessionId: result.sessionId };
   }
 }

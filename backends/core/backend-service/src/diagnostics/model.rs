@@ -20,7 +20,7 @@ macro_rules! vocabulary {
     }
 }
 vocabulary!(Kind {
-    Metadata => "metadata", Link => "link", Foreground => "foreground", Native => "native",
+    ApiRequestFailure => "backend_request_failure", Metadata => "metadata", Link => "link", Foreground => "foreground", Native => "native",
     Disconnect => "disconnect", Activated => "activated", ConfigurationBootstrap => "configuration_bootstrap",
     ConfigurationFailure => "configuration_failure", ProtocolDiagnostic => "protocol_diagnostic",
     Failure => "failure", Request => "request", BleWriteStart => "ble_write_start", BleWrite => "ble_write",
@@ -29,13 +29,13 @@ vocabulary!(Kind {
     RideMarker => "ride_marker", UiError => "ui_error", Bluetooth => "bluetooth", Discovery => "discovery"
 });
 vocabulary!(Reason {
-    Manual => "manual", Configuration => "configuration_failure", Protocol => "protocol_failure",
+    BackendRequest => "backend_request_failure", Manual => "manual", Configuration => "configuration_failure", Protocol => "protocol_failure",
     Connection => "connection_failure", Storage => "storage_failure", Ui => "ui_failure",
     Request => "request_delay", Telemetry => "telemetry_gap", SlowStorage => "slow_storage",
     Native => "native_queue", Reconnect => "reconnect", Marker => "ride_marker"
 });
 vocabulary!(Key {
-    PackageMajor => "package_major", PackageMinor => "package_minor", PackagePatch => "package_patch",
+    Method => "method", PackageMajor => "package_major", PackageMinor => "package_minor", PackagePatch => "package_patch",
     Metric => "metric", Percentiles => "count_p50_p95_max", OsMajor => "os_major", OsMinor => "os_minor", OsPatch => "os_patch", RequestKind => "kind",
     Hardware => "hardware", Route => "route", Generation => "generation", Sequence => "sequence", PreviousSequence => "previous_sequence",
     Operation => "operation", Bytes => "bytes", SinceStart => "since_start_ms", Queue => "queue_ms",
@@ -52,7 +52,63 @@ vocabulary!(Key {
     Platform => "platform", Code => "code", Feature => "feature", Category => "category",
     Line => "line", Column => "column", Radio => "radio", Scan => "scan", Connect => "connect"
 });
+vocabulary!(ApiMethod {
+    Unknown => "unknown",
+    ApiStateGet => "state.get",
+    ApiUiStateGet => "uiState.get",
+    ApiUiStateSet => "uiState.set",
+    ApiPermissionsRecover => "permissions.recover",
+    ApiBluetoothRequestPermission => "bluetooth.requestPermission",
+    ApiBluetoothScan => "bluetooth.scan",
+    ApiLocationRequestPermission => "location.requestPermission",
+    ApiLocationOpenSettings => "location.openSettings",
+    ApiDeviceConnect => "device.connect",
+    ApiDeviceSelectController => "device.selectController",
+    ApiDeviceDisconnect => "device.disconnect",
+    ApiControllerShutdown => "controller.shutdown",
+    ApiRefloatControlSet => "refloat.control.set",
+    ApiRefloatFatalErrorClear => "refloat.fatalError.clear",
+    ApiRefloatConfigurationDraftGet => "refloat.configuration.draft.get",
+    ApiRefloatConfigurationDraftSet => "refloat.configuration.draft.set",
+    ApiRefloatConfigurationOpen => "refloat.configuration.open",
+    ApiRefloatConfigurationSchema => "refloat.configuration.schema",
+    ApiRefloatConfigurationRead => "refloat.configuration.read",
+    ApiRefloatConfigurationWrite => "refloat.configuration.write",
+    ApiRefloatTuneList => "refloat.tune.list",
+    ApiRefloatTuneGet => "refloat.tune.get",
+    ApiRefloatTuneCreate => "refloat.tune.create",
+    ApiRefloatTuneUpdate => "refloat.tune.update",
+    ApiRefloatTuneDelete => "refloat.tune.delete",
+    ApiRefloatTuneApply => "refloat.tune.apply",
+    ApiSavedDeviceUpdate => "savedDevice.update",
+    ApiSavedDeviceDelete => "savedDevice.delete",
+    ApiAnnouncementsOpenVoiceSettings => "announcements.openVoiceSettings",
+    ApiAnnouncementsTest => "announcements.test",
+    ApiSettingsUpdate => "settings.update",
+    ApiBoardProfileGet => "boardProfile.get",
+    ApiBoardProfileUpdate => "boardProfile.update",
+    ApiSessionList => "session.list",
+    ApiSessionMarkerAdd => "session.marker.add",
+    ApiSessionGet => "session.get",
+    ApiSessionExport => "session.export",
+    ApiSessionDelete => "session.delete",
+    ApiSessionDeleteCancel => "session.delete.cancel",
+    ApiSessionPrunePreview => "session.prune.preview",
+    ApiSessionPruneStart => "session.prune.start",
+    ApiSessionPruneCancel => "session.prune.cancel",
+    ApiHttpSessionData => "http.sessionData",
+    ApiHttpSessionImport => "http.sessionImport",
+    ApiHttpSessionExport => "http.sessionExport",
+});
 vocabulary!(Code {
+    ApiInvalidRequest => "invalid_request",
+    ApiInvalidState => "invalid_state",
+    ApiPermissionRequired => "permission_required",
+    ApiNotFound => "not_found",
+    ApiConflict => "conflict",
+    ApiUnavailable => "unavailable",
+    ApiInternal => "internal",
+
     Fast => "fast", Slow => "slow", Fault => "fault", Telemetry => "telemetry", Lighting => "lighting", Bms => "bms", Limits => "limits", DiscoveryControl => "discovery_or_control",
     TimerLateness => "timer_lateness_ms", NotificationBytes => "notification_bytes", AppendUs => "append_us", CatalogUs => "catalog_us", RuntimeUs => "runtime_us", SnapshotUs => "snapshot_us", SampleInterval => "sample_interval_ms", Gap500 => "gaps_over_500_ms", Gap1000 => "gaps_over_1000_ms", RequestQueue => "request_queue_ms", RequestResponse => "request_response_ms", BleWriteMs => "ble_write_ms",
     InvalidState => "InvalidState", Unavailable => "Unavailable", Stale => "StaleResponse", Conflict => "Conflict", Codec => "Codec", StaleEvent => "StaleEvent", UnexpectedResponse => "UnexpectedResponse", Scheduler => "Scheduler", EnqueueRejected => "EnqueueRejected", ConfigurationStale => "ConfigurationStale", Mutation => "Mutation",
@@ -79,6 +135,7 @@ pub enum Datum {
     Count(u64),
     Flag(bool),
     Code(Code),
+    Method(ApiMethod),
     Summary([u64; 4]),
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -157,24 +157,32 @@ impl Backend {
             }
             _ => Err(Failure::InvalidRequest),
         };
-        match result {
-            Ok(result)
-                if serde_json::to_vec(&result)
-                    .is_ok_and(|bytes| bytes.len() + 64 <= crate::limits::MAX_MESSAGE_BYTES) =>
+        let result = result.and_then(|result| {
+            if serde_json::to_vec(&result)
+                .is_ok_and(|bytes| bytes.len() + 64 <= crate::limits::MAX_MESSAGE_BYTES)
             {
-                json!({"id":id.unwrap_or(0),"result":result})
+                Ok(result)
+            } else {
+                Err(Failure::Unavailable)
             }
-            Ok(_) => json!({"id":id.unwrap_or(0),"error":projection::error(&Failure::Unavailable)}),
+        });
+        match result {
+            Ok(result) => json!({"id":id.unwrap_or(0),"result":result}),
             Err(failure) => {
-                if let Some(method) = request.get("method").and_then(Value::as_str)
-                    && let Ok(mut service) = self.service.lock()
-                {
-                    service.record_operation_failure(method, &failure);
+                if let Ok(mut service) = self.service.lock() {
+                    service.record_operation_failure(
+                        request
+                            .get("method")
+                            .and_then(Value::as_str)
+                            .unwrap_or("unknown"),
+                        &failure,
+                    );
                 }
                 json!({"id":id.unwrap_or(0),"error":projection::error(&failure)})
             }
         }
     }
+
     async fn dispatch(&self, client: u64, method: &str, p: Params<'_>) -> Result<Value, Failure> {
         let operation = match method {
             "diagnostics.list" => {

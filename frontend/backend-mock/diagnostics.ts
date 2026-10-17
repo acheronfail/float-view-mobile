@@ -21,6 +21,20 @@ export class MockDiagnostics {
     for (const [id, report] of this.reports) if (report.owner === owner) this.reports.delete(id);
     this.uiLimits.delete(owner);
   }
+  recordRequestFailure() {
+    const now = this.now();
+    if (!this.incidents.length || now - this.incidents.at(-1)!.created >= 60_000) {
+      this.incidents.push({
+        incidentId: String(++this.next),
+        reason: 'backend_request_failure',
+        complete: false,
+        clipped: false,
+        ageMs: 0,
+        created: now,
+      });
+      this.incidents = this.incidents.slice(-3);
+    }
+  }
   handle(id: number, method: string, params: Record<string, unknown>, owner: number): Response {
     const ok = (result: unknown): Response => ({ id, result });
     const fail = (code: 'invalid_request' | 'not_found' | 'unavailable'): Response => ({

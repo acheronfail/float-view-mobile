@@ -392,6 +392,15 @@ export class MockBackend {
   }
 
   handle(value: unknown, owner = 0): Response {
+    const result = this.dispatchRequest(value, owner);
+    const method = value && typeof value === 'object' ? (value as { method?: unknown }).method : undefined;
+    if ('error' in result && !(typeof method === 'string' && method.startsWith('diagnostics.'))) {
+      this.diagnostics.recordRequestFailure();
+    }
+    return result;
+  }
+
+  private dispatchRequest(value: unknown, owner = 0): Response {
     if (!value || typeof value !== 'object') {
       return failure(0, 'invalid_request', 'Request must be an object');
     }

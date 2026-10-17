@@ -34,6 +34,18 @@ Frontend global error/rejection handlers and selected feature error boundaries m
 
 Raw text followed by regex redaction was rejected: unknown firmware strings and exceptions can contain any private value. Closed event construction is the privacy boundary; export repeats schema validation as defense in depth.
 
+Central request failure capture runs after authenticated dispatch, before returning
+any stable error, including validation/state/permission/not-found/conflict errors.
+Operation names use a closed allowlist; unknown names become unknown. Session HTTP
+read/import/export errors use fixed route categories. The service records no
+parameters or formatted error messages. The client queues only closed categories
+for timeouts, disconnections and HTTP/body failures, with ten pending entries and
+ten admissions per minute; normal requests/reconnection retry them. Diagnostic
+requests and deliberate HTTP read cancellations are excluded. UI exceptions and
+transport failures retain separate bounded queues under existing service limits.
+Coalesced backend failures remain in the incident within its event/byte budget
+after its follow-up window closes, without extending the window.
+
 ### 3. Bounded journal and incident lifecycle
 
 Use independently versioned structured diagnostic files, not another product SQLite schema. Append to size-bounded journal segments; publish incident metadata and prepared output atomically. A partial final record after interruption can be recognized as an incomplete tail without altering earlier valid bytes. Unknown versions or malformed committed records are preserved and reported as unavailable/partial; never infer permission to reset a directory. Enumerate only bounded known filenames under the owned root and refuse unexpected links/layouts. Age pruning touches only validated supported diagnostic files. Document the new directory outside the product baseline/reset inventory.

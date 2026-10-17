@@ -1,6 +1,6 @@
 # Diagnostic logs and manual bug reports
 
-In Settings → Help with a problem, select **Save troubleshooting file** and save the ZIP using the system
+In Settings → Help with a problem, select **Export logs** and save the ZIP using the system
 file chooser or share sheet. This single action exports the most recent retained
 incident, or recent context when no incident exists. There is no incident picker,
 preview or separate save step. Capture limitations are included in the ZIP.
@@ -64,3 +64,23 @@ use existing error envelopes; unknown fields/invalid input fail with
 `invalid_request`, missing/foreign/expired handles with `not_found`, and capacity
 or unavailable storage with `unavailable`. Diagnostic operations do not advance
 product revisions or expose event streams in application state.
+
+## Failed backend requests
+
+Every failed authenticated backend control request records its allowlisted
+operation name and stable error code, including validation, state, permission,
+not-found and conflict errors. Unknown method text becomes `unknown`. No request
+parameters, tune names/values, response bodies or raw error messages are recorded.
+Session HTTP read/import/export failures use fixed route categories. Diagnostic
+requests are excluded to prevent recursion.
+
+Failures trigger bounded incidents even when the UI handles the error. Coalesced
+backend failures remain in the incident after its ten-second follow-up window,
+within existing event/byte limits, without extending that window. Client-side
+transport, timeout and HTTP response-validation failures queue only closed UI
+categories in memory: at most ten per minute and ten pending, retried on an
+ordinary request or reconnect. Backend responses are recorded by the service;
+HTTP failures may additionally have a generic UI failure. Deliberately cancelled
+session reads are excluded. Pending frontend evidence can be lost if its WebView
+is destroyed before reconnection. Successful tune changes and every user tap
+are not recorded as an activity history.

@@ -1,3 +1,4 @@
+import { requestFailures, type RequestFailureReporter } from './request-failures';
 import { validUiCheckpoint } from './ui-checkpoint';
 import { validatePermissions } from './permissions';
 import type {
@@ -42,23 +43,45 @@ export class ApiClient {
   private readonly stateHandlers = new Set<(state: AppState) => void>();
   private readonly closedHandlers = new Set<() => void>();
   private closed = false;
+  private readonly detachFailureReporter: () => void;
   private diagnosticsAt = performance.now();
   private lastSnapshotAt = this.diagnosticsAt;
   private deliveryDiagnostics = { snapshots: 0, max_sample_age_ms: 0, max_delivery_gap_ms: 0, max_handler_ms: 0 };
 
   constructor(
     private readonly socket: WebSocket,
-    private readonly defaultTimeoutMs = 5_000
+    private readonly defaultTimeoutMs = 5_000,
+    private readonly failureReporter: RequestFailureReporter = requestFailures
   ) {
     socket.addEventListener('message', this.handleMessage);
     socket.addEventListener('close', this.handleClose);
+    this.detachFailureReporter = failureReporter.attach((failure) => this.request('diagnostics.uiError', failure));
   }
 
   get isOpen(): boolean {
     return !this.closed && this.socket.readyState === 1;
   }
 
-  request<M extends BackendMethod>(
+  async request<M extends BackendMethod>(
+    method: M,
+    params: BackendParams<M>,
+    timeoutMs = this.defaultTimeoutMs
+  ): Promise<BackendResult<M>> {
+    const diagnostic = method.startsWith('diagnostics.');
+    if (!diagnostic) this.failureReporter.flush();
+    try {
+      return await this.sendRequest(method, params, timeoutMs);
+    } catch (error) {
+      // Error envelopes are already recorded centrally by the backend. Capture
+      // failures without a valid backend response here, even when callers catch them.
+      if (!diagnostic && !(error instanceof ApiRequestError)) {
+        this.failureReporter.record(error instanceof ApiProtocolError ? 'protocol' : 'request');
+      }
+      throw error;
+    }
+  }
+
+  private sendRequest<M extends BackendMethod>(
     method: M,
     params: BackendParams<M>,
     timeoutMs = this.defaultTimeoutMs
@@ -199,6 +222,7 @@ export class ApiClient {
   };
 
   private detach() {
+    this.detachFailureReporter();
     this.socket.removeEventListener('message', this.handleMessage);
     this.socket.removeEventListener('close', this.handleClose);
   }

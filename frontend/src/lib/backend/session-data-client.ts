@@ -1,3 +1,4 @@
+import { reportSessionRequestFailure } from './request-failures';
 import { bootstrapSessionDataUrl, type BootstrapDocument } from './bootstrap';
 import { MAX_SESSION_DATA_REQUEST_BYTES } from './contract';
 import { reportFrontendPerformance } from './performance-log';
@@ -93,18 +94,20 @@ export class SessionDataClient {
   private readonly token: string;
 
   async request(request: SessionDataRequest, signal?: AbortSignal): Promise<SessionDataResult> {
-    const started = timestamp();
-    const validated = validateSessionDataRequest(request);
-    const body = JSON.stringify(validated);
-    if (new TextEncoder().encode(body).byteLength > MAX_SESSION_DATA_REQUEST_BYTES) {
-      throw new Error('Session-data request exceeds the body limit');
-    }
-    await this.acquire(signal);
-    try {
-      return await this.performRequest(validated, body, started, signal);
-    } finally {
-      this.release();
-    }
+    return reportSessionRequestFailure(async () => {
+      const started = timestamp();
+      const validated = validateSessionDataRequest(request);
+      const body = JSON.stringify(validated);
+      if (new TextEncoder().encode(body).byteLength > MAX_SESSION_DATA_REQUEST_BYTES) {
+        throw new Error('Session-data request exceeds the body limit');
+      }
+      await this.acquire(signal);
+      try {
+        return await this.performRequest(validated, body, started, signal);
+      } finally {
+        this.release();
+      }
+    }, signal);
   }
 
   private async performRequest(

@@ -41,7 +41,7 @@
     disabled={busy}
     onpointerdown={(e) => activateFromPointer(e, exportDiagnostics, { scrollable: true })}
     onclick={(e) => activateFromKeyboardOrAssistiveClick(e, exportDiagnostics)}
-    >{busy ? 'Saving…' : 'Save troubleshooting file'}</button
+    >{busy ? 'Exporting…' : 'Export logs'}</button
   >
   <p class="text-sm text-muted">
     Check <a

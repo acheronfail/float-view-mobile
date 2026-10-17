@@ -1,6 +1,7 @@
 import { permissionInventory } from '../../../backend-mock/permissions';
 import { describe, expect, it, vi } from 'vitest';
 import type { AppState } from '$lib/backend/contract';
+import { RequestFailureReporter } from './request-failures';
 import { ApiClient, ApiProtocolError } from './client';
 
 type Listener = (event: { data?: unknown }) => void;
@@ -38,7 +39,7 @@ class FakeWebSocket {
 
 function setup() {
   const socket = new FakeWebSocket();
-  return { socket, client: new ApiClient(socket as unknown as WebSocket, 20) };
+  return { socket, client: new ApiClient(socket as unknown as WebSocket, 20, new RequestFailureReporter()) };
 }
 
 describe('ApiClient', () => {

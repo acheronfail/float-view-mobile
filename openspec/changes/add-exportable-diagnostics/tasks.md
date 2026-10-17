@@ -47,3 +47,9 @@
 
 - Commit completed planning artifacts before implementation, then make coherent buildable implementation commits with corresponding task updates.
 - After implementation and relevant checks, sync delta specs and archive the change together in the final commit; keep private device inventories and raw physical reports in ignored local evidence directories.
+
+## 7. Request failure coverage follow-up
+
+- [x] 7.1 Extend the central hook to every backend error code with closed method names, session HTTP failures and coalesced export coverage; verify private parameters/unknown text remain excluded.
+- [x] 7.2 Capture client transport/timeouts and HTTP failures through a bounded nonrecursive queue that survives reconnect within the current frontend; verify cancellation, retries and successful requests.
+- [x] 7.3 Update contract reason, mock, canonical scenarios and support documentation; run affected Rust/client/mock/conformance/browser checks and record results.

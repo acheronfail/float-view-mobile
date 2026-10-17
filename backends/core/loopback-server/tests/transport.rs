@@ -301,3 +301,38 @@ fn malformed_history_cursor_is_rejected_before_catalog_lookup() {
     );
     server.stop().unwrap();
 }
+
+#[test]
+fn authenticated_http_errors_capture_diagnostics_without_body_or_query_text() {
+    let server = support::server(Platform::Macos, b"html").unwrap();
+    server.start(0).unwrap();
+    let body = br#"{"private":"PRIVATE-BODY"}"#;
+    let headers = format!(
+        "Origin: http://127.0.0.1:{}\r\nX-Float-View-Token: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        server.port(),
+        server.token(),
+        body.len()
+    );
+    status(
+        &http(&server, "/api/session-data?PRIVATE-QUERY", &headers, body),
+        "400",
+    );
+    let service = &mut server.backend.service.lock().unwrap();
+    let list = service.diagnostic_list();
+    assert_eq!(list["incidents"][0]["reason"], "backend_request_failure");
+    let id = list["incidents"][0]["incidentId"].as_str().unwrap();
+    let completion = service
+        .begin_diagnostic_report(1, Some(id))
+        .unwrap()
+        .run()
+        .unwrap();
+    let report = service.complete_diagnostic_report(completion).unwrap();
+    let (transfer, _) = service.diagnostic_export(1, &report.report_id).unwrap();
+    let path = service.present_export(1, transfer, 0).unwrap();
+    let bytes = std::fs::read(path).unwrap();
+    // Reports use stored ZIP members; inspect their bytes without another reader dependency.
+    let events = String::from_utf8_lossy(&bytes);
+    assert!(events.contains("http.sessionData"));
+    assert!(events.contains("invalid_request"));
+    assert!(!events.contains("PRIVATE"));
+}
