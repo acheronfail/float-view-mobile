@@ -46,7 +46,7 @@ The frontend SHALL render a bottom tab bar on exactly the Home, Sessions, and Se
 
 ### Requirement: Home and live connection flow
 
-Home SHALL show Bluetooth readiness, discovery, and connection controls when no board is active. Discovery SHALL include an advertising saved board whose exact platform identifier matches even when its advertisement omits the UART service, while unrelated advertisements remain hidden. A successful connection request or a recovered active connection SHALL navigate to a live view that represents connecting, identifying, selecting-controller, ready, reconnecting, disconnected, and failed backend states. During frontend startup, an eligible process-lifetime UI checkpoint destination SHALL take precedence over recovered Home-to-Live navigation.
+Home SHALL show Bluetooth readiness, discovery, and connection controls when no board is active. Discovery SHALL include an advertising saved board whose exact platform identifier matches even when its advertisement omits the UART service, while unrelated advertisements remain hidden. An accepted explicit connection request, an automatic connection while Home is displayed, or a recovered active connection without a preferred restored destination SHALL navigate to a live view that represents connecting, identifying, selecting-controller, ready, reconnecting, disconnected, and failed backend states. During frontend startup, an eligible process-lifetime UI checkpoint destination SHALL take precedence over recovered Home-to-Live navigation. Foreground auto-connect SHALL preserve a displayed or restoring non-live destination; its lifecycle discovery SHALL not depend on mounting Home.
 
 #### Scenario: Accepted connection
 
@@ -61,7 +61,7 @@ Home SHALL show Bluetooth readiness, discovery, and connection controls when no 
 #### Scenario: Restored non-live destination
 
 - **WHEN** the frontend is recreated with an eligible Sessions, session detail, board history or Settings checkpoint while a connection remains active
-- **THEN** it restores that destination without briefly navigating to Live, scanning Home or starting another native connection
+- **THEN** it restores that destination without briefly navigating to Live, mounting Home for discovery or starting another native connection
 
 #### Scenario: Recovered controller selection
 
@@ -82,6 +82,16 @@ Home SHALL show Bluetooth readiness, discovery, and connection controls when no 
 
 - **WHEN** the active board is disconnected from the live view
 - **THEN** the frontend returns to Home after authoritative state reports no active connection
+
+#### Scenario: Automatic connection during restoration
+
+- **WHEN** foreground auto-connect admits a connection before or after a non-live checkpoint destination is restored
+- **THEN** the frontend preserves that destination and reflects connection state through normal authoritative snapshots without navigation to Live
+
+#### Scenario: Automatic connection from Home
+
+- **WHEN** foreground auto-connect admits a connection while Home is displayed and no pending restored destination takes precedence
+- **THEN** Home transitions to Live and renders the normal connection flow without submitting another connection command
 
 ### Requirement: Routed session browsing
 

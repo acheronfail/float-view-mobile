@@ -38,3 +38,9 @@
 - After relevant verification, sync delta specs and archive this change together in the final commit; preserve actual verification evidence and outstanding physical coverage.
 
 Verification results and remaining physical coverage: [verification.md](verification.md).
+
+## Archive disposition — 2026-10-17
+
+The user declared the feature complete and requested sync/archive. Task 5.3 is
+retained unchecked to preserve the incomplete physical-verification evidence;
+archival does not claim a passing physical checkpoint. See [verification.md](verification.md).

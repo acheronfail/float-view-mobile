@@ -70,7 +70,7 @@ Restoration SHALL run once per frontend startup after authentication and fresh a
 #### Scenario: Initial loading
 
 - **WHEN** the initial checkpoint and authoritative state are still loading
-- **THEN** the frontend presents neutral loading feedback without scanning Home or publishing a default checkpoint over the saved one
+- **THEN** the frontend presents neutral loading feedback without mounting Home to scan or publishing a default checkpoint over the saved one; independently triggered bounded foreground discovery and auto-connect may proceed without changing restoration order
 
 #### Scenario: Session no longer exists
 
@@ -101,6 +101,11 @@ Restoration SHALL run once per frontend startup after authentication and fresh a
 
 - **WHEN** the existing frontend reconnects its transport without being recreated
 - **THEN** its current UI remains in place and startup restoration is not rerun
+
+#### Scenario: Lifecycle discovery during restoration
+
+- **WHEN** a foreground auto-connect window starts while restoration is pending
+- **THEN** discovery does not require Home or replay checkpoint actions, and a resulting connection does not supersede an eligible non-live restored destination
 
 ### Requirement: Restore presentation without action replay
 

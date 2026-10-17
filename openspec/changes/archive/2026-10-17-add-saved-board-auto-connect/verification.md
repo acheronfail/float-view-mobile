@@ -54,12 +54,18 @@ Android runs were sequential.
 
 ## Physical checkpoint remains incomplete
 
-
 The scoped Android auto-connect fixture run failed to discover the expected
 advertisement within its bounded attempts. No fixture connection or automatic
 reconnection was established; cleanup completed without actuation.
 
 iOS hardware was unavailable. macOS activation, first-use permission presentation
-and remaining mobile lifecycle cases are unverified. Task 5.3 remains open.
+and remaining mobile lifecycle cases are unverified. Task 5.3 was not completed. The user explicitly requested archival on 2026-10-17 with this coverage limit retained.
 Detailed device results and execution/setup history are retained locally under
 `.local/physical-testing/`; this is not physical acceptance.
+
+## Archive context — 2026-10-17
+
+Implementation commit `fae1b7c` and copy refinement `fae1363` provide the feature.
+The original marker-26 development-storage outcome above is historical. Current
+and future storage changes follow [supported baseline 100](../../../../docs/storage-baseline.md);
+archival makes no storage or application-code change.
