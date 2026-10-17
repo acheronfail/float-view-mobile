@@ -5,6 +5,19 @@ device builds, supply `DEVELOPMENT_TEAM=<team-id>` as an `xcodebuild` build-sett
 override. Keep local signing/account configuration out of version control.
 Unsigned packaging checks do not need a development team.
 
+For `just run ios <device-id>`, set `APPLE_TEAM_ID` in your shell (add the
+export to `~/.zshrc` to persist it outside the repository):
+
+```sh
+export APPLE_TEAM_ID=YOUR_TEAM_ID
+just run ios <device-id>
+```
+
+The recipe passes it as a command-line override for both the app and Live Activity
+extension without changing the project. Select your account in Xcode Settings >
+Accounts, but avoid saving a team selection in the project's Signing &
+Capabilities editor: that writes to the tracked `project.pbxproj` file.
+
 Swift owns Apple OS integration for the shared Rust backend. One `SharedService`
 creates the process owner in a private application-support root, protected until
 first unlock on iOS. Its bounded executor maps Bluetooth/location callbacks,

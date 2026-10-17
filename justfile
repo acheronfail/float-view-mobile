@@ -187,9 +187,11 @@ run platform target="": build
           xcrun simctl install "$target" /tmp/float-view-ios/Build/Products/Debug-iphonesimulator/float-view.app
           xcrun simctl launch --terminate-running-process "$target" fail.acheron.floatview
         else
+          : "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID to your Apple development team ID (see backends/apple/README.md)}"
           xcodebuild -project "$project" -scheme float-view -configuration Debug \
             -destination "platform=iOS,id=$target" -destination-timeout 30 \
-            -derivedDataPath /tmp/float-view-ios-physical -allowProvisioningUpdates build
+            -derivedDataPath /tmp/float-view-ios-physical -allowProvisioningUpdates \
+            "DEVELOPMENT_TEAM=$APPLE_TEAM_ID" build
           xcrun devicectl device install app --device "$target" \
             /tmp/float-view-ios-physical/Build/Products/Debug-iphoneos/float-view.app
           xcrun devicectl device process launch --device "$target" \
