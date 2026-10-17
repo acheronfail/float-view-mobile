@@ -48,7 +48,14 @@ if (tool === 'xcrun') {
     fs.writeFileSync(path.join(args[2], '.ticket'), 'ticket');
     process.exit(0);
   }
-  if (op === 'stapler validate') process.exit(fs.existsSync(path.join(args[2], '.ticket')) ? 0 : 1);
+  if (op === 'stapler validate') {
+    if (process.env.FAKE_VALIDATE_FAILURE) process.exit(65);
+    const counter = path.join(process.env.RUNNER_TEMP, 'validate-attempts');
+    const attempt = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) + 1 : 1;
+    fs.writeFileSync(counter, String(attempt));
+    if (attempt <= Number(process.env.FAKE_VALIDATE_LOOKUP_FAILURES || 0)) process.exit(68);
+    process.exit(fs.existsSync(path.join(args[2], '.ticket')) ? 0 : 1);
+  }
 }
 if (tool === 'ditto') {
   const source = args[args.length - 2];
@@ -193,6 +200,27 @@ test("persistent ticket lookup failure stops after four attempts and preserves t
   assert.equal(calls.some(x => x.operation === "stapler validate"), false);
   assert.equal(calls.some(x => x.tool === "spctl"), false);
   assert.equal(calls.filter(x => x.tool === "ditto").length, 1);
+});
+for (const [failures, expectedStatus, attempts] of [["2", 0, 3], ["4", 68, 4]] as const) {
+  test(`validation lookup failures ${expectedStatus === 0 ? "recover" : "stop after four attempts"}`, () => {
+    const item = fixture();
+    const result = runNotary(item, { FAKE_VALIDATE_LOOKUP_FAILURES: failures });
+    assert.equal(result.status, expectedStatus, result.stderr);
+    const calls = item.operations();
+    assert.equal(calls.filter(x => x.operation === "stapler validate").length, attempts);
+    assert.equal(calls.filter(x => x.operation === "stapler staple").length, 1);
+    assert.equal(calls.filter(x => x.operation === "notarytool submit").length, 1);
+    assert.equal(calls.some(x => x.tool === "spctl"), expectedStatus === 0);
+    assert.equal(readFileSync(item.output, "utf8"), expectedStatus === 0 ? "archive-with-ticket" : "previous-successful-download");
+    assert.deepEqual(calls.filter(x => x.tool === "sleep").map(x => x.operation), expectedStatus === 0 ? ["5", "10"] : ["5", "10", "15"]);
+  });
+}
+test("invalid ticket validation fails immediately and preserves the download", () => {
+  const item = fixture();
+  assert.equal(runNotary(item, { FAKE_VALIDATE_FAILURE: "1" }).status, 65);
+  assert.equal(readFileSync(item.output, "utf8"), "previous-successful-download");
+  assert.equal(item.operations().filter(x => x.operation === "stapler validate").length, 1);
+  assert.equal(item.operations().some(x => x.tool === "sleep" || x.tool === "spctl"), false);
 });
 test("invalid signing identity fails before submission", () => {
   const item = fixture();

@@ -78,19 +78,20 @@ PYTHON
 fi
 # Ticket delivery can fail transiently after Apple accepts the submission.
 # Retry CloudKit lookup failures (68), without resubmitting or bypassing checks.
-for attempt in 1 2 3 4; do
-    staple_status=0
-    xcrun stapler staple "$app" || staple_status=$?
-    if [[ "$staple_status" == 0 ]]; then break; fi
-    if [[ "$staple_status" != 68 || "$attempt" == 4 ]]; then
-        echo 'Stapling failed; no archive was published.' >&2
-        exit "$staple_status"
-    fi
-    delay=$((attempt * 5))
-    printf 'Ticket lookup failed; retrying stapling in %s seconds (attempt %s/4).\n' "$delay" "$((attempt + 1))" >&2
-    sleep "$delay"
+for action in staple validate; do
+    for attempt in 1 2 3 4; do
+        staple_status=0
+        xcrun stapler "$action" "$app" || staple_status=$?
+        if [[ "$staple_status" == 0 ]]; then break; fi
+        if [[ "$staple_status" != 68 || "$attempt" == 4 ]]; then
+            printf 'Stapler %s failed; no archive was published.\n' "$action" >&2
+            exit "$staple_status"
+        fi
+        delay=$((attempt * 5))
+        printf 'Ticket lookup failed; retrying stapler %s in %s seconds (attempt %s/4).\n' "$action" "$delay" "$((attempt + 1))" >&2
+        sleep "$delay"
+    done
 done
-xcrun stapler validate "$app"
 codesign --verify --deep --strict --test-requirement "=$requirement" "$app"
 spctl --assess --type execute --verbose=2 "$app"
 

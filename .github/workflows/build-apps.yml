@@ -417,6 +417,14 @@ jobs:
         working-directory: backends/core
         run: cargo fetch --locked --target aarch64-apple-darwin --target x86_64-apple-darwin
 
+      # Temporary workaround: force TCP instead of unreliable HTTP/3 ticket lookups.
+      # https://github.com/actions/runner-images/issues/14924
+      # Only change networking on the disposable GitHub-hosted runner.
+      - name: Work around Apple ticket delivery networking
+        run: |
+          echo "block return out quick proto udp from any to any port 443" | sudo pfctl -f -
+          sudo pfctl -E
+
       - name: Build, sign and notarize universal macOS app
         env:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
