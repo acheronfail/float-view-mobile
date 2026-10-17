@@ -13,6 +13,7 @@
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import { axisTicks, finiteDomain, zeroReference, type NumericDomain } from './history-geometry';
   import { historyTrend } from './history-trend';
+  import { ENERGY_COUNTERS, loadSessionEnergy } from './session-energy';
   import { chartExtrema, chartShowsMinimum } from './chart-extrema';
   import { buildChartTooltipEntries } from './chart-tooltip';
   import { chartTouchInspection } from './chart-touch-inspection';
@@ -120,7 +121,12 @@
   const fieldGroups = $derived.by(() => {
     const groups: SessionMetadata['fields'][] = [];
     let stable: SessionMetadata['fields'] = [];
+    const energy: SessionMetadata['fields'] = [];
     fields.forEach((field) => {
+      if (ENERGY_COUNTERS.some((name) => name === field.name)) {
+        energy.push(field);
+        return;
+      }
       if (
         (field.source === 'stable' ||
           field.name === 'motorLoad' ||
@@ -135,6 +141,7 @@
       groups[groups.length - 1] = [...groups.at(-1)!, field];
     });
     if (stable.length) groups.unshift(stable);
+    if (energy.length) groups.push(energy);
     return groups;
   });
   const chartGroups = $derived(sessionChartGroups(fields));
@@ -378,20 +385,28 @@
     try {
       reviewController ??= backendState.createSessionReviewController(metadata);
       mapLoader ??= new MapSeriesLoader(reviewController);
-      const groupResult = filterByMap
-        ? await mapLoader.load(
-            group.map((field) => field.name),
-            intervals!,
+      const groupResult = group.some((field) => ENERGY_COUNTERS.some((name) => name === field.name))
+        ? await loadSessionEnergy(
+            reviewController,
+            metadata,
+            chartIntervals ?? [viewport],
             buckets,
             backendState.settings?.historyGapThresholdSeconds ?? null
           )
-        : await reviewController.loadSeries(
-            group.map((field) => field.name),
-            Math.max(0, Math.round(viewport.startElapsedMs)),
-            Math.max(0, Math.round(viewport.endElapsedMs)),
-            Math.max(1, Math.min(1_024, Math.round(buckets))),
-            backendState.settings?.historyGapThresholdSeconds ?? null
-          );
+        : filterByMap
+          ? await mapLoader.load(
+              group.map((field) => field.name),
+              intervals!,
+              buckets,
+              backendState.settings?.historyGapThresholdSeconds ?? null
+            )
+          : await reviewController.loadSeries(
+              group.map((field) => field.name),
+              Math.max(0, Math.round(viewport.startElapsedMs)),
+              Math.max(0, Math.round(viewport.endElapsedMs)),
+              Math.max(1, Math.min(1_024, Math.round(buckets))),
+              backendState.settings?.historyGapThresholdSeconds ?? null
+            );
       if (generation !== loadGeneration) return;
       groupResults.set(index, groupResult);
       rebuildResult();
@@ -884,6 +899,12 @@
             {@const extrema = chartExtrema(chartGroup, result?.columns, hiddenFields, visibleViewport, chartIntervals)}
             <div class="nonselectable-surface">
               <SectionTitle title={chartGroup.title} detail={chartGroup.unit ?? 'value'} />
+              {#if chartGroup.id === 'energy'}
+                <p class="mt-1 text-xs text-muted">
+                  Since the first available session readings. Net consumed is consumed minus recovered energy. Totals
+                  stop if a counter resets.
+                </p>
+              {/if}
 
               {#if domain}
                 <div class="telemetry-chart-frame mt-2 flex items-stretch gap-2">

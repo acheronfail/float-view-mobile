@@ -47,6 +47,15 @@ event pages remain separate revisioned queries; `session.get` never embeds
 history. Frequently updating controls use primary pointer release with
 cancellation and a guarded keyboard or assistive click path.
 
+Session charts hide the redundant Ah counters. Energy shows consumed, recovered
+and net Wh relative to the first available session readings. The frontend pages
+exact retained counter pairs before reducing into bounded chart buckets, keeping
+the same baseline during zoom and map filtering. Missing values break traces;
+a decreasing counter makes its later totals unavailable rather than estimating
+energy lost across a reset. Reads are lazy and bounded to one million retained
+samples and one thousand pages; larger sessions show an actionable chart error.
+Raw stored counters and exports remain unchanged.
+
 When ride-location recording is off or unavailable, the live header shows a fixed-size
 ride-location button beside Board actions,
 with a single-line truncated board name. Location details and Enable/Allow/Settings

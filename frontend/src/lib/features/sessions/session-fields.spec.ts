@@ -18,7 +18,6 @@ describe('session chart field metadata', () => {
     expect(sessionChartGroupMetadata.fieldWeakening.title).toBe('Field weakening');
     expect(sessionChartGroupMetadata.voltage.title).toBe('Voltage');
     expect(sessionChartGroupMetadata.setpoints.title).toBe('Setpoints');
-    expect(sessionChartGroupMetadata.charge.title).toBe('Charge');
     expect(sessionChartGroupMetadata.energy.title).toBe('Energy');
   });
 
@@ -101,6 +100,20 @@ describe('session chart field metadata', () => {
     expect(field.group).toBe('extensionLate');
     expect(field.displayName).toBe('extensionLate');
     expect(groups[0]?.fields).toHaveLength(1);
+  });
+
+  it('hides Ah counters and groups consumed, recovered and net Wh', () => {
+    const groups = sessionChartGroups([
+      { name: 'ampHoursDrawnAh' },
+      { name: 'ampHoursChargedAh' },
+      { name: 'wattHoursDrawnWh' },
+      { name: 'wattHoursChargedWh' },
+    ]);
+    expect(groups.map((group) => group.id)).toEqual(['energy']);
+    expect(groups[0]!.fields.map((field) => field.displayName)).toEqual(['Consumed', 'Recovered', 'Net consumed']);
+    expect(sessionChartGroups([{ name: 'wattHoursDrawnWh' }])[0]!.fields.map((field) => field.name)).toEqual([
+      'wattHoursDrawnWh',
+    ]);
   });
 
   it('hides Refloat diagnostic recording from session charts while retaining other extensions', () => {

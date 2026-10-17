@@ -37,6 +37,7 @@ export type KnownSessionFieldName =
   | 'ampHoursChargedAh'
   | 'wattHoursDrawnWh'
   | 'wattHoursChargedWh'
+  | 'netEnergyWh'
   | 'batteryLevel'
   | 'estimatedBatteryLevel'
   | 'chargingCurrentA'
@@ -88,7 +89,6 @@ export const sessionChartGroupMetadata = {
   footpads: { title: 'Footpads' },
   voltage: { title: 'Voltage' },
   setpoints: { title: 'Setpoints' },
-  charge: { title: 'Charge' },
   energy: { title: 'Energy' },
 } satisfies Record<string, SessionChartGroupDefinition>;
 
@@ -423,23 +423,15 @@ export const sessionFieldMetadata = {
   ampHoursDrawnAh: {
     displayName: 'Amp-hours drawn',
     unit: 'Ah',
-    chart: {
-      group: 'charge',
-      color: 'var(--app-warning)',
-      precision: 2,
-    },
+    chartable: false,
   },
   ampHoursChargedAh: {
     displayName: 'Amp-hours charged',
     unit: 'Ah',
-    chart: {
-      group: 'charge',
-      color: 'var(--app-success)',
-      precision: 2,
-    },
+    chartable: false,
   },
   wattHoursDrawnWh: {
-    displayName: 'Watt-hours drawn',
+    displayName: 'Consumed',
     unit: 'Wh',
     chart: {
       group: 'energy',
@@ -448,11 +440,20 @@ export const sessionFieldMetadata = {
     },
   },
   wattHoursChargedWh: {
-    displayName: 'Watt-hours charged',
+    displayName: 'Recovered',
     unit: 'Wh',
     chart: {
       group: 'energy',
       color: 'var(--app-success)',
+      precision: 1,
+    },
+  },
+  netEnergyWh: {
+    displayName: 'Net consumed',
+    unit: 'Wh',
+    chart: {
+      group: 'energy',
+      color: 'var(--app-accent)',
       precision: 1,
     },
   },
@@ -527,7 +528,13 @@ export function sessionChartField(name: string): SessionChartField {
 
 export function sessionChartGroups(fields: readonly { name: string }[]): SessionChartGroup[] {
   const groups = new Map<string, SessionChartField[]>();
-  for (const field of sortSessionFields(fields)) {
+  const chartFields =
+    fields.some((field) => field.name === 'wattHoursDrawnWh') &&
+    fields.some((field) => field.name === 'wattHoursChargedWh') &&
+    !fields.some((field) => field.name === 'netEnergyWh')
+      ? [...fields, { name: 'netEnergyWh' }]
+      : fields;
+  for (const field of sortSessionFields(chartFields)) {
     if (!sessionFieldIsChartable(field.name)) continue;
     const chartField = sessionChartField(field.name);
     const group = groups.get(chartField.group);
