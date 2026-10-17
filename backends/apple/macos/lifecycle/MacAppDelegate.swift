@@ -112,6 +112,25 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     return nil
   }
 
+  func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
+               initiatedByFrame frame: WKFrameInfo,
+               completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void)
+  {
+    guard webView === self.webView, let window,
+          frame.isMainFrame, isBackendPage(frame.request.url, backendURL: backendURL)
+    else {
+      completionHandler(nil)
+      return
+    }
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = parameters.allowsDirectories
+    panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+    panel.beginSheetModal(for: window) { response in
+      completionHandler(response == .OK ? panel.urls : nil)
+    }
+  }
+
   private var backendURL: URL? {
     server.flatMap { URL(string: $0.origin) }
   }
