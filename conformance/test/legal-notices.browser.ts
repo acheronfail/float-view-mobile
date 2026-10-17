@@ -105,7 +105,18 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await main.getByRole('button', { name: /^Rust runtime / }).tap();
       assert.match(await main.innerText(), /Rust Standard Library/);
       assert.match(await main.innerText(), /Apache License/);
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      for (const viewport of [
+        { width: 834, height: 1194 },
+        { width: 1194, height: 834 },
+        { width: 375, height: 760 },
+      ]) {
+        await page.setViewportSize(viewport);
+        assert.equal(
+          await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          true,
+          'expanded notices fit iPad portrait, landscape and a narrow resized window'
+        );
+      }
       const back = page.getByRole('link', { name: 'Settings', exact: true });
       await back.focus();
       await page.keyboard.press('Enter');

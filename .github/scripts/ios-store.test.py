@@ -38,7 +38,10 @@ class StoreTests(unittest.TestCase):
             (bundle / "Info.plist").write_bytes(plistlib.dumps({
                 "CFBundleIdentifier": identifier, "CFBundleShortVersionString": "1.0.0",
                 "CFBundleVersion": "101", "CFBundleExecutable": "executable",
-                "CFBundleSupportedPlatforms": ["iPhoneOS"], "ITSAppUsesNonExemptEncryption": False}))
+                "CFBundleSupportedPlatforms": ["iPhoneOS"], "ITSAppUsesNonExemptEncryption": False,
+                "UIDeviceFamily": [1, 2], "UISupportedInterfaceOrientations~ipad": [
+                    "UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown",
+                    "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]}))
             (bundle / "executable").write_bytes(b"fixture-executable")
             source = store.ROOT / "backends/apple/ios" / (
                 "float-view" if identifier == store.APP_ID else "FloatViewLiveActivity") / "PrivacyInfo.xcprivacy"
@@ -127,6 +130,26 @@ class StoreTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "privacy manifest"):
                     store.bundles(self.app, "1.0.0", "101")
                 path.write_bytes(original)
+
+    def test_incomplete_ipad_orientations_rejected(self):
+        path = self.app / "Info.plist"
+        info = plistlib.loads(path.read_bytes())
+        for missing in info["UISupportedInterfaceOrientations~ipad"]:
+            changed = {**info, "UISupportedInterfaceOrientations~ipad": [
+                value for value in info["UISupportedInterfaceOrientations~ipad"] if value != missing]}
+            path.write_bytes(plistlib.dumps(changed))
+            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, "iPad.*orientations"):
+                store.bundles(self.app, "1.0.0", "101")
+
+    def test_ipad_orientation_fallback_and_iphone_only_package(self):
+        path = self.app / "Info.plist"
+        info = plistlib.loads(path.read_bytes())
+        info["UISupportedInterfaceOrientations"] = info.pop("UISupportedInterfaceOrientations~ipad")
+        path.write_bytes(plistlib.dumps(info))
+        store.bundles(self.app, "1.0.0", "101")
+        info.update(UIDeviceFamily=[1], UISupportedInterfaceOrientations=["UIInterfaceOrientationPortrait"])
+        path.write_bytes(plistlib.dumps(info))
+        store.bundles(self.app, "1.0.0", "101")
 
     def test_missing_encryption_declaration_rejected(self):
         path = self.app / "Info.plist"

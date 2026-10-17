@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 final class FloatViewLifecycleTests: XCTestCase {
@@ -36,6 +37,51 @@ final class FloatViewLifecycleTests: XCTestCase {
   }
 
   #if targetEnvironment(simulator)
+    /// Run only on a disposable iPad simulator; requires no radio or private data.
+    func testIPadRotationKeepsLicencesUsable() throws {
+      guard UIDevice.current.userInterfaceIdiom == .pad else {
+        throw XCTSkip("Requires an iPad simulator")
+      }
+      continueAfterFailure = false
+      defer { XCUIDevice.shared.orientation = .portrait }
+      application.launch()
+      acceptSafetyIfNeeded()
+      application.links["settings"].tap()
+      let link = application.links["View licences and notices"]
+      for _ in 0..<15 {
+        if link.isHittable, link.frame.height > 1,
+          link.frame.minY > application.frame.minY + 120,
+          link.frame.maxY < application.links["settings"].frame.minY - 12
+        {
+          break
+        }
+        application.swipeUp()
+      }
+      XCTAssertTrue(link.isHittable)
+      link.tap()
+      let panel = application.buttons["Project licence"]
+      XCTAssertTrue(panel.waitForExistence(timeout: 10))
+      for orientation in [
+        UIDeviceOrientation.portrait, .landscapeLeft, .portraitUpsideDown, .landscapeRight,
+        .portrait,
+      ] {
+        XCUIDevice.shared.orientation = orientation
+        let landscape = orientation.isLandscape
+        let rotated = NSPredicate { [self] _, _ in
+          let frame = application.frame
+          return landscape ? frame.width > frame.height : frame.height > frame.width
+        }
+        expectation(for: rotated, evaluatedWith: nil)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(panel.isHittable)
+        XCTAssertTrue(
+          application.frame.contains(panel.frame), "Licence control escaped the resized viewport")
+        XCTAssertTrue(application.links["Settings"].isHittable)
+      }
+      application.links["Settings"].tap()
+      XCTAssertTrue(application.links["settings"].isHittable)
+    }
+
     /// Run on a disposable simulator with the synthetic baseline catalog and
     /// Safari as its default browser. No personal agreement/contact is submitted.
     func testExternalPrivacySupportAndSourceLinks() throws {

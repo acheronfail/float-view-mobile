@@ -95,6 +95,13 @@ def bundles(app, version, number):
         require(manifest.is_file() and load_plist(manifest) == load_plist(manifest_source),
                 "Missing or changed app/extension privacy manifest")
         if identifier == APP_ID:
+            if 2 in info.get("UIDeviceFamily", []):
+                required_orientations = {"UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown",
+                                         "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"}
+                orientations = info.get("UISupportedInterfaceOrientations~ipad",
+                                        info.get("UISupportedInterfaceOrientations", []))
+                require(required_orientations.issubset(set(orientations)),
+                        "iPad store support requires all interface orientations for multitasking")
             require(info.get("ITSAppUsesNonExemptEncryption") is False,
                     "Missing reviewed encryption declaration")
     require((app / "index.html").is_file(), "Archive is missing the shared frontend")
