@@ -152,3 +152,15 @@ inherited from the credential wrapper's restrictive umask. The recorded transpor
 outcome is uncertain; do not blindly resend build 104. A packaging permission
 check/fix and a fresh candidate/build number are required before Mac acceptance.
 Detailed diagnostics, receipts, screenshot assets and device results stay local.
+
+## Candidate RC9 Apple delivery checkpoint
+
+[RC9 build 106](https://github.com/acheronfail/float-view-mobile/actions/runs/39025585402),
+source `fae1bec2`, passed every CI job: three sideload packages, GitHub prerelease
+publication, both protected Apple signing jobs and both shared-environment uploads.
+Mac and iOS processing are independently confirmed `VALID`; exact-source/run/build
+receipts are retained locally. The downloaded Mac PKG independently passed the
+signature/profile/entitlement/resource/source audit, including the corrected
+non-root permissions. Its internal TestFlight group contains build 106. The
+ordinary master run still skipped all store signing/upload jobs with readiness
+enabled. Store-delivered physical acceptance and production review remain open.

@@ -151,22 +151,19 @@ physical Mac Bluetooth checks against simulated board firmware, not validation
 on a rider board or of a store-delivered app. Detailed build hashes, fixture
 inventory, timing and reports remain under ignored `.local/macos-store/`.
 
-The distribution profile and installer certificate/key pairing are validated.
-[Candidate v1.0.0-rc.7, build 102](https://github.com/acheronfail/float-view-mobile/actions/runs/39022207820),
-source `fae1a3a`, passed protected hosted signing. An independent downloaded-PKG
-inspection verified installer/app Apple signatures, exact source/build identity,
-embedded profile and signer match, minimal sandbox entitlements, universal
-executable, development-entry-point exclusion, full source-matching notices,
-privacy manifest and icon. The shared signing credentials worked for this Mac
-job. Raw logs, package hashes and extracted inspection evidence remain local.
+[Candidate v1.0.0-rc.9, build 106](https://github.com/acheronfail/float-view-mobile/actions/runs/39025585402),
+source `fae1bec2`, passed all platform builds, protected signing and shared-environment
+Apple delivery. Both Mac and iOS builds processed as `VALID`. Independent Mac
+PKG inspection verified Apple signatures/profile/entitlements, exact source/build,
+universal executable, readable installed-bundle permissions, notices, privacy
+manifest and icon. The Mac build is assigned to the owner's internal TestFlight
+group. Detailed receipts, hashes, screenshots and extracted evidence remain local.
 
-The Mac source/API and map audit is complete in source; the resulting changes
-require a new signed candidate. Still required: protected Apple upload,
-TestFlight processing/install acceptance, optional
-location and speech checks, actual direct/store transfer checks, Mac
-screenshots/listing and privacy answers, and owner-controlled review/release.
-Hosted package verification does not establish Apple processing, App Review or
-store-delivered runtime acceptance.
+The [Mac source/API and map audit](macos-distribution-audit.md) is implemented and
+verified in that signed candidate. Still required: TestFlight installation/runtime
+acceptance, optional location and speech checks, actual direct/store transfer
+checks, final Mac listing/screenshot completion and owner-controlled review/release.
+Apple processing does not establish physical runtime or App Review acceptance.
 
 ## Shared protected Apple upload
 
