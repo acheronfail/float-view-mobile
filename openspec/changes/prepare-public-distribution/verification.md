@@ -24,6 +24,7 @@ existing Git history; this policy does not require rewriting earlier commits.
 | [Nightly 78 / run 38980352255](https://github.com/acheronfail/float-view-mobile/actions/runs/38980352255), [source fae1f60e](https://github.com/acheronfail/float-view-mobile/tree/fae1f60ea5709fb40f6856c2a62a9c4ce63ec414) | IPA/APK passed; master selected no store jobs. Mac notarization was accepted, but ticket stapling failed on both attempts, preventing nightly publication. | A subsequent retry fix needs successful publication. Physical iOS acceptance is pending on the nightly actually installed. |
 | [Apple navigation implementation fae1aff1](https://github.com/acheronfail/float-view-mobile/commit/fae1aff18ecb00da432fdc09a838e1a35dd75b44) | Focused native policy/startup tests and Release iOS simulator privacy/support/source browser handoff passed. | Local software/simulator verification; subsequent nightly device acceptance is recorded below. |
 | [iOS nightly 82 / run 38986380948](https://github.com/acheronfail/float-view-mobile/actions/runs/38986380948), [source fae1971](https://github.com/acheronfail/float-view-mobile/tree/fae1971b4f947215dad7ef962c6a1702686dae2a) | CI succeeded. Owner confirmed build 82 passed all scoped iOS device acceptance checks, including storage, Bluetooth/permissions, locked-screen recording, announcements, Live Activity, import/export and licence/browser navigation. | Sideload acceptance; detailed results remain local. Does not establish App Store signing, Apple processing or TestFlight-delivered behavior. |
+| [iOS local signed preflight / source fae1814](https://github.com/acheronfail/float-view-mobile/tree/fae1814f9696b56071755d33784f0e233cc34bac) | Distribution export, app/extension signatures/profiles/entitlements, corrected full notices, manifests, permission text, development-hook exclusion and anonymous exact-source comparison passed. Release iPad simulator rotation and browser resizing checks passed. | Local test number, not an upload allocation. Does not establish hosted candidate upload, Apple processing or TestFlight delivery; detailed artifacts stay local. |
 
 ## Unpublished checks
 
@@ -33,11 +34,12 @@ brief result against the committed build after the relevant checks pass.
 
 ## Open release gates
 
-- Verify corrected notices, source access, manifests and development-hook
-  exclusions in the fresh signed release candidate.
+- Repeat package/source gates on the actual hosted numbered-candidate export;
+  clean local signed preflight passes.
 - Complete remaining console metadata and review materials. The owner confirmed
   completion of the iOS App Privacy questionnaire; private TestFlight contact
-  fields are configured. Public beta copy and hardware review evidence remain open.
+  fields are configured. Beta text and review fields are saved; final content review and hardware review
+  evidence remain open before external beta review.
 - Validate actual upload, Apple processing and TestFlight-delivered behavior.
   Upload readiness remains disabled; no Apple upload or tester invitation is
   recorded as complete.

@@ -3,8 +3,9 @@ import { pathToFileURL } from 'node:url';
 
 const integer = '(0|[1-9][0-9]*)';
 const stablePattern = new RegExp(`^v${integer}\\.${integer}\\.${integer}$`);
+const candidatePattern = new RegExp(`^v${integer}\\.${integer}\\.${integer}-rc\\.([1-9][0-9]*)$`);
 const displayPattern = new RegExp(
-  `^v${integer}\\.${integer}\\.${integer}(?:-nightly\\.${integer}\\.g[0-9a-f]{7,40})?$`
+  `^v${integer}\\.${integer}\\.${integer}(?:-nightly\\.${integer}\\.g[0-9a-f]{7,40}|-rc\\.([1-9][0-9]*))?$`
 );
 export type Bump = 'patch' | 'minor' | 'major';
 
@@ -12,11 +13,16 @@ export function isNightlyVersion(value: string): boolean {
   return value.includes('-nightly.') && displayPattern.test(value);
 }
 
+export function isCandidateVersion(value: string): boolean {
+  return candidatePattern.test(value);
+}
+
 export function parseVersion(value: string) {
   const match = displayPattern.exec(value);
   if (!match || match[0] !== value) throw new Error(`Invalid app version: ${value}`);
   const parts = match.slice(1, 4).map(Number);
   if (!parts.every(Number.isSafeInteger)) throw new Error('Version components exceed safe integers');
+  if (match[5] && !Number.isSafeInteger(Number(match[5]))) throw new Error('Candidate number exceeds safe integers');
   return { major: parts[0]!, minor: parts[1]!, patch: parts[2]!, appVersion: parts.join('.') };
 }
 
@@ -72,12 +78,14 @@ export function latestStable(commit: string, cwd = process.cwd(), before?: strin
 
 export function resolveVersion(commit: string, tag: string | null, cwd = process.cwd(), launchTarget?: string) {
   if (tag !== null) {
-    if (!stablePattern.test(tag)) throw new Error('Stable release tags must match vX.Y.Z exactly');
+    if (!stablePattern.test(tag) && !isCandidateVersion(tag))
+      throw new Error('Release tags must match vX.Y.Z or vX.Y.Z-rc.N exactly');
     parseVersion(tag);
     if (git(['rev-parse', `${tag}^{commit}`], cwd) !== commit)
       throw new Error('Release tag does not match the build commit');
     if (!isAncestor(commit, 'origin/master', cwd)) throw new Error('Release commit must be in origin/master history');
-    return { version: tag, appVersion: parseVersion(tag).appVersion, channel: 'stable', tag, configuration: 'Release' };
+    return { version: tag, appVersion: parseVersion(tag).appVersion,
+      channel: isCandidateVersion(tag) ? 'candidate' : 'stable', tag, configuration: 'Release' };
   }
   const base = latestStable(commit, cwd);
   if (launchTarget && !stablePattern.test(launchTarget)) throw new Error('Launch target must be a stable version');

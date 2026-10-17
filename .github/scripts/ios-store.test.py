@@ -97,7 +97,8 @@ class StoreTests(unittest.TestCase):
         path.write_text(original)
 
     def test_ci_signing_rejects_master_and_nightly_before_profile_use(self):
-        for ref in ["refs/heads/master", "refs/tags/v1.0.0-nightly.1.gabcdef0"]:
+        for ref in ["refs/heads/master", "refs/tags/v1.0.0-nightly.1.gabcdef0",
+                    "refs/tags/v1.0.0-rc.0", "refs/tags/v1.0.0-rc.01", "refs/tags/v1.0.0-beta.1"]:
             with patch.dict(os.environ, {**self.ci_environment(), "GITHUB_REF": ref}):
                 with self.assertRaisesRegex(ValueError, "stable release tag"):
                     store.ci_build(argparse.Namespace(output=self.root / "output"))
@@ -282,6 +283,42 @@ class StoreTests(unittest.TestCase):
         record = json.loads((output / "archive.json").read_text())
         self.assertEqual(record["commit"], "a" * 40)
         self.assertFalse(record["dirty"])
+
+    def test_candidate_ci_archive_strips_only_tag_suffix_and_checks_channel(self):
+        output = self.root / "candidate-archive"
+        record_path = self.root / "record.json"
+        ci = {"schema": 1, "commit": "a" * 40, "appVersion": "1.0.0", "buildNumber": "101",
+              "runId": "123", "workflowPath": ".github/workflows/build-apps.yml",
+              "channel": "candidate", "tag": "v1.0.0-rc.1"}
+        environment = {"FLOAT_VIEW_VERSION": "v1.0.0", "FLOAT_VIEW_BUILD_NUMBER": "101", "APPLE_TEAM_ID": TEAM,
+                       "FLOAT_VIEW_BUILD_RECORD": str(record_path), "GITHUB_RUN_ID": "123",
+                       "GITHUB_REF": "refs/tags/v1.0.0-rc.1"}
+        original = self.run_tool
+        def build(*args, **kwargs):
+            if args[0] == "just": return b""
+            if args[0] == "xcodebuild" and "archive" in args:
+                shutil.copytree(self.app, output / "FloatView.xcarchive/Products/Applications/float-view.app")
+                return b""
+            return original(*args, **kwargs)
+        for changes in [{"channel": "stable"}, {"tag": "v1.0.1-rc.1"}, {"tag": "v1.0.0-rc.0"}]:
+            record_path.write_text(json.dumps({**ci, **changes}))
+            with patch.dict(os.environ, environment):
+                with self.assertRaisesRegex(ValueError, "CI build record"):
+                    store.archive(argparse.Namespace(command="archive", output=output))
+        record_path.write_text(json.dumps(ci))
+        with patch.dict(os.environ, environment), patch.object(store, "run", side_effect=build):
+            store.archive(argparse.Namespace(command="archive", output=output, allow_provisioning_updates=False))
+        record = json.loads((output / "archive.json").read_text())
+        self.assertEqual(record["version"], "1.0.0")
+        self.assertEqual(record["ci"]["tag"], "v1.0.0-rc.1")
+        self.assertEqual(record["ci"]["channel"], "candidate")
+
+    def test_candidate_tag_reaches_manual_profile_validation(self):
+        environment = self.ci_environment(lambda profile: profile.update(IsXcodeManaged=True))
+        environment["GITHUB_REF"] = "refs/tags/v1.0.0-rc.1"
+        with patch.dict(os.environ, environment), patch.object(store, "run", side_effect=self.ci_decode):
+            with self.assertRaisesRegex(ValueError, "developer portal"):
+                store.ci_build(argparse.Namespace(output=self.root / "candidate-output"))
 
     def test_export_stays_local_and_preserves_versions(self):
         archive = self.root / "archive"

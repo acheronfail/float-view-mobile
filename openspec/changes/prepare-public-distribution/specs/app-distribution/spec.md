@@ -23,7 +23,7 @@ Master pushes and manual master runs SHALL resolve commit-identified rolling nig
 
 ### Requirement: Publication remains bounded and recoverable
 
-GitHub distribution SHALL publish only after all three sideload packages succeed, serialize publication, retain only the current Nightly asset set and preserve stable history. A stable rerun SHALL resume a draft or leave an already published release intact. Missing release metadata SHALL be distinguished from API or authentication failure. Store submission SHALL be independently retryable and SHALL NOT gate GitHub publication.
+GitHub distribution SHALL publish only after all three sideload packages succeed, serialize publication, retain only the current Nightly asset set and preserve stable history. A stable or candidate rerun SHALL resume a draft or leave an already published release intact. Missing release metadata SHALL be distinguished from API or authentication failure. Store submission SHALL be independently retryable and SHALL NOT gate GitHub publication.
 
 #### Scenario: Interrupted nightly publication
 
@@ -48,7 +48,7 @@ The approved pre-v1 cleanup SHALL remove all existing pre-v1 GitHub releases/ass
 
 ### Requirement: Version one is reserved until acceptance
 
-The first supported stable launch SHALL be v1.0.0. Its stable tag SHALL NOT be created or pushed until repository release-candidate checks pass. Preparation nightlies SHALL remain available before that point. The accepted stable tag selects store build/upload work; TestFlight processing and delivered-device acceptance SHALL precede production store release. Upload SHALL NOT implicitly invite testers or submit review.
+The first supported stable launch SHALL be v1.0.0. Its stable tag SHALL NOT be created or pushed until repository release-candidate and applicable TestFlight-delivered checks pass. Preparation nightlies SHALL remain available before that point. Numbered candidate tags select protected store build/upload work before the stable tag; TestFlight processing and delivered-device acceptance SHALL precede production store release. Upload SHALL NOT implicitly invite testers or submit review.
 
 #### Scenario: Candidate is still under test
 
@@ -80,7 +80,7 @@ The README SHALL link to verified live iOS App Store, Google Play and Mac App St
 
 ### Requirement: Store publication is explicit and traceable
 
-Store jobs SHALL select only stable `vX.Y.Z` release tags, use Release packages and record exact source/version/native build identity. Master, nightly and pull-request runs SHALL NOT select them. Signing/upload credentials SHALL remain in reviewed release environments with explicit upload readiness. Retries SHALL inspect previous Apple state before resubmission.
+Store jobs SHALL select only stable `vX.Y.Z` or numbered `vX.Y.Z-rc.N` release tags (N is a positive integer), use Release packages and record exact source/version/native build identity. Master, nightly and pull-request runs SHALL NOT select them. Signing/upload credentials SHALL remain in reviewed release environments with explicit upload readiness. Retries SHALL inspect previous Apple state before resubmission.
 
 #### Scenario: Master commit is built
 
@@ -92,15 +92,20 @@ Store jobs SHALL select only stable `vX.Y.Z` release tags, use Release packages 
 - **WHEN** `just release ...` pushes a valid stable tag on master history
 - **THEN** its run selects independent protected store jobs and all newly built packages share its native number, without automatically inviting testers or submitting review
 
+#### Scenario: Prepare TestFlight before stable publication
+
+- **WHEN** `just release candidate` runs on clean master matching origin/master
+- **THEN** it pushes the next immutable numbered candidate tag for v1.0.0 before launch, or the next patch after launch; its Release builds share the CI native number, keep Apple marketing version vX.Y.Z, publish a separate GitHub prerelease without changing Latest/Nightly, and use the same protected store approval/upload gates
+
 #### Scenario: Retry an existing stable release
 
-- **WHEN** a deliberate manual check/retry targets an existing stable release tag
+- **WHEN** a deliberate manual check/retry targets an existing stable or candidate release tag
 - **THEN** it can allocate a fresh run/native number for the same source and marketing version without replacing published GitHub downloads
 
 #### Scenario: Correct source after submission
 
 - **WHEN** source changes are needed after a release was tagged
-- **THEN** a new release tag is created through `just release ...`; the published tag is not moved
+- **THEN** a new candidate or stable release tag is created through `just release ...`; published tags are not moved
 
 #### Scenario: Rebuild an already processed version
 

@@ -203,3 +203,45 @@ test('launch nightlies target v1.0.0 and keep their count through pre-v1 tag cle
   const after = commit(dir);
   assert.equal(resolveVersion(after, null, dir, 'v1.0.0').version, `v1.0.1-nightly.1.g${after.slice(0, 12)}`);
 });
+
+test('candidate helper reserves immutable numbered prereleases before and after launch', () => {
+  const dir = repository();
+  git(['tag', 'v0.3.0'], dir);
+  const origin = remote(dir);
+  const sha = git(['rev-parse', 'HEAD'], dir);
+  assert.equal(release('candidate', dir), 'v1.0.0-rc.1');
+  assert.equal(git(['cat-file', '-t', 'refs/tags/v1.0.0-rc.1'], origin), 'tag');
+  assert.equal(release('candidate', dir), 'v1.0.0-rc.2');
+  assert.equal(git(['tag', '--list', 'v1.0.0'], dir), '');
+  assert.equal(git(['rev-parse', 'v1.0.0-rc.1^{commit}'], origin), sha);
+  assert.deepEqual(resolveVersion(sha, 'v1.0.0-rc.2', dir), {
+    version: 'v1.0.0-rc.2', appVersion: '1.0.0', channel: 'candidate', tag: 'v1.0.0-rc.2', configuration: 'Release',
+  });
+  assert.match(resolveVersion(sha, null, dir, 'v1.0.0').version, /^v1\.0\.0-nightly\./);
+  git(['tag', 'v1.0.0'], dir);
+  git(['push', 'origin', 'v1.0.0'], dir);
+  assert.equal(release('candidate', dir), 'v1.0.1-rc.1');
+  assert.equal(git(['rev-parse', 'v1.0.0-rc.1^{commit}'], origin), sha);
+  assert.equal(git(['status', '--porcelain'], dir), '');
+});
+
+test('candidate metadata rejects zero, padded, malformed or overflowing numbers', () => {
+  assert.equal(parseVersion('v1.0.0-rc.12').appVersion, '1.0.0');
+  for (const value of ['v1.0.0-rc.0', 'v1.0.0-rc.01', 'v1.0.0-rc.1.extra', 'v1.0.0-rc.9007199254740992'])
+    assert.throws(() => parseVersion(value));
+  const dir = repository();
+  remote(dir);
+  writeFileSync(join(dir, 'dirty'), 'uncommitted');
+  assert.throws(() => release('candidate', dir), /clean/);
+  rmSync(join(dir, 'dirty'));
+  commit(dir);
+  assert.throws(() => release('candidate', dir), /match origin\/master/);
+});
+
+test('Apple native version consumers strip the candidate suffix without changing the CI number', () => {
+  const result = spawnSync(process.execPath, ['--strip-types', new URL('./version.ts', import.meta.url).pathname, 'native'], {
+    encoding: 'utf8', env: { ...process.env, FLOAT_VIEW_VERSION: 'v1.0.0-rc.1', FLOAT_VIEW_BUILD_NUMBER: '85' },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), '1.0.0 85');
+});

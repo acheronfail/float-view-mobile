@@ -342,7 +342,7 @@ test('a conflicting nightly version tag is not overwritten', () => {
 test('nightly cleanup paginates before deleting and preserves current, stable and unrelated tags', () => {
   const f = fixture();
   const obsolete = Array.from({ length: 105 }, (_, i) => `v0.1.50-nightly.${i}.gabcdef012345`);
-  const retained = ['v0.1.49', 'nightly', 'backup-nightly.1.gabcdef012345', 'v0.1.50-nightly.invalid'];
+  const retained = ['v0.1.49', 'v1.0.0-rc.1', 'nightly', 'backup-nightly.1.gabcdef012345', 'v0.1.50-nightly.invalid'];
   f.save({ releases: [], actions: [], refs: Object.fromEntries([...obsolete, ...retained].map(tag => [tag, f.sha])) });
   assert.equal(f.run('publish').status, 0);
   const state = f.state();
@@ -390,7 +390,7 @@ test('store jobs follow stable release tags and reject master/nightly preparatio
   for (const event of ['push', 'workflow_dispatch']) {
     assert.equal(f.run('prepare', { GITHUB_EVENT_NAME: event }).status, 0);
     assert.match(f.output(), /storeBuild=false/);
-    for (const request of [{ FLOAT_VIEW_BUILD_IOS_STORE: 'true' }, { FLOAT_VIEW_IOS_DELIVERY: 'check' }]) {
+    for (const request of [{ FLOAT_VIEW_BUILD_IOS_STORE: 'true' }, { FLOAT_VIEW_IOS_DELIVERY: 'check' }] as Record<string, string>[]) {
       const result = f.run('prepare', { ...request, GITHUB_EVENT_NAME: event });
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /stable release tag/);
@@ -404,7 +404,7 @@ test('store jobs follow stable release tags and reject master/nightly preparatio
   assert.match(f.output(), /configuration=Release/);
   assert.ok(f.output().endsWith('skip=false\n'));
   // A fresh store retry uses the existing immutable release tag even if GitHub is published.
-  f.save({ releases: [{ id: 200, tag_name: 'v1.0.0', draft: false, assets: [] }], actions: [] });
+  f.save({ releases: [{ id: 200, tag_name: 'v1.0.0', name: 'v1.0.0', prerelease: false, draft: false, body: '', assets: [] }], actions: [] });
   assert.equal(f.run('prepare', { ...release, GITHUB_EVENT_NAME: 'workflow_dispatch',
     FLOAT_VIEW_IOS_DELIVERY: 'check', GITHUB_RUN_NUMBER: '62' }).status, 0);
   assert.match(f.output(), /storeBuild=true\nstoreDelivery=check/);
@@ -412,8 +412,63 @@ test('store jobs follow stable release tags and reject master/nightly preparatio
   assert.ok(f.output().endsWith('skip=true\n'));
   assert.equal(f.run('prepare', { ...release, GITHUB_EVENT_NAME: 'workflow_dispatch' }).status, 0);
   assert.match(f.output(), /storeBuild=false/);
-  for (const tag of ['v1.0.0-nightly.1.gabcdef0', 'v01.0.0']) {
+  for (const tag of ['v1.0.0-nightly.1.gabcdef0', 'v01.0.0', 'v1.0.0-rc.0', 'v1.0.0-rc.01', 'v1.0.0-beta.1']) {
     git(['tag', tag], f.cwd);
     assert.notEqual(f.run('prepare', { ...release, GITHUB_REF: 'refs/tags/' + tag }).status, 0);
   }
+});
+
+test('candidate preparation and publication isolate prereleases from Nightly and Latest', () => {
+  const f = fixture();
+  git(['tag', '-a', 'v1.0.0-rc.1', '-m', 'candidate'], f.cwd);
+  const nightly: Release = { id: 1, tag_name: 'nightly', name: 'Nightly', prerelease: true,
+    draft: false, body: 'retained nightly', assets: [{ id: 1, name: 'nightly.ipa' }] };
+  const stable: Release = { id: 2, tag_name: 'v0.1.49', name: 'v0.1.49', prerelease: false,
+    draft: false, body: 'retained stable', assets: [] };
+  f.save({ releases: [nightly, stable], actions: [], refs: { nightly: f.sha } });
+  const overrides = { GITHUB_REF: 'refs/tags/v1.0.0-rc.1', FLOAT_VIEW_VERSION: 'v1.0.0-rc.1',
+    GITHUB_EVENT_NAME: 'push' };
+  for (const file of assetNames(overrides.FLOAT_VIEW_VERSION)) writeFileSync(join(f.cwd, file), 'candidate');
+  assert.equal(f.run('prepare', overrides).status, 0);
+  assert.match(f.output(), /channel=candidate/);
+  assert.match(f.output(), /appVersion=1\.0\.0/);
+  assert.match(f.output(), /configuration=Release/);
+  assert.match(f.output(), /storeBuild=true\nstoreDelivery=upload/);
+  assert.equal(f.run('publish', overrides).status, 0);
+  let state = f.state();
+  assert.deepEqual(state.releases.slice(0, 2), [nightly, stable]);
+  const candidate = state.releases[2] as Release & { make_latest: string };
+  assert.equal(candidate.name, overrides.FLOAT_VIEW_VERSION);
+  assert.equal(candidate.prerelease, true);
+  assert.equal(candidate.make_latest, 'false');
+  assert.deepEqual(candidate.assets.map(asset => asset.name), assetNames(overrides.FLOAT_VIEW_VERSION));
+  assert.ok(!state.actions.some(action => action.startsWith('DELETE git/refs/')));
+  const uploads = state.actions.filter(action => action.startsWith('upload')).length;
+  assert.equal(f.run('publish', overrides).status, 0);
+  assert.equal(f.state().actions.filter(action => action.startsWith('upload')).length, uploads);
+  assert.equal(f.run('prepare', { ...overrides, GITHUB_EVENT_NAME: 'workflow_dispatch',
+    FLOAT_VIEW_IOS_DELIVERY: 'check', GITHUB_RUN_NUMBER: '61' }).status, 0);
+  assert.match(f.output(), /buildNumber=121/);
+  assert.match(f.output(), /storeBuild=true\nstoreDelivery=check/);
+  assert.ok(f.output().endsWith('skip=true\n'));
+  assert.equal(git(['tag', '--list', 'v1.0.0'], f.cwd), '');
+  state = f.state();
+  assert.deepEqual(state.releases.slice(0, 2), [nightly, stable]);
+});
+
+test('failed candidate publication resumes its draft without touching Nightly', () => {
+  const f = fixture();
+  const tag = 'v1.0.0-rc.1';
+  git(['tag', tag], f.cwd);
+  for (const file of assetNames(tag)) writeFileSync(join(f.cwd, file), 'candidate');
+  const overrides = { GITHUB_REF: 'refs/tags/' + tag, FLOAT_VIEW_VERSION: tag };
+  f.save({ releases: [], actions: [], fail: 'publish', refs: { nightly: f.sha } });
+  assert.notEqual(f.run('publish', overrides).status, 0);
+  const state = f.state();
+  assert.equal(state.releases[0]!.draft, true);
+  delete state.fail;
+  f.save(state);
+  assert.equal(f.run('publish', overrides).status, 0);
+  assert.equal(f.state().releases[0]!.draft, false);
+  assert.equal(f.state().refs?.nightly, f.sha);
 });

@@ -134,6 +134,17 @@ releases and their assets are retained on reruns; a failed draft can be resumed.
 If a helper push fails, its local tag remains for inspection and an explicit
 `git push origin <tag>` retry. Tagging does not modify app source or package manifests.
 
+`just release candidate` fetches version tags and pushes the next annotated,
+immutable candidate tag from clean `master` matching `origin/master`. Before the
+first stable v1.0.0 it targets `v1.0.0-rc.N`; afterward it targets the next patch.
+Candidate tags select Release packages and protected iOS signing/delivery. They
+publish separate GitHub prereleases with all three sideload downloads, without
+replacing Latest or the rolling Nightly. Apple marketing versions omit `-rc.N`;
+the shared native build number and source record identify the exact CI run/tag.
+Use another candidate for source fixes; never move an existing candidate tag.
+No candidate command invites testers or submits App Review. Stable v1.0.0 waits
+for candidate acceptance, including TestFlight-delivered checks.
+
 Master pushes and manual master builds produce Nightly
 prereleases targeting `v1.0.0-nightly.<count>.g<hash>` before the first stable
 v1.0.0 ancestor. The count includes all reachable repository commits, so deleting
@@ -167,18 +178,18 @@ Nightly compares against the latest stable ancestor. A first release includes al
 reachable non-merge commits except `repo:` entries. Ranges with no included changes are stated explicitly.
 Nightly descriptions begin with a UTC date and time refreshed on each successful publication.
 Hidden source/version comments support nightly skip and asset verification.
-Stable tags select Release configuration, while nightlies use Debug for mobile.
+Stable and candidate tags select Release configuration, while nightlies use Debug for mobile.
 Current downloads remain AltStore IPAs, signed APKs and notarized Developer ID
 Mac ZIPs. Local iOS Release archive/export preparation is documented in the
 [Apple host guide](backends/apple/README.md#ios-app-store-preparation); it neither
 uploads to a store nor changes the GitHub packages. Android App Bundles remain
-planned work. Only stable `vX.Y.Z` release tags select protected App Store jobs.
+planned work. Only stable `vX.Y.Z` or numbered `vX.Y.Z-rc.N` release tags select protected App Store jobs.
 `just release ...` pushes that tag and selects iOS signing/delivery; master
 commits and rolling nightlies never select them. Owner environment review and
 explicit upload readiness are still required. A fresh manual run on an existing
-stable tag can rebuild store artifacts with `ios-store=true` or select
+stable or candidate tag can rebuild store artifacts with `ios-store=true` or select
 `ios-delivery=check|upload`; requests on master/nightly refs are rejected.
-Published stable GitHub assets remain immutable during store retries. Check mode
+Published stable/candidate GitHub assets remain immutable during store retries. Check mode
 verifies authentication/app/build records without uploading. Upload mode sends
 once and retains a processing receipt. Neither invites testers or submits review.
 See the Apple host guide for gates and retries.

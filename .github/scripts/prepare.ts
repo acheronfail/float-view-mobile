@@ -14,11 +14,11 @@ const delivery = process.env.FLOAT_VIEW_IOS_DELIVERY || 'none';
 if (!['none', 'check', 'upload'].includes(delivery)) throw new Error('Invalid iOS delivery action');
 const explicitlyRequested = process.env.FLOAT_VIEW_BUILD_IOS_STORE === 'true' || delivery !== 'none';
 if (explicitlyRequested && (!isTag || event !== 'workflow_dispatch'))
-  throw new Error('Manual store preparation requires a stable release tag; never master or nightly');
+  throw new Error('Manual store preparation requires a stable release tag or numbered candidate; never master or nightly');
 const storeRequested = isTag && (event === 'push' || (event === 'workflow_dispatch' && explicitlyRequested));
 const storeDelivery = storeRequested && event === 'push' ? 'upload' : delivery;
 const identity = ciBuildIdentity();
-const existing = metadata.channel === 'stable' ? getRelease(metadata.tag) : getNightlyRelease();
+const existing = metadata.channel === 'nightly' ? getNightlyRelease() : getRelease(metadata.tag);
 const publishedSource = existing?.body?.match(/<!-- float-view-source:([0-9a-f]{40}) -->/)?.[1];
 const newerNightly = publishedSource && publishedSource !== commit && isAncestor(commit, publishedSource);
 const publishedBuild = existing?.body?.match(/<!-- float-view-build-number:([1-9][0-9]*) -->/)?.[1];
@@ -31,7 +31,7 @@ const completeAssets =
   existing?.assets.length === expectedAssets.length &&
   existing.assets.every((asset) => expectedAssets.includes(asset.name));
 const skip =
-  metadata.channel === 'stable'
+  metadata.channel !== 'nightly'
     ? Boolean(existing && !existing.draft)
     : Boolean(
         existing &&

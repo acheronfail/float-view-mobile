@@ -83,8 +83,8 @@ val auditAndroidRustRuntimeTasks by tasks.registering {
 }
 
 val releaseVersion = providers.environmentVariable("FLOAT_VIEW_VERSION").orNull
-require(releaseVersion == null || Regex("v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-nightly\\.(0|[1-9][0-9]*)\\.g[0-9a-f]{7,40})?").matches(releaseVersion)) {
-    "FLOAT_VIEW_VERSION must be a stable or nightly app version"
+require(releaseVersion == null || Regex("v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-nightly\\.(0|[1-9][0-9]*)\\.g[0-9a-f]{7,40}|-rc\\.[1-9][0-9]*)?").matches(releaseVersion)) {
+    "FLOAT_VIEW_VERSION must be a stable, candidate or nightly app version"
 }
 
 val releaseBuildNumber = providers.environmentVariable("FLOAT_VIEW_BUILD_NUMBER").orNull

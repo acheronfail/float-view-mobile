@@ -155,8 +155,9 @@ def archive(args):
                 and ci.get("appVersion") == version[1:] and ci.get("buildNumber") == number
                 and ci.get("runId") == os.environ.get("GITHUB_RUN_ID")
                 and ci.get("workflowPath") == ".github/workflows/build-apps.yml"
-                and ci.get("channel") == "stable" and ci.get("tag") == version
-                and os.environ.get("GITHUB_REF") == "refs/tags/" + version,
+                and ((ci.get("channel") == "stable" and ci.get("tag") == version)
+                     or (ci.get("channel") == "candidate" and re.fullmatch(re.escape(version) + r"-rc\.[1-9]\d*", ci.get("tag", ""))))
+                and os.environ.get("GITHUB_REF") == "refs/tags/" + ci.get("tag", ""),
                 "CI build record does not match the source/version/run")
     # A clean check applies before generating the ignored embedded frontend.
     run("just", "build")
@@ -252,9 +253,9 @@ def ci_build(args):
     require(os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted"
             and os.environ.get("RUNNER_OS") == "macOS", "CI profile import requires a hosted macOS runner")
-    require(re.fullmatch(r"refs/tags/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)", os.environ.get("GITHUB_REF", ""))
+    require(re.fullmatch(r"refs/tags/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-rc\.[1-9]\d*)?", os.environ.get("GITHUB_REF", ""))
             and os.environ.get("GITHUB_EVENT_NAME") in ["push", "workflow_dispatch"],
-            "CI store signing requires a stable release tag; never master or nightly")
+            "CI store signing requires a stable release tag or numbered candidate; never master or nightly")
     require(os.environ.get("FLOAT_VIEW_BUILD_RECORD"), "CI requires the shared build record")
     require(not args.output.exists(), "Output already exists")
     # Clear both profile secrets before invoking any child tool or Xcode build.

@@ -34,21 +34,22 @@ Preserve one product implementation, both installation routes and independent pu
 
 Retain current stable/nightly GitHub lifecycle and asset names. Add explicitly invoked, protected store package/upload jobs tied to exact source/version metadata. A store failure does not prevent sideload publication. All three sideload builds still succeed before GitHub publication, as today. Select the upload track explicitly and keep public release/manual approval separate from build success.
 
-Store jobs run only for stable `vX.Y.Z` releases
+Store jobs run only for stable `vX.Y.Z` or numbered `vX.Y.Z-rc.N` releases
 created by `just release ...`. Their tag push selects signing/delivery; master
 commits, manual master runs and nightlies cannot select store jobs. A manual
-retry/check must target an existing stable release tag and receives a fresh run
+retry/check must target an existing stable or candidate release tag and receives a fresh run
 number without replacing already published GitHub assets. Corrected source needs
 a new release tag; existing tags stay immutable. Both protected environments allow
 version tags and retain owner review; upload readiness remains a separate gate.
-Complete repository candidate checks before creating the first stable tag;
-TestFlight processing/device acceptance then precede production store release.
+Candidate tags allow TestFlight processing/device acceptance before the stable
+tag. Complete repository and applicable TestFlight checks before creating it;
+production store review/release remains a separate owner action.
 
 Tie each native build number to the GitHub Actions run that builds it. Keep the existing Build apps workflow as the sole counter owner and preserve `run_number + 60` across sideload and optional protected store jobs. Record run ID, attempt, URL and source revision, reject allocation from another workflow path, and treat a workflow-path migration as an explicit continuity change. Display-name changes are harmless. Reruns keep their number; a corrected/Apple-consumed binary needs a fresh workflow run. Upload retries must query Apple before resubmitting. Do not introduce a second workflow counter or reset native numbers during version/tag cleanup.
 
 The owner explicitly approved removing every existing pre-v1 release (including GitHub “stable” v0.x releases), associated assets, and matching local/remote version tags. This is a one-time exception to immutable release retention; retain commit history and all later releases. Before deletion, enumerate exact release IDs/tags and record the cleanup manifest; pause publication and drain running jobs to avoid recreation races. Remove matching tags even when a GitHub release has already gone, then verify local and remote state. Resume the rolling nightly channel with fresh preparation builds; this exception does not permanently disable prereleases or nightlies.
 
-Reserve v1.0.0 without pushing its tag. Before the first stable v1.0.0 tag, explicitly target v1.0.0-nightly.<count>.g<hash> so deletion of v0.x ancestors does not fall back to v0.0.1 nightlies. After acceptance/tagging, resume normal next-patch nightlies (v1.0.1-nightly.…). Keep commit-derived identity and numeric build allocation monotonic through the cleanup. The stable tag is created only after release-candidate checks pass; store review can then proceed independently.
+Reserve v1.0.0 without pushing its tag. Before the first stable v1.0.0 tag, explicitly target v1.0.0-nightly.<count>.g<hash> so deletion of v0.x ancestors does not fall back to v0.0.1 nightlies. After acceptance/tagging, resume normal next-patch nightlies (v1.0.1-nightly.…). Keep commit-derived identity and numeric build allocation monotonic through the cleanup. Use `just release candidate` to create immutable numbered prereleases such as v1.0.0-rc.1, select protected Release store jobs and keep all sideload artifacts on the same CI number. Candidate releases never replace Latest or the rolling Nightly. Apple marketing versions strip the rc suffix; source records retain the full candidate tag. The stable tag waits for candidate acceptance, including TestFlight-delivered checks; production store review/release stays explicit.
 
 ### 2. Preserve signing continuity where possible
 
@@ -116,7 +117,7 @@ Existing Git history is preserved.
 
 1. Commit the reviewed planning artifacts before implementation under the existing repository workflow.
 2. Apply selected licence after provenance review; reconcile docs and production guards; prove Mac sandbox feasibility in a focused slice.
-3. Implement baseline-100 reset/preservation/startup behavior, pre-v1 release/tag cleanup and resumed v1.0.0 nightlies before distributing external betas. Do not tag v1.0.0 until candidate acceptance.
+3. Implement baseline-100 reset/preservation/startup behavior before external betas. Keep v1.0.0 preparation nightlies and explicit numbered TestFlight candidates; perform the pre-v1 cleanup only after candidate acceptance. Do not tag v1.0.0 until candidate acceptance.
 4. Produce store packages alongside existing sideload assets; provision credentials and upload to test tracks.
 5. Complete declarations, review evidence and affected device tests; submit each store independently, then publish links only when live.
 6. Roll back code with a new higher build identifier only when it can read the published storage; otherwise halt rollout and ship a forward fix. Never recommend uninstall as a data-preserving rollback.

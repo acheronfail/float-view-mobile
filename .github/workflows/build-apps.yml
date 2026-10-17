@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       ios-store:
-        description: Rebuild a tagged release store IPA (select its vX.Y.Z ref)
+        description: Rebuild a tagged release store IPA (select its vX.Y.Z or vX.Y.Z-rc.N ref)
         type: boolean
         default: false
       ios-delivery:

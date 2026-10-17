@@ -6,7 +6,7 @@ Float View is preparing for store distribution on the iOS App Store, Google Play
 
 ## What Changes
 
-- Retain GitHub stable/nightly IPA, APK and universal macOS ZIP downloads and local source builds; add independent, protected store packaging and upload paths from the same source/version, selected only for stable releases created by `just release ...`, never master/nightly builds.
+- Retain GitHub stable/nightly IPA, APK and universal macOS ZIP downloads and local source builds; add independent, protected store packaging and upload paths from the same source/version, selected only for stable releases or numbered release candidates created by `just release ...`, never master/nightly builds. `just release candidate` supports TestFlight before the stable tag.
 - Configure Apple/Google publisher accounts, app records, signing, review materials, privacy disclosures and store-delivered beta testing.
 - Establish storage baseline `100` for the `v1.0.0` candidate: automatically reinitialize recognised pre-v1 owned development databases/settings/recordings without migrations, then preserve baseline and subsequent user data. Apply this before external store testing.
 - Use `AGPL-3.0-or-later` for project-owned code with `Copyright © 2026 acheronfail`; retain third-party terms and complete dependency/provenance and Apple distribution-rights checks.

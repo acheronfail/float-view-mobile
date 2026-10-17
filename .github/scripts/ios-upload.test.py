@@ -161,6 +161,37 @@ class UploadTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             upload.candidate(self.root)
 
+    def test_candidate_tag_channel_and_marketing_version_must_agree(self):
+        self.record["ci"].update(channel="candidate", tag="v1.0.0-rc.1")
+        os.environ["GITHUB_REF"] = "refs/tags/v1.0.0-rc.1"
+        path = self.root / "export.json"
+        path.write_text(json.dumps(self.record))
+        self.assertEqual(upload.candidate(self.root)[1], self.ipa)
+        for channel, tag in [("stable", "v1.0.0-rc.1"), ("candidate", "v1.0.0"),
+                             ("candidate", "v1.0.1-rc.1"), ("candidate", "v1.0.0-rc.0")]:
+            self.record["ci"].update(channel=channel, tag=tag)
+            os.environ["GITHUB_REF"] = "refs/tags/" + tag
+            path.write_text(json.dumps(self.record))
+            with self.subTest(channel=channel, tag=tag), self.assertRaisesRegex(ValueError, "CI source"):
+                upload.candidate(self.root)
+
+    def test_candidate_main_preserves_upload_gate_and_uses_same_receipts(self):
+        self.record["ci"].update(channel="candidate", tag="v1.0.0-rc.1")
+        (self.root / "export.json").write_text(json.dumps(self.record))
+        hosted = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_OS": "macOS",
+                  "GITHUB_REF": "refs/tags/v1.0.0-rc.1", "GITHUB_EVENT_NAME": "push"}
+        args = ["ios-upload.py", str(self.root), str(self.output), "--prior-receipts", str(self.prior)]
+        with patch.dict(os.environ, hosted), patch("sys.argv", args), patch.object(upload, "credentials") as key:
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit): upload.main()
+            key.assert_not_called()
+        api = FakeApple([None, "VALID"])
+        with patch.dict(os.environ, {**hosted, "IOS_STORE_UPLOAD_READY": "true"}), patch("sys.argv", args), \
+             patch.object(upload, "verify_export"), patch.object(upload, "credentials", return_value=contextlib.nullcontext(api)):
+            with contextlib.redirect_stdout(io.StringIO()): upload.main()
+        self.assertEqual(len(api.uploads), 1)
+        self.assertEqual(self.receipt()["status"], "processed")
+        self.assertEqual(self.receipt()["version"], "1.0.0")
+
     def test_private_key_is_cleared_from_child_environment_and_removed_after_failure(self):
         os.environ.update(ASC_API_KEY_ID="TESTKEY123", ASC_API_ISSUER_ID="00000000-0000-4000-8000-000000000001",
                           ASC_API_PRIVATE_KEY_BASE64=base64.b64encode(b"-----BEGIN PRIVATE KEY-----\nfixture").decode())
@@ -190,7 +221,8 @@ class UploadTests(unittest.TestCase):
                   "GITHUB_REF": "refs/tags/v1.0.0", "GITHUB_EVENT_NAME": "push"}
         for overrides in [{}, {**hosted}, *[
                 {**hosted, "IOS_STORE_UPLOAD_READY": "true", "GITHUB_REF": ref}
-                for ref in ["refs/heads/master", "refs/heads/other", "refs/tags/v1.0.0-nightly.1.gabcdef0"]]]:
+                for ref in ["refs/heads/master", "refs/heads/other", "refs/tags/v1.0.0-nightly.1.gabcdef0",
+                            "refs/tags/v1.0.0-rc.0", "refs/tags/v1.0.0-rc.01"]]]:
             with patch.dict(os.environ, overrides), patch("sys.argv", args), patch.object(upload, "credentials") as key:
                 with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                     upload.main()

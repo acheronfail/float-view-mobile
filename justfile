@@ -109,7 +109,7 @@ emulate platform:
       *) echo 'Usage: just emulate android|ios' >&2; exit 2 ;;
     esac
 
-# Tag a stable release, or preview next-patch notes locally with preview [ref].
+# Tag a stable/candidate release, or preview next-patch notes with preview [ref].
 release bump="patch" ref="":
     node --strip-types .github/scripts/release.ts {{ quote(bump) }} {{ if ref == "" { "" } else { quote(ref) } }}
 

@@ -136,20 +136,25 @@ territory-specific questions in App Store Connect. Source:
 Use the build-linked verification summary for completed checks. Before upload,
 verify the exact candidate rather than reusing evidence from an earlier binary.
 
-- Baseline 100 and software preservation/startup checks are implemented; complete
-  the scoped device/container and failure/retry presentation checkpoint before
-  inviting external users. See [storage-baseline.md](storage-baseline.md) and the
-  verification summary.
+- Baseline 100 and software preservation/startup checks are implemented. Nightly
+  82 passed the owner-reported scoped device checkpoint; simulator failure/retry
+  presentation checks also passed. Validate the store-delivered build next. See
+  [storage-baseline.md](storage-baseline.md) and the verification summary.
 - The [iOS package/source audit](ios-package-source-audit.md) verified exact
   public source and existing packaged texts, and fixed missing Rust runtime
-  notices. Validate the corrected texts in the fresh tagged candidate before
-  upload. Build 77 predates the fix. The owner's official Apple permission is
+  notices. The clean local signed preflight at source fae1814 passed corrected
+  notices,
+  manifests, entitlements, production-hook exclusions and exact-source checks.
+  Repeat the gates on the actual CI candidate before upload; build 77 predates
+  the fixes. The owner's official Apple permission is
   recorded in licensing.md; third-party terms remain independent.
-- When upload is authorized, create a fresh signed CI candidate and validate
-  Apple processing and encryption status. Local and read-only checks do not
+- When upload is authorized, use `just release candidate` to create a fresh
+  signed CI candidate without publishing stable v1.0.0, and validate Apple
+  processing and encryption status. Local and read-only checks do not
   establish transport or processing acceptance.
-- Fill beta description, feedback email, what-to-test notes and any required beta
-  review contact privately in App Store Connect. First tester is the owner;
+- Beta description, privacy URL, feedback email and review contact/notes fields
+  are saved (read-only API presence check). Review their final content and add
+  build-specific what-to-test notes in App Store Connect. First tester is the owner;
   invited external users come later and need the applicable external beta review.
 - Provide real supported-hardware pairing/use instructions and review evidence;
   test the delivered build's BLE, optional route permissions/background capture,
@@ -221,6 +226,16 @@ Before external beta review, the owner must add the tested hardware connection
 steps and a reviewer-accessible physical-device/hardware interaction video.
 The synthetic archive demonstrates history only, not real Bluetooth integration.
 Do not submit these notes while those specific review inputs are missing.
+
+### Hardware review video
+
+Apple's [complete-review guidance](https://developer.apple.com/help/app-review/before-submitting-for-review/complete-review/)
+requires camera footage, not just a screen recording, for apps requiring hardware.
+Show the app on a physical iPhone or iPad as it pairs/connects and interacts with
+the board; keep the screen readable and show live readings and recorded history.
+No riding footage is necessary. Supply concise hardware/firmware setup details
+and an accessible video through private App Store Connect review materials;
+keep detailed device results, video files and private links out of Git.
 
 ### URLs and declarations
 

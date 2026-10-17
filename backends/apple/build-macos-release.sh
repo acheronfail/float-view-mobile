@@ -3,7 +3,7 @@ set -euo pipefail
 
 apple_root="$(cd "$(dirname "$0")" && pwd)"
 repository_root="$(cd "$apple_root/../.." && pwd)"
-: "${FLOAT_VIEW_VERSION:?Set the stable or nightly version}"
+: "${FLOAT_VIEW_VERSION:?Set the stable, candidate or nightly version}"
 : "${CODE_SIGN_IDENTITY:?Use with-macos-signing-identity.sh}"
 : "${APPLE_TEAM_ID:?Set the publishing Apple Team ID}"
 [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo 'Invalid Apple Team ID.' >&2; exit 2; }

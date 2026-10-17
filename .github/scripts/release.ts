@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { releaseNotes } from './notes.ts';
-import { bumpVersion, git, latestStable, type Bump } from './version.ts';
+import { bumpVersion, git, latestStable, parseVersion, type Bump } from './version.ts';
 
 export function preview(ref = 'HEAD', cwd = process.cwd()) {
   const commit = git(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], cwd);
@@ -11,7 +11,8 @@ export function preview(ref = 'HEAD', cwd = process.cwd()) {
 }
 
 export function release(bump: string, cwd = process.cwd()): string {
-  if (!['patch', 'minor', 'major'].includes(bump)) throw new Error('Usage: just release patch|minor|major');
+  if (!['patch', 'minor', 'major', 'candidate'].includes(bump))
+    throw new Error('Usage: just release patch|minor|major|candidate');
   if (git(['status', '--porcelain'], cwd)) throw new Error('Release requires a clean working tree');
   if (git(['branch', '--show-current'], cwd) !== 'master') throw new Error('Release requires the master branch');
   git(
@@ -21,7 +22,17 @@ export function release(bump: string, cwd = process.cwd()): string {
   const commit = git(['rev-parse', 'HEAD'], cwd);
   if (commit !== git(['rev-parse', 'origin/master'], cwd))
     throw new Error('Master must match origin/master; push or pull first');
-  const version = bumpVersion(latestStable(commit, cwd) ?? 'v0.0.0', bump as Bump);
+  const base = latestStable(commit, cwd) ?? 'v0.0.0';
+  let version: string;
+  if (bump === 'candidate') {
+    const target = parseVersion(base).major < 1 ? 'v1.0.0' : bumpVersion(base, 'patch');
+    if (git(['tag', '--list', target], cwd)) throw new Error(`Stable version ${target} is already reserved`);
+    const prefix = `${target}-rc.`;
+    const numbers = git(['tag', '--list', `${prefix}*`], cwd).split('\n')
+      .map(tag => tag.slice(prefix.length)).filter(value => /^[1-9][0-9]*$/.test(value)).map(Number);
+    version = `${prefix}${Math.max(0, ...numbers) + 1}`;
+    parseVersion(version);
+  } else version = bumpVersion(base, bump as Bump);
   if (git(['tag', '--list', version], cwd)) throw new Error(`Tag ${version} is already reserved`);
   git(['tag', '-a', version, '-m', `Float View ${version}`, commit], cwd);
   // Keep the local tag on a failed push so a retry cannot accidentally select another commit.
@@ -33,7 +44,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const action = process.argv[2] ?? '';
   const ref = process.argv[3];
   if (process.argv.length > 4 || (action !== 'preview' && ref))
-    throw new Error('Usage: just release patch|minor|major or just release preview [ref]');
+    throw new Error('Usage: just release patch|minor|major|candidate or just release preview [ref]');
   if (action === 'preview') {
     const result = preview(ref);
     console.error(
@@ -41,6 +52,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     );
     console.log(result.notes);
   } else {
-    console.log(`Pushed ${release(action)}; the tag starts the stable release workflow.`);
+    console.log(`Pushed ${release(action)}; the tag starts the release workflow.`);
   }
 }

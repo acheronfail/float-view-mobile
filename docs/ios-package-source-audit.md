@@ -95,8 +95,9 @@ the identified runtime-notice gap is fixed in source. Software checks verify the
 updated offline page and packaging gate. Unsigned Release packaging checks also
 passed with corrected full texts. These local checks do not certify a clean signed
 candidate; retain detailed logs locally.
-A fresh release-tag signed candidate
-must still pass those gates before upload; build 77 is not grandfathered in.
+A clean local signed preflight at [source fae1814](https://github.com/acheronfail/float-view-mobile/tree/fae1814f9696b56071755d33784f0e233cc34bac) passed the corrected package checks and anonymous exact-source comparison.
+Its local test number is not an upload allocation. The actual numbered-candidate
+CI export must still pass the same gates before upload; build 77 is not grandfathered in.
 Android's additional upstream copyright/NOTICE collection and final AAB review,
 Mac store packaging, Apple processing and delivered-device checks remain separate
 open work. The owner's official Apple permission is recorded in licensing.md;
