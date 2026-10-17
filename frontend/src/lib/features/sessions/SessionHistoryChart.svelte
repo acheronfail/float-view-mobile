@@ -5,7 +5,7 @@
   import { chartMarkerGroups } from './marker-groups';
   import { onDestroy, onMount, untrack } from 'svelte';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-  import { MAX_SESSION_DATA_FIELDS, type SessionMetadata, type SessionRideMarker } from '$lib/backend/contract';
+  import type { SessionMetadata, SessionRideMarker } from '$lib/backend/contract';
   import type { SessionReviewController } from '$lib/backend/session-controller';
   import type { SessionSeriesResult } from '$lib/backend/session-data';
   import { backendState } from '$lib/backend/state.svelte';
@@ -14,6 +14,7 @@
   import { axisTicks, zeroReference, type NumericDomain } from './history-geometry';
   import { historyTrend } from './history-trend';
   import { ENERGY_COUNTERS, loadSessionEnergy } from './session-energy';
+  import { sessionSeriesGroups } from './session-series-groups';
   import { chartDomain, chartExtrema, chartShowsMinimum } from './chart-extrema';
   import { buildChartTooltipEntries } from './chart-tooltip';
   import { chartTouchInspection } from './chart-touch-inspection';
@@ -110,40 +111,12 @@
   const MIN_SELECTION_PIXELS = 8;
   const INTERACTION_MODES = ['info', 'zoom', 'pan'] as const;
   const MODE_ICONS = { info: 'info', zoom: 'zoom-in', pan: 'hand' } as const;
-  const MAX_FIELDS_PER_SERIES_REQUEST = MAX_SESSION_DATA_FIELDS;
-  // Keep the complete primary temperature group in the initial request.
-  const FIRST_VISIBLE_GROUP_FIELDS = 11;
 
   type InteractionMode = (typeof INTERACTION_MODES)[number];
   let interactionMode = $state<InteractionMode>('info');
 
   const fields = $derived(sortSessionFields(metadata.fields.filter((field) => sessionFieldIsChartable(field.name))));
-  const fieldGroups = $derived.by(() => {
-    const groups: SessionMetadata['fields'][] = [];
-    let stable: SessionMetadata['fields'] = [];
-    const energy: SessionMetadata['fields'] = [];
-    fields.forEach((field) => {
-      if (ENERGY_COUNTERS.some((name) => name === field.name)) {
-        energy.push(field);
-        return;
-      }
-      if (
-        (field.source === 'stable' ||
-          field.name === 'motorLoad' ||
-          field.name === 'batteryLoad' ||
-          field.name === 'estimatedBatteryLevel') &&
-        stable.length < FIRST_VISIBLE_GROUP_FIELDS
-      ) {
-        stable = [...stable, field];
-        return;
-      }
-      if (!groups.length || groups.at(-1)!.length >= MAX_FIELDS_PER_SERIES_REQUEST) groups.push([]);
-      groups[groups.length - 1] = [...groups.at(-1)!, field];
-    });
-    if (stable.length) groups.unshift(stable);
-    if (energy.length) groups.push(energy);
-    return groups;
-  });
+  const fieldGroups = $derived(sessionSeriesGroups(fields));
   const chartGroups = $derived(sessionChartGroups(fields));
   const visibleViewport = $derived(previewViewport ?? viewport);
   const axis = $derived(timeline(chartIntervals ?? [visibleViewport]));

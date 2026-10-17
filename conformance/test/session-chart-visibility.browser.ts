@@ -37,15 +37,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await route.fulfill({ response, json: value });
       });
       await page.goto(`${endpoint.origin}/#/sessions/session-1`);
-      // Load extension fields, including charging voltage, before comparing bounds.
-      await page.locator('[data-history-group="1"]').scrollIntoViewIfNeeded();
       const voltage = page.getByRole('img', { name: 'Voltage over elapsed time', exact: true });
       await voltage.scrollIntoViewIfNeeded();
-      // Pack and charging voltage can arrive in separate lazy request groups.
       await voltage.locator('.telemetry-chart-trace').nth(1).waitFor({ state: 'attached' });
       const frame = voltage.locator('..').locator('..');
       const ticks = frame.locator(':scope > div').first().locator('span');
       const originalTicks = await ticks.allTextContents();
+      assert.equal(originalTicks.at(-1), '-3.80', 'enabled zero readings contribute to the axis');
       const packPath = voltage.locator('.telemetry-chart-trace').first();
       const originalPath = await packPath.getAttribute('d');
       await page.getByRole('button', { name: 'Hide Charging voltage line', exact: true }).tap();
