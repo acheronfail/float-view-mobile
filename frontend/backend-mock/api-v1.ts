@@ -1,4 +1,5 @@
 import { MockDiagnostics } from './diagnostics.ts';
+import { validBoardAppearance } from '../src/lib/backend/board-appearance.ts';
 import { validRefloatEditorDraft } from '../src/lib/backend/refloat-editor-draft.ts';
 import type { RefloatEditorDraft } from '../src/lib/backend/contract.ts';
 import { validUiCheckpoint } from '../src/lib/backend/ui-checkpoint.ts';
@@ -8,6 +9,7 @@ import { batteryPresets, batteryPresetCatalogVersion, applyBatteryPatch } from '
 import { batteryCellProfiles, emptyEstimate, MockBattery } from './battery.ts';
 import {
   defaultAnnouncements,
+  defaultBoardAppearance,
   defaultLiveWidgetSlots,
   liveWidgetFields,
   MAX_MESSAGE_BYTES,
@@ -145,6 +147,7 @@ const discoveredBoard = {
 };
 
 const savedBoard = {
+  appearance: { ...defaultBoardAppearance },
   savedDeviceId: 'saved-board',
   deviceHistoryId: 'history-board',
   revision: 0,
@@ -994,6 +997,8 @@ export class MockBackend {
         if (expectedRevision !== current.revision) {
           return failure(id, 'conflict', 'Board Profile revision changed');
         }
+        if (patch.appearance != null && !validBoardAppearance(patch.appearance))
+          return failure(id, 'invalid_request', 'Invalid board appearance');
         if (
           'preferredCanId' in patch &&
           patch.preferredCanId !== null &&
@@ -1046,7 +1051,11 @@ export class MockBackend {
           ...this.state,
           savedDevices: this.state.savedDevices.map((device) =>
             device.savedDeviceId === savedDeviceId
-              ? { ...device, profileComplete: updated.missingFields.length === 0 }
+              ? {
+                  ...device,
+                  profileComplete: updated.missingFields.length === 0,
+                  appearance: (values.appearance ?? defaultBoardAppearance) as typeof defaultBoardAppearance,
+                }
               : device
           ),
         });
@@ -1821,6 +1830,7 @@ export class MockBackend {
     let importedBoard = this.state.savedDevices.find((value) => value.deviceHistoryId === imported.deviceHistoryId);
     if (!importedBoard) {
       importedBoard = {
+        appearance: { ...defaultBoardAppearance },
         savedDeviceId: `saved-${imported.deviceHistoryId}`,
         deviceHistoryId: imported.deviceHistoryId,
         revision: 0,

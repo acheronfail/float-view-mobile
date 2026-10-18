@@ -8,6 +8,68 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 static NEXT: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn board_appearance_is_optional_isolated_validated_and_durable() {
+    use float_view_product_store::BoardAppearance;
+    let root = Root::new();
+    let mut store = root.open();
+    let first = store
+        .ensure_board("first", Some("First"), Some(&[1; 12]), 1)
+        .unwrap();
+    let second = store
+        .ensure_board("second", Some("Second"), Some(&[2; 12]), 1)
+        .unwrap();
+    assert_eq!(
+        store.profile(&first.saved_device_id).unwrap().appearance(),
+        BoardAppearance::default()
+    );
+    let appearance = BoardAppearance {
+        rail: 6,
+        hooks: 3,
+        left_top: "#ed5555".into(),
+        ..BoardAppearance::default()
+    };
+    let patch = serde_json::json!({"appearance":appearance}).to_string();
+    store
+        .update_profile(&first.saved_device_id, 0, &patch, 2)
+        .unwrap();
+    for field in ["rail", "hooks", "rim"] {
+        let mut bad = serde_json::to_value(&appearance).unwrap();
+        bad[field] = serde_json::json!("invalid");
+        assert_eq!(
+            store.update_profile(
+                &first.saved_device_id,
+                1,
+                &serde_json::json!({"appearance":bad}).to_string(),
+                3
+            ),
+            Err(Error::InvalidInput)
+        );
+    }
+    assert_eq!(store.profile(&first.saved_device_id).unwrap().revision, 1);
+    assert_eq!(
+        store.profile(&second.saved_device_id).unwrap().appearance(),
+        BoardAppearance::default()
+    );
+    drop(store);
+    let mut store = root.open();
+    assert_eq!(
+        store.profile(&first.saved_device_id).unwrap().appearance(),
+        appearance
+    );
+    assert_eq!(
+        store.update_profile(&first.saved_device_id, 0, &patch, 4),
+        Err(Error::Conflict { revision: 1 })
+    );
+    store
+        .update_profile(&first.saved_device_id, 1, r#"{"appearance":null}"#, 5)
+        .unwrap();
+    assert_eq!(
+        store.profile(&first.saved_device_id).unwrap().appearance(),
+        BoardAppearance::default()
+    );
+}
 struct Root(PathBuf);
 impl Root {
     fn new() -> Self {

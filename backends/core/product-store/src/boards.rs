@@ -36,6 +36,13 @@ pub struct Profile {
     pub values: Map<String, Value>,
 }
 impl Profile {
+    pub fn appearance(&self) -> crate::BoardAppearance {
+        self.values
+            .get("appearance")
+            .filter(|v| !v.is_null())
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
+    }
     pub fn live_widget_slots(&self) -> [String; 5] {
         self.values
             .get("liveWidgetSlots")
@@ -352,6 +359,11 @@ pub(crate) fn check_revision(actual: u64, expected: u64) -> Result<()> {
     }
 }
 pub(crate) fn validate_profile(values: &Map<String, Value>) -> Result<()> {
+    if let Some(value) = values.get("appearance").filter(|v| !v.is_null()) {
+        let appearance: crate::BoardAppearance =
+            serde_json::from_value(value.clone()).map_err(|_| Error::InvalidInput)?;
+        appearance.validate()?;
+    }
     if let Some(value) = values.get("liveWidgetSlots")
         && !crate::settings::valid_live_widget_slots(value)
     {

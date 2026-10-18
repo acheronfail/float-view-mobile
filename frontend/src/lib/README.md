@@ -31,6 +31,22 @@ and render their owning feature. Product behavior belongs to the feature.
 - Avoid generic `components/`, `controllers/`, `effects/`, `stores/`, `types/`, `utils/`, and `helpers/` directories.
 - Promote a component to `ui/` only after domain-independent reuse is demonstrated.
 
+## Board appearance
+
+`features/boards/BoardAppearanceEditor.svelte` owns the touch parts picker;
+`BoardEditor.svelte` opens it from a compact preview in a full-screen overlay
+with a fixed Done header, native modal isolation and focus restoration.
+`BoardIcon.svelte` is its public drawing, also used on Connect, saved-board and
+session cards. `BoardProfileValues.appearance` stores the complete validated
+selection through the existing profile revision/save flow. Rapid edits keep one
+queued replacement. Saved-device snapshots project the current appearance, so
+cards follow later edits rather than a session's historical configuration.
+Missing or null appearance uses style 1 for every part, silver rails/fender,
+graphite tyre, black rim and white hooks. Colours are bounded to the contract
+palette; fender hooks require a split or full fender. Appearance is optional and
+does not affect profile completeness. The existing profile JSON and archive
+snapshot preserve it without a catalog schema or storage marker change.
+
 ## Telemetry presentation
 
 The shared frontend consumes the stable normalized contract without Apple or

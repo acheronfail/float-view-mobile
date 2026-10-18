@@ -31,6 +31,7 @@ record!(BoardHistory {
     most_recent_session_at: Option<String>, total_storage_bytes: Option<u64>,
 });
 record!(SavedBoard {
+    appearance: float_view_product_store::BoardAppearance,
     saved_device_id: String, device_history_id: String, revision: u64, display_name: String,
     custom_display_name: Option<String>, advertised_name: Option<String>, bluetooth_identifier: Option<String>,
     last_seen_at: Option<String>, last_connected_at: Option<String>, profile_complete: bool, summary: BoardHistory,

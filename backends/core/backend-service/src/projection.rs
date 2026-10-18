@@ -102,6 +102,7 @@ impl BackendService {
         Ok(())
     }
     pub(crate) fn board_facts(&self, b: &store::Board) -> store::Result<f::SavedBoard> {
+        let profile = self.store.profile(&b.saved_device_id)?;
         let h = self.store.board_history(&b.device_history_id)?;
         let active = self.policy.active.as_ref().filter(|active| {
             active
@@ -120,6 +121,7 @@ impl BackendService {
             .zip(active_bytes)
             .and_then(|(rest, active)| rest.checked_add(active));
         Ok(f::SavedBoard {
+            appearance: profile.appearance(),
             saved_device_id: b.saved_device_id.clone(),
             device_history_id: b.device_history_id.clone(),
             revision: b.revision,
@@ -129,11 +131,7 @@ impl BackendService {
             bluetooth_identifier: b.local_identifier.clone(),
             last_seen_at: b.last_seen_at_ms.map(date),
             last_connected_at: b.last_connected_at_ms.map(date),
-            profile_complete: self
-                .store
-                .profile(&b.saved_device_id)?
-                .missing_fields()
-                .is_empty(),
+            profile_complete: profile.missing_fields().is_empty(),
             summary: f::BoardHistory {
                 session_count: h.session_count,
                 total_riding_elapsed_ms: h.total_riding_elapsed_ms,

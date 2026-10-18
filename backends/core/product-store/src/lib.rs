@@ -4,7 +4,9 @@
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
+mod appearance;
 mod archive;
+pub use appearance::BoardAppearance;
 pub mod battery_catalog;
 pub mod battery_presets;
 mod boards;

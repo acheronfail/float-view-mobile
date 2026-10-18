@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MockBackend } from '../../../backend-mock/api-v1';
+import { defaultBoardAppearance } from './contract';
 import type { AppState, BmsSnapshot, RefloatConfigurationValues, RefloatEditorDraft } from './contract';
 
 const bmsSnapshot: BmsSnapshot = {
@@ -31,6 +32,33 @@ const bmsSnapshot: BmsSnapshot = {
 };
 
 describe('deterministic mock backend', () => {
+  it('persists validated appearance and publishes it on the owning saved board', () => {
+    const backend = new MockBackend();
+    const appearance = { ...defaultBoardAppearance, rail: 4, leftTop: '#ed5555' };
+    const result = backend.handle({
+      id: 1,
+      method: 'boardProfile.update',
+      params: { savedDeviceId: 'saved-board', expectedRevision: 0, patch: { appearance } },
+    });
+    expect(result).toMatchObject({ result: { values: { appearance } } });
+    expect(backend.handle({ id: 2, method: 'state.get', params: {} })).toMatchObject({
+      result: { savedDevices: [expect.objectContaining({ appearance })] },
+    });
+    expect(
+      backend.handle({
+        id: 3,
+        method: 'boardProfile.update',
+        params: {
+          savedDeviceId: 'saved-board',
+          expectedRevision: 1,
+          patch: { appearance: { ...appearance, rail: 7 } },
+        },
+      })
+    ).toMatchObject({ error: { code: 'invalid_request' } });
+    expect(
+      backend.handle({ id: 4, method: 'boardProfile.get', params: { savedDeviceId: 'saved-board' } })
+    ).toMatchObject({ result: { revision: 1, values: { appearance } } });
+  });
   it('implements state and publishes full monotonic state changes', () => {
     const events: unknown[] = [];
     const backend = new MockBackend((event) => events.push(event));

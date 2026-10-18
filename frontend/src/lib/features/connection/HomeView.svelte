@@ -8,6 +8,7 @@
   import Icon from '$lib/ui/Icon.svelte';
   import type { IconName } from '$lib/ui/icon';
   import ListItem from '$lib/ui/ListItem.svelte';
+  import BoardIcon from '$lib/features/boards/BoardIcon.svelte';
   import NewBoardDialog from '$lib/ui/NewBoardDialog.svelte';
   import SectionTitle from '../../ui/SectionTitle.svelte';
   import Spinner from '../../ui/Spinner.svelte';
@@ -218,6 +219,16 @@
                 disabled={backendState.busy}
                 emphasized={!!device.savedDeviceId}
               >
+                {#snippet leading()}
+                  {#if device.savedDeviceId}
+                    <BoardIcon
+                      appearance={backendState.savedDevices.find(
+                        (saved) => saved.savedDeviceId === device.savedDeviceId
+                      )?.appearance}
+                      class="w-20 shrink-0 [--board-background:var(--color-accent-soft)]"
+                    />
+                  {/if}
+                {/snippet}
                 {#snippet trailing()}
                   <span class="flex shrink-0 flex-col items-end gap-1">
                     {#if device.savedDeviceId}

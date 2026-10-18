@@ -8,12 +8,22 @@
     subtitle: string;
     href?: string;
     trailing?: Snippet;
+    leading?: Snippet;
     onactivate?: Activation;
     disabled?: boolean;
     emphasized?: boolean;
   };
 
-  let { title, subtitle, href, trailing, onactivate, disabled = false, emphasized = false }: ListItemProps = $props();
+  let {
+    title,
+    subtitle,
+    href,
+    trailing,
+    leading,
+    onactivate,
+    disabled = false,
+    emphasized = false,
+  }: ListItemProps = $props();
   const interactiveClass = $derived(
     'flex w-full min-w-0 touch-manipulation items-center justify-between gap-3 rounded-lg border p-3 text-left transition-colors motion-feedback motion-reduce:transition-none active:border-accent active:bg-accent-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ' +
       (emphasized
@@ -24,6 +34,7 @@
 
 {#if href}
   <a class={interactiveClass} {href} use:navigationLink={{ scrollable: true }}>
+    {#if leading}{@render leading()}{/if}
     <span class="block min-w-0 flex-1">
       <span class="block font-medium">{title}</span>
       <span class="text-sm text-muted">{subtitle}</span>
@@ -38,6 +49,7 @@
     onpointerdown={(event) => activateFromPointer(event, onactivate)}
     onclick={(event) => activateFromKeyboardOrAssistiveClick(event, onactivate)}
   >
+    {#if leading}{@render leading()}{/if}
     <span class="block min-w-0 flex-1">
       <span class="block font-medium">{title}</span>
       <span class="text-sm text-muted">{subtitle}</span>
@@ -46,6 +58,7 @@
   </button>
 {:else}
   <div class="flex min-w-0 items-center justify-between gap-3 rounded-lg bg-elevated p-3">
+    {#if leading}{@render leading()}{/if}
     <div class="min-w-0 flex-1">
       <span class="block font-medium">{title}</span>
       <span class="text-sm text-muted">{subtitle}</span>

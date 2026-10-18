@@ -33,6 +33,19 @@ fn setup() -> (TestDirectory, ProductStore, String) {
             1,
         )
         .unwrap();
+    let appearance = float_view_product_store::BoardAppearance {
+        rail: 4,
+        hooks: 3,
+        ..Default::default()
+    };
+    store
+        .update_profile(
+            &b.saved_device_id,
+            2,
+            &serde_json::json!({"appearance":appearance}).to_string(),
+            1,
+        )
+        .unwrap();
     let s = store
         .create_session(&b.saved_device_id, 1, u64::MAX)
         .unwrap();
@@ -168,6 +181,8 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     assert_eq!(profile.values["batteryCellProfileId"], "molicel-p45b");
     assert_eq!(profile.values["batteryMinimumCellVoltageV"], 3.23);
     assert_eq!(profile.values["batteryCapacityAh"], 8.7);
+    assert_eq!(profile.appearance().rail, 4);
+    assert_eq!(profile.appearance().hooks, 3);
     assert_eq!(
         profile.values["batteryPresetId"],
         "indy-speed-control-20s2p-gt-pack-molicel-p45b"

@@ -548,6 +548,8 @@ export interface ControllerCurrentLimits {
 }
 
 export interface SavedDevice {
+  /** Current per-board appearance, independent of historical session snapshots. Absent uses defaults. */
+  appearance?: BoardAppearance;
   savedDeviceId: string;
   deviceHistoryId: string;
   revision: number;
@@ -562,6 +564,8 @@ export interface SavedDevice {
 }
 
 export interface BoardProfileValues extends Record<string, unknown> {
+  /** Optional additive profile setting; null restores the default appearance. */
+  appearance?: BoardAppearance | null;
   seriesCount?: number;
   parallelCount?: number;
   batteryCellProfileId?: string | null;
@@ -585,6 +589,62 @@ export interface BoardProfile {
   values: BoardProfileValues;
   missingFields: string[];
 }
+
+export const boardAppearanceColours = [
+  ['Black', '#17191d'],
+  ['Graphite', '#59616b'],
+  ['Silver', '#a9afb8'],
+  ['Chalk', '#e4e7eb'],
+  ['White', '#ffffff'],
+  ['Red', '#ed5555'],
+  ['Orange', '#db8a57'],
+  ['Yellow', '#f4d84d'],
+  ['Gold', '#d4b45f'],
+  ['Lime', '#b4d94e'],
+  ['Green', '#4dbb75'],
+  ['Forest', '#307653'],
+  ['Teal', '#38a59c'],
+  ['Seafoam', '#a2d4d8'],
+  ['Cyan', '#4ccfe0'],
+  ['Blue', '#82aee0'],
+  ['Royal blue', '#4778e8'],
+  ['Indigo', '#7866d8'],
+  ['Purple', '#b49bd4'],
+  ['Pink', '#e780b1'],
+  ['Brown', '#9b6d4b'],
+  ['Sand', '#d9c1a5'],
+] as const;
+export type BoardColour = (typeof boardAppearanceColours)[number][1];
+/** Stable, one-based style IDs. Hooks: 1 none, 2 fender-mounted, 3 inward-facing tips.
+ * Fender: 1 none, 2 split, 3 full. Fender-mounted hooks require a fender. */
+export interface BoardAppearance {
+  rail: 1 | 2 | 3 | 4 | 5 | 6;
+  tyre: 1 | 2;
+  fender: 1 | 2 | 3;
+  hooks: 1 | 2 | 3;
+  leftTop: BoardColour;
+  leftBottom: BoardColour;
+  rightTop: BoardColour;
+  rightBottom: BoardColour;
+  rubber: BoardColour;
+  rim: BoardColour;
+  fenders: BoardColour;
+  hookColour: BoardColour;
+}
+export const defaultBoardAppearance: Readonly<BoardAppearance> = {
+  rail: 1,
+  tyre: 1,
+  fender: 1,
+  hooks: 1,
+  leftTop: '#a9afb8',
+  leftBottom: '#a9afb8',
+  rightTop: '#a9afb8',
+  rightBottom: '#a9afb8',
+  rubber: '#59616b',
+  rim: '#17191d',
+  fenders: '#a9afb8',
+  hookColour: '#ffffff',
+};
 
 export type SessionState = 'active' | 'completed' | 'interrupted' | 'partial' | 'failed';
 

@@ -5,6 +5,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
   import ListItem from '$lib/ui/ListItem.svelte';
+  import BoardIcon from '$lib/features/boards/BoardIcon.svelte';
   import SectionTitle from '$lib/ui/SectionTitle.svelte';
   import SessionStorageFooter from './SessionStorageFooter.svelte';
   import { sessionStartDateLabel } from './session-label';
@@ -180,7 +181,15 @@
                 href={`#/sessions/${encodeURIComponent(loaded.summary.sessionId)}?board=${encodeURIComponent(savedDeviceId)}`}
                 title={loaded.dateLabel}
                 subtitle={`${loaded.summary.state} · ${Math.round(loaded.summary.totalElapsedMs / 60000)} min · ${formatDistanceM(loaded.summary.distanceM, units)}`}
-              />
+              >
+                {#snippet leading()}
+                  <BoardIcon
+                    appearance={backendState.savedDevices.find((board) => board.savedDeviceId === savedDeviceId)
+                      ?.appearance}
+                    class="w-20 shrink-0"
+                  />
+                {/snippet}
+              </ListItem>
             </li>
           {/each}
         </ul>

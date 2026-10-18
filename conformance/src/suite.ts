@@ -1,6 +1,7 @@
 import { validatePermissions } from '../../frontend/src/lib/backend/permissions.ts';
 import assert from 'node:assert/strict';
-import { liveWidgetFields } from '../../frontend/src/lib/backend/contract.ts';
+import { liveWidgetFields, defaultBoardAppearance } from '../../frontend/src/lib/backend/contract.ts';
+import { validBoardAppearance } from '../../frontend/src/lib/backend/board-appearance.ts';
 import type {
   AppState,
   BackendMethod,
@@ -518,6 +519,7 @@ async function exerciseProductMethods(
     savedDeviceId: profile.savedDeviceId,
     expectedRevision: clearedPreference.revision,
     patch: {
+      appearance: { ...defaultBoardAppearance, rail: 5, hooks: 3, leftTop: '#ed5555' },
       liveWidgetSlots: [
         'highestTempC',
         'bmsStateOfCharge',
@@ -527,6 +529,26 @@ async function exerciseProductMethods(
       ],
     },
   });
+  assert.deepEqual(
+    (await client.request('state.get', {})).savedDevices.find((b) => b.savedDeviceId === profile.savedDeviceId)
+      ?.appearance,
+    layoutProfile.values.appearance
+  );
+  for (const appearance of [
+    { ...defaultBoardAppearance, rail: 7 },
+    { ...defaultBoardAppearance, rubber: 'red' },
+    { ...defaultBoardAppearance, hooks: 2 },
+    { rail: 1 },
+  ]) {
+    await expectError(
+      client.request('boardProfile.update', {
+        savedDeviceId: profile.savedDeviceId,
+        expectedRevision: layoutProfile.revision,
+        patch: { appearance },
+      }),
+      'invalid_request'
+    );
+  }
   for (const invalid of [
     null,
     [],
@@ -1338,6 +1360,7 @@ export function assertState(state: AppState) {
     assert.ok(device.savedDeviceId === null || typeof device.savedDeviceId === 'string');
   }
   for (const board of state.savedDevices) {
+    if (board.appearance !== undefined) assert.ok(validBoardAppearance(board.appearance));
     assert.ok(board.bluetoothIdentifier === null || typeof board.bluetoothIdentifier === 'string');
     assert.deepEqual(Object.keys(board.summary).sort(), [
       'mostRecentSessionAt',

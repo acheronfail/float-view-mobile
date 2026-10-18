@@ -5,6 +5,10 @@
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
   import BatteryFields from './BatteryFields.svelte';
+  import BoardAppearanceEditor from './BoardAppearanceEditor.svelte';
+  import BoardIcon from './BoardIcon.svelte';
+  import FullScreenOverlay from '$lib/ui/FullScreenOverlay.svelte';
+  import { defaultBoardAppearance, type BoardAppearance } from '$lib/backend/contract';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import Icon from '$lib/ui/Icon.svelte';
   import ToggleIndicator from '$lib/ui/ToggleIndicator.svelte';
@@ -27,6 +31,12 @@
   let batteryFields = $state<BatteryFields | undefined>();
   let batteryMinimumCellVoltageV = $state<number | undefined>();
   let motor = $state('');
+  let appearance = $state<BoardAppearance>({ ...defaultBoardAppearance });
+  let appearanceOpen = $state(false);
+  const appearanceTitleId = $props.id();
+  let appearanceDialog: HTMLDialogElement | undefined;
+  let appearanceButton = $state<HTMLButtonElement>();
+  let appearanceQueued = false;
   let preferredCanId = $state<number | undefined>();
   let preferredBmsCanId = $state<number | undefined>();
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
@@ -78,6 +88,7 @@
       loaded = true;
       customDisplayName = device?.customDisplayName ?? '';
       const values = backendState.selectedBoardProfile?.values;
+      appearance = { ...(values?.appearance ?? defaultBoardAppearance) };
       seriesCount = typeof values?.seriesCount === 'number' ? values.seriesCount : undefined;
       parallelCount = typeof values?.parallelCount === 'number' ? values.parallelCount : undefined;
       batteryCellProfileId = values?.batteryCellProfileId ?? '';
@@ -135,30 +146,65 @@
   }
 
   function saveProfile(patch: Record<string, unknown>) {
+    enqueue(() => persistProfile(patch));
+  }
+
+  function openAppearance() {
+    appearanceOpen = true;
+  }
+
+  function mountAppearanceDialog(node: HTMLDialogElement) {
+    appearanceDialog = node;
+    node.showModal();
+    return {
+      destroy() {
+        node.close();
+        appearanceDialog = undefined;
+      },
+    };
+  }
+
+  async function closeAppearance() {
+    await saveQueue.flush();
+    appearanceDialog?.close();
+    appearanceOpen = false;
+    await tick();
+    appearanceButton?.focus();
+  }
+
+  function saveAppearance(next: BoardAppearance) {
+    appearance = next;
+    if (appearanceQueued) return;
+    appearanceQueued = true;
     enqueue(async () => {
-      pendingSaves++;
-      const saved = await backendState.updateBoardProfile(savedDeviceId, patch);
-      pendingSaves--;
-      if (!active) return;
-      if (saved) {
-        if (patch.batteryPresetId) {
-          for (const key of [
-            'batteryPresetId',
-            'seriesCount',
-            'parallelCount',
-            'batteryCellProfileId',
-            'batteryCapacityAh',
-            'batteryMinimumCellVoltageV',
-          ])
-            delete failedPatch[key];
-        }
-        for (const key of Object.keys(patch)) delete failedPatch[key];
-        if (!Object.keys(failedPatch).length) saveError = null;
-      } else {
-        Object.assign(failedPatch, patch);
-        saveError = backendState.error ?? 'Settings could not be saved. Please try again.';
-      }
+      appearanceQueued = false;
+      await persistProfile({ appearance });
     });
+  }
+
+  async function persistProfile(patch: Record<string, unknown>) {
+    pendingSaves++;
+    const saved = await backendState.updateBoardProfile(savedDeviceId, patch);
+    pendingSaves--;
+    if (!active) return;
+    if (saved) {
+      if (patch.batteryPresetId) {
+        for (const key of [
+          'batteryPresetId',
+          'seriesCount',
+          'parallelCount',
+          'batteryCellProfileId',
+          'batteryCapacityAh',
+          'batteryMinimumCellVoltageV',
+        ])
+          delete failedPatch[key];
+      }
+      for (const key of Object.keys(patch)) delete failedPatch[key];
+      if (!Object.keys(failedPatch).length) saveError = null;
+    } else {
+      Object.assign(failedPatch, patch);
+      saveError = backendState.error ?? 'Settings could not be saved. Please try again.';
+    }
   }
 
   async function discardFailedChanges() {
@@ -181,6 +227,23 @@
 
 <section aria-label={batteryOnly ? 'Battery settings' : 'Board settings'}>
   {#if loaded && backendState.selectedBoardProfile?.savedDeviceId === savedDeviceId && device}
+    {#if !batteryOnly}
+      <button
+        bind:this={appearanceButton}
+        type="button"
+        aria-haspopup="dialog"
+        class="mt-3 flex w-full touch-pan-y items-center gap-4 rounded-xl border border-outline bg-elevated px-4 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        onpointerdown={(event) => activateFromPointer(event, openAppearance, { scrollable: true })}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, openAppearance)}
+      >
+        <span aria-hidden="true" class="shrink-0"><BoardIcon {appearance} class="block w-24" /></span>
+        <span class="min-w-0 flex-1">
+          <span class="block text-sm font-medium">Board appearance</span>
+          <span class="block text-xs text-muted">Tap to customise</span>
+        </span>
+        <Icon name="sliders-horizontal" class="shrink-0 text-xl text-muted" />
+      </button>
+    {/if}
     {#if !batteryOnly && backendState.selectedBoardProfile.missingFields.length}
       <p class="mt-3 text-sm text-warning">
         <Icon name="triangle-alert" class="mr-1 text-xl" />
@@ -337,3 +400,19 @@
     >
   {/if}
 </section>
+
+{#if appearanceOpen}
+  <dialog
+    use:mountAppearanceDialog
+    aria-label="Customise board appearance"
+    class="m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-canvas p-0 text-foreground"
+    oncancel={(event) => {
+      event.preventDefault();
+      void closeAppearance();
+    }}
+  >
+    <FullScreenOverlay title="Board appearance" titleId={appearanceTitleId} onclose={closeAppearance}>
+      <BoardAppearanceEditor value={appearance} onchange={saveAppearance} />
+    </FullScreenOverlay>
+  </dialog>
+{/if}

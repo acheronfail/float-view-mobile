@@ -2,6 +2,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
   import ListItem from '$lib/ui/ListItem.svelte';
+  import BoardIcon from './BoardIcon.svelte';
 
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
 
@@ -26,7 +27,9 @@
             href={`#/sessions/boards/${encodeURIComponent(device.savedDeviceId)}`}
             title={device.displayName}
             subtitle={summary(device)}
-          />
+          >
+            {#snippet leading()}<BoardIcon appearance={device.appearance} class="w-24 shrink-0" />{/snippet}
+          </ListItem>
         </li>
       {/each}
     </ul>
