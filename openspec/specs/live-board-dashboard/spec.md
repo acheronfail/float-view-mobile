@@ -98,12 +98,12 @@ The live view SHALL present the active saved session's sample count, riding elap
 
 ### Requirement: Extensible live action menu
 
-The live header SHALL provide one accessible menu trigger whose menu contains the current view switch, stateful Refloat package and flywheel actions, Charts… for an active saved session, Clear fatal error only when a Refloat 1.2.x fatal latch remains after its active firmware fault has ended, Shut down controller when the VESC core profile supports the command, Configure board when saved identity exists, and Stop and disconnect. LED and headlight menu items SHALL be absent. Each remaining Refloat item SHALL display its last confirmed on/off state, SHALL be disabled unless its native preconditions are currently satisfied, and SHALL remain unavailable while its action is pending. Shutdown SHALL be unavailable unless authoritative controller-action state permits it. While authoritative state reports flywheel enabled, a non-dismissible full-application modal overlay SHALL replace access to normal application interaction and SHALL expose exactly one action, Disable, which requests the safety-gated flywheel-off transition. Disabling Refloat, enabling flywheel, and shutting down the controller SHALL require explicit contextual confirmation before the backend request is sent. Every menu, confirmation, and flywheel-overlay control SHALL retain native button semantics, use primary Pointer Events with cancellation and a guarded keyboard/assistive click path, avoid double activation, and manage focus within the modal surface.
+The live header SHALL provide one accessible menu trigger whose menu contains the current view switch, stateful Refloat package and flywheel actions, Charts… for an active saved session, Clear fatal error only when a Refloat 1.2.x fatal latch remains after its active firmware fault has ended, Shut down controller when the VESC core profile supports the command, Configure board when saved identity exists, Disconnect, and End ride for an active saved session. LED and headlight menu items SHALL be absent. Each remaining Refloat item SHALL display its last confirmed on/off state, SHALL be disabled unless its native preconditions are currently satisfied, and SHALL remain unavailable while its action is pending. Shutdown SHALL be unavailable unless authoritative controller-action state permits it. While authoritative state reports flywheel enabled, a non-dismissible full-application modal overlay SHALL replace access to normal application interaction and SHALL expose exactly one action, Disable, which requests the safety-gated flywheel-off transition. Disabling Refloat, enabling flywheel, and shutting down the controller SHALL require explicit contextual confirmation before the backend request is sent. Every menu, confirmation, and flywheel-overlay control SHALL retain native button semantics, use primary Pointer Events with cancellation and a guarded keyboard/assistive click path, avoid double activation, and manage focus within the modal surface.
 
 #### Scenario: Open menu
 
 - **WHEN** the user activates the live header menu trigger on a ready writable connection
-- **THEN** a keyboard- and pointer-operable menu presents the applicable Refloat controls with confirmed state alongside the current view, configuration, and disconnect actions
+- **THEN** a keyboard- and pointer-operable menu presents the applicable Refloat controls with confirmed state alongside the current view, configuration, disconnect and eligible End ride actions
 
 #### Scenario: Saved identity pending
 
@@ -186,21 +186,21 @@ Configure board SHALL open a modal bottom sheet that covers almost the entire vi
 
 ### Requirement: Conditional disconnect confirmation
 
-Stop and disconnect SHALL proceed without confirmation only when the latest persisted ride state is exactly `idle`. A non-idle, unknown, or unavailable latest ride state SHALL require explicit confirmation before the disconnect request is sent.
+Disconnect SHALL proceed without confirmation only when the latest persisted ride state is exactly `idle`. Disconnect SHALL pause eligible saved rides; End ride SHALL finalize and disconnect using the same confirmation rule. Confirmation copy SHALL distinguish these outcomes. A non-idle, unknown, or unavailable latest ride state SHALL require explicit confirmation before the disconnect request is sent.
 
 #### Scenario: Idle disconnect
 
-- **WHEN** the latest persisted ride state is `idle` and the user selects Stop and disconnect
+- **WHEN** the latest persisted ride state is `idle` and the user selects Disconnect
 - **THEN** the frontend requests disconnect immediately and returns Home after authoritative state removes the active connection
 
 #### Scenario: Riding disconnect
 
-- **WHEN** the latest persisted ride state is not `idle` and the user selects Stop and disconnect
+- **WHEN** the latest persisted ride state is not `idle` and the user selects Disconnect
 - **THEN** the frontend requests confirmation and disconnects only after the user confirms
 
 #### Scenario: No live sample
 
-- **WHEN** no latest persisted sample is available and the user selects Stop and disconnect
+- **WHEN** no latest persisted sample is available and the user selects Disconnect
 - **THEN** the frontend requests confirmation before disconnecting
 
 ### Requirement: Ambiguous controller prompt

@@ -22,3 +22,13 @@ Keep one resumable ride in the shared Rust owner, including process replacement.
 - Crashes between session and catalog writes → recover only committed boundaries, preserve data, and reconcile before resuming.
 - Charging may reboot a controller → allow the verified identity to resume while resetting connection-scoped firmware counters.
 - Long pause accidentally joins rides → show remaining eligibility and provide End ride; cap at 24 hours.
+
+## Verification
+
+Affected Rust crates and both host bindings passed tests; focused recovery, gap,
+pruning, GPS pagination, baseline-upgrade and archive round trips passed. Clippy
+with warnings denied and Rust formatting passed. Frontend checks/build/lint and
+448 tests passed. Full mock/direct conformance, the focused continuity scenario,
+and Chromium/WebKit pointer/keyboard/confirmation coverage passed. Native device
+background execution was not exercised; resume eligibility is enforced from durable
+deadlines when the shared owner receives its next host observation.

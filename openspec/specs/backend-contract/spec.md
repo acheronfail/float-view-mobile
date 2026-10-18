@@ -6,7 +6,7 @@ Define the complete platform-neutral contract implemented by every supported nat
 ## Requirements
 ### Requirement: Complete mandatory contract
 
-Every supported backend SHALL implement the WebSocket control methods `state.get`, `diagnostics.list`, `diagnostics.capture`, `diagnostics.prepare`, `diagnostics.export`, `diagnostics.clear`, `diagnostics.uiError`, `diagnostics.report`, `uiState.get`, `uiState.set`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `announcements.test`, `announcements.openVoiceSettings`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.marker.add`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, `events`, `locations`, and `markers`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities, except that the mandatory announcement audio state SHALL determine visibility of the iOS-only audio-lowering control and supported system voice-settings action.
+Every supported backend SHALL implement the WebSocket control methods `state.get`, `diagnostics.list`, `diagnostics.capture`, `diagnostics.prepare`, `diagnostics.export`, `diagnostics.clear`, `diagnostics.uiError`, `diagnostics.report`, `uiState.get`, `uiState.set`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `announcements.test`, `announcements.openVoiceSettings`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.marker.add`, `session.end`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, `events`, `locations`, and `markers`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities, except that the mandatory announcement audio state SHALL determine visibility of the iOS-only audio-lowering control and supported system voice-settings action.
 
 #### Scenario: Supported backend
 
@@ -169,12 +169,12 @@ The backend SHALL own permission resolution, bounded scanning, saved-board match
 
 ### Requirement: Backend-owned durable sessions
 
-A ready saved-mode connection SHALL automatically create one provisional durable session, and all saved-mode live display, review data reads, and persistence SHALL derive from one sequenced native sample pipeline. The latest saved-mode sample SHALL become frontend-visible only after the same sample is selected and successfully appended to that active session. A ready guest connection SHALL create no durable session and SHALL use a bounded in-memory live sample path. When a saved-mode session closes or is recovered after interruption, the backend SHALL retain it if it contains a committed ride marker, or if at least one persisted sample entered the `riding` state and its accumulated distance is greater than or equal to `minimumSessionDistance`; otherwise it SHALL delete the catalog entry and session files. Guest samples, locations, summaries, and ride metadata SHALL never enter that retention decision.
+A ready saved-mode connection SHALL automatically resume an eligible paused ride or create one provisional durable session, and all saved-mode live display, review data reads, and persistence SHALL derive from one sequenced native sample pipeline. The latest saved-mode sample SHALL become frontend-visible only after the same sample is selected and successfully appended to that active session. A ready guest connection SHALL create no durable session and SHALL use a bounded in-memory live sample path. When a saved-mode session is finally closed or recovered without eligible continuity, the backend SHALL retain it if it contains a committed ride marker, or if at least one persisted sample entered the `riding` state and its accumulated distance is greater than or equal to `minimumSessionDistance`; otherwise it SHALL delete the catalog entry and session files. Guest samples, locations, summaries, and ride metadata SHALL never enter that retention decision.
 
 #### Scenario: Ready saved board
 
 - **WHEN** a supported saved-mode board becomes ready
-- **THEN** the backend starts a provisional durable session without a frontend logging command
+- **THEN** the backend resumes an eligible paused ride or starts a provisional durable session without a frontend logging command
 
 #### Scenario: Ready guest board
 
@@ -1415,3 +1415,15 @@ categories. Neither parameters nor arbitrary error text SHALL be logged.
 
 - **WHEN** another backend request fails within the sixty-second coalescing interval after the follow-up window
 - **THEN** its bounded failure record remains exportable in the coalesced incident without extending the follow-up window
+
+### Requirement: Ride continuity contract
+
+Settings SHALL include `rideResumeWindowMinutes` (integer 1–1,440, default 60). Complete state SHALL include nullable `pausedRide` with session ID, saved board ID, display name and resume deadline. `session.end` SHALL accept a session ID and end only the matching active or paused ride; stale identities SHALL fail without affecting another ride. These semantics SHALL be shared by Apple, Android and the mock.
+
+#### Scenario: Authoritative paused state
+- **WHEN** a saved ride pauses or ends
+- **THEN** a newer complete snapshot exposes or clears its paused state
+
+#### Scenario: Invalid window or stale completion
+- **WHEN** a request supplies a fractional/out-of-range resume window or ends another session
+- **THEN** the request fails without changing the ride or saved settings
