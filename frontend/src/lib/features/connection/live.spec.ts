@@ -127,7 +127,19 @@ describe('live board behavior', () => {
     expect(controllerRouteDescription(null)).toBe('Detecting…');
   });
 
-  it('labels audited test firmware as read-only', () => {
+  it('labels recognised firmware as read/write', () => {
+    expect(
+      firmwareAccessDescription({
+        vescVersion: '7.00',
+        packageName: 'refloat',
+        packageVersion: '1.2.3',
+        accessMode: 'readWrite',
+        supported: true,
+      })
+    ).toBe('Read/write');
+  });
+
+  it('labels compatibility-restricted firmware as read-only', () => {
     expect(
       firmwareAccessDescription({
         vescVersion: '7.00',
@@ -137,7 +149,7 @@ describe('live board behavior', () => {
         accessMode: 'readOnly',
         supported: true,
       })
-    ).toBe('Read-only (test firmware)');
+    ).toBe('Read-only');
   });
 
   it('sorts supported and unsupported candidates by CAN ID without hiding either', () => {

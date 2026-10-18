@@ -84,7 +84,7 @@ export interface FirmwareInfo {
   packageName: string;
   packageVersion: string;
   hardwareName?: string | null;
-  /** Test-version firmware is connected in read-only mode. */
+  /** Compatibility access; recognised VESC test builds allow guarded writes. */
   accessMode: 'readOnly' | 'readWrite';
   supported: boolean;
 }

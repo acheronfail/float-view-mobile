@@ -198,7 +198,7 @@ export function controllerRouteDescription(route: ControllerConnection | null): 
 
 export function firmwareAccessDescription(firmware: FirmwareInfo | null): string {
   if (!firmware) return '—';
-  return firmware.accessMode === 'readOnly' ? 'Read-only (test firmware)' : 'Read/write';
+  return firmware.accessMode === 'readOnly' ? 'Read-only' : 'Read/write';
 }
 
 export function sortedControllerCandidates(candidates: readonly ControllerCandidate[]): ControllerCandidate[] {

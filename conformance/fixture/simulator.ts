@@ -264,9 +264,6 @@ export class VescSimulator {
       return { request: { at, command, canId, kind: 'controller-shutdown' } };
     }
     if (command >= 92 && command <= 95) {
-      if (board.firmware.testVersion !== 0) {
-        return this.reject(`Rejected Refloat configuration on test firmware`);
-      }
       const safe = !board.refloatControls.state.flywheelEnabled && board.telemetry.phase() === 'idle';
       const response = board.refloatConfiguration.respond(payload, safe);
       if (!response) return this.reject(`Rejected Refloat configuration command ${command}`);

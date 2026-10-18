@@ -105,3 +105,27 @@ test('unsupported controller hardware deterministically no-ops without claiming 
   assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.of(156, 0, 0))), []);
   assert.match(simulator.diagnostics.at(-1) ?? '', /invalid_state/);
 });
+
+test('recognised test firmware permits shutdown while unknown versions remain rejected', () => {
+  for (const testVersion of [1, 255]) {
+    for (const version of ['6.05', '6.06', '7.00']) {
+      const model = new ControllerShutdownModel();
+      assert.deepEqual(
+        model.apply({ version, testVersion }, Uint8Array.of(156, 0, 0), {
+          rideState: 'idle',
+          flywheel: false,
+          mutationPending: false,
+        }),
+        { accepted: true, disconnected: true }
+      );
+    }
+    for (const version of ['6.02', '6.07', '7.01', '8.00']) {
+      assert.deepEqual(
+        decodeControllerShutdown(version, Uint8Array.of(156, 0, 0), {
+          firmwareTestVersion: testVersion,
+        }),
+        { accepted: false, reason: 'unsupported_version' }
+      );
+    }
+  }
+});

@@ -42,9 +42,9 @@ pub const SUPPORTED_VERSIONS: [FirmwareVersion; 4] = [
 /// Access allowed for one admitted firmware identity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccessMode {
-    /// Audited nonzero test builds permit reads but no mutations.
+    /// A connection restricted to reads by compatibility policy.
     ReadOnly,
-    /// Audited stable builds permit reads and guarded mutations.
+    /// Audited versions, including test builds, permit reads and guarded mutations.
     ReadWrite,
 }
 
@@ -68,11 +68,7 @@ pub const fn access_mode(identity: &FirmwareIdentity) -> Option<AccessMode> {
     {
         return None;
     }
-    if identity.test_version == 0 {
-        Some(AccessMode::ReadWrite)
-    } else {
-        Some(AccessMode::ReadOnly)
-    }
+    Some(AccessMode::ReadWrite)
 }
 
 /// Return whether an identity belongs to the exact audited controller family.
@@ -90,7 +86,7 @@ pub const fn permits(operation: Operation, identity: &FirmwareIdentity) -> bool 
     )
 }
 
-/// Return whether the exact stable release supports controller shutdown.
+/// Return whether the exact version supports controller shutdown, including test builds.
 #[must_use]
 pub const fn supports_shutdown(identity: &FirmwareIdentity) -> bool {
     if !matches!(access_mode(identity), Some(AccessMode::ReadWrite)) {
@@ -166,20 +162,14 @@ mod tests {
                 let expected = matches!((major, minor), (6, 2 | 5 | 6) | (7, 0));
                 for test_version in [0, 1, u8::MAX] {
                     let identity = identity(major, minor, test_version, MOTOR_HARDWARE_TYPE);
-                    let expected_mode = expected.then_some(if test_version == 0 {
-                        AccessMode::ReadWrite
-                    } else {
-                        AccessMode::ReadOnly
-                    });
-                    assert_eq!(access_mode(&identity), expected_mode);
+                    assert_eq!(
+                        access_mode(&identity),
+                        expected.then_some(AccessMode::ReadWrite)
+                    );
                     assert_eq!(supports(&identity), expected);
                     assert_eq!(permits(Operation::Read, &identity), expected);
-                    assert_eq!(
-                        permits(Operation::Write, &identity),
-                        expected && test_version == 0
-                    );
-                    let expected_shutdown =
-                        test_version == 0 && matches!((major, minor), (6, 5 | 6) | (7, 0));
+                    assert_eq!(permits(Operation::Write, &identity), expected);
+                    let expected_shutdown = matches!((major, minor), (6, 5 | 6) | (7, 0));
                     assert_eq!(supports_shutdown(&identity), expected_shutdown);
                 }
             }

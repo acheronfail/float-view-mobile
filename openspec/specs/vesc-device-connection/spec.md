@@ -201,7 +201,7 @@ When discovery finds more than one VESC motor controller, the backend SHALL paus
 
 ### Requirement: Exact supported compatibility families
 
-The backends SHALL support audited VESC firmware 6.02, 6.05, 6.06, and 7.00 through an exact compatibility catalog mapped to one `vescCoreReadOnly` profile for the VESC-level commands Float View consumes, an exact shutdown capability for 6.05, 6.06, and 7.00, and exact Refloat control subprofiles for normal firmware. A VESC controller SHALL be supported only when `COMM_FW_VERSION` contains the complete bounded identity baseline, reports `HW_TYPE_VESC`, matches an exact catalog entry, and the selected route subsequently proves compatible Refloat INFO and release-selected telemetry behavior. A zero test-version marker selects normal read/write access; a nonzero marker on an audited version selects read-only access. Read operations SHALL remain allowed in either mode, while Refloat writes and shutdown SHALL pass a centralized capability and safety check before encoding. A bounded four-byte hardware-CRC suffix MAY be absent or present according to the audited release fixture, but its value, the hardware or firmware display name, and the controller UUID MUST NOT broaden compatibility or shutdown availability.
+The backends SHALL support audited VESC firmware 6.02, 6.05, 6.06, and 7.00 through an exact compatibility catalog mapped to one `vescCoreReadOnly` profile for the VESC-level commands Float View consumes, an exact shutdown capability for 6.05, 6.06, and 7.00, and exact Refloat control subprofiles for normal firmware. A VESC controller SHALL be supported only when `COMM_FW_VERSION` contains the complete bounded identity baseline, reports `HW_TYPE_VESC`, matches an exact catalog entry, and the selected route subsequently proves compatible Refloat INFO and release-selected telemetry behavior. Both zero and nonzero test-version markers on an audited version select read/write access. Unrecognised VESC and Refloat versions SHALL remain ineligible for writes. Read operations SHALL remain allowed on compatible connections, while Refloat writes and shutdown SHALL pass a centralized capability and safety check before encoding. A bounded four-byte hardware-CRC suffix MAY be absent or present according to the audited release fixture, but its value, the hardware or firmware display name, and the controller UUID MUST NOT broaden compatibility or shutdown availability.
 
 The backends SHALL support the wire families represented by every audited Refloat source package from 1.0.0 through 1.3.0 through explicit tested compatibility mappings. Refloat 1.0.x SHALL use its fixed legacy telemetry protocol, legacy lighting command 202, and shared package/flywheel controls and SHALL be detected and reported as wire version `1.0` because its INFO response does not contain a patch version. Refloat 1.1.x SHALL use its dynamic commands 31/32 protocol, legacy lighting command 202, and shared package/flywheel controls. Refloat 1.2.x SHALL use its dynamic commands 31/32 protocol with bounded alert/fault data, stable lighting command 20, shared package/flywheel controls, and clear-fatal command 36. Exact Refloat 1.3.0 SHALL use documented selectable command 33 without command-32 layout negotiation, stable lighting command 20, shared package/flywheel controls, and clear-fatal command 36.
 
@@ -217,10 +217,10 @@ The connection-scoped device mutation coordinator SHALL be the only path that ma
 - **WHEN** VESC 6.02 omits the hardware-CRC suffix or VESC 6.05, 6.06, or 7.00 supplies the bounded suffix
 - **THEN** both shapes decode through the same profile and any CRC remains non-public and is not used as a compatibility key
 
-#### Scenario: Audited test build is read-only
+#### Scenario: Audited test build permits guarded writes
 
 - **WHEN** an audited 6.02/6.05/6.06/7.00 controller reports a nonzero firmware test-version marker
-- **THEN** the backend reaches `ready` after route and Refloat validation, allows read operations, and rejects Refloat control operations with `invalid_state`
+- **THEN** the backend reaches `ready` after route and Refloat validation, allows read operations, and permits Refloat control operations through the same capability and safety checks as release firmware
 
 #### Scenario: Malformed VESC identity
 
@@ -433,7 +433,7 @@ For audited controller firmware, native identity decoding SHALL retain a bounded
 
 ### Requirement: Centralized Refloat mutation authorization
 
-The connection service SHALL provide one native mutation coordinator and authorization boundary for semantic Refloat controls, complete custom-configuration writes, and Tune apply. It SHALL evaluate current access mode, exact package profile, route, generation, package/ride/footpad state, and pending work immediately before scheduler submission, and no owner may retain a parallel mutation lock or direct write path. Test-version firmware and unsupported package versions SHALL permit eligible reads but no Refloat mutations. While authoritative package mode is flywheel, the coordinator SHALL reject every device mutation except the exact eligible command 22 transition that disables flywheel.
+The connection service SHALL provide one native mutation coordinator and authorization boundary for semantic Refloat controls, complete custom-configuration writes, and Tune apply. It SHALL evaluate current access mode, exact package profile, route, generation, package/ride/footpad state, and pending work immediately before scheduler submission, and no owner may retain a parallel mutation lock or direct write path. Recognised VESC test-version firmware SHALL permit the same guarded mutations as release firmware. Unsupported VESC and package versions SHALL remain ineligible for Refloat mutations. While authoritative package mode is flywheel, the coordinator SHALL reject every device mutation except the exact eligible command 22 transition that disables flywheel.
 
 #### Scenario: Competing semantic control
 
@@ -445,10 +445,10 @@ The connection service SHALL provide one native mutation coordinator and authori
 - **WHEN** a semantic Refloat control is pending and a configuration write or Tune apply is requested
 - **THEN** the configuration mutation is rejected without changing its current base revision
 
-#### Scenario: Read-only test firmware
+#### Scenario: Writable test firmware
 
 - **WHEN** audited test-version firmware opens Refloat configuration
-- **THEN** schema and current/default reads may succeed but write and Tune apply remain unavailable
+- **THEN** schema and current/default reads may succeed and write and Tune apply use the same capability and safety checks as release firmware
 
 #### Scenario: Flywheel mutation authorization
 

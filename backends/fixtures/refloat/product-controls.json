@@ -96,13 +96,6 @@
       "reason": "wrong_route"
     },
     {
-      "name": "test-version-write",
-      "version": "1.2.3",
-      "firmwareTestVersion": 1,
-      "request": [36, 101, 12, 0],
-      "reason": "read_only"
-    },
-    {
       "name": "legacy-command-on-stable-profile",
       "version": "1.2.3",
       "request": [36, 101, 202, 1, 1],

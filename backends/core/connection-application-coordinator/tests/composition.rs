@@ -125,9 +125,18 @@ fn empty_alert_history() -> Vec<u8> {
 }
 
 fn ready_configuration() -> (ConnectionApplicationCoordinator, TimerToken) {
+    ready_configuration_with_test_version(0)
+}
+
+fn ready_configuration_with_test_version(
+    test_version: u8,
+) -> (ConnectionApplicationCoordinator, TimerToken) {
     let mut coordinator = ConnectionApplicationCoordinator::default();
     coordinator.apply(Command::Begin(begin_facts(10))).unwrap();
-    receive(&mut coordinator, motor_configuration_payload(42), 20);
+    let mut identity = motor_configuration_payload(42);
+    let name_end = 3 + identity[3..].iter().position(|byte| *byte == 0).unwrap();
+    identity[name_end + 14] = test_version;
+    receive(&mut coordinator, identity, 20);
     let layout = receive(&mut coordinator, dynamic_info_payload(), 30);
     assert_eq!(write(&layout).payload, [36, 101, 32]);
     receive(&mut coordinator, dynamic_layout_payload(), 40);
@@ -288,45 +297,47 @@ fn cached_activation_default_read_and_control_confirmation_share_one_scheduler()
 
 #[test]
 fn configuration_write_holds_one_lease_through_ack_and_verified_readback() {
-    let (mut coordinator, _) = ready_configuration();
-    let schema = coordinator.configuration_schema().expect("schema");
-    let values = decode_values(configuration_write_values_1_2_3(), schema).expect("draft");
-    let snapshot = coordinator.snapshot();
-    let identity = snapshot.configuration.identity.expect("identity");
-    let base_revision = snapshot.configuration.current.expect("current").revision;
-    let write_effects = coordinator
-        .apply(Command::WriteConfiguration {
-            generation: snapshot.generation,
-            mutation: ConfigurationMutation::Write,
-            package_version: identity.package_version.to_owned(),
-            fingerprint: identity.fingerprint.to_owned(),
-            wire_signature: identity.wire_signature,
-            base_revision,
-            values,
-            now_ms: 1_300,
-        })
-        .unwrap();
-    let token = coordinator.snapshot().mutations.pending.expect("lease");
-    assert_eq!(token.kind, PendingKind::ConfigurationWrite);
-    assert_eq!(write(&write_effects).payload[0..2], [95, 0]);
+    for test_version in [0, 1, u8::MAX] {
+        let (mut coordinator, _) = ready_configuration_with_test_version(test_version);
+        let schema = coordinator.configuration_schema().expect("schema");
+        let values = decode_values(configuration_write_values_1_2_3(), schema).expect("draft");
+        let snapshot = coordinator.snapshot();
+        let identity = snapshot.configuration.identity.expect("identity");
+        let base_revision = snapshot.configuration.current.expect("current").revision;
+        let write_effects = coordinator
+            .apply(Command::WriteConfiguration {
+                generation: snapshot.generation,
+                mutation: ConfigurationMutation::Write,
+                package_version: identity.package_version.to_owned(),
+                fingerprint: identity.fingerprint.to_owned(),
+                wire_signature: identity.wire_signature,
+                base_revision,
+                values,
+                now_ms: 1_300,
+            })
+            .unwrap();
+        let token = coordinator.snapshot().mutations.pending.expect("lease");
+        assert_eq!(token.kind, PendingKind::ConfigurationWrite);
+        assert_eq!(write(&write_effects).payload[0..2], [95, 0]);
 
-    let verification = receive(&mut coordinator, vec![95], 1_310);
-    assert_eq!(coordinator.snapshot().mutations.pending, Some(token));
-    assert_eq!(write(&verification).payload, [93, 0]);
-    let completed = receive(
-        &mut coordinator,
-        configuration_readback_response_1_2_3(),
-        1_320,
-    );
-    assert!(
-        completed.iter().any(|effect| matches!(
-            effect,
-            Effect::Mutation(MutationEvent::Confirmed(value)) if *value == token
-        )),
-        "{completed:?}"
-    );
-    assert_eq!(coordinator.snapshot().mutations.pending, None);
-    assert_eq!(coordinator.snapshot().configuration.pending, None);
+        let verification = receive(&mut coordinator, vec![95], 1_310);
+        assert_eq!(coordinator.snapshot().mutations.pending, Some(token));
+        assert_eq!(write(&verification).payload, [93, 0]);
+        let completed = receive(
+            &mut coordinator,
+            configuration_readback_response_1_2_3(),
+            1_320,
+        );
+        assert!(
+            completed.iter().any(|effect| matches!(
+                effect,
+                Effect::Mutation(MutationEvent::Confirmed(value)) if *value == token
+            )),
+            "{completed:?}"
+        );
+        assert_eq!(coordinator.snapshot().mutations.pending, None);
+        assert_eq!(coordinator.snapshot().configuration.pending, None);
+    }
 }
 
 #[test]

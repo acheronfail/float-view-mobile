@@ -13,8 +13,8 @@ use support::{effect, identity, probe_route};
 fn direct_supported_test_and_unsupported_firmware_are_exact() {
     for (minor, test_version, expected_access) in [
         (2, 0, AccessMode::ReadWrite),
-        (5, 1, AccessMode::ReadOnly),
-        (6, u8::MAX, AccessMode::ReadOnly),
+        (5, 1, AccessMode::ReadWrite),
+        (6, u8::MAX, AccessMode::ReadWrite),
     ] {
         let mut discovery = begun();
         let transition =
@@ -30,11 +30,16 @@ fn direct_supported_test_and_unsupported_firmware_are_exact() {
     }
 
     for (hardware_type, minor) in [(0, 4), (0, 7)] {
-        let mut discovery = begun();
-        let transition =
-            discovery.accept_transport(identity(hardware_type, minor, 99, 0), None, None);
-        assert_failed(&transition, IssueCode::UnsupportedController);
-        assert_eq!(discovery.snapshot().route, Some(Route::Direct));
+        for test_version in [0, 1, u8::MAX] {
+            let mut discovery = begun();
+            let transition = discovery.accept_transport(
+                identity(hardware_type, minor, 99, test_version),
+                None,
+                None,
+            );
+            assert_failed(&transition, IssueCode::UnsupportedController);
+            assert_eq!(discovery.snapshot().route, Some(Route::Direct));
+        }
     }
 }
 

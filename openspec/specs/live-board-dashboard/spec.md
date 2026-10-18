@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the focused live-board experience, including responsive telemetry, connection and session state, board configuration, and safe disconnect controls.
+
 ## Requirements
+
 ### Requirement: Focused responsive live dashboard
 
 The live-board view SHALL remain a focused subordinate screen without primary tabs and SHALL present every field in the current live telemetry contract at an intentional stable position in a responsive grid. The grid SHALL render three, two, or one usable columns as available width decreases, SHALL preserve stable cell placement while values update, and SHALL render unavailable values as placeholders.
@@ -30,7 +32,7 @@ The live-board view SHALL remain a focused subordinate screen without primary ta
 
 ### Requirement: Live connection-state presentation
 
-The dashboard SHALL display the active connection's resolved board name, actual connection state, detected controller route, VESC version, Refloat package version, and VESC access mode when known. It SHALL label a direct route as direct and a CAN route with its CAN ID. A test-version controller SHALL be labeled read-only beside the VESC and Refloat versions. Values SHALL render normally only while the connection is `ready`; every other active connection state SHALL retain and dim the latest sample. The view SHALL NOT display per-sample age or private controller identifiers.
+The dashboard SHALL display the active connection's resolved board name, actual connection state, detected controller route, VESC version, Refloat package version, and VESC access mode when known. It SHALL label a direct route as direct and a CAN route with its CAN ID. A recognised test-version controller SHALL show read/write access beside the VESC and Refloat versions; read-only access SHALL retain a generic read-only label. Values SHALL render normally only while the connection is `ready`; every other active connection state SHALL retain and dim the latest sample. The view SHALL NOT display per-sample age or private controller identifiers.
 
 #### Scenario: Direct connection
 
@@ -45,7 +47,7 @@ The dashboard SHALL display the active connection's resolved board name, actual 
 #### Scenario: Test firmware access label
 
 - **WHEN** authoritative firmware information reports an audited nonzero test-version marker
-- **THEN** the live firmware information shows `Read-only (test firmware)` beside the VESC and Refloat versions
+- **THEN** the live firmware information shows `Read/write` beside the VESC and Refloat versions
 
 #### Scenario: Transient reconnect
 

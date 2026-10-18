@@ -52,9 +52,9 @@ ordinary controller work, and auxiliary BMS traffic has the lowest priority.
 
 `DeviceMutationCoordinator` is the sole connection-scoped owner of semantic
 package, flywheel, LED, headlight, and fatal-latch mutations. It authorizes only
-the current route and generation, exact audited VESC release firmware, and exact
-Refloat 1.0.x, 1.1.0–1.1.2, 1.2.0–1.2.3, or the 1.3.0 selectable wire profile. Audited VESC test
-firmware remains read-only. One action may be pending for at most three seconds;
+the current route and generation, exact audited VESC firmware versions, and exact
+Refloat 1.0.x, 1.1.0–1.1.2, 1.2.0–1.2.3, or the 1.3.0 selectable wire profile. Test builds of audited VESC versions allow the same guarded writes as release builds;
+unrecognised VESC and Refloat versions remain blocked by compatibility checks. One action may be pending for at most three seconds;
 the request result and published state change only after matching telemetry or
 lighting confirms it. Disconnect, reconnect, and generation changes cancel the
 owner and its waiter.

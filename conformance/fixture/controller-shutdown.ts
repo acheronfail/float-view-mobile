@@ -25,9 +25,6 @@ export function decodeControllerShutdown(
   request: Uint8Array,
   context: ControllerShutdownDecodeContext = {}
 ): { accepted: true } | { accepted: false; reason: ControllerShutdownRejection } {
-  if (context.firmwareTestVersion !== undefined && context.firmwareTestVersion !== 0) {
-    return { accepted: false, reason: 'read_only' };
-  }
   if (!['6.05', '6.06', '7.00'].includes(version)) {
     return { accepted: false, reason: 'unsupported_version' };
   }

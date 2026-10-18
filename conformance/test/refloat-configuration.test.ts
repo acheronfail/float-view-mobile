@@ -121,22 +121,31 @@ test('Refloat 1.0 collision retains two exact fingerprints with the same INFO an
   assert.notEqual(first.fingerprint, second.fingerprint);
 });
 
-test('strict fixture rejects test firmware, riding writes/current reads, unsafe app-data, and malformed commands', () => {
-  const testFirmware = new VescSimulator(
-    composeBoard({
-      firmware: '6.06',
-      firmwareTestVersion: 1,
-      refloat: '1.2.3',
-      topology: 'direct',
-      requestPolicy: 'strict',
-    })
-  );
-  assert.throws(() => decode(testFirmware, Uint8Array.of(93, 0)), /test firmware/);
-  assert.throws(
-    () => decode(testFirmware, Uint8Array.from([95, 0, ...bytes('values/1.2.3-write.bin')])),
-    /test firmware/
-  );
+test('test firmware permits configuration reads and writes on direct and CAN routes', () => {
+  for (const topology of ['direct', 'express'] as const) {
+    for (const firmwareTestVersion of [1, 255]) {
+      const simulator = new VescSimulator(
+        composeBoard({
+          firmware: '6.06',
+          firmwareTestVersion,
+          refloat: '1.2.3',
+          topology,
+          canId: 42,
+          requestPolicy: 'strict',
+        })
+      );
+      const prefix = topology === 'express' ? [34, 42] : [];
+      assert.deepEqual(decode(simulator, Uint8Array.of(...prefix, 93, 0)), response(93, 'values/1.2.3-current.bin'));
+      assert.deepEqual(
+        decode(simulator, Uint8Array.from([...prefix, 95, 0, ...bytes('values/1.2.3-write.bin')])),
+        Uint8Array.of(95)
+      );
+      assert.deepEqual(decode(simulator, Uint8Array.of(...prefix, 93, 0)), response(93, 'values/1.2.3-readback.bin'));
+    }
+  }
+});
 
+test('strict fixture rejects riding writes/current reads, unsafe app-data, and malformed commands', () => {
   const riding = new VescSimulator(
     composeBoard({
       firmware: '6.06',

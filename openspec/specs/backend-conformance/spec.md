@@ -328,7 +328,7 @@ Canonical target adapters SHALL use macOS port `11010`, iOS port `11011`, and An
 
 ### Requirement: Exhaustive connection compatibility coverage
 
-Software conformance SHALL cover the Cartesian product of direct and Express topology, audited VESC 6.02/6.05/6.06/7.00, and representative Refloat 1.0.0/1.1.0/1.2.3. It SHALL additionally cover the complete VESC identity baseline, source-applicable CRC suffix, audited nonzero firmware test-version read-only mode, rejected writes, malformed and unknown identities, and configured, absent, invalid, duplicate, zero, one, and multiple CAN candidates without requiring a separate simulator implementation per combination.
+Software conformance SHALL cover the Cartesian product of direct and Express topology, audited VESC 6.02/6.05/6.06/7.00, and representative Refloat 1.0.0/1.1.0/1.2.3. It SHALL additionally cover the complete VESC identity baseline, source-applicable CRC suffix, audited nonzero firmware test-version guarded writes, rejected unsupported-version writes, malformed and unknown identities, and configured, absent, invalid, duplicate, zero, one, and multiple CAN candidates without requiring a separate simulator implementation per combination.
 
 #### Scenario: Supported version matrix
 
@@ -343,7 +343,7 @@ Software conformance SHALL cover the Cartesian product of direct and Express top
 #### Scenario: Audited test-version access
 
 - **WHEN** conformance supplies a known 6.02/6.05/6.06/7.00 identity with a nonzero test-version marker
-- **THEN** both backends reach ready after route and Refloat validation, permit read requests, and reject writes consistently
+- **THEN** both backends reach ready after route and Refloat validation, permit read requests, and permit writes through the same capability and safety checks as release firmware
 
 #### Scenario: Unsupported VESC release evidence
 
@@ -421,7 +421,7 @@ Software backend tests SHALL cover VESC Tool-style saved-identifier advertisemen
 
 ### Requirement: Detailed telemetry compatibility matrix
 
-Software conformance SHALL exercise complete detailed telemetry for every audited stable Refloat release in 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3 through direct and CAN routes and across audited VESC 6.02, 6.05, 6.06, and 7.00. It SHALL verify the complete VESC identity baseline, audited nonzero test-version read-only mode, source-applicable bounded hardware-CRC suffix, exact command 1 fixture compatibility, command 10 detail levels and metres/second conversion, command 31/32 bytes and native kilometres/hour values, route wrapping, required-field negotiation, version-applicable active state and tails, normalization, nullability, unknown bounded extensions, and absence of command 35, data-recorder, or unsupported write requests from either backend.
+Software conformance SHALL exercise complete detailed telemetry for every audited stable Refloat release in 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3 through direct and CAN routes and across audited VESC 6.02, 6.05, 6.06, and 7.00. It SHALL verify the complete VESC identity baseline, audited nonzero test-version guarded write access, source-applicable bounded hardware-CRC suffix, exact command 1 fixture compatibility, command 10 detail levels and metres/second conversion, command 31/32 bytes and native kilometres/hour values, route wrapping, required-field negotiation, version-applicable active state and tails, normalization, nullability, unknown bounded extensions, and absence of command 35, data-recorder, or unsupported write requests from either backend.
 
 #### Scenario: Audited route and package combinations
 
@@ -433,10 +433,10 @@ Software conformance SHALL exercise complete detailed telemetry for every audite
 - **WHEN** the matrix supplies 6.02 without a CRC suffix and 6.05, 6.06, or 7.00 with the source-defined bounded suffix
 - **THEN** Apple and Android select the same `vescCoreReadOnly` profile, ignore CRC value for compatibility, and proceed to route and Refloat capability validation
 
-#### Scenario: Audited test-version read-only mode
+#### Scenario: Audited test-version write access
 
 - **WHEN** conformance supplies a known 6.02/6.05/6.06/7.00 identity with a nonzero test-version marker
-- **THEN** Apple and Android complete read-only Refloat negotiation, allow read requests, reject writes, and expose read-only access beside the VESC and Refloat versions
+- **THEN** Apple and Android complete Refloat negotiation, allow read requests and guarded writes, and expose read/write access beside the VESC and Refloat versions
 
 #### Scenario: Controller compatibility rejection
 
@@ -1174,7 +1174,7 @@ Canonical verification SHALL exercise equivalent Apple and Android application-s
 
 ### Requirement: Lighting query and mutation distinction
 
-Canonical conformance SHALL prove that the shared Refloat simulator distinguishes zero-mask lighting status queries from nonzero-mask lighting mutations across representative legacy and stable releases, direct and CAN routes, and normal and flywheel modes. Evidence SHALL include exact query responses, unchanged disposable state, retained wrong-route and malformed rejection, retained test-version read-only behavior, and retained flywheel rejection for every actual mutation. The focused physical gate SHALL exercise direct and CAN writable control sequences on Android, iOS, and macOS without timing waivers.
+Canonical conformance SHALL prove that the shared Refloat simulator distinguishes zero-mask lighting status queries from nonzero-mask lighting mutations across representative legacy and stable releases, direct and CAN routes, and normal and flywheel modes. Evidence SHALL include exact query responses, unchanged disposable state, retained wrong-route and malformed rejection, test-version guarded write behavior, and retained flywheel rejection for every actual mutation. The focused physical gate SHALL exercise direct and CAN writable control sequences on Android, iOS, and macOS without timing waivers.
 
 #### Scenario: Deterministic query matrix
 

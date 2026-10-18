@@ -50,7 +50,7 @@ fn every_request_fact_is_exact_and_route_correct() {
 }
 
 #[test]
-fn unsupported_and_read_only_firmware_fail_closed_without_partial_state() {
+fn unsupported_firmware_fails_closed_without_partial_state() {
     let mut unsupported = DeviceMutationCoordinator::new();
     let before = unsupported.snapshot();
     assert_eq!(
@@ -66,24 +66,37 @@ fn unsupported_and_read_only_firmware_fail_closed_without_partial_state() {
         Err(CoordinatorError::UnsupportedController)
     );
     assert_eq!(unsupported.snapshot(), before);
+}
 
-    let mut read_only = DeviceMutationCoordinator::new();
-    configure(&mut read_only, Route::Direct, firmware(1), stable_profile());
-    observe(
-        &mut read_only,
-        sample(1, RideState::Idle, PackageMode::Normal),
-    );
-    observe_lighting(&mut read_only, 1, &[36, 101, 20, 3]);
-    assert!(!read_only.snapshot().controls.as_ref().unwrap().writable);
-    assert_eq!(
-        read_only.apply(Command::SetControl {
-            generation: Generation(7),
-            control: BooleanControl::Package,
-            enabled: false,
-        }),
-        Err(CoordinatorError::InvalidState)
-    );
-    assert_eq!(read_only.snapshot().pending, None);
+#[test]
+fn test_firmware_allows_guarded_writes_on_direct_and_can_routes() {
+    for route in [Route::Direct, Route::Can(42)] {
+        for test_version in [1, u8::MAX] {
+            let mut coordinator = DeviceMutationCoordinator::new();
+            configure(
+                &mut coordinator,
+                route,
+                firmware(test_version),
+                stable_profile(),
+            );
+            observe(
+                &mut coordinator,
+                sample(1, RideState::Idle, PackageMode::Normal),
+            );
+            observe_lighting(&mut coordinator, 1, &[36, 101, 20, 3]);
+            assert!(coordinator.snapshot().controls.as_ref().unwrap().writable);
+            let effects = coordinator
+                .apply(Command::SetControl {
+                    generation: Generation(7),
+                    control: BooleanControl::Package,
+                    enabled: false,
+                })
+                .unwrap();
+            let (_, request) = submission(&effects);
+            assert_eq!(request.context, RequestContext::RefloatControl(route));
+            request.validate().unwrap();
+        }
+    }
 }
 
 #[test]

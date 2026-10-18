@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the development-only SvelteKit control surface, serial coordinator, source-faithful VESC/Refloat simulation, and software verification contract for manually exercising Float View against the programmable ESP32 fixture.
+
 ## Requirements
+
 ### Requirement: Development-only fixture entry point
 
 The repository SHALL provide `just fixture dev [port]` as the public entry point for a SvelteKit development server at `http://127.0.0.1:11004` that controls the programmable ESP32 fixture. The application MUST run only through the Vite development loop and MUST NOT introduce a production adapter, build artifact, preview command, separate package, separate lockfile, deployment, or production runtime.
@@ -135,19 +137,19 @@ The controller SHALL compose one stable THOR300 identity, one audited VESC firmw
 - **WHEN** a normal stable runtime combination receives a source-correct Refloat product control
 - **THEN** it applies the bounded semantic state change while unknown, motor-control, and unrelated mutation requests receive no response
 
-#### Scenario: Test-version combinations remain read-only
+#### Scenario: Test-version combinations permit guarded writes
 
 - **WHEN** an audited test-version runtime combination receives any Refloat product-control request
-- **THEN** it supplies no mutating response and preserves simulated state
+- **THEN** it applies source-correct mutations under the same safety checks as release firmware
 
 #### Scenario: Exact shutdown request
 
-- **WHEN** a stable VESC 6.05, 6.06, or 7.00 variant receives `[156, 0, 0]` through its selected route while simulated ride state is idle and package mode is not flywheel
+- **WHEN** a release or test VESC 6.05, 6.06, or 7.00 variant receives `[156, 0, 0]` through its selected route while simulated ride state is idle and package mode is not flywheel
 - **THEN** it records one shutdown intent and simulates selected-controller disappearance without powering off the ESP32
 
 #### Scenario: Unsupported shutdown shape
 
-- **WHEN** VESC 6.02, a test-version variant, or any scenario receives forced, restart, malformed, retried, direct-CAN, or broadcast shutdown
+- **WHEN** VESC 6.02 or an unrecognised version receives shutdown, or any scenario receives forced, restart, malformed, retried, direct-CAN, or broadcast shutdown
 - **THEN** the fixture rejects the request, preserves simulated controller state, and records one bounded diagnostic
 
 ### Requirement: Selectable direct and VESC Express topology
@@ -240,7 +242,7 @@ Each Refloat codec SHALL implement the source-derived INFO and read-only telemet
 
 ### Requirement: Read-only Refloat device simulation
 
-While powered on, the coordinator SHALL answer the composed configuration's allowlisted VESC transport identity, optional CAN discovery, controller identity, Refloat identity, applicable telemetry reads, exact Refloat product controls, and exact eligible VESC-core shutdown for normal stable firmware through real BLE. It MUST NOT answer forced-shutdown, restart, broadcast-shutdown, motor-control, firmware-write, arbitrary persistent-configuration, tuning, recording, history, Handtest, remote, RC-move, unknown, or malformed requests. Audited test-version firmware SHALL remain read-only.
+While powered on, the coordinator SHALL answer the composed configuration's allowlisted VESC transport identity, optional CAN discovery, controller identity, Refloat identity, applicable telemetry reads, exact Refloat product controls, and exact eligible VESC-core shutdown for recognised release and test firmware through real BLE. It MUST NOT answer forced-shutdown, restart, broadcast-shutdown, motor-control, firmware-write, arbitrary persistent-configuration, tuning, recording, history, Handtest, remote, RC-move, unknown, or malformed requests. Audited test-version firmware SHALL permit the same guarded writes as release firmware.
 
 #### Scenario: Native backend connects
 
@@ -375,7 +377,7 @@ The complete software gate SHALL type-check and test the fixture development ser
 
 ### Requirement: Editable scenario workbench
 
-`just fixture dev` SHALL provide a manual scenario workbench that composes an editable BLE endpoint, at most 16 controller candidates, at most 64 discovered CAN IDs, audited VESC 6.02/6.05/6.06/7.00 identities, source-package identities, discovery behavior, notification fragmentation, and semantic telemetry state while a separately launched `just dev <platform>` application is operated by the developer. The workbench MUST NOT automatically drive the product, choose the product's active controller, assert product outcomes, or report pass/fail. Float View SHALL request telemetry from only its one selected route even when the scenario advertises multiple candidates; an audited test-version selection SHALL remain read-only.
+`just fixture dev` SHALL provide a manual scenario workbench that composes an editable BLE endpoint, at most 16 controller candidates, at most 64 discovered CAN IDs, audited VESC 6.02/6.05/6.06/7.00 identities, source-package identities, discovery behavior, notification fragmentation, and semantic telemetry state while a separately launched `just dev <platform>` application is operated by the developer. The workbench MUST NOT automatically drive the product, choose the product's active controller, assert product outcomes, or report pass/fail. Float View SHALL request telemetry from only its one selected route even when the scenario advertises multiple candidates; an audited test-version selection SHALL permit guarded writes.
 
 #### Scenario: Reproduce a reported setup
 
@@ -556,12 +558,12 @@ The interactive fixture SHALL compose each selected audited Refloat release with
 
 ### Requirement: Strict custom-configuration rejection
 
-The fixture SHALL answer configuration mutations only for normal writable audited firmware, index `0`, complete valid signatures and values, and configured safe scenario state. It SHALL reject test-version writes, unknown indexes, malformed or partial values, prohibited modes, unsafe state, arbitrary app-data tuning, firmware/motor configuration, and motor-control commands without weakening the existing fail-fast allowlist. While simulated package mode is flywheel it SHALL reject every mutation except eligible flywheel disable, withhold command-93 current values, invalidate loaded current state, and require a fresh current read after returning to normal mode; schema and default reads may remain available.
+The fixture SHALL answer configuration mutations only for normal writable audited firmware, index `0`, complete valid signatures and values, and configured safe scenario state. It SHALL reject unknown indexes, malformed or partial values, prohibited modes, unsafe state, arbitrary app-data tuning, firmware/motor configuration, and motor-control commands without weakening the existing fail-fast allowlist. While simulated package mode is flywheel it SHALL reject every mutation except eligible flywheel disable, withhold command-93 current values, invalidate loaded current state, and require a fresh current read after returning to normal mode; schema and default reads may remain available.
 
 #### Scenario: Test firmware write
 
 - **WHEN** a test-version fixture receives command 95
-- **THEN** it preserves current configuration and supplies no simulated successful mutation
+- **THEN** it applies a complete valid write only under the same version, signature, index, mode, and safety checks as release firmware
 
 #### Scenario: Invalid signature
 

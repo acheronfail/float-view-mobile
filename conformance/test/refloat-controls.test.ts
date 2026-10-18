@@ -109,7 +109,7 @@ test('legacy and stable zero-mask lighting requests query without changing state
   }
 });
 
-test('malformed, oversized, wrong-route, test-version, and unsupported requests fail closed', () => {
+test('malformed, oversized, wrong-route, and unsupported requests fail closed', () => {
   for (const item of fixture.rejections) {
     const result = decodeRefloatProductControl(item.version, Uint8Array.from(item.request), {
       selectedCanId: item.selectedCanId,
@@ -216,22 +216,25 @@ test('active flywheel telemetry is riding while exact disable remains authorized
   });
 });
 
-test('audited test-version simulator firmware remains read-only', () => {
-  const simulator = new VescSimulator(
-    composeBoard({
-      firmware: '7.00',
-      firmwareTestVersion: 1,
-      refloat: '1.2.3',
-      topology: 'direct',
-      requestPolicy: 'interactive',
-    })
-  );
-  assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.of(36, 101, 12, 0))), []);
-  assert.match(simulator.diagnostics.at(-1) ?? '', /read_only/);
-  assert.equal(
-    simulator.requests.some((item) => item.kind === 'refloat-control'),
-    false
-  );
+test('audited test-version simulator firmware permits controls on direct and CAN routes', () => {
+  for (const topology of ['direct', 'express'] as const) {
+    for (const firmwareTestVersion of [1, 255]) {
+      const simulator = new VescSimulator(
+        composeBoard({
+          firmware: '7.00',
+          firmwareTestVersion,
+          refloat: '1.2.3',
+          topology,
+          canId: 42,
+          requestPolicy: 'strict',
+        })
+      );
+      const prefix = topology === 'express' ? [34, 42] : [];
+      const replies = simulator.receive(encodeFrame(Uint8Array.of(...prefix, 36, 101, 20, 0, 0, 0, 2, 1)));
+      assert.deepEqual([...decode(replies[0]!.frame)], [36, 101, 20, 1]);
+      assert.equal(simulator.requests.at(-1)?.kind, 'refloat-control');
+    }
+  }
 });
 
 test('representative release families expose exact lighting state on direct and CAN routes', () => {

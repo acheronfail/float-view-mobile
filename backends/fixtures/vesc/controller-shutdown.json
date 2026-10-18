@@ -32,13 +32,6 @@
       "reason": "unsupported_version"
     },
     {
-      "name": "test-build-read-only",
-      "version": "6.06",
-      "firmwareTestVersion": 1,
-      "request": [156, 0, 0],
-      "reason": "read_only"
-    },
-    {
       "name": "truncated",
       "version": "6.06",
       "request": [156, 0],

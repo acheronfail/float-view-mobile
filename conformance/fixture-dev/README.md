@@ -58,7 +58,7 @@ state, applies expected firmware normalization, and resets safely without
 duplicating nine board profiles. The request panel exposes only bounded identity,
 byte counts, operation/rejection counters, and sanitized diagnostics. Raw schema
 and value bodies are never rendered. Riding/flywheel current reads and writes,
-test firmware, unknown indexes/routes, malformed requests, and unsafe app-data
+unknown indexes/routes, malformed requests, and unsafe app-data
 remain rejected; the ESP32 continues to interpret none of them.
 
 Choose a coherent semantic scene, then optionally pin individual bounded values

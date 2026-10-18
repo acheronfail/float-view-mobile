@@ -58,7 +58,6 @@ export function decodeRefloatProductControl(
   ) {
     return { accepted: false, reason: 'wrong_route' };
   }
-  if ((context.firmwareTestVersion ?? 0) !== 0) return { accepted: false, reason: 'read_only' };
   if (payload[0] !== 36 || payload[1] !== 101 || payload[2] === undefined) {
     return { accepted: false, reason: 'malformed' };
   }
