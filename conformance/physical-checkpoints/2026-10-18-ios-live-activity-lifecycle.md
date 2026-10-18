@@ -13,9 +13,12 @@ there was no intervening activity end or replacement start in the captured logs.
 The guest connection was disconnected afterward, the saved-board count was
 unchanged, and the fixture scenario was restored.
 
-This establishes native submission and BLE recovery, not OS rendering. XCTest
-could not enable UI automation on this phone, so Island/Lock Screen appearance,
-manual dismissal, and the explicit Shortcuts action remain visually unverified.
+The user also confirmed that the Live Activity was visible after backgrounding
+the stationary fixture connection, on the Dynamic Island or Lock Screen. This
+confirms background visibility, but does not visually establish freshness or
+reconnect recovery. XCTest could not enable UI automation on this phone; visual
+reconnect recovery, manual dismissal, and the explicit Shortcuts action remain
+unverified.
 The eight-hour system expiry and retry/dismissal decisions have software coverage;
 this checkpoint does not establish hours-long background behavior or other iOS
 versions. Detailed build/device evidence and the fixture advertising failure
