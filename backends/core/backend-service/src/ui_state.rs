@@ -55,6 +55,7 @@ enum Mode {
 enum Surface {
     LiveActions,
     LiveCharts,
+    FaultHistory,
     BmsDetails,
     RefloatConfiguration,
     RefloatTunes,

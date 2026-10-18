@@ -42,6 +42,7 @@ fn fault_only_sessions_survive_distance_filter_and_restart() {
         writer
             .append_fault_history(
                 &float_view_refloat_telemetry_service::FaultHistoryObservation {
+                    source_clock: None,
                     elapsed_ms: 100,
                     observed_at_epoch_ms: 1_000_100,
                     records: vec![float_view_refloat_telemetry_service::FaultRecord {

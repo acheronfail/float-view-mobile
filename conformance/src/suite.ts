@@ -888,9 +888,10 @@ async function createCompletedSession(
       'elapsedMs',
       'erpm',
       'extensions',
+      'fatalErrorLatched',
+      'faultHistory',
       'fieldWeakeningCurrentA',
       'filteredMotorCurrentA',
-      'fatalErrorLatched',
       'firmwareFault',
       'footpadAdc1V',
       'footpadAdc2V',
@@ -923,6 +924,14 @@ async function createCompletedSession(
       'wattHoursDrawnWh',
       'wheelslip',
     ]);
+  }
+  const faults = connected.activeConnection.latestSample?.faultHistory;
+  if (faults) {
+    assert.ok(faults.length <= 20);
+    for (const fault of faults) {
+      assert.ok(Number.isInteger(fault.code) && fault.code > 0 && fault.code <= 255);
+      assert.ok(fault.elapsedMs === null || (fault.elapsedMs >= 0 && fault.elapsedMs <= fault.observedElapsedMs));
+    }
   }
   if (connected.activeConnection.refloatControls?.status === 'ready') {
     const controls = connected.activeConnection.refloatControls;

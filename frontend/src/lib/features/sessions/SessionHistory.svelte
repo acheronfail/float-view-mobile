@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { RideFault } from '$lib/features/faults/faults';
   import type { SessionMetadata, SessionRideMarker } from '$lib/backend/contract';
   import type { Viewport } from './viewport';
   import SessionHistoryChart from './SessionHistoryChart.svelte';
@@ -9,6 +10,8 @@
     oninspect = () => {},
     liveVersion = 0,
     markers = [],
+    firmwareFaults = [],
+    onfaultselect = () => {},
     selectedPoint = null,
     onmarkerselect = () => {},
     metadata,
@@ -25,6 +28,8 @@
     oninspect?: () => void;
     liveVersion?: number;
     markers?: SessionRideMarker[];
+    firmwareFaults?: RideFault[];
+    onfaultselect?: (elapsedMs: number) => void;
     selectedPoint?: { elapsedMs: number } | null;
     onmarkerselect?: (marker: SessionRideMarker) => void;
     metadata: SessionMetadata;
@@ -45,6 +50,8 @@
     {oninspect}
     {liveVersion}
     {markers}
+    {firmwareFaults}
+    {onfaultselect}
     {selectedPoint}
     {onmarkerselect}
     {metadata}

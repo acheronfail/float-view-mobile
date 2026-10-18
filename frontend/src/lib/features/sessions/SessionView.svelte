@@ -1,11 +1,14 @@
 <script lang="ts">
+  import { loadFirmwareFaults } from '$lib/features/faults/session-faults';
+  import FaultList from '$lib/features/faults/FaultList.svelte';
+  import type { RideFault } from '$lib/features/faults/faults';
   import { startRideRefresh } from './ride-refresh';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import type { SessionDisplayOptions, SessionRideMarker } from '$lib/backend/contract';
   import { SessionDataHttpError } from '$lib/backend/session-data-client';
   import { ApiRequestError } from '$lib/backend/client';
   import SessionMarkers from './SessionMarkers.svelte';
-  import { getContext, onDestroy, onMount, tick } from 'svelte';
+  import { getContext, onDestroy, onMount, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
@@ -102,6 +105,12 @@
   let markers = $state<SessionRideMarker[]>([]);
   let selectedMarker = $state<SessionRideMarker | null>(null);
   let selectedPoint = $state<{ elapsedMs: number } | null>(null);
+  let firmwareFaults = $state<RideFault[]>([]);
+  let firmwareFaultError = $state('');
+  let faultRetry = $state(0);
+  const faultBoundary = $derived(
+    `${backendState.sessionMetadata?.summary.sessionId}:${backendState.sessionMetadata?.snapshot.committedEventSequence}`
+  );
   let markerError = $state('');
   let markerRetry = '';
   function selectMarker(marker: SessionRideMarker) {
@@ -151,6 +160,29 @@
         void backendState.openSession(metadata.summary.sessionId);
       } else markerError = 'Markers could not be loaded.';
     });
+    return () => {
+      active = false;
+      controller.dispose();
+    };
+  });
+  $effect(() => {
+    void faultBoundary;
+    void faultRetry;
+    const metadata = untrack(() => backendState.sessionMetadata);
+    if (!metadata || metadata.summary.sessionId !== sessionId) return;
+    const controller = backendState.createSessionReviewController(metadata);
+    let active = true;
+    firmwareFaultError = '';
+    void loadFirmwareFaults(controller, metadata)
+      .then((faults) => {
+        if (active) firmwareFaults = faults;
+      })
+      .catch((error) => {
+        if (active) {
+          firmwareFaults = [];
+          firmwareFaultError = error instanceof Error ? error.message : 'Fault history could not be loaded.';
+        }
+      });
     return () => {
       active = false;
       controller.dispose();
@@ -335,6 +367,26 @@
     {/if}
     {#if refreshError}<p role="alert" class="text-sm text-warning">{refreshError}</p>{/if}
     {#if backendState.sessionMetadata}
+      {#if firmwareFaults.length}
+        <section class="mb-3 space-y-2" aria-label="Ride faults">
+          <h2 class="font-semibold text-danger">Faults ({firmwareFaults.length})</h2>
+          <FaultList faults={firmwareFaults} onselect={selectFault} />
+          <p class="text-xs text-muted">Times are approximate. Select a timed fault to inspect the ride.</p>
+        </section>
+      {/if}
+      {#if firmwareFaultError}<p role="alert" class="mb-3 text-sm text-danger">{firmwareFaultError}</p>
+        <button
+          type="button"
+          class="mb-3 min-h-11 touch-manipulation rounded border border-outline px-3 text-sm"
+          onpointerdown={(e) =>
+            activateFromPointer(e, () => {
+              faultRetry++;
+            })}
+          onclick={(e) =>
+            activateFromKeyboardOrAssistiveClick(e, () => {
+              faultRetry++;
+            })}>Retry faults</button
+        >{/if}
       <SessionMarkers {markers} selected={selectedMarker?.sequence ?? null} onselect={selectMarker} />
       {#if markerError}<p role="alert" class="text-warning">{markerError}</p>{/if}
       {#if backendState.sessionMetadata.location.available || markers.some((m) => m.location)}
@@ -344,6 +396,7 @@
           live={following && isActive}
           {selectedElapsedMs}
           {markers}
+          {firmwareFaults}
           {selectedMarker}
           onmarkerselect={selectMarker}
           onfaultselect={selectFault}
@@ -372,6 +425,7 @@
           {smoothCharts}
           metadata={backendState.sessionMetadata}
           {markers}
+          {firmwareFaults}
           {selectedPoint}
           following={following && wasActive}
           oninspect={pauseFollowing}
@@ -382,6 +436,7 @@
           ondataerror={refreshSpatialSnapshot}
           initialViewport={chartViewport}
           onmarkerselect={selectMarker}
+          onfaultselect={selectFault}
           onselectionchange={(elapsedMs) => {
             selectedElapsedMs = elapsedMs;
             if (selectedMarker?.elapsedMs !== elapsedMs) selectedMarker = null;

@@ -459,6 +459,9 @@ impl SessionReader {
                 serde_json::from_str(&details_json).map_err(|_| ReaderError::Incompatible)?;
             let valid_details = if kind == "firmwareFaultHistory" {
                 super::faults::valid_fault_details(&details)
+                    && details["occurredElapsedMs"]
+                        .as_u64()
+                        .is_none_or(|t| t <= elapsed as u64)
             } else {
                 details.as_object().is_some_and(|object| {
                     object.len() == 1

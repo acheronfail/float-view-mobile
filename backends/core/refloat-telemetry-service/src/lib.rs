@@ -264,8 +264,36 @@ pub struct ReportedFirmwareFault {
     pub reason: FirmwareFault,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FaultClock {
+    pub ticks: u32,
+    pub elapsed_ms: u64,
+}
+
+/// The audited Refloat interface uses 10,000 ticks/second. Times are estimates
+/// anchored to received telemetry; pre-session or unusable times stay unknown.
+pub fn fault_elapsed_ms(ticks: u32, clock: Option<FaultClock>, retrieved_ms: u64) -> Option<u64> {
+    let clock = clock?;
+    let delta_ms = i64::from(ticks.wrapping_sub(clock.ticks) as i32) / 10;
+    let elapsed = i128::from(clock.elapsed_ms) + i128::from(delta_ms);
+    // A fast telemetry response is larger than an alerts reply. Its later
+    // receipt can put the estimate slightly beyond retrieval; cap bounded
+    // transport skew rather than pretending to have sub-poll precision.
+    (elapsed >= 0 && elapsed <= i128::from(retrieved_ms) + i128::from(REQUEST_TIMEOUT_MS))
+        .then_some((elapsed as u64).min(retrieved_ms))
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecoveredFirmwareFault {
+    pub code: u8,
+    pub reason: FirmwareFault,
+    pub elapsed_ms: Option<u64>,
+    pub observed_elapsed_ms: u64,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct FaultHistoryObservation {
+    pub source_clock: Option<FaultClock>,
     /// When history was retrieved on the ride timeline. Source ticks remain in each record.
     pub elapsed_ms: u64,
     pub observed_at_epoch_ms: i64,
@@ -305,6 +333,7 @@ pub struct NormalizedSample {
     pub firmware_fault: Option<FirmwareFault>,
     pub fatal_error_latched: Option<bool>,
     pub last_firmware_fault: Option<ReportedFirmwareFault>,
+    pub fault_history: Vec<RecoveredFirmwareFault>,
     pub pack_voltage_v: Option<f64>,
     pub duty_cycle: Option<f64>,
     pub controller_temp_c: Option<f64>,
@@ -585,6 +614,10 @@ pub struct RefloatTelemetryService {
     alerts_since_ticks: u32,
     last_source_ticks: Option<u32>,
     last_firmware_fault: Option<ReportedFirmwareFault>,
+    recovered_fault_since_sample: bool,
+    previous_fault_code: u8,
+    fault_history: Vec<RecoveredFirmwareFault>,
+    source_clock: Option<FaultClock>,
     previous_fatal_error_latched: Option<bool>,
     active: bool,
     next_timer_nonce: u64,
@@ -632,6 +665,10 @@ impl Default for RefloatTelemetryService {
             alerts_since_ticks: 0,
             last_source_ticks: None,
             last_firmware_fault: None,
+            recovered_fault_since_sample: false,
+            previous_fault_code: 0,
+            fault_history: Vec::new(),
+            source_clock: None,
             previous_fatal_error_latched: None,
             active: false,
             next_timer_nonce: 0,
@@ -915,6 +952,7 @@ impl RefloatTelemetryService {
             self.pending_request = None;
             self.latest_firmware_fault =
                 reported_firmware_fault(alerts.active_fault_code).map(|v| v.reason);
+            let elapsed_ms = now_ms.saturating_sub(self.started_at_ms.unwrap_or(now_ms));
             let mut records = Vec::new();
             for record in &alerts.records {
                 self.alerts_since_ticks = record.source_ticks.saturating_sub(1);
@@ -927,15 +965,31 @@ impl RefloatTelemetryService {
                 self.seen_faults.push(*record);
                 if let Some(fault) = reported_firmware_fault(record.raw_code) {
                     self.last_firmware_fault = Some(fault);
+                    self.recovered_fault_since_sample = true;
+                    if self.fault_history.len() == 20 {
+                        self.fault_history.remove(0);
+                    }
+                    self.fault_history.push(RecoveredFirmwareFault {
+                        code: fault.code,
+                        reason: fault.reason,
+                        elapsed_ms: fault_elapsed_ms(
+                            record.source_ticks,
+                            self.source_clock,
+                            elapsed_ms,
+                        ),
+                        observed_elapsed_ms: elapsed_ms,
+                    });
                 }
                 records.push(*record);
             }
             if let Some(fault) = reported_firmware_fault(alerts.active_fault_code) {
                 self.last_firmware_fault = Some(fault);
+                self.recovered_fault_since_sample = true;
             }
             let mut effects = Vec::new();
             if !records.is_empty() {
                 effects.push(Effect::PublishFaultHistory(FaultHistoryObservation {
+                    source_clock: self.source_clock,
                     elapsed_ms: now_ms.saturating_sub(self.started_at_ms.unwrap_or(now_ms)),
                     observed_at_epoch_ms,
                     records,
@@ -994,6 +1048,7 @@ impl RefloatTelemetryService {
         let mut record = common_record(telemetry)?;
         if let Some(ticks) = source_ticks {
             if self.last_source_ticks.is_some_and(|last| ticks < last) {
+                self.source_clock = None;
                 self.seen_faults.clear();
                 self.alerts_since_ticks = 0;
                 if self
@@ -1001,6 +1056,7 @@ impl RefloatTelemetryService {
                     .is_some_and(|last| ticks.wrapping_sub(last) > i32::MAX as u32)
                 {
                     self.last_firmware_fault = None;
+                    self.recovered_fault_since_sample = false;
                     self.latest_firmware_fault = None;
                     self.previous_fatal_error_latched = None;
                 }
@@ -1019,15 +1075,35 @@ impl RefloatTelemetryService {
             self.latest_compact = Some(SlowCache::from_record(&record, observed_at_epoch_ms));
             return self.telemetry_followup(now_ms, false);
         }
+        if !self.alerts_available {
+            let code = raw_fault_code.unwrap_or(0);
+            if code != 0
+                && code != self.previous_fault_code
+                && let Some(fault) = reported_firmware_fault(code)
+            {
+                if self.fault_history.len() == 20 {
+                    self.fault_history.remove(0);
+                }
+                let elapsed_ms = now_ms.saturating_sub(self.started_at_ms.unwrap_or(now_ms));
+                self.fault_history.push(RecoveredFirmwareFault {
+                    code,
+                    reason: fault.reason,
+                    elapsed_ms: Some(elapsed_ms),
+                    observed_elapsed_ms: elapsed_ms,
+                });
+            }
+            self.previous_fault_code = code;
+        }
         if record.fatal_error_latched == Some(true)
             && self.previous_fatal_error_latched == Some(false)
         {
-            if record.firmware_fault.is_none() {
+            if record.firmware_fault.is_none() && !self.recovered_fault_since_sample {
                 self.last_firmware_fault = None;
             }
             self.next_alerts_due_ms = self.alerts_available.then_some(now_ms);
         }
         self.previous_fatal_error_latched = record.fatal_error_latched;
+        self.recovered_fault_since_sample = false;
         if self.family == TelemetryFamily::Selectable {
             record.firmware_fault = self.latest_firmware_fault;
             if record.firmware_fault.is_some() {
@@ -1036,6 +1112,12 @@ impl RefloatTelemetryService {
         }
 
         let started_at_ms = self.started_at_ms.unwrap_or(now_ms);
+        if let Some(ticks) = source_ticks {
+            self.source_clock = Some(FaultClock {
+                ticks,
+                elapsed_ms: now_ms.saturating_sub(started_at_ms),
+            });
+        }
         let next_sequence = self.sequence.wrapping_add(1);
         let next_tail = if record.ride_state == RideState::Riding {
             None
@@ -1102,6 +1184,14 @@ impl RefloatTelemetryService {
         self.started_at_ms = None;
         self.riding_elapsed_ms = 0;
         self.sequence = 0;
+        self.previous_fault_code = 0;
+        self.fault_history.clear();
+        self.seen_faults.clear();
+        self.alerts_since_ticks = 0;
+        self.last_source_ticks = None;
+        self.last_firmware_fault = None;
+        self.recovered_fault_since_sample = false;
+        self.previous_fatal_error_latched = None;
         self.reset_connection()
     }
 
@@ -1112,11 +1202,9 @@ impl RefloatTelemetryService {
         self.scheduler_generation = None;
         self.route = None;
         self.family = TelemetryFamily::Dynamic;
-        self.seen_faults.clear();
-        self.alerts_since_ticks = 0;
-        self.last_source_ticks = None;
-        self.last_firmware_fault = None;
-        self.previous_fatal_error_latched = None;
+        self.source_clock = None;
+        // Reconnecting the same ride must retain its history cursor and cause.
+        // A full reset or a detected controller reboot starts fresh history.
         effects
     }
 
@@ -1395,6 +1483,7 @@ impl RefloatTelemetryService {
             firmware_fault: value.firmware_fault,
             fatal_error_latched: value.fatal_error_latched,
             last_firmware_fault: self.last_firmware_fault,
+            fault_history: self.fault_history.clone(),
             pack_voltage_v: value.pack_voltage_v,
             duty_cycle: value.duty_cycle,
             controller_temp_c: value.controller_temp_c,
@@ -2080,6 +2169,175 @@ mod tests {
     }
 
     #[test]
+    fn fault_times_use_controller_ticks_without_placing_old_or_future_faults_in_a_ride() {
+        let clock = Some(FaultClock {
+            ticks: 1000,
+            elapsed_ms: 100,
+        });
+        assert_eq!(fault_elapsed_ms(900, clock, 200), Some(90));
+        assert_eq!(fault_elapsed_ms(2000, clock, 200), Some(200));
+        assert_eq!(fault_elapsed_ms(2010, clock, 200), Some(200));
+        assert_eq!(
+            fault_elapsed_ms(
+                0,
+                Some(FaultClock {
+                    ticks: 10000,
+                    elapsed_ms: 10
+                }),
+                200
+            ),
+            None
+        );
+        assert_eq!(
+            fault_elapsed_ms(
+                u32::MAX - 79,
+                Some(FaultClock {
+                    ticks: 20,
+                    elapsed_ms: 1000
+                }),
+                1100
+            ),
+            Some(990)
+        );
+        assert_eq!(fault_elapsed_ms(11010, clock, 200), None);
+        assert_eq!(fault_elapsed_ms(1, None, 100), None);
+    }
+
+    #[test]
+    fn dynamic_history_recovers_a_missed_fault_while_the_latch_remains() {
+        let mut service = RefloatTelemetryService::default();
+        let mut config = configuration(TelemetryFamily::Dynamic, Route::Direct);
+        config.alerts_available = true;
+        service
+            .apply(Command::Start {
+                configuration: config,
+                now_ms: 0,
+            })
+            .unwrap();
+        let mut state = dynamic_sample(dynamic::PackageState::Ready, 0.0);
+        state.fatal_error_latched = Some(true);
+        state.firmware_fault = None;
+        state.firmware_fault_raw_code = None;
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Dynamic(state.clone()),
+            100,
+            1_000_100,
+        );
+        assert_eq!(enqueue(&effects).0, RequestKind::Alerts);
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                active_fault_code: 0,
+                records: vec![
+                    FaultRecord {
+                        source_ticks: 1,
+                        active: true,
+                        raw_code: 255,
+                    },
+                    FaultRecord {
+                        source_ticks: 2,
+                        active: false,
+                        raw_code: 0,
+                    },
+                ],
+            }),
+            110,
+            1_000_110,
+        );
+        assert_eq!(enqueue(&effects).0, RequestKind::Realtime);
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Dynamic(state),
+            120,
+            1_000_120,
+        );
+        assert_eq!(
+            published(&effects).last_firmware_fault,
+            reported_firmware_fault(255)
+        );
+        assert_eq!(published(&effects).firmware_fault, None);
+        assert_eq!(published(&effects).fatal_error_latched, Some(true));
+    }
+
+    #[test]
+    fn history_arriving_before_the_latch_transition_keeps_the_new_cause() {
+        let mut service = RefloatTelemetryService::default();
+        let mut config = configuration(TelemetryFamily::Selectable, Route::Direct);
+        config.alerts_available = true;
+        service
+            .apply(Command::Start {
+                configuration: config,
+                now_ms: 0,
+            })
+            .unwrap();
+        let mut state = selectable_sample(Some(dynamic::PackageState::Ready), 0.0);
+        state.fatal_error_latched = Some(false);
+        receive(
+            &mut service,
+            DecodedTelemetry::Selectable(state.clone()),
+            100,
+            1_000_100,
+        );
+        // A momentary fault occurs after this sample but before its due alerts probe.
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                active_fault_code: 0,
+                records: vec![
+                    FaultRecord {
+                        source_ticks: 1,
+                        active: true,
+                        raw_code: 4,
+                    },
+                    FaultRecord {
+                        source_ticks: 2,
+                        active: false,
+                        raw_code: 0,
+                    },
+                ],
+            }),
+            110,
+            1_000_110,
+        );
+        assert_eq!(enqueue(&effects).0, RequestKind::SelectableFast);
+        state.fatal_error_latched = Some(true);
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Selectable(state.clone()),
+            120,
+            1_000_120,
+        );
+        assert_eq!(
+            published(&effects).last_firmware_fault,
+            reported_firmware_fault(4)
+        );
+        assert_eq!(published(&effects).fatal_error_latched, Some(true));
+        // A later, unrelated latch cannot borrow this old cause while its
+        // own history is still unavailable.
+        service.pending_request = Some(RequestKind::SelectableFast);
+        state.fatal_error_latched = Some(false);
+        receive(
+            &mut service,
+            DecodedTelemetry::Selectable(state.clone()),
+            130,
+            1_000_130,
+        );
+        service.pending_request = Some(RequestKind::SelectableFast);
+        state.fatal_error_latched = Some(true);
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Selectable(state),
+            140,
+            1_000_140,
+        );
+        assert_eq!(published(&effects).last_firmware_fault, None);
+        service.apply(Command::Reset).unwrap();
+        assert!(service.seen_faults.is_empty());
+        assert_eq!(service.alerts_since_ticks, 0);
+    }
+
+    #[test]
     fn retrieves_transient_fault_history_and_deduplicates_overlapping_polls() {
         let mut service = RefloatTelemetryService::default();
         let mut config = configuration(TelemetryFamily::Selectable, Route::Can(23));
@@ -2153,6 +2411,43 @@ mod tests {
                 .any(|e| matches!(e, Effect::PublishFaultHistory(_)))
         );
         assert_eq!(service.alerts_since_ticks, 899);
+
+        // The same ride can reconnect after the controller fault has cleared.
+        // Keep its cause and do not write overlapping history a second time.
+        service.apply(Command::ResetConnection).unwrap();
+        let mut config = configuration(TelemetryFamily::Selectable, Route::Can(23));
+        config.alerts_available = true;
+        service
+            .apply(Command::Start {
+                configuration: config,
+                now_ms: 131,
+            })
+            .unwrap();
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Selectable(state.clone()),
+            132,
+            1_000_132,
+        );
+        assert_eq!(
+            published(&effects).last_firmware_fault,
+            reported_firmware_fault(4)
+        );
+        assert_eq!(enqueue(&effects).0, RequestKind::Alerts);
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                active_fault_code: 0,
+                records: records.clone(),
+            }),
+            133,
+            1_000_133,
+        );
+        assert!(
+            !effects
+                .iter()
+                .any(|e| matches!(e, Effect::PublishFaultHistory(_)))
+        );
 
         // A reboot can repeat tick/code pairs; it starts a fresh history cursor.
         state.source_ticks = 1;
@@ -2866,6 +3161,9 @@ mod tests {
         assert_eq!(sample.firmware_fault, Some(FirmwareFault::EncoderNoMagnet));
         assert_eq!(sample.pack_voltage_v, None);
         assert_eq!(sample.slow_observed_at_epoch_ms, Some(2));
+        assert_eq!(sample.fault_history.len(), 1);
+        assert_eq!(sample.fault_history[0].code, 25);
+        assert_eq!(sample.fault_history[0].elapsed_ms, Some(0));
     }
 
     #[test]

@@ -418,6 +418,16 @@ pub(crate) fn sample(
             code: fault.code,
             reason: camel(fault.reason),
         }),
+        fault_history: v
+            .fault_history
+            .iter()
+            .map(|fault| f::RecoveredFirmwareFault {
+                code: fault.code,
+                reason: camel(fault.reason),
+                elapsed_ms: fault.elapsed_ms,
+                observed_elapsed_ms: fault.observed_elapsed_ms,
+            })
+            .collect(),
         pack_voltage_v: v.pack_voltage_v,
         duty_cycle: v.duty_cycle,
         controller_temp_c: v.controller_temp_c,

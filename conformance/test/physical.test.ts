@@ -26,3 +26,16 @@ test('1.3.0 physical selection covers lifecycle routes and preserves legacy regr
   assert.equal(physicalScenario('direct-legacy', '1.3.0'), fixtureScenarios['direct-legacy']);
   assert.throws(() => physicalScenario('ride', '1.3.1'), /exactly 1.3.0/);
 });
+
+test('fault checkpoints start idle and the CAN controller is independently discoverable', async () => {
+  const { physicalScenario } = await import('../fixture/scenarios.ts');
+  for (const name of ['fault-direct', 'fault-can'] as const) {
+    for (const version of [undefined, '1.3.0']) {
+      const scenario = physicalScenario(name, version);
+      const controller = scenario.board.controllers[0]!;
+      assert.equal(controller.telemetry?.phase(), 'idle');
+      assert.equal(controller.refloat?.version, '1.3.0');
+      if (name === 'fault-can') assert.ok(scenario.board.canPingIds?.includes(controller.canId));
+    }
+  }
+});

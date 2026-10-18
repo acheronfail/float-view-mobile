@@ -440,6 +440,7 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
       elapsedMs: page.rows.map((event) => event.elapsedMs),
       sequence: page.rows.map((event) => event.sequence),
       sourceSampleSequence: page.rows.map((event) => event.sourceSampleSequence),
+      faults: page.rows.map(() => null),
       kinds: page.rows.map((event) => event.kind),
       values: page.rows.map((event) => event.value),
     },

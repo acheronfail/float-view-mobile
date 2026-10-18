@@ -5,7 +5,7 @@ import { mandatoryMethods, runConformance } from '../src/suite.ts';
 import { mockTarget } from '../targets/mock.ts';
 
 test('mandatory contract has one concise method set', () => {
-  assert.equal(mandatoryMethods.length, 44);
+  assert.equal(mandatoryMethods.length, 49);
   assert.equal(new Set(mandatoryMethods).size, mandatoryMethods.length);
 });
 

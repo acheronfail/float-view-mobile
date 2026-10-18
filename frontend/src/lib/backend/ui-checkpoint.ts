@@ -59,6 +59,8 @@ export function validUiCheckpoint(value: unknown): value is UiCheckpoint {
   return (
     route.kind === 'live' &&
     live !== null &&
-    ['liveActions', 'liveCharts', 'bmsDetails', 'refloatConfiguration', 'refloatTunes'].includes(String(surface.kind))
+    ['liveActions', 'liveCharts', 'faultHistory', 'bmsDetails', 'refloatConfiguration', 'refloatTunes'].includes(
+      String(surface.kind)
+    )
   );
 }

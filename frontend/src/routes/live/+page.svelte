@@ -18,6 +18,7 @@
   import { liveCharging } from '$lib/features/connection/charging';
   import { liveStatus } from '$lib/features/connection/live-status';
   import { lightingMenuActions } from '$lib/features/connection/lighting';
+  import FaultHistory from '$lib/features/connection/FaultHistory.svelte';
   import LiveCharts from '$lib/features/connection/LiveCharts.svelte';
   import LiveView from '$lib/features/connection/LiveView.svelte';
   import BmsView from '$lib/features/connection/BmsView.svelte';
@@ -49,6 +50,7 @@
   let view = $state<View>('normal');
   let configuration = $state<{ savedDeviceId: string; batteryOnly: boolean; trigger?: HTMLButtonElement } | null>(null);
   let liveChartsOpen = $state(false);
+  let faultHistoryOpen = $state(false);
   let bmsTrigger: HTMLButtonElement | undefined;
   let bmsOpen = $state(false);
   let locationOpen = $state(false);
@@ -78,6 +80,9 @@
         connection?.firmware?.supported === false;
       if (surface && !blocked) {
         switch (surface.kind) {
+          case 'faultHistory':
+            faultHistoryOpen = true;
+            break;
           case 'liveCharts':
             liveChartsOpen = true;
             break;
@@ -113,15 +118,17 @@
           savedDeviceId: configuration.savedDeviceId,
           batteryOnly: configuration.batteryOnly,
         }
-      : liveChartsOpen
-        ? { kind: 'liveCharts' }
-        : bmsOpen
-          ? { kind: 'bmsDetails' }
-          : refloatConfigurationOpen
-            ? { kind: 'refloatConfiguration' }
-            : refloatTunesOpen
-              ? { kind: 'refloatTunes' }
-              : null;
+      : faultHistoryOpen
+        ? { kind: 'faultHistory' }
+        : liveChartsOpen
+          ? { kind: 'liveCharts' }
+          : bmsOpen
+            ? { kind: 'bmsDetails' }
+            : refloatConfigurationOpen
+              ? { kind: 'refloatConfiguration' }
+              : refloatTunesOpen
+                ? { kind: 'refloatTunes' }
+                : null;
     if (flywheelOverlayVisible(connection)) surface = null;
     restoration.present('#/live', connection ? { deviceId: connection.deviceId, mode: view } : null, surface);
   });
@@ -255,6 +262,15 @@
               },
             ]
           : []),
+        {
+          label: 'Fault history…',
+          icon: 'triangle-alert' as const,
+          group: 'View',
+          onactivate: (closeMenu: () => void) => {
+            closeMenu();
+            faultHistoryOpen = true;
+          },
+        },
         ...lightingMenuActions(connection).map((action) => ({
           label: action.label,
           icon: action.control === 'leds' ? ('lightbulb' as const) : ('flashlight' as const),
@@ -491,6 +507,12 @@
     else appHeader.focusMenu();
   }
 
+  async function closeFaultHistory() {
+    faultHistoryOpen = false;
+    await tick();
+    appHeader.focusMenu();
+  }
+
   async function closeLiveCharts(keyboard: boolean) {
     liveChartsOpen = false;
     await tick();
@@ -682,4 +704,8 @@
 
 {#if liveChartsOpen && !flywheelOverlayVisible(connection)}
   <LiveCharts onclose={closeLiveCharts} />
+{/if}
+
+{#if faultHistoryOpen && !flywheelOverlayVisible(connection)}
+  <FaultHistory onclose={closeFaultHistory} />
 {/if}

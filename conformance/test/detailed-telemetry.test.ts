@@ -187,8 +187,11 @@ test('simulator routes realtime and compact requests and bounds unsupported diag
   assert.equal(compact[0]?.request.command, 36);
   assert.equal(realtime[0]?.request.telemetryCommand, 'realtime');
   assert.equal(compact[0]?.request.telemetryCommand, 'compact');
+  const alerts = simulator.receive(encodeFrame(Uint8Array.of(34, 42, 36, 101, 35, 0, 0, 0, 0)));
+  assert.equal(alerts[0]?.request.telemetryCommand, 'alerts');
+  // Preserve the original provenance fixture; command 35 is now implemented.
   for (let index = 0; index < 60; index += 1) {
-    for (const command of sourceFixture.deferredCommands) {
+    for (const command of sourceFixture.deferredCommands.filter((command) => command !== 35)) {
       simulator.receive(encodeFrame(Uint8Array.of(34, 42, 36, 101, command)));
     }
   }

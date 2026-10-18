@@ -58,6 +58,7 @@ pub fn sample(sequence: u64, elapsed_ms: u64) -> NormalizedSample {
         firmware_fault: None,
         fatal_error_latched: None,
         last_firmware_fault: None,
+        fault_history: Vec::new(),
         pack_voltage_v: None,
         duty_cycle: None,
         controller_temp_c: None,

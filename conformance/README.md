@@ -100,7 +100,17 @@ simulation inputs; controller UUID bytes stay private to the simulator server.
 
 The telemetry matrix covers Refloat 1.0.0 command 1 plus command 10 detail
 levels 1–4, and Refloat 1.1.0/1.2.3 command 31/32 plus periodic command 10
-detail 4. Command 35 history and commands 41–43 are intentionally deferred.
+detail 4. Refloat 1.2+ also polls command 35 for bounded firmware fault history;
+commands 41–43 remain deferred.
+
+For the focused fault checkpoint, run
+`FLOAT_VIEW_PHYSICAL_SCENARIOS=fault-direct,fault-can npm run physical -- macos <fixture-port>`
+(or the Android/iOS target with its device ID). It injects a fault start and end
+between telemetry polls, verifies the retained latch and recovered reason across
+BLE reconnect, rejects clearing an active fault, confirms an eligible clear, and
+checks that the completed idle session retains each history event exactly once.
+The fixture resets to READY on cleanup. This tests native BLE transport with
+source-derived Refloat responses; it does not induce a fault on a real controller.
 
 The product-control matrix covers exact commands 12, 22, 202, 20, and 36 for
 representative Refloat 1.0.0, 1.1.0, and 1.2.3 direct and CAN routes. Its

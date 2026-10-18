@@ -104,7 +104,13 @@ export interface SessionSamplesResult {
   nextCursor: string | null;
 }
 
+export interface SessionFaultDetails {
+  rawCode: number;
+  occurredElapsedMs: number | null;
+}
 export interface SessionEventPage {
+  /** Present on current backends; old event fixtures remain readable. */
+  faults?: (SessionFaultDetails | null)[];
   elapsedMs: number[];
   sequence: number[];
   sourceSampleSequence: number[];
@@ -499,6 +505,19 @@ function validateEventsResult(value: Partial<SessionEventsResult>): SessionEvent
     page.values.length !== page.elapsedMs.length
   )
     throw new SessionDataProtocolError('Invalid event page');
+  if (page.faults !== undefined && (!Array.isArray(page.faults) || page.faults.length !== page.elapsedMs.length))
+    throw new SessionDataProtocolError('Invalid fault details');
+  page.faults?.forEach((fault, i) => {
+    if (
+      fault !== null &&
+      (page.kinds[i] !== 'firmwareFaultHistory' ||
+        !finiteInteger(fault.rawCode) ||
+        fault.rawCode > 255 ||
+        (fault.occurredElapsedMs !== null &&
+          (!finiteInteger(fault.occurredElapsedMs) || fault.occurredElapsedMs > page.elapsedMs[i]!)))
+    )
+      throw new SessionDataProtocolError('Invalid fault time');
+  });
   page.elapsedMs.forEach((elapsed, index) => {
     if (
       !finiteInteger(elapsed) ||

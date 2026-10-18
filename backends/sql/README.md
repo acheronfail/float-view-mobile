@@ -34,8 +34,10 @@ disposable.
 Refloat 1.2+ fault history is polled through command 35 on the controller's normal
 scheduler route. `firmwareFaultHistory` session events retain each
 fault start/end, the raw VESC code, the normalized reason, and the controller's
-original system ticks. Their ride time and wall time identify retrieval, since
-history may predate connection. `fatalErrorLatched` transitions are stored
+original system ticks. Their row time identifies retrieval, since history may
+predate connection. New records also store nullable `occurredElapsedMs`, estimated
+from the controller clock for chart/map markers; old four-field records remain
+readable with no inferred occurrence time. `fatalErrorLatched` transitions are stored
 separately from active `firmwareFault` transitions. Fault-bearing sessions survive
 the minimum-distance filter. History is committed through the attached session
 writer as soon as it arrives, independently of the next

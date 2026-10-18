@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { faultLabel, type RideFault } from '$lib/features/faults/faults';
   import { loadLocationTrack } from './location-track';
   import { unwrapLongitude, type MapBounds } from './map-filter';
   import { onMount, onDestroy, tick, untrack } from 'svelte';
@@ -32,6 +33,7 @@
     following = false,
     live = false,
     markers = [],
+    firmwareFaults = [],
     selectedMarker = null,
     onmarkerselect = () => {},
     onfaultselect = () => {},
@@ -51,6 +53,7 @@
     following?: boolean;
     live?: boolean;
     markers?: SessionRideMarker[];
+    firmwareFaults?: RideFault[];
     selectedMarker?: SessionRideMarker | null;
     onmarkerselect?: (marker: SessionRideMarker) => void;
     onfaultselect?: (elapsedMs: number) => void;
@@ -263,6 +266,7 @@
     void points;
     void markers;
     void faults;
+    void firmwareFaults;
     void displayOptions;
     void selectedElapsedMs;
     void following;
@@ -366,8 +370,29 @@
     faultLayers.forEach((layer) => layer.remove());
     faultLayers = [];
     if (!map) return;
-    for (const fault of faults) {
-      if (!(fault.state === 'none' ? displayOptions?.bothFootpadsOff : displayOptions?.oneFootpadOff)) continue;
+    const allFaults = [
+      ...faults
+        .filter((f) => (f.state === 'none' ? displayOptions?.bothFootpadsOff : displayOptions?.oneFootpadOff))
+        .map((f) => ({
+          elapsedMs: f.elapsedMs,
+          firmware: false,
+          label: footpadFaultLabel(f),
+          icon: footpadFaultIcon(f.state),
+        })),
+      ...firmwareFaults.flatMap((f) =>
+        f.elapsedMs === null
+          ? []
+          : [
+              {
+                elapsedMs: f.elapsedMs,
+                firmware: true,
+                label: faultLabel(f.reason, f.code),
+                icon: '<span style="display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--app-danger);color:var(--app-canvas);font-weight:bold;border:2px solid white">!</span>',
+              },
+            ]
+      ),
+    ];
+    for (const fault of allFaults) {
       // Never use a nearest fix outside a continuous, visible GPS segment.
       const segment = visibleSegments.find(
         (points) => points[0]!.elapsedMs <= fault.elapsedMs && points.at(-1)!.elapsedMs >= fault.elapsedMs
@@ -375,11 +400,11 @@
       if (!segment) continue;
       const point = locationAtElapsed([segment], fault.elapsedMs);
       if (!point) continue;
-      const label = footpadFaultLabel(fault);
+      const label = fault.label;
       const layer = Leaflet.marker([point.latitude, displayLongitude(point.longitude)], {
         icon: Leaflet.divIcon({
-          className: 'footpad-fault-marker',
-          html: `<button type="button" aria-label="${label}" style="display:block;border:0;padding:0;background:transparent;cursor:pointer;touch-action:manipulation">${footpadFaultIcon(fault.state)}</button>`,
+          className: fault.firmware ? 'firmware-fault-marker' : 'footpad-fault-marker',
+          html: `<button type="button" aria-label="${label}" style="display:block;border:0;padding:0;background:transparent;cursor:pointer;touch-action:manipulation">${fault.icon}</button>`,
           iconSize: [36, 28],
           iconAnchor: [18, 14],
         }),

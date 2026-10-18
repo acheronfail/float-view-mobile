@@ -158,7 +158,7 @@ export class RefloatControlModel {
   readonly version: RefloatVersion;
   readonly state: RefloatControlModelState;
   private faultCode = 0;
-  private faultTicks = 0;
+  private readonly clockTicks: () => number;
   private faultHistory: { ticks: number; active: boolean; code: number }[] = [];
 
   recordFirmwareFault(code: number) {
@@ -166,7 +166,7 @@ export class RefloatControlModel {
     if (code === this.faultCode) return;
     this.faultCode = code;
     if (code) this.state.fatalErrorLatched = true;
-    this.faultHistory.push({ ticks: ++this.faultTicks, active: code !== 0, code });
+    this.faultHistory.push({ ticks: this.clockTicks(), active: code !== 0, code });
     this.faultHistory = this.faultHistory.slice(-20);
   }
 
@@ -193,7 +193,12 @@ export class RefloatControlModel {
     return Uint8Array.from(bytes);
   }
 
-  constructor(version: RefloatVersion, initial: Partial<RefloatControlModelState> = {}) {
+  constructor(
+    version: RefloatVersion,
+    initial: Partial<RefloatControlModelState> = {},
+    clockTicks = () => Math.floor(performance.now() * 10) >>> 0
+  ) {
+    this.clockTicks = clockTicks;
     this.version = version;
     this.state = {
       packageEnabled: true,
@@ -293,21 +298,24 @@ export class RefloatControlModel {
   }
 
   decorateTelemetry(payload: Uint8Array): Uint8Array {
-    if (this.version === '1.3.0' && payload[0] === 36 && payload[2] === 33 && payload.length >= 20) {
-      const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-      const mask = view.getUint32(4, false);
-      if ((mask & 2) === 0) return payload;
-      const offset = 16 + (mask & 1);
-      if (payload.length < offset + 4) return payload;
+    if (this.version === '1.3.0' && payload[0] === 36 && payload[2] === 33 && payload.length >= 16) {
       const result = payload.slice();
-      const state = new DataView(result.buffer);
-      const flags = state.getUint32(offset, false);
-      state.setUint32(offset, this.state.fatalErrorLatched ? flags | (1 << 20) : flags & ~(1 << 20), false);
+      const view = new DataView(result.buffer);
+      view.setUint32(12, this.clockTicks(), false);
+      const mask = view.getUint32(4, false);
+      if ((mask & 2) !== 0) {
+        const offset = 16 + (mask & 1);
+        if (result.length >= offset + 4) {
+          const flags = view.getUint32(offset, false);
+          view.setUint32(offset, this.state.fatalErrorLatched ? flags | (1 << 20) : flags & ~(1 << 20), false);
+        }
+      }
       return result;
     }
-    if (!this.version.startsWith('1.2.') || payload[0] !== 36 || payload[2] !== 31 || payload.length < 5)
+    if (!this.version.startsWith('1.2.') || payload[0] !== 36 || payload[2] !== 31 || payload.length < 9)
       return payload;
     const result = payload.slice();
+    new DataView(result.buffer).setUint32(5, this.clockTicks(), false);
     result[4] = this.state.fatalErrorLatched ? (result[4] ?? 0) | 0x08 : (result[4] ?? 0) & ~0x08;
     return result;
   }

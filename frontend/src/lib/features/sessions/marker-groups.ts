@@ -1,13 +1,12 @@
-import type { SessionRideMarker } from '$lib/backend/contract';
 import type { Viewport } from './viewport';
 import { timeline } from './map-filter';
-export function chartMarkerGroups(
-  markers: readonly SessionRideMarker[],
+export function chartMarkerGroups<T extends { sequence: number; elapsedMs: number }>(
+  markers: readonly T[],
   viewport: Viewport,
   width: number,
   intervals?: readonly Viewport[]
 ) {
-  const groups = new Map<number, { marker: SessionRideMarker; count: number; percent: number }>();
+  const groups = new Map<number, { marker: T; count: number; percent: number }>();
   const span = Math.max(1, viewport.endElapsedMs - viewport.startElapsedMs);
   const axis = timeline(intervals ?? [viewport]);
   for (const marker of markers) {

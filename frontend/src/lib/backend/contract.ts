@@ -230,6 +230,13 @@ export interface AnnouncementAudio {
   loweringControl: 'adjustable' | 'automatic';
   voiceSettingsAvailable: boolean;
 }
+export interface FirmwareFaultEntry {
+  code: number;
+  reason: FirmwareFault;
+  /** Approximate occurrence time; null when it cannot be placed in this ride. */
+  elapsedMs: number | null;
+  observedElapsedMs: number;
+}
 export interface LiveSample {
   /** Authoritative backend fractions and winner for this sample. */
   load: DriveLoad;
@@ -255,6 +262,8 @@ export interface LiveSample {
   fatalErrorLatched: boolean | null;
   /** Most recently retrieved controller fault, including one that has cleared. */
   lastFirmwareFault: { code: number; reason: FirmwareFault } | null;
+  /** Most recent 20 recovered occurrences in this connection/session, oldest first. */
+  faultHistory: FirmwareFaultEntry[];
   packVoltageV: number | null;
   dutyCycle: number | null;
   controllerTempC: number | null;
@@ -990,7 +999,16 @@ export type UiRoute =
       returnTo: 'live' | 'sessions' | 'boardHistory';
     };
 export type UiSurface =
-  | { kind: 'liveActions' | 'liveCharts' | 'bmsDetails' | 'refloatConfiguration' | 'refloatTunes' | 'boardActions' }
+  | {
+      kind:
+        | 'liveActions'
+        | 'liveCharts'
+        | 'faultHistory'
+        | 'bmsDetails'
+        | 'refloatConfiguration'
+        | 'refloatTunes'
+        | 'boardActions';
+    }
   | { kind: 'boardConfiguration'; savedDeviceId: string; batteryOnly: boolean };
 export interface UiCheckpoint {
   version: 1;

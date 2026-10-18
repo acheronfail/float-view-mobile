@@ -90,6 +90,6 @@ export function firmwareFaultWarning(
     title: `Firmware fault · ${label}`,
     description: sample.firmwareFault
       ? 'Stop riding and investigate this controller fault.'
-      : 'Fatal error latched. Stop riding and investigate the cause before clearing it.',
+      : 'Fault ended; fatal error latched. Stop riding and investigate before power cycling or using Clear fatal error in Board actions.',
   };
 }

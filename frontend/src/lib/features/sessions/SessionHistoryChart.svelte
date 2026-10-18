@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { faultLabel, type RideFault } from '$lib/features/faults/faults';
   import '$lib/ui/telemetry-chart.css';
   import { timeline } from './map-filter';
   import { MapSeriesLoader } from './map-series';
@@ -38,6 +39,8 @@
     oninspect = () => {},
     liveVersion = 0,
     markers = [],
+    firmwareFaults = [],
+    onfaultselect = () => {},
     selectedPoint = null,
     onmarkerselect = () => {},
     metadata,
@@ -54,6 +57,8 @@
     oninspect?: () => void;
     liveVersion?: number;
     markers?: SessionRideMarker[];
+    firmwareFaults?: RideFault[];
+    onfaultselect?: (elapsedMs: number) => void;
     selectedPoint?: { elapsedMs: number } | null;
     onmarkerselect?: (marker: SessionRideMarker) => void;
     metadata: SessionMetadata;
@@ -902,6 +907,25 @@
                             >{group.count}</span
                           >{/if}
                         <span class="mx-auto block h-full w-0.5 bg-orange-500 shadow-[0_0_0_1px_#0008]"></span>
+                      </button>
+                    {/each}
+                    {#each chartMarkerGroups( firmwareFaults.flatMap( (fault) => (fault.elapsedMs === null ? [] : [{ ...fault, elapsedMs: fault.elapsedMs }]) ), visibleViewport, width, chartIntervals ) as group (group.marker.sequence)}
+                      {@const fault = group.marker}
+                      <button
+                        type="button"
+                        aria-label={`Inspect fault: ${faultLabel(fault.reason, fault.code)}`}
+                        title={`${faultLabel(fault.reason, fault.code)}${group.count > 1 ? ` · ${group.count} faults` : ''}`}
+                        class="absolute top-0 z-30 h-full w-5 -translate-x-1/2 touch-manipulation focus-visible:outline-2 focus-visible:outline-danger"
+                        style:left={`${group.percent}%`}
+                        onpointerdown={(event) => activateFromPointer(event, () => onfaultselect(fault.elapsedMs))}
+                        onclick={(event) =>
+                          activateFromKeyboardOrAssistiveClick(event, () => onfaultselect(fault.elapsedMs))}
+                      >
+                        <span
+                          class="absolute top-0 left-1/2 -translate-x-1/2 rounded bg-danger px-1 text-[10px] font-bold text-canvas"
+                          >{group.count > 1 ? group.count : '!'}</span
+                        >
+                        <span class="mx-auto block h-full w-0.5 bg-danger"></span>
                       </button>
                     {/each}
                     <svg

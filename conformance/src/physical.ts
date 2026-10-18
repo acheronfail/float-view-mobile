@@ -10,7 +10,7 @@ import {
   type PhysicalScenarioName,
 } from '../fixture/scenarios.ts';
 import { FixtureClient } from '../fixture/serial.ts';
-import { ConformanceClient } from './client.ts';
+import { ConformanceClient, ConformanceError } from './client.ts';
 import type { AppState, LocationState } from '../../frontend/src/lib/backend/contract.ts';
 import { exerciseRefloatConfiguration, exerciseAutoConnect, type PhysicalTarget } from './suite.ts';
 
@@ -344,6 +344,8 @@ async function runPhysicalScenario(
         'Auto-connect checkpoint must not issue mutations or actuation commands'
       );
       report('  Foreground auto-connect and explicit-disconnect suppression verified');
+    } else if (name === 'fault-direct' || name === 'fault-can') {
+      await runFaultHistoryCheckpoint(client, runner, ready, report);
     } else if (name === 'control-direct' || name === 'control-can') {
       await exerciseRefloatConfiguration(client, ready, true);
       await runRefloatControlCheckpoint(client, runner, ready, report);
@@ -485,6 +487,111 @@ async function runRefloatControlCheckpoint(
     ),
     'control checkpoint emitted a request other than control, telemetry, or the safe post-flywheel configuration refresh'
   );
+}
+
+/** Production BLE and public history, with no motor actuation. */
+async function runFaultHistoryCheckpoint(
+  client: ConformanceClient,
+  runner: FixtureRunner,
+  ready: AppState,
+  report: Progress
+) {
+  report('  Waiting for initial configuration and control reads to finish');
+  const model = runner.scenario.board.controllers[0]!.refloatControls!;
+  const sessionId = ready.activeConnection!.activeSession!.sessionId;
+  let state = await client.waitForState(
+    (s) =>
+      s.activeConnection?.refloatControls?.status === 'ready' && s.activeConnection.latestSample?.rideState === 'idle',
+    { timeoutMs: 90_000 }
+  );
+  if (state.activeConnection!.refloatControls!.fatalErrorClearable) {
+    await client.request('refloat.fatalError.clear', {});
+    state = await client.waitForState((s) => s.activeConnection?.latestSample?.fatalErrorLatched === false);
+  }
+  const requestOffset = runner.simulator.requests.length;
+  // Synchronous start/end: no telemetry poll can observe the active fault.
+  model.recordFirmwareFault(4);
+  model.recordFirmwareFault(0);
+  state = await client.waitForState(
+    (s) =>
+      s.activeConnection?.latestSample?.fatalErrorLatched === true &&
+      s.activeConnection.latestSample.firmwareFault === null &&
+      s.activeConnection.latestSample.lastFirmwareFault?.code === 4,
+    { afterRevision: state.revision, timeoutMs: 15_000 }
+  );
+  assert.equal(state.activeConnection!.latestSample!.faultHistory.at(-1)?.code, 4);
+  report('  Transient fault recovered from command 35 with fatal latch still set');
+  await runner.injectDisconnectAndReadvertise();
+  state = await client.waitForState((s) => s.activeConnection?.state === 'reconnecting', {
+    afterRevision: state.revision,
+    timeoutMs: 15_000,
+  });
+  state = await client.waitForState(
+    (s) =>
+      s.activeConnection?.state === 'ready' &&
+      s.activeConnection.latestSample?.lastFirmwareFault?.code === 4 &&
+      s.activeConnection.latestSample.fatalErrorLatched === true &&
+      s.activeConnection.refloatControls?.fatalErrorClearable === true &&
+      s.activeConnection.refloatConfiguration?.availability === 'ready' &&
+      s.activeConnection.refloatConfiguration.pendingOperation === null,
+    { afterRevision: state.revision, timeoutMs: 90_000 }
+  );
+  assert.equal(state.activeConnection!.activeSession!.sessionId, sessionId);
+  model.state.fatalErrorActive = true;
+  state = await client.waitForState((s) => s.activeConnection?.refloatControls?.fatalErrorActive === true, {
+    afterRevision: state.revision,
+    timeoutMs: 15_000,
+  });
+  await assert.rejects(
+    client.request('refloat.fatalError.clear', {}),
+    (error: unknown) => error instanceof ConformanceError && error.error.code === 'invalid_state'
+  );
+  model.state.fatalErrorActive = false;
+  state = await client.waitForState((s) => s.activeConnection?.refloatControls?.fatalErrorClearable === true, {
+    afterRevision: state.revision,
+    timeoutMs: 15_000,
+  });
+  assert.equal((await client.request('refloat.fatalError.clear', {})).fatalErrorLatched, false);
+  await client.waitForState((s) => s.activeConnection?.latestSample?.fatalErrorLatched === false, {
+    afterRevision: state.revision,
+    timeoutMs: 15_000,
+  });
+  await runner.waitForRequests(
+    (requests) => requests.slice(requestOffset).filter((r) => r.telemetryCommand === 'alerts').length >= 4,
+    15_000
+  );
+  await client.request('device.disconnect', {});
+  await client.waitForState((s) => s.activeConnection === null);
+  const metadata = await client.request('session.get', { sessionId });
+  assert.equal(metadata.summary.state, 'completed', 'Fault-only idle session must be retained');
+  const events = await client.sessionData({
+    kind: 'events',
+    sessionId,
+    snapshot: metadata.snapshot,
+    range: { startElapsedMs: 0, endElapsedMs: metadata.snapshot.committedElapsedMs },
+    limit: 500,
+  });
+  assert.equal(events.kind, 'events');
+  if (events.kind !== 'events') throw new Error('Expected events');
+  assert.equal(events.nextCursor, null, 'Inspect complete history');
+  const recovered = events.page.kinds.flatMap((kind, i) =>
+    kind === 'firmwareFaultHistory' ? [events.page.values[i]] : []
+  );
+  assert.deepEqual(recovered, ['absoluteOverCurrent', 'none', 'unknown', 'none']);
+  assert.ok(events.page.kinds.includes('fatalErrorLatched'));
+  const firstFault = events.page.faults?.find((fault) => fault?.rawCode === 4);
+  assert.ok(
+    firstFault && firstFault.occurredElapsedMs !== null,
+    'New faults must retain their estimated occurrence time'
+  );
+  assert.ok(firstFault.occurredElapsedMs <= metadata.snapshot.committedElapsedMs);
+  assert.ok(
+    !runner.simulator.requests
+      .slice(requestOffset)
+      .some((r) => ['controller-shutdown', 'refloat-configuration-write'].includes(r.kind)),
+    'Unexpected mutation'
+  );
+  report('  Reconnect, active-fault clear rejection, confirmed clear and durable deduplicated history verified');
 }
 
 async function runControllerShutdownCheckpoint(

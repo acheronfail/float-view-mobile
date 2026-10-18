@@ -528,6 +528,11 @@ export class BackendState {
 
   private sessionGeneration = 0;
 
+  async readSessionMetadata(sessionId: string): Promise<SessionMetadata> {
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    return this.client.request('session.get', { sessionId });
+  }
+
   async openSession(sessionId: string): Promise<boolean> {
     const generation = ++this.sessionGeneration;
     return this.run(async (client) => {

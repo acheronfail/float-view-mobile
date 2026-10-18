@@ -28,6 +28,8 @@ export type PhysicalScenarioName =
   | 'guest'
   | 'direct'
   | 'direct-legacy'
+  | 'fault-direct'
+  | 'fault-can'
   | 'control-direct'
   | 'control-can'
   | 'shutdown-direct'
@@ -198,6 +200,22 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     preferredCanId: null,
     requiresMobileLifecycle: false,
   },
+  'fault-direct': {
+    name: 'fault-direct',
+    board: controlDirectBoard,
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 6,
+    preferredCanId: null,
+    requiresMobileLifecycle: false,
+  },
+  'fault-can': {
+    name: 'fault-can',
+    board: { ...controlCanBoard, canPingIds: [42] },
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 6,
+    preferredCanId: null,
+    requiresMobileLifecycle: false,
+  },
   'control-direct': {
     name: 'control-direct',
     board: controlDirectBoard,
@@ -334,6 +352,8 @@ export const physicalScenarioMatrix = {
     'guest',
     'direct',
     'direct-legacy',
+    'fault-direct',
+    'fault-can',
     'control-direct',
     'control-can',
     'shutdown-direct',
@@ -353,6 +373,8 @@ export const physicalScenarioMatrix = {
     'guest',
     'direct',
     'direct-legacy',
+    'fault-direct',
+    'fault-can',
     'control-direct',
     'control-can',
     'shutdown-direct',
@@ -374,6 +396,8 @@ export const physicalScenarioMatrix = {
     'guest',
     'direct',
     'direct-legacy',
+    'fault-direct',
+    'fault-can',
     'control-direct',
     'control-can',
     'shutdown-direct',
@@ -801,7 +825,8 @@ export function physicalScenario(name: PhysicalScenarioName, refloatVersion?: st
       ...scenario.board,
       controllers: scenario.board.controllers.map((controller) => {
         const telemetry = new InteractiveTelemetrySource();
-        if (!name.startsWith('control-') && !name.startsWith('shutdown-')) telemetry.start();
+        if (!name.startsWith('fault-') && !name.startsWith('control-') && !name.startsWith('shutdown-'))
+          telemetry.start();
         return {
           ...controller,
           refloatVersion: codec.version,

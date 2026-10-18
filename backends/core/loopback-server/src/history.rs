@@ -250,6 +250,11 @@ impl Backend {
                     e.event_id.parse::<u64>().map_err(|_| Failure::Internal)
                 };
                 response["page"] = json!({"elapsedMs":events.iter().map(|e|e.elapsed_ms).collect::<Vec<_>>(),"sequence":events.iter().map(sequence).collect::<Result<Vec<_>,_>>()?,"sourceSampleSequence":events.iter().map(|e|e.source_sample_sequence.unwrap_or(0)).collect::<Vec<_>>(),"kinds":events.iter().map(|e|&e.kind).collect::<Vec<_>>(),"values":events.iter().map(|e|serde_json::from_str::<Value>(&e.details_json).ok().and_then(|v|v["value"].as_str().map(str::to_owned)).unwrap_or_default()).collect::<Vec<_>>()});
+                response["page"]["faults"] = json!(events.iter().map(|e| {
+                    if e.kind != "firmwareFaultHistory" { return Value::Null; }
+                    let details = serde_json::from_str::<Value>(&e.details_json).unwrap_or(Value::Null);
+                    json!({"rawCode": details["rawCode"], "occurredElapsedMs": details["occurredElapsedMs"]})
+                }).collect::<Vec<_>>());
                 response["nextCursor"] = if more {
                     let last = events.last().ok_or(Failure::Internal)?;
                     json!(make_cursor(last.elapsed_ms, sequence(last)?)?)

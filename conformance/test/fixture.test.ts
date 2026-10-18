@@ -172,6 +172,8 @@ test('physical scenario matrix excludes desktop backgrounding', () => {
     'guest',
     'direct',
     'direct-legacy',
+    'fault-direct',
+    'fault-can',
     'control-direct',
     'control-can',
     'shutdown-direct',

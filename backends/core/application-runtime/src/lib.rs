@@ -502,6 +502,7 @@ mod tests {
             firmware_fault: None,
             fatal_error_latched: Some(false),
             last_firmware_fault: None,
+            fault_history: Vec::new(),
             pack_voltage_v: Some(80.0),
             duty_cycle: Some(0.0),
             controller_temp_c: Some(20.0),
@@ -890,6 +891,7 @@ mod tests {
         let effects = runtime
             .translate(vec![CoordinatorEffect::PublishFaultHistory(
                 telemetry::FaultHistoryObservation {
+                    source_clock: None,
                     elapsed_ms: 100,
                     observed_at_epoch_ms: 1_700_000_000_100,
                     records: vec![

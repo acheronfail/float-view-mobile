@@ -97,6 +97,36 @@ describe('session-data protocol', () => {
     expect(result.kind).toBe('series');
   });
 
+  it('validates optional fault details without guessing times for older event pages', () => {
+    const request = validateSessionDataRequest({ kind: 'events', sessionId: 'session-1', snapshot, range, limit: 100 });
+    const value = {
+      kind: 'events',
+      sessionId: 'session-1',
+      snapshot,
+      range,
+      nextCursor: null,
+      page: {
+        elapsedMs: [1000],
+        sequence: [1],
+        sourceSampleSequence: [0],
+        kinds: ['firmwareFaultHistory'],
+        values: ['unknown'],
+      },
+    };
+    expect(validateSessionDataResult(value, request).kind).toBe('events');
+    expect(
+      validateSessionDataResult(
+        { ...value, page: { ...value.page, faults: [{ rawCode: 255, occurredElapsedMs: 900 }] } },
+        request
+      ).kind
+    ).toBe('events');
+    for (const faults of [[], [{ rawCode: 256, occurredElapsedMs: null }], [{ rawCode: 4, occurredElapsedMs: 1001 }]]) {
+      expect(() => validateSessionDataResult({ ...value, page: { ...value.page, faults } }, request)).toThrow(
+        SessionDataProtocolError
+      );
+    }
+  });
+
   it('validates bounded location pages and explicit gaps', () => {
     const request = validateSessionDataRequest({
       kind: 'locations',

@@ -135,6 +135,7 @@ pub fn sample_with(
         firmware_fault,
         fatal_error_latched,
         last_firmware_fault: None,
+        fault_history: Vec::new(),
         pack_voltage_v: None,
         duty_cycle: None,
         controller_temp_c: None,

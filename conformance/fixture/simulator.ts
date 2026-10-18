@@ -29,13 +29,13 @@ export interface RecordedRequest {
   kind: VescRequestKind;
   canId?: number;
   telemetryPhase?: string;
-  telemetryCommand?: 'legacy-realtime' | 'realtime' | 'compact';
+  telemetryCommand?: 'legacy-realtime' | 'realtime' | 'compact' | 'alerts';
 }
 
 export interface FixtureRequestAttempt {
   command: number;
   canId?: number;
-  telemetryCommand?: 'legacy-realtime' | 'realtime' | 'compact';
+  telemetryCommand?: 'legacy-realtime' | 'realtime' | 'compact' | 'alerts';
 }
 
 export interface SimulatedResponse {
@@ -74,7 +74,8 @@ export class VescSimulator {
 
   verifyCadence(expectedIntervalMs: number, toleranceMs: number, minimumIntervals = 2) {
     const telemetry = this.requests.filter(
-      (request) => request.kind === 'telemetry' && request.telemetryCommand !== 'compact'
+      (request) =>
+        request.kind === 'telemetry' && request.telemetryCommand !== 'compact' && request.telemetryCommand !== 'alerts'
     );
     const intervals: number[] = [];
     for (let index = 1; index < telemetry.length; index += 1) {
@@ -299,7 +300,7 @@ export class VescSimulator {
     if (packet === 35) {
       const response = board.refloatControls.alertsResponse(payload);
       if (!response) return this.reject('Unsupported Refloat alerts request');
-      return { response, request: { at, command, canId, kind: 'telemetry' } };
+      return { response, request: { at, command, canId, kind: 'telemetry', telemetryCommand: 'alerts' } };
     }
     const isTelemetry = packet === 1 || packet === 10 || packet === 31 || packet === 33;
     const phase = board.telemetry.phase();
@@ -415,7 +416,7 @@ export class VescSimulator {
     if (packet === 35 && controller.refloatControls) {
       const response = controller.refloatControls.alertsResponse(payload);
       if (!response) return this.rejectBoard('Unsupported Refloat alerts request');
-      return { response, request: { ...base, kind: 'telemetry' } };
+      return { response, request: { ...base, kind: 'telemetry', telemetryCommand: 'alerts' } };
     }
     if (controller.refloat && controller.telemetry) {
       const isTelemetry = packet === 1 || packet === 10 || packet === 31 || packet === 33;

@@ -15,7 +15,8 @@ import { VescSimulator } from '../fixture/simulator.ts';
 import { idleTelemetry } from '../fixture/telemetry.ts';
 
 test('Refloat history returns transient faults after the active fault clears', () => {
-  const model = new RefloatControlModel('1.3.0');
+  let ticks = 0;
+  const model = new RefloatControlModel('1.3.0', {}, () => ++ticks);
   model.recordFirmwareFault(4);
   model.recordFirmwareFault(0);
   const response = model.alertsResponse(Uint8Array.of(36, 101, 35, 0, 0, 0, 0))!;

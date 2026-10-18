@@ -72,36 +72,30 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('button', { name: 'Session actions', exact: true }).click();
       const rightFault = page.getByRole('button', { name: /Right footpad inactive; left active/ });
       const bothFault = page.getByRole('button', { name: /Both footpads inactive above/ });
-      const cursors = page.locator('svg line[stroke-dasharray="3 2"]');
+      const cursors = page.locator('[data-history-inspection]');
       await rightFault.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 9 });
       await rightFault.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 9 });
       assert.equal(await cursors.count(), 0);
       await rightFault.tap();
       await cursors.first().waitFor({ state: 'attached' });
       const expectCursorAt = async (elapsedMs: number) => {
-        const positions = await cursors.evaluateAll((lines) =>
-          lines.map((line) => ({
-            x: Number(line.getAttribute('x1')),
-            width: (line as SVGLineElement).ownerSVGElement!.viewBox.baseVal.width,
-          }))
-        );
-        assert.ok(positions.length > 0);
-        for (const { x, width } of positions) assert.ok(Math.abs(x / width - elapsedMs / 60000) < 0.00001);
+        await page.waitForFunction((ratio) => {
+          const lines = [...document.querySelectorAll('[data-history-inspection]')];
+          return (
+            lines.length > 0 &&
+            lines.every((line) => {
+              const parent = line.parentElement!.getBoundingClientRect();
+              return Math.abs(line.getBoundingClientRect().left - parent.left - parent.width * ratio) < 0.75;
+            })
+          );
+        }, elapsedMs / 60000);
       };
       await expectCursorAt(4000);
       await bothFault.focus();
       await page.keyboard.press('Enter');
-      await page.waitForFunction(() => {
-        const line = document.querySelector('svg line[stroke-dasharray="3 2"]');
-        return line && Number(line.getAttribute('x1')) < 8;
-      });
       await expectCursorAt(1000);
       await rightFault.focus();
       await page.keyboard.press('Space');
-      await page.waitForFunction(() => {
-        const line = document.querySelector('svg line[stroke-dasharray="3 2"]');
-        return line && Number(line.getAttribute('x1')) > 8;
-      });
       await expectCursorAt(4000);
       await page.reload();
       await page.getByRole('button', { name: /Right footpad inactive; left active/ }).waitFor();

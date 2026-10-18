@@ -68,6 +68,10 @@ fn setup() -> (TestDirectory, ProductStore, String) {
     w.append_samples(&samples).unwrap();
     w.append_fault_history(
         &float_view_refloat_telemetry_service::FaultHistoryObservation {
+            source_clock: Some(float_view_refloat_telemetry_service::FaultClock {
+                ticks: 300000,
+                elapsed_ms: 30000,
+            }),
             elapsed_ms: 30_000,
             observed_at_epoch_ms: 1_030_000,
             records: vec![
@@ -230,6 +234,7 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     let fault: serde_json::Value = serde_json::from_str(&faults[0].details_json).unwrap();
     assert_eq!(fault["rawCode"], 4);
     assert_eq!(fault["sourceTicks"], 298123);
+    assert_eq!(fault["occurredElapsedMs"], 29813);
     assert_eq!(fault["value"], "absoluteOverCurrent");
     drop(reader);
     let second = imported

@@ -9,6 +9,7 @@ catch-all technical directories.
 - `app/` owns the persistent application shell, primary navigation, and effective theme.
 - `backend/` owns bootstrap, transport, authoritative frontend state, and `contract.ts`.
 - `features/connection/` owns Home discovery/connection and the live-board view.
+- `features/faults/` owns shared fault labels, bounded session-event loading and the fault list.
 - `features/sessions/` owns session lists, metadata-first progressive review, exact samples, event pages, grouping, and export.
 - `features/boards/` owns saved-board lists and Board Profile configuration.
 - `features/settings/` owns application-wide settings UI.
@@ -48,6 +49,14 @@ does not affect profile completeness. The existing profile JSON and archive
 snapshot preserve it without a catalog schema or storage marker change.
 
 ## Telemetry presentation
+
+Board actions includes Fault history. The read-only sheet loads persisted faults
+for saved rides without changing the selected session, and native-owned recent
+history for guests. Session review reuses the list, with timed danger markers on
+charts and continuous GPS segments. Times are explicitly approximate; untimed
+records stay in the list without markers. Both lists page their visible rows.
+Event reads refresh only when the committed event boundary changes, and errors
+remain visible with retry. The sheet participates in the existing UI checkpoint.
 
 Live telemetry exposes the fatal error latch separately from an active VESC
 firmware fault. A danger overlay over the gauge names the active or most recently
