@@ -57,7 +57,11 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-  <div in:appearSurface={'content'} out:exitSurface class="fixed inset-0 z-50 grid place-items-center p-4">
+  <div
+    in:appearSurface={'content'}
+    out:exitSurface
+    class="fixed inset-0 z-50 flex items-center justify-center pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]"
+  >
     <button
       type="button"
       class="absolute inset-0 h-full w-full cursor-default touch-none bg-black/60"
@@ -73,11 +77,21 @@
       aria-modal="true"
       aria-labelledby={titleId}
       aria-describedby={`${titleId}-description`}
-      class="relative w-full max-w-sm rounded-2xl border border-outline bg-surface p-5 shadow-2xl"
+      class="relative flex max-h-full min-h-0 w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-outline bg-surface p-5 shadow-2xl"
     >
-      <h2 id={titleId} class="text-xl font-semibold">{title}</h2>
-      <p id={`${titleId}-description`} class="mt-2 text-sm leading-6 whitespace-pre-wrap text-muted">{description}</p>
-      <div class="mt-6 flex justify-end">
+      <h2 id={titleId} class="shrink-0 text-xl font-semibold">{title}</h2>
+      <!-- The scroll region needs focus so keyboard users can read the entire description. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div
+        id={`${titleId}-description`}
+        role="region"
+        aria-label={`${title} help`}
+        tabindex="0"
+        class="mt-2 min-h-0 touch-pan-y overflow-y-auto overscroll-contain text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-muted"
+      >
+        {description}
+      </div>
+      <div class="mt-6 flex shrink-0 justify-end">
         <button
           bind:this={doneButton}
           type="button"

@@ -211,7 +211,7 @@ fn entity_text_grouping_and_description_normalization_match_native_semantics() {
         schema.fields[0].default_value,
         ConfigurationValue::String("a&b c".into())
     );
-    assert_eq!(schema.fields[0].description, "hello world &amp; friends");
+    assert_eq!(schema.fields[0].description, "hello world & friends");
     assert_eq!(schema.groups[0].name, "General");
     assert_eq!(schema.groups[0].subgroups[0].name, "Main");
     assert_eq!(schema.groups[0].subgroups[0].fields, ["x", "::sep::Next"]);
@@ -234,6 +234,22 @@ fn descriptions_drop_nonvisible_html_and_preserve_readable_blocks() {
         ),
         ("<p>First</p><p><br /></p><p>Last</p>", "First\n\nLast"),
         ("<p>Safe</p><style>unterminated style", "Safe"),
+        (
+            "<p>Considered &quot;error&quot; &amp; rider&apos;s input: 2 &gt; 1 &lt; 3.</p>",
+            "Considered \"error\" & rider's input: 2 > 1 < 3.",
+        ),
+        (
+            "<p>&#34;Angle&#x20;I&#x22;&nbsp;value</p>",
+            "\"Angle I\" value",
+        ),
+        (
+            "<p>&lt;script&gt;literal&lt;/script&gt;</p>",
+            "<script>literal</script>",
+        ),
+        (
+            "<p>&amp;quot; &unknown; &#x110000; &unfinished</p>",
+            "&quot; &unknown; &#x110000; &unfinished",
+        ),
     ] {
         let escaped = html
             .replace('&', "&amp;")

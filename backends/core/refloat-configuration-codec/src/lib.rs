@@ -711,9 +711,25 @@ fn sanitize_description(value: &str) -> String {
             _ => {}
         }
     }
-    let mut normalized = String::with_capacity(result.len());
+    // XML decoding exposes the embedded HTML's entities. Decode that layer only
+    // after stripping tags, so escaped literal tags remain visible plain text.
+    let mut decoded = String::with_capacity(result.len());
+    for part in result.split_inclusive(';') {
+        if let Some(start) = part.rfind('&') {
+            decoded.push_str(&part[..start]);
+            let entity = &part[start..];
+            let text = quick_xml::escape::unescape_with(entity, |name| match name {
+                "nbsp" => Some(" "),
+                _ => quick_xml::escape::resolve_predefined_entity(name),
+            });
+            decoded.push_str(text.as_deref().unwrap_or(entity));
+        } else {
+            decoded.push_str(part);
+        }
+    }
+    let mut normalized = String::with_capacity(decoded.len());
     let mut breaks = 0;
-    for line in result.split('\n') {
+    for line in decoded.split('\n') {
         let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
         if !line.is_empty() {
             if !normalized.is_empty() {

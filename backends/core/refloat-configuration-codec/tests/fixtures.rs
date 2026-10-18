@@ -132,9 +132,16 @@ fn every_audited_schema_matches_exact_source_evidence() {
         assert_eq!(kp.minimum, Some(0.0));
         assert_eq!(kp.maximum, Some(40.0));
         assert_eq!(kp.scale, Some(10.0));
-        assert!(!kp.description.contains('<'));
-        assert!(!kp.description.contains('>'));
+        assert!(!kp.description.contains("<p"));
+        assert!(!kp.description.contains("</"));
         assert!(!kp.description.is_empty());
+        let ki = schema
+            .fields
+            .iter()
+            .find(|field| field.name == "ki")
+            .unwrap();
+        assert!(ki.description.contains("considered \"error\""));
+        assert!(!ki.description.contains("&quot;"));
         for field in &schema.fields {
             assert!(
                 !field.description.contains("white-space:"),
