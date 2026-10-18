@@ -5,6 +5,7 @@
 Define bounded, exact-version discovery, editing, persistence, and verification of Refloat custom configuration.
 
 ## Requirements
+
 ### Requirement: Bounded runtime custom-configuration schema
 
 For each audited stable Refloat 1.0.0–1.3.0 connection, the native backend and conformance simulator SHALL discover custom configuration index `0`, retrieve its Qt-compressed `ConfigParams` document through source-correct VESC command 92 chunks, and normalize the exact active schema. The normalized schema SHALL contain the exact source package version, SHA-256 fingerprint of canonical validated full-schema metadata, computed wire configuration signature, ordered writable parameter identity, supported type and wire encoding, default, bounds, precision, scale, suffix, enum choices, sanitized description, and General group/subgroup ordering. Refloat wire INFO `1.0` SHALL resolve to exact 1.0.0 or 1.0.1 only by matching this fingerprint to the corresponding immutable audited schema; later exact INFO versions SHALL also require their matching audited fingerprint. Compressed and expanded bytes, chunks, retries, XML depth/elements, parameters, groups, enum choices, names, descriptions, and serialized fields MUST be bounded. DTDs, entities, duplicate names or order entries, missing referenced parameters, unsupported types or encodings, invalid metadata, trailing data, and unaudited fingerprints MUST fail closed for configuration.
@@ -105,6 +106,18 @@ A Refloat configuration write SHALL require the active ready read/write connecti
 ### Requirement: Exact-version saved configurations
 
 Native persistence SHALL store bounded application-wide named complete Refloat configurations with opaque ID, revision, name, optional description, package name, exact package version, full-schema fingerprint, wire signature, complete typed values, and timestamps. List and apply workflows SHALL match the active exact package version, fingerprint, and signature; configurations MUST NOT be automatically migrated, merged, or offered as applicable across versions. Create or update from device current values SHALL require a fresh authoritative normal-mode current revision and MUST reject stale or flywheel-temporary values. Create, update, and delete SHALL otherwise use bounded values and revision conflict semantics. Applying a saved configuration SHALL pass through the same fresh-base, safety, serialization, scheduler, and readback lifecycle as an edited draft.
+
+Portable Tune application on an explicitly supported Refloat release at or above 1.1.0 SHALL permit a known idle or riding state and an authoritatively ready or running package in normal mode, without requiring released footpads. This exception SHALL apply only to Tune application; general configuration writes and Refloat 1.0.0/1.0.1 Tune application SHALL retain the idle, ready, released-footpad requirements. Exact identity, fresh base revision, read/write access, exclusive mutation ownership, and mandatory verified readback SHALL remain required.
+
+#### Scenario: Apply Tune while riding
+
+- **WHEN** a supported Refloat 1.1.0 or later board is running in normal mode with a known riding state and a valid fresh-base Tune application is requested
+- **THEN** the shared service permits the write with engaged footpads and reports success only after verified readback
+
+#### Scenario: Older Refloat retains disengaged application
+
+- **WHEN** Tune application is requested on Refloat 1.0.0 or 1.0.1 while riding or with an engaged footpad
+- **THEN** the shared service rejects the request before scheduler submission
 
 #### Scenario: Save current configuration
 

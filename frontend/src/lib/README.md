@@ -172,6 +172,15 @@ QML exclusions for hardware, haptics, safety thresholds and package state. Prese
 are application-wide and filtered by exact package/schema identity, not tied to a
 saved board.
 
+Supported Refloat 1.1.0+ boards can apply Tunes while riding in normal mode.
+Refloat 1.0.x still requires idle, ready state with both footpads released.
+Unknown board state, special modes, read-only connections and competing board
+operations keep application unavailable. Tapping a saved preset applies it
+immediately, with progress and verified success feedback and no additional Apply
+button or confirmation. Pointer activation waits for release and cancels on scroll;
+keyboard activation follows the same path. Preset details remain available for
+renaming and deletion when switching is unavailable.
+
 The live battery percentage is the shared service's temporal estimate. Optional
 full-pack capacity (Ah) enables signed charge tracking; otherwise it follows
 bounded, smoothed voltage observations. Saved cell profile, series/parallel counts

@@ -251,6 +251,7 @@ pub struct DeviceMutationCoordinator {
     generation: scheduler::Generation,
     route: Option<scheduler::Route>,
     profile: Option<compatibility::ControlProfile>,
+    riding_tune_apply: bool,
     writable: bool,
     shutdown_supported: bool,
     controls: Option<Controls>,
@@ -288,6 +289,7 @@ impl DeviceMutationCoordinator {
             generation: scheduler::Generation(0),
             route: None,
             profile: None,
+            riding_tune_apply: false,
             writable: false,
             shutdown_supported: false,
             controls: None,
@@ -374,6 +376,10 @@ impl DeviceMutationCoordinator {
         self.generation = facts.generation;
         self.route = Some(facts.route);
         self.profile = Some(facts.refloat.control);
+        // Refloat 1.0.x reinitializes balancing on configuration writes. All
+        // admitted later wire families preserve STATE_RUNNING (1.1.0+).
+        self.riding_tune_apply =
+            facts.refloat.telemetry != compatibility::TelemetryProfile::LegacyFixed;
         self.writable = writable;
         self.shutdown_supported = shutdown_supported;
         self.ride_state = telemetry::RideState::Unknown;
@@ -713,11 +719,21 @@ impl DeviceMutationCoordinator {
         mutation: ConfigurationMutation,
     ) -> Result<Vec<Effect>, CoordinatorError> {
         self.validate_configuration_mutable(generation)?;
-        if self.ride_state != telemetry::RideState::Idle
-            || self.footpad_state != Some(telemetry::FootpadState::None)
-            || self.package_state != Some(telemetry::PackageState::Ready)
-            || self.package_mode != Some(telemetry::PackageMode::Normal)
-        {
+        let riding_tune = mutation == ConfigurationMutation::TuneApply && self.riding_tune_apply;
+        let state_allowed = if riding_tune {
+            matches!(
+                self.ride_state,
+                telemetry::RideState::Idle | telemetry::RideState::Riding
+            ) && matches!(
+                self.package_state,
+                Some(telemetry::PackageState::Ready | telemetry::PackageState::Running)
+            )
+        } else {
+            self.ride_state == telemetry::RideState::Idle
+                && self.footpad_state == Some(telemetry::FootpadState::None)
+                && self.package_state == Some(telemetry::PackageState::Ready)
+        };
+        if !state_allowed || self.package_mode != Some(telemetry::PackageMode::Normal) {
             return Err(CoordinatorError::InvalidState);
         }
         let token = self.reserve(mutation.pending_kind(), None);
@@ -807,6 +823,7 @@ impl DeviceMutationCoordinator {
         self.connection_ready = false;
         self.route = None;
         self.profile = None;
+        self.riding_tune_apply = false;
         self.writable = false;
         self.shutdown_supported = false;
         self.controls = None;

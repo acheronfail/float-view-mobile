@@ -42,7 +42,8 @@ describe('Refloat Tunes', () => {
   it('presents board presets without exposing configuration-editor drafts', () => {
     const body = render(RefloatTunes, { props: { connection } }).body;
     expect(body).toContain('Save current tune');
-    expect(body).toContain('swap between saved presets');
+    expect(body).toContain('tap a saved preset to switch to it');
+    expect(body).not.toContain('Apply preset');
     expect(body).not.toContain('draft');
     expect(body).not.toContain('Update from');
   });

@@ -1,4 +1,5 @@
 import { validatePermissions } from '../../frontend/src/lib/backend/permissions.ts';
+import { supportsRidingTuneApply } from '../../frontend/src/lib/backend/refloat-tune-policy.ts';
 import assert from 'node:assert/strict';
 import { liveWidgetFields, defaultBoardAppearance } from '../../frontend/src/lib/backend/contract.ts';
 import { validBoardAppearance } from '../../frontend/src/lib/backend/board-appearance.ts';
@@ -1274,6 +1275,21 @@ export async function exerciseRefloatConfiguration(
         assert.deepEqual(restored.values, expectedOriginal, 'physical configuration restore did not verify');
       }
     }
+  } else if (
+    ready.writable &&
+    supportsRidingTuneApply(current.identity.packageVersion) &&
+    client.currentState()?.activeConnection?.latestSample?.rideState === 'riding' &&
+    client.currentState()?.activeConnection?.latestSample?.packageState === 'running' &&
+    client.currentState()?.activeConnection?.latestSample?.packageMode === 'normal'
+  ) {
+    const applied = await client.request('refloat.tune.apply', {
+      tuneId: updated.tuneId,
+      expectedRevision: updated.revision,
+      baseRevision: current.revision,
+    });
+    assert.deepEqual(applied.values, { ...current.values, ...updated.values });
+    const readback = await client.request('refloat.configuration.read', { source: 'current' });
+    assert.deepEqual(readback.values, applied.values, 'Riding Tune application must verify by readback');
   } else {
     await expectError(
       client.request('refloat.tune.apply', {

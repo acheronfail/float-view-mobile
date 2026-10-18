@@ -1,3 +1,4 @@
+import { supportsRidingTuneApply } from '$lib/backend/refloat-tune-policy';
 import type {
   ActiveConnection,
   ControllerCandidate,
@@ -52,7 +53,8 @@ export function flywheelDisableUnavailable(connection: ActiveConnection | null |
 
 export function refloatConfigurationWriteUnavailableReason(
   connection: ActiveConnection | null | undefined,
-  summary: RefloatConfigurationSummary | null | undefined
+  summary: RefloatConfigurationSummary | null | undefined,
+  operation: 'write' | 'applyTune' = 'write'
 ): string | null {
   if (!connection || connection.state !== 'ready') return 'Reconnect to the board before applying a Tune.';
   if (summary?.availability !== 'ready' || !summary.writable) {
@@ -69,6 +71,16 @@ export function refloatConfigurationWriteUnavailableReason(
 
   const sample = connection.latestSample;
   if (!sample) return 'Wait for live board status before applying a Tune.';
+  if (operation === 'applyTune' && supportsRidingTuneApply(summary.packageVersion)) {
+    if (
+      (sample.rideState !== 'idle' && sample.rideState !== 'riding') ||
+      (sample.packageState !== 'ready' && sample.packageState !== 'running') ||
+      sample.packageMode !== 'normal'
+    ) {
+      return 'Wait until Refloat is ready or running in normal mode before applying a Tune.';
+    }
+    return null;
+  }
   if (sample.rideState !== 'idle') return 'Disengage the board before applying a Tune.';
   if (sample.footpadState !== 'none') return 'Step off both footpads before applying a Tune.';
   if (sample.packageState !== 'ready' || sample.packageMode !== 'normal') {

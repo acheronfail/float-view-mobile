@@ -1,4 +1,5 @@
 import { MockDiagnostics } from './diagnostics.ts';
+import { supportsRidingTuneApply } from '../src/lib/backend/refloat-tune-policy.ts';
 import { validBoardAppearance } from '../src/lib/backend/board-appearance.ts';
 import { validRefloatEditorDraft } from '../src/lib/backend/refloat-editor-draft.ts';
 import type { RefloatEditorDraft } from '../src/lib/backend/contract.ts';
@@ -915,13 +916,17 @@ export class MockBackend {
         const tune = string(params.tuneId) ? this.tunes.get(String(params.tuneId)) : undefined;
         if (!tune) return failure(id, 'not_found', 'Tune was not found');
         if (integer(params.expectedRevision) !== tune.revision) return failure(id, 'conflict', 'Tune revision changed');
-        return this.writeRefloatConfiguration(id, {
-          packageVersion: tune.identity.packageVersion,
-          schemaFingerprint: tune.identity.schemaFingerprint,
-          wireSignature: tune.identity.wireSignature,
-          baseRevision: params.baseRevision,
-          values: { ...this.refloatCurrentValues, ...tune.values },
-        });
+        return this.writeRefloatConfiguration(
+          id,
+          {
+            packageVersion: tune.identity.packageVersion,
+            schemaFingerprint: tune.identity.schemaFingerprint,
+            wireSignature: tune.identity.wireSignature,
+            baseRevision: params.baseRevision,
+            values: { ...this.refloatCurrentValues, ...tune.values },
+          },
+          true
+        );
       }
       case 'announcements.openVoiceSettings': {
         if (Object.keys(params).length) return failure(id, 'invalid_request', 'Unexpected parameters');
@@ -1611,10 +1616,16 @@ export class MockBackend {
     return this.sessionCatalog.find((item) => item.sessionId === sessionId);
   }
 
-  private writeRefloatConfiguration(id: number, params: Record<string, unknown>): Response {
+  private writeRefloatConfiguration(id: number, params: Record<string, unknown>, tuneApply = false): Response {
     const active = this.state.activeConnection;
     const summary = active?.refloatConfiguration;
     const values = asObject(params.values);
+    const ridingTune = tuneApply && supportsRidingTuneApply(summary?.packageVersion);
+    const sample = active?.latestSample;
+    const stateAllowed = ridingTune
+      ? (sample?.rideState === 'idle' || sample?.rideState === 'riding') &&
+        (sample.packageState === 'ready' || sample.packageState === 'running')
+      : sample?.rideState === 'idle' && sample.footpadState === 'none' && sample.packageState === 'ready';
     if (
       typeof params.packageVersion !== 'string' ||
       typeof params.schemaFingerprint !== 'string' ||
@@ -1628,13 +1639,13 @@ export class MockBackend {
       !active ||
       !summary ||
       !summary.writable ||
+      summary.pendingOperation !== null ||
       active.state !== 'ready' ||
       active.refloatControls?.flywheelEnabled ||
       active.refloatControls?.pendingAction !== null ||
       active.controllerActions.pendingAction !== null ||
-      active.latestSample?.rideState !== 'idle' ||
-      active.latestSample.footpadState !== 'none' ||
-      active.latestSample.packageMode !== 'normal'
+      !stateAllowed ||
+      sample?.packageMode !== 'normal'
     )
       return failure(id, 'invalid_state', 'Configuration write is unavailable');
     if (

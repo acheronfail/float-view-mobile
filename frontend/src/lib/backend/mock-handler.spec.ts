@@ -984,6 +984,8 @@ describe('deterministic mock backend', () => {
         values: boardSpecific,
       },
     }) as { result: { revision: number } };
+    backend.publishTelemetry();
+    backend.simulateRideState('riding');
     expect(
       backend.handle({
         id: 15,
@@ -1003,6 +1005,7 @@ describe('deterministic mock backend', () => {
       },
     });
 
+    backend.simulateRideState('idle');
     expect(
       backend.handle({
         id: 16,

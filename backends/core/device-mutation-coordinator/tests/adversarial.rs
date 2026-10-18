@@ -516,3 +516,90 @@ fn legacy_profile_reaches_ready_without_fatal_tail_and_uses_command_202() {
         .unwrap();
     assert_eq!(submission(&effects).1.payload, [36, 101, 202, 1, 2]);
 }
+
+#[test]
+fn tune_apply_preserves_version_gate_and_other_configuration_guards() {
+    use float_view_refloat_compatibility::{COMPATIBILITY_ENTRIES, compatibility};
+
+    for entry in COMPATIBILITY_ENTRIES {
+        let modern = entry.source.major > 1 || entry.source.minor >= 1;
+        for route in [Route::Direct, Route::Can(42)] {
+            for mutation in [
+                ConfigurationMutation::Write,
+                ConfigurationMutation::TuneApply,
+            ] {
+                for (ride, state, mode, footpad) in [
+                    (
+                        RideState::Idle,
+                        PackageState::Ready,
+                        PackageMode::Normal,
+                        FootpadState::None,
+                    ),
+                    (
+                        RideState::Riding,
+                        PackageState::Running,
+                        PackageMode::Normal,
+                        FootpadState::Both,
+                    ),
+                    (
+                        RideState::Idle,
+                        PackageState::Ready,
+                        PackageMode::Normal,
+                        FootpadState::Left,
+                    ),
+                    (
+                        RideState::Unknown,
+                        PackageState::Running,
+                        PackageMode::Normal,
+                        FootpadState::Both,
+                    ),
+                    (
+                        RideState::Riding,
+                        PackageState::Running,
+                        PackageMode::Flywheel,
+                        FootpadState::Both,
+                    ),
+                    (
+                        RideState::Idle,
+                        PackageState::Startup,
+                        PackageMode::Normal,
+                        FootpadState::None,
+                    ),
+                ] {
+                    let mut coordinator = DeviceMutationCoordinator::new();
+                    configure(
+                        &mut coordinator,
+                        route,
+                        firmware(0),
+                        compatibility(entry.wire).unwrap(),
+                    );
+                    observe(
+                        &mut coordinator,
+                        sample_with(1, ride, state, mode, footpad, Some(false), None),
+                    );
+                    let result = coordinator.apply(Command::BeginConfiguration {
+                        generation: Generation(7),
+                        mutation,
+                    });
+                    let expected = mode == PackageMode::Normal
+                        && ((ride == RideState::Idle
+                            && state == PackageState::Ready
+                            && footpad == FootpadState::None)
+                            || (modern
+                                && mutation == ConfigurationMutation::TuneApply
+                                && matches!(ride, RideState::Idle | RideState::Riding)
+                                && matches!(state, PackageState::Ready | PackageState::Running)));
+                    assert_eq!(
+                        result.is_ok(),
+                        expected,
+                        "{:?} {route:?} {mutation:?} {ride:?} {state:?} {mode:?} {footpad:?}",
+                        entry.source
+                    );
+                    if !expected {
+                        assert_eq!(coordinator.snapshot().pending, None);
+                    }
+                }
+            }
+        }
+    }
+}

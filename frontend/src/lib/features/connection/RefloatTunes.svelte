@@ -21,7 +21,7 @@
   let current = $state<RefloatConfigurationValues | null>(null);
   let fields = $state<RefloatConfigurationField[]>([]);
   let loading = $state(false);
-  let applyConfirmation = $state(false);
+  let switchingTuneId = $state<string | null>(null);
   let saveConfirmation = $state(false);
   let saving = $state(false);
   let saveError = $state<string | null>(null);
@@ -32,7 +32,7 @@
   let status = $state<string | null>(null);
 
   const applyUnavailableReason = $derived(
-    refloatConfigurationWriteUnavailableReason(connection, connection.refloatConfiguration)
+    refloatConfigurationWriteUnavailableReason(connection, connection.refloatConfiguration, 'applyTune')
   );
   const selectedDiff = $derived.by(() => {
     if (!selected || !current) return [];
@@ -43,10 +43,6 @@
     });
   });
   const selectedIsActive = $derived(!!selected && !!current && selectedDiff.length === 0);
-
-  $effect(() => {
-    if (applyConfirmation && applyUnavailableReason) applyConfirmation = false;
-  });
 
   onMount(() => {
     void initialize();
@@ -91,10 +87,21 @@
   }
 
   async function selectTune(tuneId: string) {
-    const tune = await backendState.getRefloatTune(tuneId);
-    if (tune) {
+    if (switchingTuneId || loading || backendState.busy) return;
+    switchingTuneId = tuneId;
+    status = null;
+    try {
+      const tune = await backendState.getRefloatTune(tuneId);
+      if (!tune) return;
       selected = tune;
-      status = null;
+      if (!current || applyUnavailableReason || selectedIsActive) return;
+      const result = await backendState.applyRefloatTune(tune.tuneId, tune.revision, current.revision);
+      if (result) {
+        current = result;
+        status = `${tune.name} was applied and verified.`;
+      }
+    } finally {
+      switchingTuneId = null;
     }
   }
 
@@ -155,16 +162,6 @@
     await refreshTunes();
   }
 
-  async function apply() {
-    if (!selected || !current || applyUnavailableReason || selectedIsActive) return;
-    applyConfirmation = false;
-    const result = await backendState.applyRefloatTune(selected.tuneId, selected.revision, current.revision);
-    if (result) {
-      current = result;
-      status = `${selected.name} was applied and verified.`;
-    }
-  }
-
   async function remove() {
     if (!selected || !(await backendState.deleteRefloatTune(selected.tuneId, selected.revision))) return;
     const deletedName = selected.name;
@@ -190,11 +187,11 @@
 
 <section class="grid min-h-[65vh] content-start gap-4 lg:grid-cols-[minmax(14rem,0.7fr)_1.3fr]">
   <div class="grid content-start gap-3">
-    <p class="text-sm text-muted">Save the Tune currently on the board, then swap between saved presets.</p>
+    <p class="text-sm text-muted">Save the Tune currently on the board, then tap a saved preset to switch to it.</p>
     <button
       type="button"
       class="touch-manipulation rounded-md bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
-      disabled={!current || loading || backendState.busy}
+      disabled={!current || loading || !!switchingTuneId || backendState.busy}
       onpointerdown={(event) => activateFromPointer(event, openSave)}
       onclick={(event) => activateFromKeyboardOrAssistiveClick(event, openSave)}>Save current tune…</button
     >
@@ -204,14 +201,17 @@
         <button
           type="button"
           aria-pressed={selected?.tuneId === tune.tuneId}
+          aria-busy={switchingTuneId === tune.tuneId}
+          disabled={loading || !!switchingTuneId || backendState.busy}
           class="touch-manipulation rounded-lg border bg-elevated p-3 text-left"
           class:border-accent={selected?.tuneId === tune.tuneId}
           class:border-outline={selected?.tuneId !== tune.tuneId}
-          onpointerdown={(event) => activateFromPointer(event, () => selectTune(tune.tuneId))}
+          onpointerdown={(event) => activateFromPointer(event, () => selectTune(tune.tuneId), { scrollable: true })}
           onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => selectTune(tune.tuneId))}
         >
           <span class="flex items-start justify-between gap-2">
             <strong>{tune.name}</strong>
+            {#if switchingTuneId === tune.tuneId}<span class="text-xs text-muted">Applying…</span>{/if}
             {#if active}<span class="rounded-full bg-success/15 px-2 py-0.5 text-xs text-success">Active</span>{/if}
           </span>
           <span class="mt-1 block text-xs text-muted"
@@ -238,28 +238,15 @@
       <div class="flex flex-wrap gap-2">
         <button
           type="button"
-          class="touch-manipulation rounded-md bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
-          disabled={selectedIsActive || !!applyUnavailableReason || !current || backendState.busy}
-          onpointerdown={(event) =>
-            activateFromPointer(event, () => {
-              applyConfirmation = true;
-            })}
-          onclick={(event) =>
-            activateFromKeyboardOrAssistiveClick(event, () => {
-              applyConfirmation = true;
-            })}>Apply preset</button
-        >
-        <button
-          type="button"
           class="touch-manipulation rounded-md border border-outline px-4 py-2 disabled:opacity-50"
-          disabled={backendState.busy}
+          disabled={!!switchingTuneId || backendState.busy}
           onpointerdown={(event) => activateFromPointer(event, openRename)}
           onclick={(event) => activateFromKeyboardOrAssistiveClick(event, openRename)}>Rename</button
         >
         <button
           type="button"
           class="touch-manipulation rounded-md border border-danger px-4 py-2 text-danger disabled:opacity-50"
-          disabled={backendState.busy}
+          disabled={!!switchingTuneId || backendState.busy}
           onpointerdown={(event) =>
             activateFromPointer(event, () => {
               deleteConfirmation = true;
@@ -296,7 +283,7 @@
       </div>
     {:else}
       <p class="rounded-lg border border-outline p-4 text-sm text-muted">
-        Select a saved preset to compare it with the board or apply it.
+        Tap a saved preset to apply it immediately. Select it to see its details when switching is unavailable.
       </p>
     {/if}
   </div>
@@ -360,35 +347,6 @@
         bind:value={description}
       ></textarea>
     </label>
-  </div>
-</ConfirmDialog>
-
-<ConfirmDialog
-  open={applyConfirmation}
-  titleId="refloat-tune-apply-title"
-  title="Apply {selected?.name ?? 'preset'}?"
-  description="The preset's Tune values will be merged with this board's settings, written persistently, and verified by readback."
-  confirmLabel="Apply preset"
-  appearance="warning"
-  busy={backendState.busy}
-  confirmDisabled={selectedIsActive || !!applyUnavailableReason || !current}
-  onconfirm={apply}
-  oncancel={() => {
-    applyConfirmation = false;
-  }}
->
-  <div class="text-sm">
-    <strong>{selectedDiff.length} values will change</strong>
-    <ul class="mt-2 max-h-48 overflow-y-auto">
-      {#each selectedDiff as item (item.field.name)}
-        <li>
-          {item.field.label}: {formatRefloatValue(item.before, item.field)} → {formatRefloatValue(
-            item.after,
-            item.field
-          )}
-        </li>
-      {/each}
-    </ul>
   </div>
 </ConfirmDialog>
 

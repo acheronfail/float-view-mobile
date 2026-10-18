@@ -97,6 +97,13 @@ configuration write/Tune apply and withholds current reads; exit schedules a
 fresh normal-mode current read before editing resumes. Shared semantic fields
 are refreshed after verified writes rather than projected optimistically.
 
+Tune application on supported Refloat 1.1.0 and later releases also permits
+normal-mode ready/running boards with a known idle/riding state, including
+engaged footpads. Refloat 1.0.0/1.0.1 keep the idle, disengaged-footpad rule:
+their configuration handler reinitializes balancing. General configuration
+writes retain the idle restriction on every version. Tune application retains
+the same identity, revision, mutation lease, and verified-readback requirements.
+
 Tunes are bounded application-wide records in the catalog database, keyed and
 filtered by exact package version, schema fingerprint, and wire signature with
 optimistic revisions. The schema cache lives in shared product storage and is keyed

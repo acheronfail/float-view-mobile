@@ -241,6 +241,44 @@ describe('live board behavior', () => {
     expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration)).toContain('operation');
   });
 
+  it.each(['1.0.0', '1.0.1', '1.1.0', '1.1.1', '1.1.2', '1.2.0', '1.2.1', '1.2.2', '1.2.3', '1.3.0', '1.3.1', null])(
+    'gates riding Tune application for Refloat %s without relaxing general writes',
+    (packageVersion) => {
+      const ready = connection('ready');
+      ready.refloatControls = { ...refloatControls };
+      ready.refloatConfiguration = {
+        availability: 'ready',
+        writable: true,
+        packageVersion,
+        schemaFingerprint: 'a'.repeat(64),
+        wireSignature: 123,
+        currentLoaded: true,
+        defaultLoaded: false,
+        pendingOperation: null,
+      };
+      ready.latestSample = {
+        rideState: 'riding',
+        footpadState: 'both',
+        packageState: 'running',
+        packageMode: 'normal',
+      } as ActiveConnection['latestSample'];
+      const modern = packageVersion !== null && !packageVersion.startsWith('1.0.') && packageVersion !== '1.3.1';
+      const reason = () => refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration, 'applyTune');
+      expect(reason() === null).toBe(modern);
+      expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration)).toContain('Disengage');
+      ready.latestSample = { ...ready.latestSample!, packageMode: 'flywheel' };
+      expect(reason()).not.toBeNull();
+      ready.latestSample = { ...ready.latestSample!, packageMode: 'normal', rideState: 'unknown' };
+      expect(reason()).not.toBeNull();
+      ready.latestSample = { ...ready.latestSample!, rideState: 'riding' };
+      ready.refloatConfiguration.pendingOperation = 'write';
+      expect(reason()).toContain('operation');
+      ready.refloatConfiguration.pendingOperation = null;
+      ready.refloatConfiguration.writable = false;
+      expect(reason()).toContain('unavailable');
+    }
+  );
+
   it('keeps confirmed lighting state and stable labels during pending and unknown states', () => {
     const ready = connection('ready');
     ready.latestSample = { rideState: 'idle', packageState: 'ready' } as ActiveConnection['latestSample'];
