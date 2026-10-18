@@ -19,6 +19,11 @@ use rusqlite::{
     params,
 };
 
+mod connection_context;
+pub use connection_context::{
+    ConnectionContext, ConnectionContextEvent, ContextFirmware, ContextRoute,
+    MAX_CONNECTION_CONTEXTS, MAX_CONTEXT_PAGE,
+};
 mod diagnostics;
 mod faults;
 pub use diagnostics::{DiagnosticWriter, MAX_DIAGNOSTIC_BYTES, MAX_DIAGNOSTIC_ROWS};
@@ -1322,7 +1327,8 @@ fn validate_database(connection: &Connection) -> Result<(), WriterError> {
     {
         return Err(WriterError::Incompatible);
     }
-    read_marker(connection).map_err(|_| WriterError::Incompatible)?;
+    let boundary = read_marker(connection).map_err(|_| WriterError::Incompatible)?;
+    connection_context::read_contexts(connection, boundary.committed_event_sequence)?;
     Ok(())
 }
 

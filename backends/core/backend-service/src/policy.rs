@@ -32,6 +32,7 @@ pub(crate) struct Connection {
     pub session_elapsed_offset: u64,
     pub continuity: c::discovery::Continuity,
     pub package_version: Option<String>,
+    pub context_activation: Option<(u64, String)>,
     pub latest: Option<telemetry::NormalizedSample>,
     pub latest_load: float_view_application_runtime::load::Load,
     pub battery: crate::battery::State,
@@ -862,6 +863,7 @@ impl BackendService {
             continuity: c::discovery::Continuity::default(),
             refloat_draft_key: None,
             package_version: None,
+            context_activation: None,
             latest: None,
             latest_load: Default::default(),
             battery: crate::battery::State::default(),
@@ -1641,6 +1643,68 @@ impl BackendService {
                     session.riding_elapsed_ms,
                 );
             }
+            let operation_id = match &a.context_activation {
+                Some((generation, id)) if *generation == facts.generation.0 => id.clone(),
+                _ => {
+                    let mut bytes = [0u8; 16];
+                    getrandom::fill(&mut bytes).map_err(|_| Failure::Unavailable)?;
+                    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+                    let id = format!(
+                        "{}-{}-{}-{}-{}",
+                        &hex[..8],
+                        &hex[8..12],
+                        &hex[12..16],
+                        &hex[16..20],
+                        &hex[20..]
+                    );
+                    a.context_activation = Some((facts.generation.0, id.clone()));
+                    id
+                }
+            };
+            let firmware = |identity: &c::firmware::FirmwareIdentity| session::ContextFirmware {
+                major: identity.major,
+                minor: identity.minor,
+                test_version: identity.test_version,
+                hardware_name: Some(identity.hardware_name.clone()),
+                firmware_name: identity.firmware_name.clone(),
+            };
+            let context = session::ConnectionContext {
+                version: 1,
+                refloat_version: facts.refloat_version.to_string(),
+                controller: firmware(&facts.selected.identity),
+                transport: firmware(&facts.transport),
+                connection: facts
+                    .selected
+                    .route
+                    .can_id()
+                    .map_or(session::ContextRoute::Direct, |can_id| {
+                        session::ContextRoute::Can { can_id }
+                    }),
+            };
+            let elapsed = a.session_elapsed_offset.saturating_add(
+                self.policy
+                    .exchange
+                    .now
+                    .saturating_sub(a.session_start.unwrap_or(self.policy.exchange.now)),
+            );
+            let boundary = self
+                .runtime
+                .save_connection_context(
+                    &operation_id,
+                    elapsed,
+                    self.policy.exchange.epoch,
+                    context,
+                )
+                .map_err(|_| Failure::Unavailable)?;
+            self.store
+                .apply_session_marker(&session.session_id, &boundary)
+                .map_err(crate::store_failure)?;
+            a.session = Some(
+                self.store
+                    .session(&session.session_id)
+                    .map_err(crate::store_failure)?,
+            );
+            let session = a.session.as_ref().ok_or(Failure::InvalidState)?;
             a.continuity = c::discovery::Continuity::new(
                 true,
                 Some(facts.selected.route),
@@ -2919,6 +2983,29 @@ mod tests {
                 c::Phase::Ready
             );
             assert_eq!(t.service.runtime.snapshot().session_attached, saved);
+            if saved {
+                let id = &t
+                    .service
+                    .policy
+                    .active
+                    .as_ref()
+                    .unwrap()
+                    .session
+                    .as_ref()
+                    .unwrap()
+                    .session_id;
+                let mut reader =
+                    session::SessionReader::open(t.service.store.session_path(id).unwrap())
+                        .unwrap();
+                let boundary = reader.marker().unwrap();
+                let contexts = reader.connection_contexts((&boundary).into()).unwrap();
+                assert_eq!(contexts.len(), 1);
+                assert_eq!(boundary.recorded_sample_count, 0);
+                assert_eq!(contexts[0].context.refloat_version, "1.0");
+                let text = serde_json::to_string(&contexts).unwrap();
+                assert!(!text.contains("controllerUuid"));
+            }
+
             assert_eq!(t.service.store.boards().unwrap().len(), usize::from(saved));
             if saved {
                 let active = t.service.policy.active.as_ref().unwrap();
@@ -3132,10 +3219,104 @@ mod tests {
         );
     }
     #[test]
+    fn failed_context_commit_prevents_saved_reactivation_and_preserves_history() {
+        let mut t = Test::new();
+        t.activate(true);
+        let id = t
+            .service
+            .policy
+            .active
+            .as_ref()
+            .unwrap()
+            .session
+            .as_ref()
+            .unwrap()
+            .session_id
+            .clone();
+        let path = t.service.store.session_path(&id).unwrap();
+        let (_, marker) = t
+            .service
+            .runtime
+            .save_ride_marker(
+                "00000000-0000-4000-8000-000000000001",
+                0,
+                t.service.policy.exchange.epoch,
+                false,
+            )
+            .unwrap();
+        t.service.store.apply_session_marker(&id, &marker).unwrap();
+
+        t.service.reconnect().unwrap();
+        let (timer, due) = t
+            .service
+            .policy
+            .timers
+            .iter()
+            .find(|(_, entry)| entry.kind == Timer::Reconnect)
+            .map(|(id, entry)| (*id, entry.due))
+            .unwrap();
+        t.fact(Fact::Timer { id: timer }, due).unwrap();
+        let generation = t.service.policy.active.as_ref().unwrap().generation;
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Ready,
+            },
+            due + 1,
+        )
+        .unwrap();
+        let mut firmware = vec![0, 6, 6];
+        firmware.extend_from_slice(b"THOR300\0");
+        firmware.extend_from_slice(&[7; 12]);
+        firmware.extend_from_slice(&[1, 0, 0, 0, 1, 0, 1, 0]);
+        firmware.extend_from_slice(b"Float\0");
+        let generation = t.service.runtime.snapshot().application.generation;
+        t.service
+            .runtime_command(Command::Application(c::Command::Receive {
+                generation,
+                payload: firmware,
+                now_ms: due + 1,
+                observed_at_epoch_ms: 1_700_000_000_000 + due as i64 + 1,
+            }))
+            .unwrap();
+        let db = rusqlite::Connection::open(&path).unwrap();
+        db.execute_batch("CREATE TRIGGER reject_context BEFORE INSERT ON session_event WHEN NEW.kind='connectionContext' BEGIN SELECT RAISE(ABORT,'failure'); END;").unwrap();
+        assert!(
+            t.service
+                .runtime_command(Command::Application(c::Command::Receive {
+                    generation,
+                    payload: vec![36, 101, 0, 10],
+                    now_ms: due + 1,
+                    observed_at_epoch_ms: 1_700_000_000_000 + due as i64 + 1
+                }))
+                .is_err()
+        );
+        assert!(
+            t.service
+                .policy
+                .active
+                .as_ref()
+                .is_none_or(|a| a.state != LinkState::Ready)
+        );
+        db.execute_batch("DROP TRIGGER reject_context;").unwrap();
+        drop(db);
+        let mut reader = session::SessionReader::open(&path).unwrap();
+        let boundary = reader.marker().unwrap();
+        assert_eq!(
+            reader
+                .connection_contexts((&boundary).into())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(boundary.recorded_sample_count, 0);
+    }
+
+    #[test]
     fn can_snapshot_keeps_gateway_identity_separate_from_motor_firmware() {
         let mut t = Test::new();
         t.discover();
-        t.service.connect("test-device", false).unwrap();
+        t.service.connect("test-device", true).unwrap();
         let generation = t.service.policy.active.as_ref().unwrap().generation;
         t.fact(
             Fact::Link {
@@ -3185,6 +3366,25 @@ mod tests {
         let public = serde_json::to_value(&transport).unwrap();
         assert!(public.get("controllerUuid").is_none());
         assert!(public.get("address").is_none());
+        let active = t.service.policy.active.as_ref().unwrap();
+        let id = &active.session.as_ref().unwrap().session_id;
+        let mut reader =
+            session::SessionReader::open(t.service.store.session_path(id).unwrap()).unwrap();
+        let boundary = reader.marker().unwrap();
+        let contexts = reader.connection_contexts((&boundary).into()).unwrap();
+        assert_eq!(contexts.len(), 1);
+        assert_eq!(
+            contexts[0].context.transport.firmware_name.as_deref(),
+            Some("VESC Express")
+        );
+        assert_eq!(
+            contexts[0].context.controller.hardware_name.as_deref(),
+            Some("Thor300")
+        );
+        assert!(matches!(
+            contexts[0].context.connection,
+            session::ContextRoute::Can { can_id: 1 }
+        ));
     }
 
     #[test]
@@ -3377,6 +3577,18 @@ mod tests {
             id
         );
         assert!(t.service.published_snapshot().paused_ride.is_none());
+        let mut reader =
+            session::SessionReader::open(t.service.store.session_path(&id).unwrap()).unwrap();
+        let boundary = reader.marker().unwrap();
+        let contexts = reader.connection_contexts((&boundary).into()).unwrap();
+        assert_eq!(contexts.len(), 2);
+        assert_eq!(
+            contexts[0].context.refloat_version,
+            contexts[1].context.refloat_version
+        );
+        assert_ne!(contexts[0].operation_id, contexts[1].operation_id);
+        assert!(contexts[1].elapsed_ms >= contexts[0].elapsed_ms);
+        drop(reader);
         t.service.end_ride(&id).unwrap();
         assert!(t.service.policy.active.is_none());
         assert!(t.service.policy.ride.is_none());
@@ -3478,6 +3690,18 @@ mod tests {
                 .session_id,
             session
         );
+        let mut reader =
+            session::SessionReader::open(t.service.store.session_path(&session).unwrap()).unwrap();
+        let boundary = reader.marker().unwrap();
+        let contexts = reader.connection_contexts((&boundary).into()).unwrap();
+        assert_eq!(contexts.len(), 2);
+        assert_eq!(
+            contexts[0].context.refloat_version,
+            contexts[1].context.refloat_version
+        );
+        assert!(contexts[1].elapsed_ms >= 1_000);
+        drop(reader);
+
         t.fact(Fact::Timer { id: timer }, 1_102).unwrap();
         t.fact(
             Fact::Link {

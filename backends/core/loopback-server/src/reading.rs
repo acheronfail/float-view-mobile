@@ -58,7 +58,17 @@ async fn run<T: Send + 'static>(
             })
             .map_err(|_| Failure::Unavailable)?
             .len();
+        let connection_context_count = reader
+            .connection_contexts(session::PublishedBoundary {
+                history_revision: source.boundary.history_revision,
+                sample_sequence: source.boundary.committed_sample_sequence,
+                event_sequence: source.boundary.committed_event_sequence,
+                location_sequence: source.boundary.committed_location_sequence,
+            })
+            .map_err(|_| Failure::Unavailable)?
+            .len();
         let metadata = SessionMetadata {
+            connection_context_count,
             marker_count,
             summary: source.summary,
             extension_fields,
@@ -123,6 +133,23 @@ pub async fn read(
                         })
                         .collect(),
                 )
+            }
+            "connectionContexts" => {
+                let mut rows: Vec<_> = reader
+                    .connection_contexts(boundary)
+                    .map_err(|_| Failure::Unavailable)?
+                    .into_iter()
+                    .filter(|e| {
+                        e.elapsed_ms >= start
+                            && e.elapsed_ms <= end
+                            && after.is_none_or(|a| {
+                                (e.elapsed_ms, e.sequence) > (a.elapsed_ms, a.sequence)
+                            })
+                    })
+                    .collect();
+                more = rows.len() > query.limit;
+                rows.truncate(query.limit);
+                HistoryResult::ConnectionContexts(rows)
             }
             "markers" => {
                 let mut rows: Vec<_> = reader

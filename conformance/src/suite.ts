@@ -36,6 +36,83 @@ export interface PhysicalTarget extends Target {
   verifyFilePresentation?(): Promise<void>;
 }
 
+/** Firmware provenance without unrelated permission or location scenarios. */
+export async function runConnectionContextConformance(target: Target) {
+  let client: ConformanceClient | undefined;
+  try {
+    const endpoint = await target.start();
+    client = await ConformanceClient.open(endpoint.url, endpoint.origin);
+    const initial = await client.request('state.get', {});
+    await client.request('settings.update', {
+      expectedRevision: initial.settings.revision,
+      patch: { safetyDisclaimerAccepted: true, minimumSessionDistance: 0 },
+    });
+    await client.request('bluetooth.requestPermission', {});
+    const connect = async () => {
+      await client!.request('bluetooth.scan', { timeoutMs: 10000 });
+      const scanned = await client!.waitForState((s) => s.discoveredDevices.length > 0);
+      await client!.request('device.connect', {
+        deviceId: scanned.discoveredDevices[0]!.deviceId,
+        trackingMode: 'saved',
+      });
+      return client!.waitForState((s) => s.activeConnection?.state === 'ready', { timeoutMs: 20000 });
+    };
+    const ready = await connect();
+    const id = required(ready.activeConnection?.activeSession, 'No saved session').sessionId;
+    const first = await client.request('session.get', { sessionId: id });
+    assert.equal(first.connectionContextCount, 1);
+    const request = {
+      kind: 'connectionContexts' as const,
+      sessionId: id,
+      snapshot: first.snapshot,
+      range: { startElapsedMs: 0, endElapsedMs: first.snapshot.committedElapsedMs },
+      limit: 1,
+    };
+    const original = await client.sessionData(request);
+    assert.equal(original.kind, 'connectionContexts');
+    if (original.kind !== 'connectionContexts') throw new Error('Wrong history kind');
+    assert.equal(original.contexts.length, 1);
+    assert.equal(original.contexts[0]!.context.refloatVersion, ready.activeConnection!.firmware!.packageVersion);
+    assert.deepEqual(original.contexts[0]!.context.connection, ready.activeConnection!.controllerConnection);
+    assert.doesNotMatch(JSON.stringify(original), /controllerUuid|bluetoothIdentifier|operationId/);
+    await client.request('session.marker.add', { sessionId: id, operationId: '00000000-0000-4000-8000-000000000001' });
+    await client.request('device.disconnect', {});
+    const resumed = await connect();
+    assert.equal(resumed.activeConnection?.activeSession?.sessionId, id);
+    const metadata = await client.request('session.get', { sessionId: id });
+    assert.equal(metadata.connectionContextCount, 2);
+    const pageRequest = {
+      ...request,
+      snapshot: metadata.snapshot,
+      range: { startElapsedMs: 0, endElapsedMs: metadata.snapshot.committedElapsedMs },
+    };
+    const page = await client.sessionData(pageRequest);
+    if (page.kind !== 'connectionContexts') throw new Error('Wrong history kind');
+    assert.deepEqual(page.contexts, original.contexts);
+    assert.ok(page.nextCursor);
+    const next = await client.sessionData({ ...pageRequest, cursor: page.nextCursor });
+    if (next.kind !== 'connectionContexts') throw new Error('Wrong history kind');
+    assert.equal(next.contexts.length, 1);
+    assert.equal(next.nextCursor, null);
+    assert.deepEqual(next.contexts[0]!.context, original.contexts[0]!.context);
+    assert.ok(next.contexts[0]!.sequence > original.contexts[0]!.sequence);
+    await assert.rejects(
+      client.sessionData({
+        ...pageRequest,
+        range: { startElapsedMs: 1, endElapsedMs: metadata.snapshot.committedElapsedMs },
+        cursor: page.nextCursor,
+      }),
+      /HTTP 400/
+    );
+    const prefix = await client.sessionData(request);
+    if (prefix.kind === 'connectionContexts') assert.deepEqual(prefix.contexts, original.contexts);
+    return { target: target.name, revision: (await client.request('state.get', {})).revision };
+  } finally {
+    client?.close();
+    await target.stop();
+  }
+}
+
 /** Focused contract scenario; avoids unrelated location/export prompts on native hosts. */
 export async function runAutoConnectConformance(target: Target) {
   let client: ConformanceClient | undefined;
@@ -597,6 +674,19 @@ async function exerciseProductMethods(
     limit: 256,
   });
   assert.equal(detail.markerCount, 2);
+  assert.ok(Number.isSafeInteger(detail.connectionContextCount));
+  const originalContexts = await client.sessionData({
+    kind: 'connectionContexts',
+    sessionId: session.sessionId,
+    snapshot: detail.snapshot,
+    range: historyRange,
+    limit: 64,
+  });
+  assert.equal(originalContexts.kind, 'connectionContexts');
+  if (originalContexts.kind === 'connectionContexts') {
+    assert.ok(originalContexts.contexts.length <= detail.connectionContextCount);
+    assert.doesNotMatch(JSON.stringify(originalContexts), /controllerUuid|bluetoothIdentifier|operationId/);
+  }
 
   const field = detail.fields[0]?.name;
   assert.ok(field, 'session metadata did not publish a numeric field');
@@ -728,6 +818,17 @@ async function exerciseProductMethods(
     limit: 256,
   });
   assert.equal(afterPrune.markerCount, detail.markerCount);
+  assert.equal(afterPrune.connectionContextCount, detail.connectionContextCount);
+  const prunedContexts = await client.sessionData({
+    kind: 'connectionContexts',
+    sessionId: session.sessionId,
+    snapshot: afterPrune.snapshot,
+    range: historyRange,
+    limit: 64,
+  });
+  if (originalContexts.kind === 'connectionContexts' && prunedContexts.kind === 'connectionContexts')
+    assert.deepEqual(prunedContexts.contexts, originalContexts.contexts);
+
   if (originalMarkers.kind === 'markers' && prunedMarkers.kind === 'markers')
     assert.deepEqual(prunedMarkers.markers, originalMarkers.markers);
 
@@ -1005,6 +1106,7 @@ async function createCompletedSession(
     { ...prefix, kind: 'samples' as const, fields: ['speedKph'], mode: 'window' as const, limit: 100 },
     { ...prefix, kind: 'events' as const, limit: 100 },
     { ...prefix, kind: 'markers' as const, limit: 256 },
+    { ...prefix, kind: 'connectionContexts' as const, limit: 64 },
     { ...prefix, kind: 'locations' as const, limit: 100 },
   ]) {
     const result = await client.sessionData(request);
@@ -1013,6 +1115,10 @@ async function createCompletedSession(
       assert.ok(result.sequence.every((sequence) => sequence <= savedMarker.snapshot.committedSampleSequence));
     if (result.kind === 'events')
       assert.ok(result.page.sequence.every((sequence) => sequence <= savedMarker.snapshot.committedEventSequence));
+    if (result.kind === 'connectionContexts') {
+      assert.ok(result.contexts.length > 0);
+      assert.ok(result.contexts.every((event) => event.sequence <= savedMarker.snapshot.committedEventSequence));
+    }
     if (result.kind === 'markers') assert.deepEqual(result.markers, [savedMarker.marker]);
     if (result.kind === 'locations') {
       assert.equal(result.locationBoundary.lastSequence, savedMarker.snapshot.committedLocationSequence);

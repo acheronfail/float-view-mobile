@@ -66,7 +66,7 @@ record!(SessionSource {
     boundary: Boundary,
     path: String
 });
-record!(SessionMetadata { marker_count: usize, summary: Session, extension_fields: Vec<String>, boundary: Boundary, prune: PruneMetadata });
+record!(SessionMetadata { connection_context_count: usize, marker_count: usize, summary: Session, extension_fields: Vec<String>, boundary: Boundary, prune: PruneMetadata });
 record!(SessionPage { items: Vec<Session>, next_cursor: Option<String> });
 record!(Maintenance {
     operation_id: String, kind: String, scope: String, state: String, session_id: Option<String>,
@@ -263,6 +263,7 @@ pub enum Completion {
 
 /// Shared reader results never cross the native host exchange.
 pub enum HistoryResult {
+    ConnectionContexts(Vec<float_view_application_runtime::session::ConnectionContextEvent>),
     RideMarkers(Vec<float_view_application_runtime::session::RideMarker>),
     HistoryPoints(Vec<HistoryPoint>),
     HistoryEvents(Vec<HistoryEvent>),

@@ -243,3 +243,38 @@ variation from competing benchmark I/O.
 sides of an interruption from pruning. Summaries exclude these offline intervals
 from riding time and speed-integrated distance; charts and location pages expose
 the gap even when its duration is below the user’s chart-gap threshold.
+
+### Recorded connection context
+
+`connectionContext` events store payload version 1, the exact reported Refloat
+version (including major/minor-only older wire families), separate selected
+controller and Bluetooth peer VESC major/minor/test versions and public firmware
+names, and a direct or CAN route with CAN ID. They contain no Bluetooth addresses,
+controller UUIDs or unrelated CAN inventory. Each successful saved activation,
+including an unchanged reconnect or recovered-session resume, commits one event
+before ready/telemetry. Guests never write context.
+
+Context uses existing independent `session_event` rows with no sample foreign
+key. There is no schema or archive-format change; baseline/current recordings
+without context remain valid and are not backfilled. Payloads are closed and
+bounded to 4,096 UTF-8 bytes, names to 128 bytes, and context history to 1,000
+entries per session. Activation operation IDs make uncertain-write retries
+idempotent. An append/capacity failure prevents saved readiness and never resets
+storage or silently evicts context.
+
+Context survives pruning, recovery and native format-4 archive export/import,
+including exports without GPS. Import validates payloads, operation-ID uniqueness,
+timeline ordering and bounds before publishing. Context alone does not bypass
+no-riding/minimum-distance retention; explicit deletion removes it with the
+session. CSV remains telemetry-only.
+
+`session.get` exposes `connectionContextCount` at its committed snapshot. The
+authenticated session-data kind `connectionContexts` accepts the usual session ID,
+snapshot, elapsed range, limit (1–64) and nullable cursor. Its result contains
+`contexts` (sequence, elapsedMs, observedAtMs and context), `nextCursor` and the
+usual request identity/snapshot/range. Pages use elapsed time/event sequence
+ordering and at most 262,144 encoded response bytes; activation operation IDs
+remain private storage bookkeeping. The frontend shows this recorded history in
+session details independently of the current connection. Older sessions show
+“Not recorded”; a first context captured on a later resume is not attributed to
+the earlier ride.

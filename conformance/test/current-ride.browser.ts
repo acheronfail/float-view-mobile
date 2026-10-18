@@ -303,7 +303,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         });
         await page.getByRole('button', { name: /Current ride/ }).click();
         await page.getByText('Recording · Following live', { exact: true }).waitFor();
-        await client.request('device.disconnect', {});
+        // Disconnect pauses a resumable ride; use the explicit completion command.
+        await client.request('session.end', { sessionId });
         await page.getByText('Recording · Following live', { exact: true }).waitFor({ state: 'hidden' });
         await page.waitForTimeout(3500);
         assert.match(page.url(), new RegExp(sessionId));
@@ -317,8 +318,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await client.request('device.connect', { deviceId, trackingMode: 'guest' });
         await client.waitForState((state) => state.activeConnection?.state === 'ready');
         await page.goto(`${endpoint.origin}/#/live`);
-        await page.getByText('Guest connection — live data will not be saved or tracked.').waitFor();
         await menu.click();
+        await page.getByText('Guest connection — live data will not be saved or tracked.').waitFor();
         assert.equal(await current.count(), 0);
         assert.deepEqual(errors, []);
       } finally {

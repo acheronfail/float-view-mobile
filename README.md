@@ -12,7 +12,7 @@ Store links will be added here as they become available!
 - 📡 Connect to your VESC board over Bluetooth.
 - 📊 Watch live telemetry.
 - 🔊 Configurable speed and load announcements.
-- 🛞 Record and review rides.
+- 🛞 Record and review rides, including firmware and connection history.
 - 🎛️ Configure Refloat, and swap easily between saved tunes.
 - 💻 Available on macOS, Android, and iOS (more coming soon).
 

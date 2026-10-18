@@ -299,6 +299,18 @@ impl SessionReader {
         Ok(value)
     }
 
+    pub fn connection_contexts(
+        &mut self,
+        boundary: PublishedBoundary,
+    ) -> Result<Vec<super::ConnectionContextEvent>, ReaderError> {
+        let tx = self.deferred()?;
+        validate_boundary(&tx, boundary)?;
+        let rows = super::connection_context::read_contexts(&tx, boundary.event_sequence)
+            .map_err(map_writer)?;
+        tx.commit().map_err(map_sqlite)?;
+        Ok(rows)
+    }
+
     pub fn ride_markers(
         &mut self,
         boundary: PublishedBoundary,

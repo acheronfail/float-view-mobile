@@ -147,6 +147,12 @@ fn frozen_public_baseline_archive_imports_without_changing_settings() {
     let boundary = reader.marker().unwrap();
     assert_eq!(boundary.recorded_location_count, 1);
     assert_eq!(reader.ride_markers((&boundary).into()).unwrap().len(), 1);
+    assert!(
+        reader
+            .connection_contexts((&boundary).into())
+            .unwrap()
+            .is_empty()
+    );
     assert!(store.boards().unwrap()[0].local_identifier.is_none());
 }
 #[test]
@@ -607,4 +613,119 @@ fn archive_roundtrip_preserves_recording_boundaries_and_gap_safe_summary() {
         .unwrap(),
         1
     );
+}
+
+#[test]
+fn connection_contexts_survive_archive_and_corrupt_context_does_not_publish() {
+    use float_view_session_sqlite::{ConnectionContext, ContextFirmware, ContextRoute};
+    let (_dir, store, id) = setup();
+    let mut writer = SessionWriter::open(store.session_path(&id).unwrap()).unwrap();
+    let firmware = ContextFirmware {
+        major: 6,
+        minor: 6,
+        test_version: 1,
+        hardware_name: Some("Thor300".into()),
+        firmware_name: None,
+    };
+    let context = ConnectionContext {
+        version: 1,
+        refloat_version: "1.3.0".into(),
+        controller: firmware.clone(),
+        transport: ContextFirmware {
+            firmware_name: Some("VESC Express".into()),
+            ..firmware
+        },
+        connection: ContextRoute::Can { can_id: 42 },
+    };
+    writer
+        .append_connection_context(
+            "00000000-0000-4000-8000-000000000001",
+            30_000,
+            1_030_000,
+            context,
+        )
+        .unwrap();
+    writer.close().unwrap();
+    let mut pruner =
+        float_view_session_sqlite::SessionPruner::open(store.session_path(&id).unwrap()).unwrap();
+    let plan = pruner.preview(5).unwrap();
+    pruner.commit(plan, 1_040_000).unwrap();
+    pruner.close().unwrap();
+
+    // Reconcile after a writer commits, as the service normally does.
+    let mut store = store;
+    store.reconcile_session(&id).unwrap();
+    let mut source = SessionReader::open(store.session_path(&id).unwrap()).unwrap();
+    let boundary = source.marker().unwrap();
+    let expected = source.connection_contexts((&boundary).into()).unwrap();
+    drop(source);
+    let cancel = FileCancellation::default();
+    let file = store
+        .prepare_export(&id, ExportFormat::Archive)
+        .unwrap()
+        .run(&cancel)
+        .unwrap();
+    let target = TestDirectory::new();
+    let mut target_store = ProductStore::open(target.path()).unwrap();
+    let imported = target_store
+        .attach_import(sink(&target_store, file.path()).validate(&cancel).unwrap())
+        .unwrap();
+    let mut reader =
+        SessionReader::open(target_store.session_path(&imported.session_id).unwrap()).unwrap();
+    let boundary = reader.marker().unwrap();
+    assert_eq!(
+        reader.connection_contexts((&boundary).into()).unwrap(),
+        expected
+    );
+    drop(reader);
+    let db = Connection::open(file.path()).unwrap();
+    db.execute("UPDATE session_event SET details_json=json_set(details_json,'$.context.connection.canId',254) WHERE kind='connectionContext'",[]).unwrap();
+    drop(db);
+    assert!(sink(&target_store, file.path()).validate(&cancel).is_err());
+    assert!(target_store.session(&imported.session_id).is_ok());
+}
+
+#[test]
+fn connection_context_alone_does_not_keep_an_unridden_session() {
+    use float_view_session_sqlite::{ConnectionContext, ContextFirmware, ContextRoute};
+    let dir = TestDirectory::new();
+    let mut store = ProductStore::open(dir.path()).unwrap();
+    let board = store
+        .ensure_board("context-only", None, Some(&[7; 12]), 1)
+        .unwrap();
+    let session = store
+        .create_session(&board.saved_device_id, 1, u64::MAX)
+        .unwrap();
+    let path = store.session_path(&session.session_id).unwrap();
+    let mut writer = SessionWriter::open(&path).unwrap();
+    let firmware = ContextFirmware {
+        major: 6,
+        minor: 6,
+        test_version: 0,
+        hardware_name: None,
+        firmware_name: None,
+    };
+    writer
+        .append_connection_context(
+            "00000000-0000-4000-8000-000000000001",
+            0,
+            1,
+            ConnectionContext {
+                version: 1,
+                refloat_version: "1.0".into(),
+                controller: firmware.clone(),
+                transport: firmware,
+                connection: ContextRoute::Direct,
+            },
+        )
+        .unwrap();
+    writer.close().unwrap();
+    store
+        .close_session(&session.session_id, 100, "ended")
+        .unwrap();
+    assert!(matches!(
+        store.session(&session.session_id),
+        Err(Error::NotFound)
+    ));
+    assert!(!path.exists());
 }

@@ -442,3 +442,20 @@ windows never enter AppState. Global frontend error reporting sends closed codes
 only, with a bounded memory queue and recursion protection. Users manually write
 GitHub issues and attach saved ZIPs; the app never prefills or submits issues.
 See [diagnostic instructions](../../../docs/diagnostics.md).
+
+## Recorded connection history
+
+Session details show the recorded Refloat version, motor-controller VESC firmware
+(including test version), and direct/CAN route. CAN entries distinguish the
+Bluetooth peer's firmware from the motor's firmware, including Express gateways.
+Each successful reconnect has its own elapsed-time entry, even when facts match.
+`SessionConnectionContext.svelte` owns one page and a disposable review controller;
+metadata refresh cancels obsolete reads without replacing the charts or map.
+History sits below charts so its loading/pagination does not move the interactive
+chart viewport. Native buttons use shared pointer and accessible activation.
+
+Older recordings show Not recorded. If capture starts on a later resume, the UI
+marks earlier context as missing rather than applying later firmware facts to the
+whole ride. Native archives preserve this history through pruning and import;
+CSV remains telemetry-only. See [session storage](../../../backends/sql/README.md#recorded-connection-context)
+for payload and read bounds.

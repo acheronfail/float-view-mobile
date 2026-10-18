@@ -1,3 +1,4 @@
+import type { ConnectionContextEvent } from '../src/lib/backend/contract.ts';
 import { MockDiagnostics } from './diagnostics.ts';
 import { supportsRidingTuneApply } from '../src/lib/backend/refloat-tune-policy.ts';
 import { validBoardAppearance } from '../src/lib/backend/board-appearance.ts';
@@ -204,6 +205,7 @@ function sessionMetadata(summary: SessionSummary): SessionMetadata {
   const hasLocation = summary.sessionId === 'session-1';
   return {
     summary,
+    connectionContextCount: 0,
     markerCount: 0,
     fields: sessionFields,
     eventCount: summary.eventCount,
@@ -278,6 +280,47 @@ export class MockBackend {
   private readonly diagnostics = new MockDiagnostics();
   private refloatDrafts = new Map<string, RefloatEditorDraft>();
   private uiCheckpoint: UiCheckpoint | null = null;
+  private connectionContexts = new Map<string, ConnectionContextEvent[]>();
+  contextRows(sessionId: string) {
+    return structuredClone(this.connectionContexts.get(sessionId) ?? []);
+  }
+  private captureConnectionContext(active: ActiveConnection) {
+    const session = active?.activeSession;
+    if (!active || !session || active.trackingMode !== 'saved' || !active.firmware || !active.controllerConnection)
+      return;
+    const rows = this.connectionContexts.get(session.sessionId) ?? [];
+    if (rows.length >= 1000) throw new Error('Connection history capacity reached');
+    const [major = 0, minor = 0] = active.firmware.vescVersion.split('.').map(Number);
+    const transport = active.transportFirmware;
+    const [peerMajor = 0, peerMinor = 0] = (transport?.vescVersion ?? active.firmware.vescVersion)
+      .split('.')
+      .map(Number);
+    rows.push({
+      sequence: session.eventCount++,
+      elapsedMs: session.totalElapsedMs,
+      observedAtMs: Date.now(),
+      context: {
+        version: 1,
+        refloatVersion: active.firmware.packageVersion,
+        controller: {
+          major,
+          minor,
+          testVersion: 0,
+          hardwareName: active.firmware.hardwareName ?? null,
+          firmwareName: null,
+        },
+        transport: {
+          major: peerMajor,
+          minor: peerMinor,
+          testVersion: transport?.testVersion ?? 0,
+          hardwareName: transport?.hardwareName ?? null,
+          firmwareName: transport?.firmwareName ?? null,
+        },
+        connection: structuredClone(active.controllerConnection),
+      },
+    });
+    this.connectionContexts.set(session.sessionId, rows);
+  }
   private rideMarkers = new Map<string, SessionRideMarker[]>();
   markerRows(sessionId: string) {
     return structuredClone(this.rideMarkers.get(sessionId) ?? []);
@@ -1166,7 +1209,11 @@ export class MockBackend {
       case 'session.get': {
         const found = this.findSession(params);
         return found
-          ? success(id, { ...sessionMetadata(found), markerCount: this.rideMarkers.get(found.sessionId)?.length ?? 0 })
+          ? success(id, {
+              ...sessionMetadata(found),
+              connectionContextCount: this.connectionContexts.get(found.sessionId)?.length ?? 0,
+              markerCount: this.rideMarkers.get(found.sessionId)?.length ?? 0,
+            })
           : failure(id, 'not_found', 'Session was not found');
       }
       case 'session.list': {
@@ -1195,6 +1242,7 @@ export class MockBackend {
         if (!found) return accepted(id);
         this.sessionCatalog = this.sessionCatalog.filter((item) => item.sessionId !== found.sessionId);
         this.rideMarkers.delete(found.sessionId);
+        this.connectionContexts.delete(found.sessionId);
         this.change(
           {
             ...this.state,
@@ -2189,6 +2237,15 @@ export class MockBackend {
   }
 
   private change(next: AppState, catalogChanged = false) {
+    const active = next.activeConnection;
+    const previous = this.state.activeConnection;
+    if (
+      active?.state === 'ready' &&
+      (previous?.state !== 'ready' ||
+        previous.activeSession?.sessionId !== active.activeSession?.sessionId ||
+        JSON.stringify(previous.controllerConnection) !== JSON.stringify(active.controllerConnection))
+    )
+      this.captureConnectionContext(active);
     const estimate = this.battery.update(
       next.activeConnection,
       this.profiles.get(next.activeConnection?.savedDeviceId ?? '')

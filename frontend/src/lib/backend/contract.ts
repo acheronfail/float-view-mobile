@@ -802,7 +802,29 @@ export interface SessionRideMarker {
   } | null;
 }
 
+export interface ContextFirmware {
+  major: number;
+  minor: number;
+  testVersion: number;
+  hardwareName: string | null;
+  firmwareName: string | null;
+}
+export interface ConnectionContext {
+  version: 1;
+  refloatVersion: string;
+  controller: ContextFirmware;
+  transport: ContextFirmware;
+  connection: ControllerConnection;
+}
+export interface ConnectionContextEvent {
+  sequence: number;
+  elapsedMs: number;
+  observedAtMs: number;
+  context: ConnectionContext;
+}
+
 export interface SessionMetadata {
+  connectionContextCount: number;
   markerCount: number;
   summary: SessionSummary;
   fields: SessionFieldDescriptor[];

@@ -1,6 +1,6 @@
 # Float View privacy policy
 
-Updated 17 October 2026.
+Updated 19 October 2026.
 
 Float View is an open-source app maintained by acheronfail. It connects to your
 VESC devices, displays telemetry and optionally records rides and routes. There
@@ -15,6 +15,10 @@ in the app's private storage. Bluetooth device identifiers are used to recognise
 and reconnect to your boards. Location recording is optional and requires your
 permission. When enabled, it can continue during a ride while the app is in the
 background or your screen is locked. It is not required for ordinary telemetry.
+
+Saved rides also retain Refloat and VESC firmware versions and the direct/CAN
+connection path at each successful connection or reconnect. This recorded
+connection context excludes controller UUIDs and Bluetooth addresses.
 
 These records are not automatically uploaded to the developer. Your operating
 system may include app data in its backups or device transfers according to its
@@ -73,7 +77,8 @@ interruption or storage failure. See [diagnostic instructions](docs/diagnostics.
 
 ## Files you share and support requests
 
-Exports can contain board information, ride telemetry and precise route data.
+Exports can contain board information, recorded firmware and connection history,
+ride telemetry and precise route data.
 Files you choose to export, share or import are handled by your selected file
 provider or recipient under their own terms. Exported copies are not removed
 when you delete the original recording in Float View.

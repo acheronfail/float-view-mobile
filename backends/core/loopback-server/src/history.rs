@@ -28,7 +28,16 @@ impl Backend {
             "cursor",
         ])?;
         let kind = p.text("kind")?;
-        if !["series", "samples", "events", "locations", "markers"].contains(&kind.as_str()) {
+        if ![
+            "series",
+            "samples",
+            "events",
+            "locations",
+            "markers",
+            "connectionContexts",
+        ]
+        .contains(&kind.as_str())
+        {
             return Err(Failure::InvalidRequest);
         }
         let id = p.text("sessionId")?;
@@ -91,7 +100,9 @@ impl Backend {
             }
         } else {
             limit = p.number("limit")? as usize;
-            let maximum = if kind == "markers" {
+            let maximum = if kind == "connectionContexts" {
+                float_view_application_runtime::session::MAX_CONTEXT_PAGE
+            } else if kind == "markers" {
                 256
             } else if kind == "events" {
                 500
@@ -115,7 +126,7 @@ impl Backend {
             && let Some(raw) = &raw_cursor
         {
             let c = decode_cursor(raw, 512)?;
-            if (kind == "markers" && c["k"] != kind)
+            if (["markers", "connectionContexts"].contains(&kind.as_str()) && c["k"] != kind)
                 || c["v"] != 1
                 || c["s"] != id
                 || c["b"] != request["snapshot"]
@@ -234,6 +245,31 @@ impl Backend {
                 } else {
                     Value::Null
                 };
+            }
+            ("connectionContexts", HistoryResult::ConnectionContexts(rows)) => {
+                response["contexts"] = json!(
+                    rows.iter()
+                        .map(|event| json!({
+                            "sequence": event.sequence,
+                            "elapsedMs": event.elapsed_ms,
+                            "observedAtMs": event.observed_at_ms,
+                            "context": event.context,
+                        }))
+                        .collect::<Vec<_>>()
+                );
+                response["nextCursor"] = if more {
+                    let last = rows.last().ok_or(Failure::Internal)?;
+                    json!(make_cursor(last.elapsed_ms, last.sequence)?)
+                } else {
+                    Value::Null
+                };
+                if serde_json::to_vec(&response)
+                    .map_err(|_| Failure::Internal)?
+                    .len()
+                    > 262_144
+                {
+                    return Err(Failure::Internal);
+                }
             }
             ("markers", HistoryResult::RideMarkers(markers)) => {
                 response["nextCursor"] = if more {

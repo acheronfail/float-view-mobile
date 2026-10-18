@@ -241,6 +241,22 @@ impl ApplicationRuntime {
         }
     }
 
+    pub fn save_connection_context(
+        &mut self,
+        operation_id: &str,
+        elapsed_ms: u64,
+        at_ms: i64,
+        context: session::ConnectionContext,
+    ) -> Result<CommitMarker, RuntimeError> {
+        let boundary = self
+            .session
+            .as_mut()
+            .ok_or(RuntimeError::SessionNotAttached)?
+            .append_connection_context(operation_id, elapsed_ms, at_ms, context)?;
+        self.session_marker = Some(boundary.clone());
+        Ok(boundary)
+    }
+
     pub fn save_ride_marker(
         &mut self,
         operation_id: &str,

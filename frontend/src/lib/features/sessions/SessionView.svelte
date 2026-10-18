@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SessionConnectionContext from './SessionConnectionContext.svelte';
   import PausedRide from './PausedRide.svelte';
   import { loadFirmwareFaults } from '$lib/features/faults/session-faults';
   import FaultList from '$lib/features/faults/FaultList.svelte';
@@ -467,11 +468,8 @@
       </div>
     {/if}
 
-    {#if backendState.sessionMetadata}<SessionEvents
-        metadata={backendState.sessionMetadata}
-        viewport={chartViewport}
-        {filterByMap}
-      />{/if}
+    {#if backendState.sessionMetadata}<SessionConnectionContext metadata={backendState.sessionMetadata} />
+      <SessionEvents metadata={backendState.sessionMetadata} viewport={chartViewport} {filterByMap} />{/if}
   {:else}
     <p class="mt-3 text-muted">Loading session…</p>
   {/if}

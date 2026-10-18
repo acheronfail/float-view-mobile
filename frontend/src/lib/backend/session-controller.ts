@@ -1,5 +1,7 @@
 import type { SessionMetadata } from './contract.ts';
 import type {
+  SessionConnectionContextsRequest,
+  SessionConnectionContextsResult,
   SessionDataRequest,
   SessionMarkersRequest,
   SessionMarkersResult,
@@ -77,6 +79,16 @@ export class SessionReviewController {
       'events',
       { ...request, sessionId: this.metadata.summary.sessionId, snapshot: this.metadata.snapshot },
       (result): result is SessionEventsResult => result.kind === 'events'
+    );
+  }
+
+  async loadConnectionContexts(
+    request: Omit<SessionConnectionContextsRequest, 'sessionId' | 'snapshot'>
+  ): Promise<SessionConnectionContextsResult> {
+    return this.load(
+      'connectionContexts',
+      { ...request, sessionId: this.metadata.summary.sessionId, snapshot: this.metadata.snapshot },
+      (result): result is SessionConnectionContextsResult => result.kind === 'connectionContexts'
     );
   }
 

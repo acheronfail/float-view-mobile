@@ -162,7 +162,7 @@ pub fn metadata(facts: &SessionMetadata) -> Value {
     fields.extend(facts.extension_fields.clone());
     json!({"summary":facts.summary,"fields":descriptors(&fields,&facts.extension_fields),"eventCount":facts.summary.event_count,
         "recordedSampleCount":facts.boundary.recorded_sample_count,"storedSampleCount":facts.boundary.stored_sample_count,
-        "markerCount":facts.marker_count,"prune":facts.prune,"snapshot":boundary(&facts.boundary),"location":{"available":facts.boundary.recorded_location_count > 0,
+        "connectionContextCount":facts.connection_context_count,"markerCount":facts.marker_count,"prune":facts.prune,"snapshot":boundary(&facts.boundary),"location":{"available":facts.boundary.recorded_location_count > 0,
         "count":facts.boundary.recorded_location_count,"lastSequence":facts.boundary.committed_location_sequence,
         "lastElapsedMs":facts.boundary.committed_location_elapsed_ms,"status":facts.boundary.location_status}})
 }

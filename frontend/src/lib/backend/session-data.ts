@@ -1,4 +1,5 @@
 import {
+  type ConnectionContextEvent,
   MAX_SESSION_CURSOR_BYTES,
   MAX_SESSION_MARKER_ROWS,
   type SessionRideMarker,
@@ -15,7 +16,7 @@ import {
   type SessionPublishedSnapshot,
 } from './contract.ts';
 
-export type SessionDataKind = 'series' | 'samples' | 'events' | 'locations' | 'markers';
+export type SessionDataKind = 'series' | 'samples' | 'events' | 'locations' | 'markers' | 'connectionContexts';
 export type SessionDataRange = { startElapsedMs: number; endElapsedMs: number };
 export type SessionGapPolicy = { thresholdSeconds: number | null };
 
@@ -47,6 +48,20 @@ export interface SessionEventsRequest extends SessionDataRequestBase {
   cursor?: string | null;
 }
 
+export interface SessionConnectionContextsRequest extends SessionDataRequestBase {
+  kind: 'connectionContexts';
+  limit: number;
+  cursor?: string | null;
+}
+export interface SessionConnectionContextsResult {
+  kind: 'connectionContexts';
+  sessionId: string;
+  snapshot: SessionPublishedSnapshot;
+  range: SessionDataRange;
+  contexts: ConnectionContextEvent[];
+  nextCursor: string | null;
+}
+
 export interface SessionMarkersRequest extends SessionDataRequestBase {
   kind: 'markers';
   limit: number;
@@ -72,7 +87,8 @@ export type SessionDataRequest =
   | SessionSamplesRequest
   | SessionEventsRequest
   | SessionLocationsRequest
-  | SessionMarkersRequest;
+  | SessionMarkersRequest
+  | SessionConnectionContextsRequest;
 
 export interface SessionSeriesColumn {
   elapsedMs: number[];
@@ -157,7 +173,8 @@ export type SessionDataResult =
   | SessionSamplesResult
   | SessionEventsResult
   | SessionLocationsResult
-  | SessionMarkersResult;
+  | SessionMarkersResult
+  | SessionConnectionContextsResult;
 
 export class SessionDataProtocolError extends Error {
   constructor(message: string) {
@@ -212,7 +229,8 @@ export function validateSessionDataRequest(value: unknown): SessionDataRequest {
     request.kind !== 'samples' &&
     request.kind !== 'events' &&
     request.kind !== 'locations' &&
-    request.kind !== 'markers'
+    request.kind !== 'markers' &&
+    request.kind !== 'connectionContexts'
   ) {
     throw new SessionDataProtocolError('Unsupported session-data request kind');
   }
@@ -248,6 +266,12 @@ export function validateSessionDataRequest(value: unknown): SessionDataRequest {
     }
     if (request.cursor !== undefined && request.cursor !== null) validateCursor(request.cursor);
     return { ...request, fields, limit } as SessionSamplesRequest;
+  }
+  if (request.kind === 'connectionContexts') {
+    if (!finiteInteger(request.limit) || request.limit < 1 || request.limit > 64)
+      throw new SessionDataProtocolError('Connection context page size is out of bounds');
+    if (request.cursor !== undefined && request.cursor !== null) validateCursor(request.cursor);
+    return request as SessionConnectionContextsRequest;
   }
   if (request.kind === 'markers') {
     if (!finiteInteger(request.limit) || request.limit < 1 || request.limit > MAX_SESSION_MARKER_ROWS)
@@ -287,6 +311,30 @@ export function validateSessionDataResult(value: unknown, request: SessionDataRe
     result.range.endElapsedMs !== request.range.endElapsedMs
   ) {
     throw new SessionDataProtocolError('Session-data range does not match the request');
+  }
+  if (result.kind === 'connectionContexts') {
+    if (
+      !Array.isArray(result.contexts) ||
+      result.contexts.length > (request as SessionConnectionContextsRequest).limit ||
+      new TextEncoder().encode(JSON.stringify(value)).length > 262_144
+    )
+      throw new SessionDataProtocolError('Invalid connection context page');
+    let previous: ConnectionContextEvent | undefined;
+    for (const event of result.contexts) {
+      validateConnectionContextEvent(event);
+      if (
+        event.elapsedMs < request.range.startElapsedMs ||
+        event.elapsedMs > request.range.endElapsedMs ||
+        event.sequence > request.snapshot.committedEventSequence ||
+        (previous && (event.elapsedMs < previous.elapsedMs || event.sequence <= previous.sequence))
+      )
+        throw new SessionDataProtocolError('Invalid connection context ordering');
+      previous = event;
+    }
+    if (result.nextCursor !== null) validateCursor(result.nextCursor);
+    if (result.nextCursor && !result.contexts.length)
+      throw new SessionDataProtocolError('Empty continuing context page');
+    return result as SessionConnectionContextsResult;
   }
   if (result.kind === 'markers') {
     if (!Array.isArray(result.markers) || result.markers.length > (request as SessionMarkersRequest).limit)
@@ -642,4 +690,45 @@ export function validateRideMarker(value: unknown): asserts value is SessionRide
     )
       throw new SessionDataProtocolError('Invalid marker location');
   }
+}
+
+export function validateConnectionContextEvent(value: unknown): asserts value is ConnectionContextEvent {
+  const fail = (): never => {
+    throw new SessionDataProtocolError('Invalid connection context');
+  };
+  const object = (value: unknown, keys: string[]): Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return fail();
+    const record = value as Record<string, unknown>;
+    if (Object.keys(record).length !== keys.length || keys.some((key) => !(key in record))) return fail();
+    return record;
+  };
+  const event = object(value, ['sequence', 'elapsedMs', 'observedAtMs', 'context']);
+  if (
+    ![event.sequence, event.elapsedMs, event.observedAtMs].every(finiteInteger) ||
+    Number(event.sequence) < 1 ||
+    Number(event.elapsedMs) < 0 ||
+    Number(event.observedAtMs) < 0
+  )
+    fail();
+  const context = object(event.context, ['version', 'refloatVersion', 'controller', 'transport', 'connection']);
+  if (
+    context.version !== 1 ||
+    typeof context.refloatVersion !== 'string' ||
+    !/^\d{1,3}\.\d{1,3}(?:\.\d{1,3})?$/.test(context.refloatVersion) ||
+    context.refloatVersion.split('.').some((p) => Number(p) > 255)
+  )
+    fail();
+  for (const firmware of [context.controller, context.transport]) {
+    const f = object(firmware, ['major', 'minor', 'testVersion', 'hardwareName', 'firmwareName']);
+    if (![f.major, f.minor, f.testVersion].every((v) => finiteInteger(v) && v >= 0 && v <= 255)) fail();
+    for (const name of [f.hardwareName, f.firmwareName])
+      if (name !== null && (typeof name !== 'string' || new TextEncoder().encode(name).length > 128)) fail();
+  }
+  const route = context.connection as Record<string, unknown> | null;
+  if (route?.kind === 'direct') object(route, ['kind']);
+  else if (route?.kind === 'can') {
+    object(route, ['kind', 'canId']);
+    if (!finiteInteger(route.canId) || route.canId < 0 || route.canId > 253) fail();
+  } else fail();
+  if (new TextEncoder().encode(JSON.stringify(event)).length > 4096) fail();
 }
