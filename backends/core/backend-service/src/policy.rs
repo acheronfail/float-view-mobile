@@ -22,6 +22,8 @@ pub(crate) struct Connection {
     pub device: Device,
     pub saved: bool,
     pub generation: u64,
+    // Presentation follows the logical connection, across transport attempts.
+    pub live_activity_generation: Option<u64>,
     pub state: LinkState,
     pub board: Option<Board>,
     pub session: Option<Session>,
@@ -697,6 +699,16 @@ impl BackendService {
     }
     pub(crate) fn changed(&mut self) -> Result<(), Failure> {
         self.refresh_battery()?;
+        let runtime = self.runtime.snapshot().application;
+        if let Some(active) = self.policy.active.as_mut()
+            && active.live_activity_generation.is_none()
+            && active.state == LinkState::Ready
+            && active.reconnect_started.is_none()
+            && runtime.phase == c::Phase::Ready
+            && !runtime.standalone_bms
+        {
+            active.live_activity_generation = Some(active.generation);
+        }
         let live_activity = self.live_activity();
         if self.policy.live_activity != live_activity {
             self.policy.exchange.live_activity = Some(Effect::LiveActivity {
@@ -840,6 +852,7 @@ impl BackendService {
             device,
             saved,
             generation,
+            live_activity_generation: None,
             state: LinkState::Connecting,
             board,
             session: None,
@@ -2153,6 +2166,81 @@ mod tests {
                     .any(|e| matches!(e, Effect::LiveActivity { state: None }))
             );
         }
+    }
+
+    #[test]
+    fn live_activity_survives_background_reconnect_but_ends_when_abandoned() {
+        for saved in [false, true] {
+            let mut t = Test::new();
+            t.activate(saved);
+            t.service.changed().unwrap();
+            let generation = t.service.live_activity().unwrap().generation;
+            t.fact(Fact::Foreground { foreground: false }, 100).unwrap();
+            t.service.reconnect().unwrap();
+            t.service.changed().unwrap();
+            let reconnecting = t.service.live_activity().unwrap();
+            assert_eq!(reconnecting.generation, generation);
+            assert_eq!(reconnecting.status.as_deref(), Some("Reconnecting"));
+            assert_eq!(reconnecting.observed_at, None);
+            assert_eq!(reconnecting.percentage, None);
+            assert_eq!(reconnecting.battery_voltage, None);
+            assert_eq!(
+                reconnecting.footpad_left,
+                crate::live_activity::FootpadIndicator::Neutral
+            );
+            let due = t
+                .service
+                .policy
+                .timers
+                .iter()
+                .find(|(_, timer)| timer.kind == Timer::Reconnect)
+                .map(|(id, timer)| (*id, timer.due))
+                .unwrap();
+            t.fact(Fact::Timer { id: due.0 }, due.1).unwrap();
+            let next = t.service.policy.active.as_ref().unwrap().generation;
+            assert_ne!(next, generation);
+            assert_eq!(t.service.live_activity().unwrap().generation, generation);
+            t.fact(
+                Fact::Link {
+                    generation: next,
+                    state: LinkState::Ready,
+                },
+                due.1 + 1,
+            )
+            .unwrap();
+            t.identify();
+            assert_eq!(t.service.live_activity().unwrap().generation, generation);
+            assert_ne!(
+                t.service.live_activity().unwrap().status.as_deref(),
+                Some("Reconnecting")
+            );
+            t.service.reconnect().unwrap();
+            t.service.changed().unwrap();
+            let limit = t
+                .service
+                .policy
+                .timers
+                .iter()
+                .find(|(_, timer)| timer.kind == Timer::ReconnectLimit)
+                .map(|(id, timer)| (*id, timer.due))
+                .unwrap();
+            t.fact(Fact::Timer { id: limit.0 }, limit.1).unwrap();
+            assert!(t.service.live_activity().is_none());
+            t.activate(saved);
+            t.service.changed().unwrap();
+            assert_ne!(t.service.live_activity().unwrap().generation, generation);
+        }
+    }
+
+    #[test]
+    fn live_activity_does_not_start_during_initial_discovery() {
+        let mut t = Test::new();
+        t.discover();
+        t.service.connect("test-device", false).unwrap();
+        assert!(t.service.live_activity().is_none());
+        t.service.reconnect().unwrap();
+        t.service.changed().unwrap();
+        assert!(t.service.live_activity().is_none());
     }
 
     #[test]

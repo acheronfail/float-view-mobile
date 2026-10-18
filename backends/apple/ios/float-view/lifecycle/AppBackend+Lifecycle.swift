@@ -13,6 +13,7 @@ extension AppBackend {
 
   func enterForeground() {
     service?.setForeground(true)
+    rideActivity.foregroundChanged()
     guard frontend == nil else { return }
     activateFrontend()
   }

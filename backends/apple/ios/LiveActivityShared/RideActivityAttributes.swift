@@ -19,6 +19,14 @@ struct RideActivityAttributes: ActivityAttributes {
     /// system setting. The native host supplies its resolved app appearance.
     var isDark: Bool? = nil
 
+    var isReconnecting: Bool {
+      status == "Reconnecting"
+    }
+
+    func boardText(stale: Bool) -> String {
+      isReconnecting ? "Reconnecting" : (stale ? "—" : (status ?? loadText))
+    }
+
     var loadLabel: String {
       switch source {
       case "duty": "Duty"

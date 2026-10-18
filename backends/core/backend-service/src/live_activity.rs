@@ -88,13 +88,31 @@ fn fresh_temperature_observation(observed: i64, now: i64) -> bool {
 impl BackendService {
     pub(crate) fn live_activity(&self) -> Option<LiveActivity> {
         let active = self.policy.active.as_ref()?;
+        let generation = active.live_activity_generation?;
         let runtime = self.runtime.snapshot().application;
+        if runtime.standalone_bms {
+            return None;
+        }
         if active.state != LinkState::Ready
             || active.reconnect_started.is_some()
             || runtime.phase != Phase::Ready
-            || runtime.standalone_bms
         {
-            return None;
+            // Never present retained telemetry as current while reconnecting.
+            return Some(LiveActivity {
+                generation,
+                observed_at: None,
+                source: None,
+                percentage: None,
+                distance_meters: None,
+                battery_percent: None,
+                battery_voltage: None,
+                highest_temperature_c: None,
+                temperature_source: None,
+                imperial: self.policy.settings.unit_preference == "imperial",
+                status: Some("Reconnecting".into()),
+                footpad_left: FootpadIndicator::Neutral,
+                footpad_right: FootpadIndicator::Neutral,
+            });
         }
         let sample = active.latest.as_ref();
         let bms = active.bms.as_ref().filter(|bms| {
@@ -138,7 +156,7 @@ impl BackendService {
             status: status(sample.and_then(|s| s.package_state)),
             footpad_left,
             footpad_right,
-            generation: active.generation,
+            generation,
             observed_at: sample.map(|s| s.observed_at_epoch_ms),
             source: source.map(str::to_owned),
             percentage,

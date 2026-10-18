@@ -28,23 +28,31 @@ struct FloatViewLiveActivity: Widget {
             .environment(\.colorScheme, .dark)
         }
       } compactTrailing: {
-        if context.state.status == "Stopped" {
+        if context.state.isReconnecting {
+          Image(systemName: "arrow.triangle.2.circlepath")
+            .foregroundStyle(.white).accessibilityLabel("Reconnecting")
+        } else if context.state.status == "Stopped" {
           Text(context.isStale ? "—" : context.state.distanceText)
             .monospacedDigit().foregroundStyle(.white)
             .lineLimit(1).minimumScaleFactor(0.7)
             .accessibilityLabel("Ride distance \(context.isStale ? "unavailable" : context.state.distanceText)")
         } else {
-          Text(context.isStale ? "—" : (context.state.status ?? context.state.loadText))
+          Text(context.state.boardText(stale: context.isStale))
             .monospacedDigit().foregroundStyle(context.state.status == nil ? context.state.loadColor : .white)
         }
       } minimal: {
-        Text(context.isStale ? "—" : (context.state.status ?? context.state.loadText))
-          .font(.caption2.bold()).monospacedDigit()
-          .lineLimit(1).minimumScaleFactor(0.6)
-          .foregroundStyle(context.state.status == nil ? context.state.loadColor : .white)
-          .accessibilityLabel(
-            "\(context.state.status == nil ? context.state.loadLabel : "Board") \(context.isStale ? "unavailable" : (context.state.status ?? context.state.loadText))"
-          )
+        if context.state.isReconnecting {
+          Image(systemName: "arrow.triangle.2.circlepath")
+            .foregroundStyle(.white).accessibilityLabel("Reconnecting")
+        } else {
+          Text(context.state.boardText(stale: context.isStale))
+            .font(.caption2.bold()).monospacedDigit()
+            .lineLimit(1).minimumScaleFactor(0.6)
+            .foregroundStyle(context.state.status == nil ? context.state.loadColor : .white)
+            .accessibilityLabel(
+              "\(context.state.status == nil ? context.state.loadLabel : "Board") \(context.isStale ? "unavailable" : (context.state.status ?? context.state.loadText))"
+            )
+        }
       }
     }
   }
@@ -109,7 +117,8 @@ private struct RideSummary: View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 6) {
         if stale {
-          Text("Waiting for telemetry").font(.caption2).foregroundStyle(.secondary)
+          Text(state.isReconnecting ? "Reconnecting" : "Waiting for telemetry").font(.caption2)
+            .foregroundStyle(.secondary)
         } else {
           Label("Float View", systemImage: "bolt.circle.fill").font(.caption2.bold())
         }
@@ -154,7 +163,7 @@ private struct RideSummary: View {
         }
       }
       value(
-        stale ? "—" : (state.status ?? state.loadText),
+        state.boardText(stale: stale),
         color: state.status == nil ? state.loadColor(for: colorScheme) : .primary
       )
       if stale {

@@ -518,7 +518,7 @@ Install future IPA updates through AltStore and use AltStore to refresh them.
 
 ## iOS Live Activity
 
-A ready board connection starts a Live Activity while the app is foregrounded
+A ready board connection starts a Live Activity, without requiring movement, while the app is foregrounded
 and Live Activities are enabled in iOS Settings. Standalone BMS connections do
 not start one. The compact/minimal Dynamic Island shows the primary gauge's
 winning drive-load percentage; the expanded Island and Lock Screen also show
@@ -552,8 +552,10 @@ The Dynamic Island keeps the dark palette against its black surface. Charge uses
 same estimate/controller-reported selection as the frontend power widget.
 
 The shared service emits a coalesced native presentation effect. The iOS host
-keeps only its latest value and checks it once per second, independently of the
-WebView and loopback listener. It submits changed displayed numbers/colours at
+keeps only its latest value and wakes a single serial worker when native state,
+foreground, theme or ActivityKit lifecycle changes arrive, independently of the
+WebView and loopback listener. A one-second fallback handles freshness deadlines
+and bounded creation retries; pending wakeups coalesce into one slot. It submits changed displayed numbers/colours at
 most once every five seconds, comparing the widget's formatted strings rather
 than raw precision or observation timestamps. Board status, footpad and freshness
 transitions bypass this delay on the next worker iteration. Unchanged live
@@ -562,10 +564,29 @@ These intervals are an experiment to reduce redundant ActivityKit submissions,
 not documented iOS refresh guarantees. Readings become
 unavailable after 15 seconds without telemetry. iOS controls rendering cadence
 and background execution; this is not a replacement for the in-app live gauge.
-Disconnect ends the activity immediately on the next worker iteration. A
+The activity follows the logical board connection across transport attempts.
+Temporary link loss keeps the same activity with a Reconnecting status, neutral
+footpads and unavailable telemetry. Recovery updates that activity in the background.
+Explicit disconnect, switching boards or exhausting the bounded reconnect window
+ends it on the next worker opportunity. A
 connection established in the background starts its activity on the next
-foreground opportunity. User dismissal is respected for that connection, and
-orphaned activities are removed on process launch.
+foreground opportunity. User dismissal is respected across reconnects and ordinary
+foregrounding. The explicit **Show Live Activity** action in Shortcuts opens Float
+View and permits presentation again for its connected board; Siri also exposes
+“Show my board in Float View.” It does not connect a board itself. System-ended
+activities can restart at the next foreground opportunity without overriding user
+dismissal. Orphaned activities are removed on process launch.
+
+For a focused physical checkpoint, connect the ESP32 fixture as a guest while
+stationary, background immediately after readiness, and check the Island/Lock
+Screen. Leave it idle in the background, resume fixture riding, then inject an
+unchanged reconnect while still backgrounded. Confirm the original activity
+recovers without reopening Float View and contains no current readings during
+reconnect. Also check explicit disconnect, dismissal across reconnect/foreground,
+and explicit Show Live Activity recovery. Retain fixture configuration and restore
+it afterward; keep screenshots, OS/device inventory and logs under ignored
+`.local/physical-testing/`. Swift lifecycle-policy tests cover system expiry and
+creation retry deadlines without an eight-hour hardware dwell.
 
 `ios/FloatViewLiveActivity/` owns the WidgetKit UI, `ios/LiveActivityShared/` the
 ActivityKit content model, and `ios/float-view/live-activity/` the OS lifecycle.
