@@ -505,7 +505,8 @@ function alertReasonCode(value: AlertReason): number {
   );
 }
 
-function firmwareFaultCode(value: FirmwareFault): number {
+export function firmwareFaultCode(value: FirmwareFault): number {
+  if (value === 'unknown') return 255;
   return Math.max(
     1,
     [

@@ -1385,7 +1385,10 @@ impl BackendService {
                         }
                     }
                     c::Effect::PublishBmsState(_) => {}
-                    c::Effect::Write(_) => return Err(Failure::Internal),
+                    // Framed writes and durable fault history are consumed by the runtime.
+                    c::Effect::Write(_) | c::Effect::PublishFaultHistory(_) => {
+                        return Err(Failure::Internal);
+                    }
                 },
             }
         }

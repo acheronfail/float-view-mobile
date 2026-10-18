@@ -251,6 +251,10 @@ export interface LiveSample {
   charging: boolean | null;
   alertReason: AlertReason | null;
   firmwareFault: FirmwareFault | null;
+  /** Persistent Refloat fatal state; independent of a momentary active fault. */
+  fatalErrorLatched: boolean | null;
+  /** Most recently retrieved controller fault, including one that has cleared. */
+  lastFirmwareFault: { code: number; reason: FirmwareFault } | null;
   packVoltageV: number | null;
   dutyCycle: number | null;
   controllerTempC: number | null;

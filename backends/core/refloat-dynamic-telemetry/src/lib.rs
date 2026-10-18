@@ -9,6 +9,8 @@
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
 
+pub mod alerts;
+
 pub const CUSTOM_APP_DATA_COMMAND: u8 = 36;
 pub const REFLOAT_PACKAGE_ID: u8 = 101;
 pub const REALTIME_DATA_COMMAND: u8 = 31;

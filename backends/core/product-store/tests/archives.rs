@@ -66,6 +66,25 @@ fn setup() -> (TestDirectory, ProductStore, String) {
         ];
     }
     w.append_samples(&samples).unwrap();
+    w.append_fault_history(
+        &float_view_refloat_telemetry_service::FaultHistoryObservation {
+            elapsed_ms: 30_000,
+            observed_at_epoch_ms: 1_030_000,
+            records: vec![
+                float_view_refloat_telemetry_service::FaultRecord {
+                    source_ticks: 298123,
+                    active: true,
+                    raw_code: 4,
+                },
+                float_view_refloat_telemetry_service::FaultRecord {
+                    source_ticks: 298124,
+                    active: false,
+                    raw_code: 0,
+                },
+            ],
+        },
+    )
+    .unwrap();
     w.append_locations(&[
         LocationObservation {
             observed_at_epoch_ms: 1_000_000,
@@ -198,6 +217,20 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     let mut reader =
         SessionReader::open(imported.session_path(&session.session_id).unwrap()).unwrap();
     assert_eq!(reader.marker().unwrap().recorded_sample_count, 3);
+    let boundary = reader.marker().unwrap();
+    let events = reader
+        .event_page(0, 30_000, 100, None, (&boundary).into())
+        .unwrap();
+    let faults: Vec<_> = events
+        .rows
+        .iter()
+        .filter(|row| row.kind == "firmwareFaultHistory")
+        .collect();
+    assert_eq!(faults.len(), 2);
+    let fault: serde_json::Value = serde_json::from_str(&faults[0].details_json).unwrap();
+    assert_eq!(fault["rawCode"], 4);
+    assert_eq!(fault["sourceTicks"], 298123);
+    assert_eq!(fault["value"], "absoluteOverCurrent");
     drop(reader);
     let second = imported
         .attach_import(sink(&imported, export.path()).validate(&cancel).unwrap())

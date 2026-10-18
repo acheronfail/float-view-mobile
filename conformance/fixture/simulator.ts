@@ -296,6 +296,11 @@ export class VescSimulator {
         request: { at, command, canId, kind: 'refloat-control' },
       };
     }
+    if (packet === 35) {
+      const response = board.refloatControls.alertsResponse(payload);
+      if (!response) return this.reject('Unsupported Refloat alerts request');
+      return { response, request: { at, command, canId, kind: 'telemetry' } };
+    }
     const isTelemetry = packet === 1 || packet === 10 || packet === 31 || packet === 33;
     const phase = board.telemetry.phase();
     const sample = isTelemetry ? board.refloatControls.applyToSample(board.telemetry.next()) : idleTelemetry;
@@ -406,6 +411,11 @@ export class VescSimulator {
         response: control.response,
         request: { ...base, kind: 'refloat-control' },
       };
+    }
+    if (packet === 35 && controller.refloatControls) {
+      const response = controller.refloatControls.alertsResponse(payload);
+      if (!response) return this.rejectBoard('Unsupported Refloat alerts request');
+      return { response, request: { ...base, kind: 'telemetry' } };
     }
     if (controller.refloat && controller.telemetry) {
       const isTelemetry = packet === 1 || packet === 10 || packet === 31 || packet === 33;

@@ -369,6 +369,20 @@ impl ApplicationRuntime {
                 CoordinatorEffect::Write(request) => {
                     push_bounded(&mut output, Effect::WriteBytes(encode(&request.payload)?))?;
                 }
+                CoordinatorEffect::PublishFaultHistory(observation) => {
+                    if let Some(writer) = self.session.as_mut() {
+                        match writer.append_fault_history(&observation) {
+                            Ok(marker) => {
+                                self.session_marker = Some(marker.clone());
+                                push_bounded(&mut output, Effect::PublishSessionMarker(marker))?;
+                            }
+                            Err(error) => push_bounded(
+                                &mut output,
+                                Effect::Failure(RuntimeFailure::Persistence(error)),
+                            )?,
+                        }
+                    }
+                }
                 CoordinatorEffect::PublishBmsObservation(observation) => {
                     self.latest_bms = Some((*observation).clone());
                     push_bounded(
@@ -487,6 +501,7 @@ mod tests {
             alert_reason: Some(AlertReason::None),
             firmware_fault: None,
             fatal_error_latched: Some(false),
+            last_firmware_fault: None,
             pack_voltage_v: Some(80.0),
             duty_cycle: Some(0.0),
             controller_temp_c: Some(20.0),
@@ -858,6 +873,53 @@ mod tests {
                 .committed_sample_sequence,
             0
         );
+    }
+
+    #[test]
+    fn recovered_faults_commit_before_another_telemetry_sample_or_disconnect() {
+        let directory = tempfile_directory("fault-history");
+        let path = directory.join("session.sqlite");
+        let mut runtime = ApplicationRuntime::new();
+        runtime
+            .apply(Command::AttachSession {
+                path: path.clone(),
+                mode: SessionMode::Create,
+                metadata: session_metadata(),
+            })
+            .unwrap();
+        let effects = runtime
+            .translate(vec![CoordinatorEffect::PublishFaultHistory(
+                telemetry::FaultHistoryObservation {
+                    elapsed_ms: 100,
+                    observed_at_epoch_ms: 1_700_000_000_100,
+                    records: vec![
+                        telemetry::FaultRecord {
+                            source_ticks: 900,
+                            active: true,
+                            raw_code: 4,
+                        },
+                        telemetry::FaultRecord {
+                            source_ticks: 901,
+                            active: false,
+                            raw_code: 0,
+                        },
+                    ],
+                },
+            )])
+            .unwrap();
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::PublishSessionMarker(_)]
+        ));
+        runtime.apply(Command::DetachSession).unwrap();
+        let mut reader = session::SessionReader::open(path).unwrap();
+        let marker = reader.marker().unwrap();
+        assert_eq!(marker.committed_sample_sequence, 0);
+        let events = reader
+            .event_page(0, 100, 100, None, (&marker).into())
+            .unwrap();
+        assert_eq!(events.rows.len(), 2);
+        assert!(events.rows[0].details_json.contains("absoluteOverCurrent"));
     }
 
     #[test]

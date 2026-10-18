@@ -1202,6 +1202,8 @@ export class MockBackend {
       charging: false,
       alertReason: 'none' as const,
       firmwareFault: null,
+      fatalErrorLatched: active.refloatControls?.fatalErrorLatched ?? null,
+      lastFirmwareFault: null,
       packVoltageV: 58.4 - sequence * 0.002,
       load: { duty: 0.42, motor: 0.2, battery: 0.18, winner: { source: 'duty' as const, fraction: 0.42 } },
       dutyCycle: 0.42,

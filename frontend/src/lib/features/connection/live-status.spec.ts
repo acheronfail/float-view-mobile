@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beepReasonLabel, liveStatus, stopReasonLabel } from './live-status';
+import { beepReasonLabel, firmwareFaultWarning, liveStatus, stopReasonLabel } from './live-status';
 
 const sample = {
   packageState: 'ready' as const,
@@ -9,9 +9,28 @@ const sample = {
   wheelslip: false,
   charging: false,
   firmwareFault: null,
+  fatalErrorLatched: false,
+  lastFirmwareFault: null,
 };
 
 describe('live status presentation', () => {
+  it('keeps a recovered fault visible until the fatal latch clears', () => {
+    const recovered = {
+      ...sample,
+      fatalErrorLatched: true,
+      lastFirmwareFault: { code: 4, reason: 'absoluteOverCurrent' as const },
+    };
+    expect(firmwareFaultWarning(recovered)?.title).toContain('Absolute Over Current');
+    expect(firmwareFaultWarning(recovered)?.description).toContain('latched');
+    expect(liveStatus('ready', recovered).safetyStateActive).toBe(true);
+    const cleared = { ...recovered, fatalErrorLatched: false, alertReason: 'firmwareFault' as const };
+    expect(firmwareFaultWarning(cleared)).toBeNull();
+    expect(firmwareFaultWarning({ ...sample, fatalErrorLatched: true })?.title).toContain('Reason unavailable');
+    expect(
+      firmwareFaultWarning({ ...recovered, lastFirmwareFault: { code: 255, reason: 'unknown' } })?.title
+    ).toContain('code 255');
+  });
+
   it('clears the stop explanation on engagement despite retained stop and beep reasons', () => {
     expect(liveStatus('ready', sample)).toEqual({
       display: 'Stopped · One footpad',

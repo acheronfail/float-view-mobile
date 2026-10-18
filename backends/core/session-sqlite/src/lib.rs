@@ -20,7 +20,9 @@ use rusqlite::{
 };
 
 mod diagnostics;
+mod faults;
 pub use diagnostics::{DiagnosticWriter, MAX_DIAGNOSTIC_BYTES, MAX_DIAGNOSTIC_ROWS};
+pub use faults::MAX_FIRMWARE_FAULT_EVENTS;
 mod markers;
 pub use markers::{MAX_MARKER_PAGE, MAX_RIDE_MARKERS, MarkerLocation, RideMarker};
 mod pruner;
@@ -149,6 +151,7 @@ impl Debug for CommitMarker {
 
 pub struct SessionWriter {
     connection: Connection,
+    fatal_latch_transition: Option<String>,
 }
 
 impl Debug for SessionWriter {
@@ -241,7 +244,19 @@ impl SessionWriter {
         validate_database(&read)?;
         read.close().map_err(|(_, error)| map_sqlite(error))?;
         let connection = open_write(path, false)?;
-        Ok(Self { connection })
+        let fatal_latch_transition = connection.query_row(
+            "SELECT CASE WHEN length(details_json)<=64 AND json_valid(details_json) THEN json_extract(details_json,'$.value') ELSE '' END FROM session_event WHERE kind='fatalErrorLatched' ORDER BY sequence DESC LIMIT 1", [], |row| row.get::<_, String>(0)
+        ).optional().map_err(map_sqlite)?;
+        if fatal_latch_transition
+            .as_deref()
+            .is_some_and(|value| !matches!(value, "active" | "cleared"))
+        {
+            return Err(WriterError::Incompatible);
+        }
+        Ok(Self {
+            connection,
+            fatal_latch_transition,
+        })
     }
 
     pub fn append_samples(
@@ -278,6 +293,9 @@ impl SessionWriter {
         let mut aggregate = Aggregate::from_marker(&existing_marker, last_key);
         let mut ordered_append = true;
         let mut transitions = latest_transition_values(&transaction)?;
+        if let Some(latched) = &self.fatal_latch_transition {
+            transitions.insert("fatalErrorLatched".to_owned(), latched.clone());
+        }
         let mut event_sequence: u64 = transaction
             .query_row(
                 "SELECT COALESCE(MAX(sequence), 0) FROM session_event",
@@ -447,6 +465,7 @@ impl SessionWriter {
             )
             .map_err(map_sqlite)?;
         transaction.commit().map_err(map_sqlite)?;
+        self.fatal_latch_transition = transitions.remove("fatalErrorLatched");
         self.marker()
     }
 
@@ -1012,6 +1031,9 @@ fn transition_values(sample: &NormalizedSample) -> Vec<(&'static str, String)> {
             .unwrap_or("none")
             .to_owned(),
     ));
+    if let Some(latched) = sample.fatal_error_latched {
+        values.push(("fatalErrorLatched", boolean_transition(latched).to_owned()));
+    }
     values
 }
 

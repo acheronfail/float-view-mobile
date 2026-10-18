@@ -134,6 +134,7 @@ pub fn sample_with(
         alert_reason: None,
         firmware_fault,
         fatal_error_latched,
+        last_firmware_fault: None,
         pack_voltage_v: None,
         duty_cycle: None,
         controller_temp_c: None,
