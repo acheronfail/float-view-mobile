@@ -176,6 +176,54 @@ fn initial_lighting_observation_shares_schema_priority_then_returns_to_auxiliary
 }
 
 #[test]
+fn unanswered_or_malformed_lighting_probes_yield_and_reconfigure_restores_first_probe() {
+    let mut coordinator = DeviceMutationCoordinator::new();
+    for _ in 0..2 {
+        configure(
+            &mut coordinator,
+            Route::Direct,
+            firmware(0),
+            stable_profile(),
+        );
+        for (index, priority) in [
+            Priority::ControllerWork,
+            Priority::Auxiliary,
+            Priority::Auxiliary,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let effects = coordinator
+                .apply(Command::RefreshLighting {
+                    generation: Generation(7),
+                })
+                .unwrap();
+            assert!(effects.iter().any(|effect| matches!(effect,
+                Effect::SubmitObservation(request) if request.priority == priority)));
+            if index == 1 {
+                assert_eq!(
+                    coordinator.apply(Command::ObserveLighting {
+                        generation: Generation(7),
+                        observation_sequence: 1,
+                        payload: vec![36, 101, 20],
+                    }),
+                    Err(CoordinatorError::InvalidLightingResponse)
+                );
+            }
+            assert!(
+                coordinator
+                    .snapshot()
+                    .controls
+                    .unwrap()
+                    .leds_enabled
+                    .is_none()
+            );
+        }
+        coordinator.apply(Command::Reset).unwrap();
+    }
+}
+
+#[test]
 fn controls_only_wait_for_the_state_they_need() {
     for (control, enabled) in [
         (BooleanControl::Package, false),

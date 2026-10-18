@@ -261,6 +261,7 @@ pub struct DeviceMutationCoordinator {
     footpad_state: Option<telemetry::FootpadState>,
     last_telemetry_sequence: Option<u64>,
     last_lighting_sequence: Option<u64>,
+    lighting_probe_started: bool,
     next_mutation_sequence: u64,
     pending: Option<Pending>,
 }
@@ -299,6 +300,7 @@ impl DeviceMutationCoordinator {
             footpad_state: None,
             last_telemetry_sequence: None,
             last_lighting_sequence: None,
+            lighting_probe_started: false,
             next_mutation_sequence: 0,
             pending: None,
         }
@@ -388,6 +390,7 @@ impl DeviceMutationCoordinator {
         self.footpad_state = None;
         self.last_telemetry_sequence = None;
         self.last_lighting_sequence = None;
+        self.lighting_probe_started = false;
         self.pending = None;
         let fatal_available = facts.refloat.control.fatal_clear_available;
         self.controls = Some(Controls {
@@ -525,7 +528,7 @@ impl DeviceMutationCoordinator {
     }
 
     fn refresh_lighting(
-        &self,
+        &mut self,
         generation: scheduler::Generation,
     ) -> Result<Vec<Effect>, CoordinatorError> {
         if !self.is_current(generation) {
@@ -546,19 +549,23 @@ impl DeviceMutationCoordinator {
         };
         let payload =
             control::lighting_request(lighting_profile(profile.lighting), None, false, current);
+        let refloat_command = payload.as_slice().get(2).copied();
+        let payload = routed_payload(route, payload.as_slice())?;
+        // Only the first probe shares schema priority. Missing or malformed
+        // replies must not keep retries ahead of discovery/configuration work.
+        let priority = if self.lighting_probe_started {
+            scheduler::Priority::Auxiliary
+        } else {
+            scheduler::Priority::ControllerWork
+        };
+        self.lighting_probe_started = true;
         Ok(vec![Effect::SubmitObservation(scheduler::RequestFacts {
-            payload: routed_payload(route, payload.as_slice())?,
+            payload,
             expected_response: scheduler::ExpectedResponse {
                 command: control::CUSTOM_APP_DATA_COMMAND,
-                refloat_command: payload.as_slice().get(2).copied(),
+                refloat_command,
             },
-            // Initial lighting state must share FIFO priority with schema pages;
-            // routine refreshes remain auxiliary once both switches are known.
-            priority: if controls.leds_enabled.is_none() || controls.headlights_enabled.is_none() {
-                scheduler::Priority::ControllerWork
-            } else {
-                scheduler::Priority::Auxiliary
-            },
+            priority,
             context: scheduler::RequestContext::RefloatLighting(route),
             timeout_ms: LIGHTING_TIMEOUT_MS,
             generation: self.generation,
@@ -842,6 +849,7 @@ impl DeviceMutationCoordinator {
         self.footpad_state = None;
         self.last_telemetry_sequence = None;
         self.last_lighting_sequence = None;
+        self.lighting_probe_started = false;
         self.pending = None;
         let mut effects = Vec::with_capacity(2);
         if let Some(token) = prior {
