@@ -7,13 +7,15 @@ enum FloatViewMac {
     let configuration = MacLaunchConfiguration()
     let htmlURL = configuration.frontendHTML
       ?? MacResources.url(forResource: "index", withExtension: "html")
-    guard let htmlURL else { throw CocoaError(.fileNoSuchFile) }
-    let html = try Data(contentsOf: htmlURL)
+    let loadHTML = {
+      guard let htmlURL else { throw CocoaError(.fileNoSuchFile) }
+      return try Data(contentsOf: htmlURL)
+    }
     #if DEBUG
       if CommandLine.arguments.contains("--browser-host") {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
-        let runtime = try MacBackendRuntime(html: html)
+        let runtime = try MacBackendRuntime(html: loadHTML())
         let server = try runtime.makeServer(exportPresenter: MacExportPresenter.schedule)
         try server.start()
         try printReadiness(server: server, runtime: runtime)
@@ -23,7 +25,7 @@ enum FloatViewMac {
         return
       }
       if CommandLine.arguments.contains("--test-host") {
-        let runtime = try MacBackendRuntime(html: html)
+        let runtime = try MacBackendRuntime(html: loadHTML())
         let server = try runtime.makeServer()
         try server.start()
         try printReadiness(server: server, runtime: runtime)
@@ -35,7 +37,7 @@ enum FloatViewMac {
 
     let application = NSApplication.shared
     installApplicationIcon(on: application)
-    let delegate = MacAppDelegate(html: html)
+    let delegate = MacAppDelegate(loadHTML: loadHTML)
     application.delegate = delegate
     application.setActivationPolicy(.regular)
     installMainMenu(on: application)

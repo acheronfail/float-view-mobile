@@ -40,7 +40,7 @@ class AndroidBluetoothAdapter(
     private val permissionHistory: BluetoothPermissionHistory,
     private val eventHandler: (BluetoothEvent) -> Unit,
     private val diagnosticHandler: (String) -> Unit = {},
-) : BluetoothPort {
+) : BluetoothPort, AutoCloseable {
     private val applicationContext = context.applicationContext
     private val manager = applicationContext.getSystemService(BluetoothManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
@@ -94,6 +94,12 @@ class AndroidBluetoothAdapter(
             @Suppress("DEPRECATION")
             applicationContext.registerReceiver(radioReceiver, filter)
         }
+    }
+
+    override fun close() {
+        applicationContext.unregisterReceiver(radioReceiver)
+        stopDiscovery()
+        synchronized(this) { connection?.close(); connection = null }
     }
 
     override fun currentState(): BluetoothState {

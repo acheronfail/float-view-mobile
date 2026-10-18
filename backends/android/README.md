@@ -190,3 +190,13 @@ the selected local board for 15 seconds once readiness is satisfied; permission
 prompts are not triggered by this policy. Configuration-driven Activity
 replacement, duplicate foreground observations and WebView/listener replacement
 do not rearm; normal BLE execution remains in the adapter.
+
+## Startup recovery
+
+Data, local connection and interface loading failures show a native recovery
+screen with **Try again**. Listener and WebView retries retain the process runtime;
+Activity lifecycle callbacks also work when the runtime could not start. Data
+recovery suggests checking available storage and using the same or a newer app
+version. It warns against uninstalling or clearing app storage, which can erase
+saved rides and settings. It does not require access to sandboxed files or offer a
+storage reset. Connection recovery suggests restarting the device if retry fails.

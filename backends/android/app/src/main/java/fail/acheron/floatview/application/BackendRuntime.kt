@@ -23,21 +23,29 @@ class BackendRuntime(application: FloatViewApplication) {
         applicationContext,
         permissionBroker::wasResolved,
     )
-    val service = SharedService(
-        applicationContext,
-        java.io.File(application.filesDir, "float-view/logs"), bluetooth, locationProvider, permissionBroker,
-        exportPresentationBroker::present,
-        foregroundRequiredChanged = { active ->
-            if (active) LoggingForegroundService.start(applicationContext)
-            else LoggingForegroundService.stop(applicationContext)
-        },
-        locationChanged = { LoggingForegroundService.refreshForegroundType(applicationContext) },
-    )
-    init {
-        relay.handler = service::receive
-        service.start()
+    val service: SharedService = run {
+        var prepared: SharedService? = null
+        try {
+            SharedService(
+                applicationContext,
+                java.io.File(application.filesDir, "float-view/logs"), bluetooth, locationProvider, permissionBroker,
+                exportPresentationBroker::present,
+                foregroundRequiredChanged = { active ->
+                    if (active) LoggingForegroundService.start(applicationContext)
+                    else LoggingForegroundService.stop(applicationContext)
+                },
+                locationChanged = { LoggingForegroundService.refreshForegroundType(applicationContext) },
+            ).also {
+                prepared = it
+                relay.handler = it::receive
+                it.start()
+            }
+        } catch (error: Exception) {
+            relay.handler = null
+            try { prepared?.close() } finally { (bluetooth as? AutoCloseable)?.close() }
+            throw error
+        }
     }
-
 }
 
 private class BluetoothEventRelay {

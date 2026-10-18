@@ -17,6 +17,10 @@ import android.webkit.WebChromeClient
 import android.webkit.WebViewClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
+import android.webkit.RenderProcessGoneDetail
+import fail.acheron.floatview.application.StartupFailure
+import fail.acheron.floatview.application.ThemePreference
 import android.view.View
 import android.widget.FrameLayout
 import android.window.OnBackInvokedCallback
@@ -43,7 +47,9 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private val notificationPermissionCheck = object : Runnable {
         override fun run() {
-            val runtime = (application as FloatViewApplication).runtime
+            val app = application as FloatViewApplication
+            if (app.startupFailure != null) return
+            val runtime = app.runtimeOrNull ?: return
             if (!runtime.permissionBroker.requestRideNotifications(runtime.service.liveActivity != null)) handler.postDelayed(this, 1000)
         }
     }
@@ -53,9 +59,6 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val app = application as FloatViewApplication
-        app.runtime.permissionBroker.attach(this)
-        app.runtime.exportPresentationBroker.attach(this)
         frontendContainer.addView(
             loadingPresentation,
             FrameLayout.LayoutParams(
@@ -63,16 +66,40 @@ class MainActivity : Activity() {
                 FrameLayout.LayoutParams.MATCH_PARENT,
             ),
         )
-        themeSubscription = app.runtime.service.observeTheme { preference ->
-            runOnUiThread { themeController.apply(preference) }
-        }
         setContentView(frontendContainer)
+        themeController.apply(ThemePreference.SYSTEM)
+        attachRuntime()
         createFrontend()
         if (Build.VERSION.SDK_INT >= 33) {
             onBackInvokedDispatcher.registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
                 requireNotNull(backCallback),
             )
+        }
+    }
+
+    private fun attachRuntime() {
+        if (themeSubscription != null) return
+        val runtime = (application as FloatViewApplication).runtimeOrNull ?: return
+        runtime.permissionBroker.attach(this)
+        runtime.exportPresentationBroker.attach(this)
+        themeSubscription = runtime.service.observeTheme { preference ->
+            runOnUiThread { themeController.apply(preference) }
+        }
+    }
+
+    private fun showFailure(failure: StartupFailure) {
+        webView?.visibility = View.INVISIBLE
+        loadingPresentation.visibility = View.VISIBLE
+        loadingPresentation.showFailure(failure) {
+            destroyFrontend()
+            val app = application as FloatViewApplication
+            app.retryStartup()
+            attachRuntime()
+            app.runtimeOrNull?.service?.setForeground(true)
+            createFrontend()
+            handler.removeCallbacks(notificationPermissionCheck)
+            if (app.startupFailure == null) handler.post(notificationPermissionCheck)
         }
     }
 
@@ -97,7 +124,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        (application as FloatViewApplication).runtime.service.setForeground(true)
+        (application as FloatViewApplication).runtimeOrNull?.service?.setForeground(true)
         handler.removeCallbacks(delayedTeardown)
         createFrontend()
     }
@@ -107,7 +134,7 @@ class MainActivity : Activity() {
         handler.removeCallbacks(notificationPermissionCheck)
         handler.post(notificationPermissionCheck)
         val preference =
-            (application as FloatViewApplication).runtime.service.theme
+            (application as FloatViewApplication).runtimeOrNull?.service?.theme ?: ThemePreference.SYSTEM
         themeController.apply(preference)
     }
 
@@ -119,7 +146,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         // Configuration replacement keeps the same foreground visit and service owner.
         if (!isChangingConfigurations) {
-            (application as FloatViewApplication).runtime.service.setForeground(false)
+            (application as FloatViewApplication).runtimeOrNull?.service?.setForeground(false)
         }
         handler.removeCallbacks(delayedTeardown)
         handler.postDelayed(delayedTeardown, FRONTEND_BACKGROUND_GRACE_MS)
@@ -140,66 +167,95 @@ class MainActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun createFrontend() {
         if (webView != null || isFinishing || isDestroyed) return
-        val origin = (application as FloatViewApplication).backend.origin
+        val app = application as FloatViewApplication
+        app.startupFailure?.let { showFailure(it); return }
+        val origin = app.backend.origin
         loadingPresentation.showLoading()
         loadingPresentation.visibility = View.VISIBLE
-        webView = WebView(this).also {
-            it.visibility = View.INVISIBLE
-            // The native container owns the canvas while the document is loading.
-            it.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            it.settings.javaScriptEnabled = true
-            it.settings.domStorageEnabled = true
-            it.settings.setSupportZoom(false)
-            it.settings.builtInZoomControls = false
-            it.settings.displayZoomControls = false
-            it.webViewClient = object : WebViewClient() {
-                override fun onPageCommitVisible(view: WebView, url: String) {
-                    if (view !== webView) return
-                    view.visibility = View.VISIBLE
-                    loadingPresentation.visibility = View.GONE
-                }
-
-                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                    if (view === webView && request.isForMainFrame) loadingPresentation.showFailure()
-                }
-            }
-            it.webChromeClient = object : WebChromeClient() {
-                override fun onShowFileChooser(
-                    view: WebView?,
-                    filePathCallback: ValueCallback<Array<Uri>>?,
-                    fileChooserParams: FileChooserParams?,
-                ): Boolean {
-                    return sessionFiles.showFileChooser(filePathCallback, fileChooserParams)
-                }
-
-                override fun onConsoleMessage(message: ConsoleMessage): Boolean {
-                    if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-                        Log.d("FloatViewWebView", "${message.messageLevel()}: ${message.message()}")
+        try {
+            val created = WebView(this)
+            webView = created
+            created.also {
+                it.visibility = View.INVISIBLE
+                // The native container owns the canvas while the document is loading.
+                it.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                it.settings.javaScriptEnabled = true
+                it.settings.domStorageEnabled = true
+                it.settings.setSupportZoom(false)
+                it.settings.builtInZoomControls = false
+                it.settings.displayZoomControls = false
+                it.webViewClient = object : WebViewClient() {
+                    private var failed = false
+                    private fun fail(view: WebView) {
+                        if (view !== webView) return
+                        failed = true
+                        showFailure(StartupFailure.INTERFACE)
                     }
-                    return true
+                    override fun onPageCommitVisible(view: WebView, url: String) {
+                        if (view !== webView || failed) return
+                        view.visibility = View.VISIBLE
+                        loadingPresentation.visibility = View.GONE
+                    }
+
+                    override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                        if (request.isForMainFrame) fail(view)
+                    }
+
+                    override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                        if (request.isForMainFrame) fail(view)
+                    }
+
+                    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                        if (view === webView) {
+                            destroyFrontend(rendererGone = true)
+                            showFailure(StartupFailure.INTERFACE)
+                        }
+                        return true
+                    }
                 }
+                it.webChromeClient = object : WebChromeClient() {
+                    override fun onShowFileChooser(
+                        view: WebView?,
+                        filePathCallback: ValueCallback<Array<Uri>>?,
+                        fileChooserParams: FileChooserParams?,
+                    ): Boolean {
+                        return sessionFiles.showFileChooser(filePathCallback, fileChooserParams)
+                    }
+
+                    override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                            Log.d("FloatViewWebView", "${message.messageLevel()}: ${message.message()}")
+                        }
+                        return true
+                    }
+                }
+                if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                    it.addJavascriptInterface(FrontendPerformanceBridge(), "FloatViewPerformance")
+                }
+                it.loadUrl(origin)
+                frontendContainer.addView(
+                    it,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ),
+                )
             }
-            if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-                it.addJavascriptInterface(FrontendPerformanceBridge(), "FloatViewPerformance")
-            }
-            it.loadUrl(origin)
-            frontendContainer.addView(
-                it,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                ),
-            )
+        } catch (_: Exception) {
+            destroyFrontend()
+            showFailure(StartupFailure.INTERFACE)
         }
     }
 
-    private fun destroyFrontend() {
+    private fun destroyFrontend(rendererGone: Boolean = false) {
         val current = webView ?: return
         webView = null
         backPending = false
         frontendContainer.removeView(current)
-        current.stopLoading()
-        current.loadUrl("about:blank")
+        if (!rendererGone) {
+            current.stopLoading()
+            current.loadUrl("about:blank")
+        }
         current.removeAllViews()
         current.destroy()
         loadingPresentation.showLoading()
@@ -214,9 +270,9 @@ class MainActivity : Activity() {
         }
         handler.removeCallbacks(delayedTeardown)
         handler.removeCallbacks(notificationPermissionCheck)
-        val runtime = (application as FloatViewApplication).runtime
-        runtime.permissionBroker.detach(this)
-        runtime.exportPresentationBroker.detach(this)
+        val runtime = (application as FloatViewApplication).runtimeOrNull
+        runtime?.permissionBroker?.detach(this)
+        runtime?.exportPresentationBroker?.detach(this)
         sessionFiles.close()
         themeSubscription?.close()
         themeSubscription = null
@@ -226,7 +282,7 @@ class MainActivity : Activity() {
 
     @Deprecated("Android WebView file chooser uses the legacy activity result callback")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
-        (application as FloatViewApplication).runtime.exportPresentationBroker.onActivityResult(requestCode, resultCode, data)
+        (application as FloatViewApplication).runtimeOrNull?.exportPresentationBroker?.onActivityResult(requestCode, resultCode, data)
         sessionFiles.handleActivityResult(requestCode, resultCode, data)
         super.onActivityResult(requestCode, resultCode, data)
     }
@@ -238,7 +294,7 @@ class MainActivity : Activity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PermissionBroker.PERMISSION_REQUEST) {
-            val runtime = (application as FloatViewApplication).runtime
+            val runtime = (application as FloatViewApplication).runtimeOrNull ?: return
             runtime.permissionBroker.recordResult(permissions)
             runtime.service.receive(
                 BluetoothEvent.StateChanged(

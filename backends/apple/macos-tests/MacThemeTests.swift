@@ -78,6 +78,21 @@ struct MacThemeTests {
     #expect(captures[0] == captures[2])
   }
 
+  @Test("interface failure exposes a working retry in the native placeholder")
+  func interfaceRecovery() throws {
+    let view = MacLoadingView(frame: NSRect(x: 0, y: 0, width: 600, height: 600))
+    var retries = 0
+    view.showFailure(.interface) { retries += 1 }
+    let stack = try #require(view.subviews.first as? NSStackView)
+    let button = try #require(stack.arrangedSubviews.compactMap { $0 as? NSButton }.first)
+    #expect(button.title == "Try again")
+    #expect(!button.isHidden)
+    button.performClick(nil)
+    #expect(retries == 1)
+    #expect(stack.arrangedSubviews.compactMap { $0 as? NSTextField }
+      .contains { $0.stringValue == StartupFailure.interface.title })
+  }
+
   @Test("canvas resolves in the appearance of each window")
   func canvas() throws {
     for (name, expected) in [(NSAppearance.Name.aqua, [248.0, 250.0, 252.0]), (.darkAqua, [2.0, 6.0, 23.0])] {

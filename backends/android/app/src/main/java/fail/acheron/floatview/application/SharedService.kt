@@ -21,10 +21,13 @@ class SharedService(
     private val foregroundRequiredChanged: (Boolean) -> Unit,
     private val locationChanged: () -> Unit,
 ) : AutoCloseable {
-    private val speech = fail.acheron.floatview.speech.SpeechAdapter(context) { status, id, reason -> enqueue {
-        if (status == "outcome") fact(json("fact" to "speech_finished", "id" to id, "outcome" to reason))
-        else fact(json("fact" to "speech_ready", "state" to json("status" to status, "reason" to reason, "loweringControl" to "automatic", "voiceSettingsAvailable" to fail.acheron.floatview.speech.SpeechAdapter.canOpenVoiceSettings(context))))
-    } }
+    private val speechDelegate = lazy {
+        fail.acheron.floatview.speech.SpeechAdapter(context) { status, id, reason -> enqueue {
+            if (status == "outcome") fact(json("fact" to "speech_finished", "id" to id, "outcome" to reason))
+            else fact(json("fact" to "speech_ready", "state" to json("status" to status, "reason" to reason, "loweringControl" to "automatic", "voiceSettingsAvailable" to fail.acheron.floatview.speech.SpeechAdapter.canOpenVoiceSettings(context))))
+        } }
+    }
+    private val speech by speechDelegate
     val handle: Long
     private val executor = ScheduledThreadPoolExecutor(1) { action -> Thread(action, "float-view-os") }
     private var diagnosticCallbacks = 0L
@@ -285,7 +288,7 @@ class SharedService(
     override fun close() {
         if (closed) return
         executor.submit {
-            speech.close()
+            if (speechDelegate.isInitialized()) speech.close()
             location.stopUpdates(); bluetooth.stopDiscovery(); activeDevice?.let { bluetooth.disconnect(it, BluetoothConnection(lifetime, callbackGeneration)) }
             check(RustApplicationRuntime.serviceDestroy(handle) == 0)
             closed = true

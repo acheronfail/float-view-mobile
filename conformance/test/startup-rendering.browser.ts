@@ -148,6 +148,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
 
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(`${name}: production loading covers slow startup and clears for failure`, { timeout: 30_000 }, async (t) => {
+    let bootstrapRequests = 0;
+    let nextBootstrap: (() => void) | undefined;
     let releaseBootstrap: (() => void) | undefined;
     let bootstrapStarted!: () => void;
     const started = new Promise<void>((resolve) => {
@@ -155,11 +157,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     });
     const server = createServer((request, response) => {
       if (request.url === '/api/bootstrap') {
+        bootstrapRequests++;
         releaseBootstrap = () => {
           response.writeHead(503, { 'Content-Type': 'application/json' });
           response.end('{}');
         };
         bootstrapStarted();
+        nextBootstrap?.();
+        nextBootstrap = undefined;
       } else {
         response.writeHead(200, { 'Content-Type': 'text/html' });
         response.end(builtHTML);
@@ -180,12 +185,34 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('alert').waitFor({ state: 'visible' });
       assert.equal(
         await page.getByRole('alert').innerText(),
-        'Could not resume this screen. Retry or choose a destination.'
+        'Could not connect to Float View. Try again. If the problem continues, close and reopen the app.'
       );
-      assert.equal(await page.getByRole('button', { name: 'Retry', exact: true }).isVisible(), true);
+      assert.equal(await page.getByRole('button', { name: 'Try again', exact: true }).isVisible(), true);
       assert.equal(await loading.isVisible(), false);
       assert.equal(await page.getByRole('link', { name: 'settings', exact: true }).isVisible(), true);
       assert.equal((await appearance(page)).background, colors.dark);
+      const retry = page.getByRole('button', { name: 'Try again', exact: true });
+      await retry.dispatchEvent('pointerdown', { pointerId: 7, button: 2, isPrimary: true });
+      await retry.dispatchEvent('pointerup', { pointerId: 7, button: 2, isPrimary: true });
+      await retry.dispatchEvent('pointerdown', { pointerId: 8, button: 0, isPrimary: false });
+      await retry.dispatchEvent('pointerup', { pointerId: 8, button: 0, isPrimary: false });
+      await retry.dispatchEvent('pointerdown', { pointerId: 9, button: 0, isPrimary: true });
+      await retry.dispatchEvent('pointercancel', { pointerId: 9 });
+      assert.equal(bootstrapRequests, 1);
+      for (const activation of ['pointer', 'keyboard']) {
+        const nextRequest = new Promise<void>((resolve) => {
+          nextBootstrap = resolve;
+        });
+        if (activation === 'pointer') await retry.click();
+        else {
+          await retry.focus();
+          await page.keyboard.press('Enter');
+        }
+        await nextRequest;
+        releaseBootstrap!();
+        await page.getByRole('alert').waitFor({ state: 'visible' });
+      }
+      assert.equal(bootstrapRequests, 3, 'Each activation makes one retry');
     } finally {
       await browser.close();
     }

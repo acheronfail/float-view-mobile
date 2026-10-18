@@ -653,3 +653,18 @@ macOS window ends its foreground opportunity; reopening an active window reports
 foreground again. Listener or WebView recreation alone does not rearm. The
 shared Rust service owns the 15-second opportunity and exact saved association
 matching; native adapters execute ordinary discovery effects.
+
+## Startup recovery
+
+Both hosts distinguish data, local connection and interface loading failures.
+Each offers **Try again**; macOS startup alerts also offer **Quit**. Connection
+and WebView retries reuse the application owner. Missing embedded HTML also
+reaches native recovery rather than terminating before the interface opens.
+
+Data recovery suggests checking available storage and using the same or a newer
+app version. On macOS it also suggests quitting other copies and preserving app
+data until backed up. iOS points to Settings for available storage and warns
+against deleting the app, which can erase saved rides and settings; it does not
+ask users to access sandboxed files or make a manual backup from a blocked app.
+Connection recovery suggests quitting other copies on macOS, or restarting the
+device if retries continue to fail. No recovery action resets storage.

@@ -7,6 +7,16 @@ struct ContentView: View {
   @State private var loadedGeneration: Int?
   @State private var failedGeneration: Int?
 
+  private var visibleFailure: StartupFailure? {
+    if let failure = backend.startupFailure {
+      return failure
+    }
+    if let failedGeneration, failedGeneration == backend.frontend?.generation {
+      return .interface
+    }
+    return nil
+  }
+
   var body: some View {
     ZStack {
       Color("Canvas").ignoresSafeArea()
@@ -17,19 +27,24 @@ struct ContentView: View {
           onLoadComplete: { loadedGeneration = frontend.generation },
           onLoadFailure: { failedGeneration = frontend.generation }
         )
-          .id(frontend.generation)
-          .opacity(loadedGeneration == frontend.generation ? 1 : 0)
-          .allowsHitTesting(loadedGeneration == frontend.generation)
-          .accessibilityHidden(loadedGeneration != frontend.generation)
-          .ignoresSafeArea()
+        .id(frontend.generation)
+        .opacity(loadedGeneration == frontend.generation && visibleFailure == nil ? 1 : 0)
+        .allowsHitTesting(loadedGeneration == frontend.generation && visibleFailure == nil)
+        .accessibilityHidden(loadedGeneration != frontend.generation || visibleFailure != nil)
+        .ignoresSafeArea()
       }
-      if (backend.serviceStartupFailed || backend.frontendStartupFailed), scenePhase == .active {
-        ContentUnavailableView {
-          Label("Unable to start Float View", systemImage: "exclamationmark.triangle")
-        } description: {
-          Text("Float View could not open its data. If this data came from a newer build, install a compatible version. Otherwise check available storage and try again. Keep this installation until you have a backup.")
-        } actions: {
-          Button("Try again") { backend.retryStartup() }
+      if let failure = visibleFailure, scenePhase == .active {
+        ScrollView {
+          ContentUnavailableView {
+            Label(failure.title, systemImage: "exclamationmark.triangle")
+          } description: {
+            Text(failure.recovery(on: .iOS))
+          } actions: {
+            Button("Try again") {
+              failedGeneration = nil
+              backend.retryStartup()
+            }
+          }
         }
       } else if backend.frontend == nil || loadedGeneration != backend.frontend?.generation {
         VStack(spacing: 20) {
@@ -38,10 +53,7 @@ struct ContentView: View {
             .frame(width: 72, height: 96)
             .foregroundStyle(Color(uiColor: .loadingSymbol))
             .accessibilityHidden(true)
-          Text(
-            failedGeneration != nil && failedGeneration == backend.frontend?.generation
-              ? "Unable to open Float View" : "Loading…"
-          )
+          Text("Loading…")
             .font(.system(size: 15))
             .foregroundStyle(.secondary)
         }

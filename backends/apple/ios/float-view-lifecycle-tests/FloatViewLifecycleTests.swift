@@ -1,3 +1,4 @@
+import Darwin
 import UIKit
 import XCTest
 
@@ -25,18 +26,53 @@ final class FloatViewLifecycleTests: XCTestCase {
         application.links["settings"].waitForExistence(timeout: 15),
         "Startup did not expose frontend navigation"
       )
-      XCTAssertFalse(application.staticTexts["Unable to start Float View"].exists)
+      XCTAssertFalse(application.buttons["Try again"].exists)
       XCUIDevice.shared.press(.home)
       application.activate()
       XCTAssertTrue(
         application.links["settings"].waitForExistence(timeout: 15),
         "Foreground reconstruction did not expose navigation"
       )
-      XCTAssertFalse(application.staticTexts["Unable to start Float View"].exists)
+      XCTAssertFalse(application.buttons["Try again"].exists)
     }
   }
 
   #if targetEnvironment(simulator)
+    func testLocalConnectionFailureCanRetry() {
+      application.terminate()
+      var listener = socket(AF_INET, SOCK_STREAM, 0)
+      XCTAssertGreaterThanOrEqual(listener, 0)
+      defer {
+        if listener >= 0 {
+          close(listener)
+        }
+      }
+      var address = sockaddr_in()
+      address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+      address.sin_family = sa_family_t(AF_INET)
+      address.sin_port = UInt16(11011).bigEndian
+      address.sin_addr.s_addr = inet_addr("127.0.0.1")
+      let result = withUnsafePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+          bind(listener, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+      }
+      XCTAssertEqual(result, 0, "Could not reserve the app's local port")
+      XCTAssertEqual(listen(listener, 1), 0)
+      application.launch()
+      XCTAssertTrue(application.staticTexts["Unable to start Float View’s local connection"]
+        .waitForExistence(timeout: 15))
+      XCTAssertFalse(application.staticTexts["Unable to open Float View data"].exists)
+      // A repeated failure must remain recoverable before the port is released.
+      application.buttons["Try again"].tap()
+      XCTAssertTrue(application.buttons["Try again"].waitForExistence(timeout: 5))
+      close(listener)
+      listener = -1
+      application.buttons["Try again"].tap()
+      acceptSafetyIfNeeded()
+      XCTAssertTrue(application.links["settings"].waitForExistence(timeout: 15))
+    }
+
     /// Run only on a disposable iPad simulator; requires no radio or private data.
     func testIPadRotationKeepsLicencesUsable() throws {
       guard UIDevice.current.userInterfaceIdiom == .pad else {
@@ -48,10 +84,10 @@ final class FloatViewLifecycleTests: XCTestCase {
       acceptSafetyIfNeeded()
       application.links["settings"].tap()
       let link = application.links["View licences and notices"]
-      for _ in 0..<15 {
+      for _ in 0 ..< 15 {
         if link.isHittable, link.frame.height > 1,
-          link.frame.minY > application.frame.minY + 120,
-          link.frame.maxY < application.links["settings"].frame.minY - 12
+           link.frame.minY > application.frame.minY + 120,
+           link.frame.maxY < application.links["settings"].frame.minY - 12
         {
           break
         }
@@ -75,7 +111,8 @@ final class FloatViewLifecycleTests: XCTestCase {
         waitForExpectations(timeout: 10)
         XCTAssertTrue(panel.isHittable)
         XCTAssertTrue(
-          application.frame.contains(panel.frame), "Licence control escaped the resized viewport")
+          application.frame.contains(panel.frame), "Licence control escaped the resized viewport"
+        )
         XCTAssertTrue(application.links["Settings"].isHittable)
       }
       application.links["Settings"].tap()

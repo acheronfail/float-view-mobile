@@ -222,7 +222,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('alert').waitFor();
       assert.deepEqual(await client.request('uiState.get', {}), settings);
       failCheckpointRead = false;
-      await page.getByRole('button', { name: 'Retry', exact: true }).tap();
+      assert.equal(
+        await page.getByRole('alert').innerText(),
+        'Could not restore your last screen. Try again or choose a destination.'
+      );
+      await page.getByRole('button', { name: 'Try again', exact: true }).tap();
       await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
       await page.close();
       heldCheckpoint = {

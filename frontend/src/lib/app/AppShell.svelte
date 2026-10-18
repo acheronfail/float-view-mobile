@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import { navigationLink } from '$lib/ui/navigation-link';
   import { installUiErrorReporting } from '$lib/backend/ui-errors';
   import { createMotion, MOTION_CONTEXT } from '$lib/ui/motion';
@@ -164,7 +165,10 @@
       }
     } catch {
       if (generation === startupGeneration) {
-        restoreError = 'Could not resume this screen. Retry or choose a destination.';
+        restoreError =
+          backendState.status !== 'connected'
+            ? 'Could not connect to Float View. Try again. If the problem continues, close and reopen the app.'
+            : 'Could not restore your last screen. Try again or choose a destination.';
         starting = false;
       }
     }
@@ -353,8 +357,11 @@
       {#if !starting && restoreError}
         <section class="p-5">
           <p role="alert">{restoreError}</p>
-          <button type="button" class="mt-3 rounded-lg bg-elevated px-4 py-2" onclick={() => void resume()}
-            >Retry</button
+          <button
+            type="button"
+            class="mt-3 touch-manipulation rounded-lg bg-elevated px-4 py-2"
+            onpointerdown={(event) => activateFromPointer(event, resume)}
+            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, resume)}>Try again</button
           >
         </section>
       {:else if !starting && safetyCleared}

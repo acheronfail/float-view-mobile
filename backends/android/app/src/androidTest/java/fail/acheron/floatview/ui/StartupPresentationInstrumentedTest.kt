@@ -12,6 +12,11 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.Button
+import android.widget.TextView
+import android.view.ViewGroup
+import android.webkit.WebView
+import fail.acheron.floatview.application.StartupFailure
 import androidx.test.platform.app.InstrumentationRegistry
 import fail.acheron.floatview.application.ThemePreference
 import fail.acheron.floatview.lifecycle.FloatViewApplication
@@ -23,6 +28,70 @@ import org.junit.Test
 
 class StartupPresentationInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
+
+    @Test fun recoveryScreensOfferWorkingRetryForEveryFailure() {
+        instrumentation.runOnMainSync {
+            val context = instrumentation.targetContext
+            val presentation = LoadingPresentation(context)
+            for (failure in StartupFailure.entries) {
+                var retries = 0
+                presentation.showFailure(failure) { retries++ }
+                for (dark in listOf(false, true)) {
+                    presentation.applyTheme(dark)
+                    val views = descendants(presentation)
+                    val title = views.filterIsInstance<TextView>().single { it.text == failure.title }
+                    assertEquals(Color.parseColor(if (dark) "#E2E8F0" else "#0F172A"), title.currentTextColor)
+                    assertTrue(views.filterIsInstance<TextView>().any { it.text == failure.recovery })
+                    val button = views.filterIsInstance<Button>().single()
+                    assertEquals(View.VISIBLE, button.visibility)
+                    button.performClick()
+                }
+                assertEquals(2, retries)
+                presentation.showLoading()
+                assertEquals(View.GONE, descendants(presentation).filterIsInstance<Button>().single().visibility)
+            }
+        }
+    }
+
+    private fun descendants(view: View): List<View> = listOf(view) +
+        if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
+
+    @Test fun rendererFailureCanRetryWithoutReplacingRuntime() {
+        val app = instrumentation.targetContext.applicationContext as FloatViewApplication
+        val runtime = app.runtime
+        val activity = instrumentation.startActivitySync(
+            Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        ) as MainActivity
+        try {
+            awaitFrontendPaint(activity)
+            instrumentation.runOnMainSync {
+                val content = activity.findViewById<FrameLayout>(android.R.id.content)
+                val webView = descendants(content).filterIsInstance<WebView>().single()
+                assertTrue(requireNotNull(webView.webViewRenderProcess).terminate())
+            }
+            val shown = CountDownLatch(1)
+            instrumentation.runOnMainSync {
+                val content = activity.findViewById<FrameLayout>(android.R.id.content)
+                val deadline = SystemClock.uptimeMillis() + 10_000
+                val check = object : Runnable {
+                    override fun run() {
+                        if (descendants(content).filterIsInstance<Button>().any { it.isShown }) shown.countDown()
+                        else if (SystemClock.uptimeMillis() < deadline) Handler(Looper.getMainLooper()).postDelayed(this, 50)
+                    }
+                }
+                check.run()
+            }
+            assertTrue("renderer failure did not expose native retry", shown.await(12, TimeUnit.SECONDS))
+            instrumentation.runOnMainSync {
+                val content = activity.findViewById<FrameLayout>(android.R.id.content)
+                descendants(content).filterIsInstance<Button>().single { it.isShown }.performClick()
+                assertSame(runtime, app.runtime)
+            }
+            awaitFrontendPaint(activity)
+        } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+        }
+    }
 
     @Test fun nativeCanvasFollowsThemeAndActivityRecreationKeepsRuntime() {
         val app = instrumentation.targetContext.applicationContext as FloatViewApplication

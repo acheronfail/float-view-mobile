@@ -7,15 +7,16 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   WKNavigationDelegate, WKUIDelegate
 {
   private var runtime: MacBackendRuntime?
-  private let html: Data
+  private let loadHTML: () throws -> Data
   private var server: LoopbackServer?
   private var generation = 0
   private var window: NSWindow?
   private var webView: WKWebView?
   private var loadingView: MacLoadingView?
+  private var frontendLoadFailed = false
 
-  init(html: Data) {
-    self.html = html
+  init(loadHTML: @escaping () throws -> Data) {
+    self.loadHTML = loadHTML
   }
 
   func applicationDidFinishLaunching(_: Notification) {
@@ -75,7 +76,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   }
 
   func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
-    guard webView === self.webView else { return }
+    guard webView === self.webView, !frontendLoadFailed else { return }
     webView.isHidden = false
     loadingView?.isHidden = true
   }
@@ -148,14 +149,23 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     )
   }
 
-  func webView(_ webView: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError _: Error) {
-    guard webView === self.webView else { return }
-    loadingView?.showFailure()
+  func webView(_ webView: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: Error) {
+    showInterfaceFailure(webView, error: error)
   }
 
-  func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError _: Error) {
-    guard webView === self.webView else { return }
-    loadingView?.showFailure()
+  func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError error: Error) {
+    showInterfaceFailure(webView, error: error)
+  }
+
+  private func showInterfaceFailure(_ webView: WKWebView, error: Error) {
+    guard webView === self.webView, (error as NSError).code != NSURLErrorCancelled else { return }
+    frontendLoadFailed = true
+    webView.isHidden = true
+    loadingView?.isHidden = false
+    loadingView?.showFailure(.interface) { [weak self] in
+      self?.closeFrontendWindow()
+      self?.showFrontend()
+    }
   }
 
   private func showFrontend() {
@@ -163,8 +173,10 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       window?.makeKeyAndOrderFront(nil)
       return
     }
-    var startupStage = MacStartupStage.data
+    var startupStage = StartupFailure.interface
     do {
+      let html = try loadHTML()
+      startupStage = .data
       let runtime: MacBackendRuntime
       if let existing = self.runtime {
         runtime = existing
@@ -181,6 +193,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       try server.start()
       self.server = server
       generation += 1
+      frontendLoadFailed = false
       let webView = WKWebView(frame: .zero, configuration: MacWebViewConfiguration.make())
       webView.underPageBackgroundColor = MacTheme.canvasColor
       webView.navigationDelegate = self
@@ -219,11 +232,9 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       trace("[FloatViewState] frontend state=failed stage=\(startupStage): \(error)")
       server?.stop()
       server = nil
-      runtime?.shutdown()
-      runtime = nil
       let alert = NSAlert()
       alert.messageText = startupStage.title
-      alert.informativeText = startupStage.recovery
+      alert.informativeText = startupStage.recovery(on: .macOS)
       alert.addButton(withTitle: "Try again")
       alert.addButton(withTitle: "Quit")
       if alert.runModal() == .alertFirstButtonReturn {

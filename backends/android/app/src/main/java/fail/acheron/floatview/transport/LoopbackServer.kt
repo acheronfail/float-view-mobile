@@ -10,8 +10,6 @@ import org.json.JSONObject
 internal const val ANDROID_BACKEND_PORT = 11012
 internal const val LOOPBACK_MAX_MESSAGE_BYTES = 65_536
 internal const val MAX_SESSION_IMPORT_BYTES = 128 * 1024 * 1024
-internal fun backendStartupFailure(port: Int, cause: Exception) =
-    IllegalStateException("Failed to bind Float View backend to 127.0.0.1:$port", cause)
 
 class LoopbackServer(
     assets: AssetManager,

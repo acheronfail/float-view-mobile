@@ -127,11 +127,13 @@ struct WebView: UIViewRepresentable {
       )
     }
 
-    func webView(_: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError _: Error) {
+    func webView(_: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: Error) {
+      guard (error as NSError).code != NSURLErrorCancelled else { return }
       onLoadFailure()
     }
 
-    func webView(_: WKWebView, didFail _: WKNavigation!, withError _: Error) {
+    func webView(_: WKWebView, didFail _: WKNavigation!, withError error: Error) {
+      guard (error as NSError).code != NSURLErrorCancelled else { return }
       onLoadFailure()
     }
 

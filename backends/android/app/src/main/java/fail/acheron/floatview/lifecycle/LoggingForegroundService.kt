@@ -55,6 +55,10 @@ class LoggingForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        if ((application as FloatViewApplication).runtimeOrNull == null) {
+            stopSelf()
+            return
+        }
         ensureChannel()
         enterForeground()
         running.set(true)
@@ -63,6 +67,10 @@ class LoggingForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if ((application as FloatViewApplication).runtimeOrNull == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (intent?.action == ACTION_DISMISS) {
             if (intent.getLongExtra("generation", -1) == (lastPresentation?.generation ?: -1)) {
                 dismissal.dismiss(lastPresentation?.generation)

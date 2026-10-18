@@ -5,32 +5,36 @@ import android.content.pm.ApplicationInfo
 import fail.acheron.floatview.application.BackendRuntime
 import fail.acheron.floatview.transport.ANDROID_BACKEND_PORT
 import fail.acheron.floatview.transport.LoopbackServer
-import fail.acheron.floatview.transport.backendStartupFailure
+import fail.acheron.floatview.application.StartupRecovery
 
 class FloatViewApplication : Application() {
-    lateinit var runtime: BackendRuntime
-        private set
-    lateinit var backend: LoopbackServer
-        private set
+    private val startup by lazy {
+        StartupRecovery(
+            createRuntime = { BackendRuntime(this) },
+            createServer = { runtime: BackendRuntime ->
+                LoopbackServer(
+                    assets, runtime.service, requestedPort = ANDROID_BACKEND_PORT,
+                    performanceDiagnostics = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
+                )
+            },
+            startServer = { it.start() },
+        )
+    }
+    val runtime: BackendRuntime get() = requireNotNull(startup.runtime)
+    val runtimeOrNull: BackendRuntime? get() = startup.runtime
+    val backend: LoopbackServer get() = requireNotNull(startup.server)
+    val startupFailure get() = startup.failure
 
     override fun onCreate() {
         super.onCreate()
-        runtime = BackendRuntime(this)
-        backend = try {
-            LoopbackServer(
-                assets,
-                runtime.service,
-                requestedPort = ANDROID_BACKEND_PORT,
-                performanceDiagnostics = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
-            ).also { it.start() }
-        } catch (error: Exception) {
-            throw backendStartupFailure(ANDROID_BACKEND_PORT, error)
-        }
+        retryStartup()
     }
 
+    fun retryStartup() = startup.retry()
+
     override fun onTerminate() {
-        backend.close()
-        runtime.service.close()
+        startup.server?.close()
+        startup.runtime?.service?.close()
         super.onTerminate()
     }
 }

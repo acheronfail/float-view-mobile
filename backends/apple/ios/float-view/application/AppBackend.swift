@@ -6,8 +6,7 @@ final class AppBackend: ObservableObject {
   private(set) var service: SharedService?
   let rideActivity = RideActivityController()
   @Published var frontend: FrontendEndpoint?
-  @Published private(set) var frontendStartupFailed = false
-  @Published private(set) var serviceStartupFailed = false
+  @Published private(set) var startupFailure: StartupFailure?
   @Published private(set) var themePreference: ThemePreference {
     didSet { rideActivity.setThemePreference(themePreference) }
   }
@@ -23,7 +22,7 @@ final class AppBackend: ObservableObject {
       #endif
       startOwner()
     } catch {
-      serviceStartupFailed = true
+      startupFailure = .data
     }
   }
 
@@ -31,13 +30,13 @@ final class AppBackend: ObservableObject {
     if service == nil {
       startOwner()
     } else {
-      activateFrontend()
+      recoverFrontend()
     }
   }
 
   private func startOwner() {
     guard service == nil else { return }
-    serviceStartupFailed = false
+    startupFailure = nil
     var preparedService: SharedService?
     do {
       let relay = BluetoothEventRelay()
@@ -68,10 +67,6 @@ final class AppBackend: ObservableObject {
       let service = try SharedService(root: logRoot, bluetooth: bluetooth, location: CoreLocationAdapter())
       relay.setHandler { [weak service] event in service?.receive(event) }
       preparedService = service
-      guard let htmlURL = Bundle.main.url(forResource: "index", withExtension: "html") else {
-        throw CocoaError(.fileNoSuchFile)
-      }
-      let html = try Data(contentsOf: htmlURL)
       try service.start(presenter: { @Sendable value in IOSExportPresenter.schedule(value) },
                         liveActivity: { [rideActivity] state in
                           rideActivity.receive(state)
@@ -79,20 +74,29 @@ final class AppBackend: ObservableObject {
         Task { @MainActor [weak self] in self?.themePreference = preference }
       }
       self.service = service
-      frontendServer = LoopbackServer(html: html, port: PlatformLoopbackPort.iOS, service: service, platform: "ios")
       activateFrontend()
     } catch {
       preparedService?.shutdown()
       frontendServer = nil
       frontend = nil
-      serviceStartupFailed = true
+      startupFailure = .data
     }
   }
 
   func activateFrontend() {
-    frontendStartupFailed = false
+    guard let service else { return }
+    startupFailure = nil
+    var stage = StartupFailure.interface
     do {
+      if frontendServer == nil {
+        guard let htmlURL = Bundle.main.url(forResource: "index", withExtension: "html") else {
+          throw CocoaError(.fileNoSuchFile)
+        }
+        let html = try Data(contentsOf: htmlURL)
+        frontendServer = LoopbackServer(html: html, port: PlatformLoopbackPort.iOS, service: service, platform: "ios")
+      }
       guard let frontendServer else { return }
+      stage = .connection
       try frontendServer.start()
       frontendGeneration += 1
       frontend = FrontendEndpoint(
@@ -103,7 +107,9 @@ final class AppBackend: ObservableObject {
         print("[FloatViewState] frontend state=ready generation=\(frontend!.generation)")
       #endif
     } catch {
-      frontendStartupFailed = true
+      startupFailure = stage
+      frontendServer?.stop()
+      frontendServer = nil
       frontend = nil
       #if DEBUG
         let message = loopbackStartupFailure(

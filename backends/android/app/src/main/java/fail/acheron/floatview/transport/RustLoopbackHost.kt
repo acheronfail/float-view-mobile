@@ -26,5 +26,7 @@ internal class RustLoopbackHost(html: ByteArray, private val service: SharedServ
         port = result.getInt("port"); token = result.getString("token"); running = true
     }
     @Synchronized fun stop() { if (running) { command("stop"); running = false } }
-    override fun close() { stop(); check(RustApplicationRuntime.serverDestroy(handle) == 0) }
+    override fun close() {
+        try { stop() } finally { check(RustApplicationRuntime.serverDestroy(handle) == 0) }
+    }
 }

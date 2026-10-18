@@ -9,7 +9,7 @@ import XCTest
 final class MacWebViewNetworkTests: XCTestCase, @unchecked Sendable {
   @MainActor
   func testHostExposesNavigationPolicyToWebKit() {
-    let host = MacAppDelegate(html: Data())
+    let host = MacAppDelegate(loadHTML: { Data() })
     XCTAssertTrue(host.responds(to: NSSelectorFromString("webView:decidePolicyForNavigationAction:decisionHandler:")))
     XCTAssertTrue(host.responds(to: NSSelectorFromString("webView:decidePolicyForNavigationResponse:decisionHandler:")))
   }
