@@ -1,3 +1,4 @@
+use rusqlite::OptionalExtension;
 use std::collections::BTreeSet;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::path::Path;
@@ -575,17 +576,49 @@ impl SessionReader {
         drop(statement);
         let has_more = rows.len() > limit;
         rows.truncate(limit);
-        let gaps = rows
+        let mut gap_statement = transaction.prepare("SELECT monotonic_elapsed_ms FROM session_event WHERE kind='recordingBoundary' AND sequence<=? ORDER BY monotonic_elapsed_ms LIMIT 1001").map_err(map_sqlite)?;
+        let boundaries = gap_statement
+            .query_map([to_i64(boundary.event_sequence)?], |r| r.get::<_, u64>(0))
+            .map_err(map_sqlite)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(map_sqlite)?;
+        drop(gap_statement);
+        if boundaries.len() > 1000 {
+            return Err(ReaderError::Incompatible);
+        }
+        let prior: Option<u64> = if after > 0 {
+            transaction
+                .query_row(
+                    "SELECT monotonic_elapsed_ms FROM location WHERE location_sequence=?",
+                    [to_i64(after)?],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(map_sqlite)?
+        } else {
+            None
+        };
+        let times: Vec<_> = prior
+            .into_iter()
+            .chain(rows.iter().map(|r| r.elapsed_ms))
+            .collect();
+        let gaps = times
             .windows(2)
             .filter_map(|pair| {
-                let left = &pair[0];
-                let right = &pair[1];
-                (right.elapsed_ms.saturating_sub(left.elapsed_ms) > LOCATION_GAP_MS).then(|| {
-                    LocationGap {
-                        start_elapsed_ms: left.elapsed_ms + 1,
-                        end_elapsed_ms: right.elapsed_ms - 1,
-                    }
-                })
+                let (left, right) = (pair[0], pair[1]);
+                if right > left && boundaries.iter().any(|b| *b > left && *b <= right) {
+                    Some(LocationGap {
+                        start_elapsed_ms: left,
+                        end_elapsed_ms: right,
+                    })
+                } else if right.saturating_sub(left) > LOCATION_GAP_MS {
+                    Some(LocationGap {
+                        start_elapsed_ms: left + 1,
+                        end_elapsed_ms: right - 1,
+                    })
+                } else {
+                    None
+                }
             })
             .collect();
         let next_location_sequence = has_more.then(|| {
@@ -634,7 +667,7 @@ fn stream_series(
         Value::Integer(to_i64((MAX_SERIES_SOURCE_ROWS + 1) as u64)?),
     ]);
     let sql = format!(
-        "SELECT sequence, monotonic_elapsed_ms, ride_state, {} FROM sample WHERE monotonic_elapsed_ms BETWEEN ? AND ? AND sequence <= ? ORDER BY monotonic_elapsed_ms, sequence LIMIT ?",
+        "SELECT sequence, monotonic_elapsed_ms, ride_state, {}, EXISTS(SELECT 1 FROM session_event e WHERE e.kind='recordingBoundary' AND e.source_sample_sequence=sample.sequence) FROM sample WHERE monotonic_elapsed_ms BETWEEN ? AND ? AND sequence <= ? ORDER BY monotonic_elapsed_ms, sequence LIMIT ?",
         expressions.join(", ")
     );
     let mut statement = transaction.prepare(&sql).map_err(map_sqlite)?;
@@ -662,6 +695,14 @@ fn stream_series(
                 return Err(ReaderError::Incompatible);
             }
             row_values.push(value);
+        }
+        if row
+            .get::<_, bool>(expressions.len() + 3)
+            .map_err(map_sqlite)?
+        {
+            accumulator
+                .break_segment()
+                .map_err(|_| ReaderError::Incompatible)?;
         }
         accumulator
             .append(SeriesObservation {

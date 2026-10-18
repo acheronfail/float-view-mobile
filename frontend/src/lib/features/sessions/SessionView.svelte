@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PausedRide from './PausedRide.svelte';
   import { loadFirmwareFaults } from '$lib/features/faults/session-faults';
   import FaultList from '$lib/features/faults/FaultList.svelte';
   import type { RideFault } from '$lib/features/faults/faults';
@@ -62,6 +63,9 @@
   }: { sessionId: string; boardSavedDeviceId?: string | null; fromLive?: boolean } = $props();
   const activeConnection = $derived(backendState.snapshot?.activeConnection);
   const isCurrentRide = $derived(activeConnection?.activeSession?.sessionId === sessionId);
+  const pausedRide = $derived(
+    backendState.snapshot?.pausedRide?.sessionId === sessionId ? backendState.snapshot.pausedRide : null
+  );
   const isActive = $derived(backendState.selectedSession?.state === 'active');
   let following = $state(true);
   let wasActive = $state(false);
@@ -279,7 +283,7 @@
   onMount(() => {
     let active = true;
     refresher = startRideRefresh({
-      shouldRefresh: () => isActive && !unavailable && (following || !isCurrentRide),
+      shouldRefresh: () => isActive && !pausedRide && !unavailable && (following || !isCurrentRide),
       refresh: async (accept) => {
         await backendState.refreshSession(sessionId, accept);
         if (active) refreshError = '';
@@ -345,7 +349,8 @@
   style={`--section-header-top: calc(var(--app-header-bottom) + ${locationMapHeight}px)`}
 >
   {#if backendState.selectedSession}
-    {#if isActive && !unavailable}
+    {#if pausedRide}<PausedRide ride={pausedRide} />{/if}
+    {#if isActive && !unavailable && !pausedRide}
       <div class="flex items-center justify-between gap-3 rounded-lg border border-outline bg-surface px-3 py-2">
         <p role="status" class="text-sm">
           {isCurrentRide

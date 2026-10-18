@@ -80,7 +80,12 @@ impl ProductStore {
         self.reconcile_session(id)?;
         let retain = self.should_retain(id)?;
         let revision = crate::next_revision(self.catalog_revision)?;
-        self.catalog.execute("UPDATE session_catalog SET state='completed',ended_at_ms=?,close_reason=? WHERE session_id=? AND state='active'",params![at_ms,reason,id])?;
+        let tx = self
+            .catalog
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute("UPDATE session_catalog SET state='completed',ended_at_ms=?,close_reason=? WHERE session_id=? AND state='active'",params![at_ms,reason,id])?;
+        tx.execute("DELETE FROM ride_checkpoint WHERE session_id=?", [id])?;
+        tx.commit()?;
         self.catalog_revision = revision;
         if retain {
             Ok(Some(self.session(id)?))
@@ -261,7 +266,7 @@ impl ProductStore {
             for (id, state) in rows {
                 after = id.clone();
                 self.reconcile_session(&id)?;
-                if state == "active" {
+                if state == "active" && !self.recover_ride(&id)? {
                     let retain = self.should_retain(&id)?;
                     self.catalog.execute("UPDATE session_catalog SET state='interrupted',integrity='recovered',close_reason='process_interruption' WHERE session_id=? AND state='active'",[&id])?;
                     if !retain {

@@ -316,6 +316,28 @@ impl ApplicationRuntime {
     }
 
     /// Commit after the service has consumed this observation and supplied its estimate.
+    pub fn clear_recording(&mut self) {
+        self.application.clear_recording();
+    }
+
+    pub fn mark_recording_gap(&mut self) {
+        if let Some(writer) = self.session.as_mut() {
+            writer.mark_recording_gap();
+        }
+    }
+
+    pub fn restore_recording(
+        &mut self,
+        now_ms: u64,
+        elapsed_ms: u64,
+        sequence: u64,
+        riding_ms: u64,
+    ) {
+        self.application
+            .restore_recording(now_ms, elapsed_ms, sequence, riding_ms);
+        self.mark_recording_gap();
+    }
+
     pub fn record_sample(
         &mut self,
         sample: &telemetry::NormalizedSample,

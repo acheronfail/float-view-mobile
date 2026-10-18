@@ -13,6 +13,7 @@
   import Announcements from './Announcements.svelte';
   import LegalNotices from './LegalNotices.svelte';
   import Diagnostics from './Diagnostics.svelte';
+  import RideContinuity from './RideContinuity.svelte';
 
   const trackedDistanceM = $derived(
     backendState.savedDevices.reduce((total, device) => total + (device.summary.totalDistanceM ?? 0), 0)
@@ -110,6 +111,7 @@
 
     <div>
       <SectionTitle title="Session settings" />
+      <RideContinuity />
       <div class="mt-3 space-y-3 rounded-lg border border-outline bg-elevated p-3">
         <div class="space-y-2 text-sm text-muted">
           <p>Record ride location</p>

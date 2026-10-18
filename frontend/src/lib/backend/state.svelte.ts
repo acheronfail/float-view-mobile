@@ -221,6 +221,10 @@ export class BackendState {
     return this.run((client) => client.request('device.connect', { deviceId, trackingMode }).then(() => undefined));
   }
 
+  async endRide(sessionId: string): Promise<boolean> {
+    return this.run((client) => client.request('session.end', { sessionId }).then(() => undefined));
+  }
+
   async disconnectDevice(): Promise<void> {
     await this.run((client) => client.request('device.disconnect', {}).then(() => undefined));
   }

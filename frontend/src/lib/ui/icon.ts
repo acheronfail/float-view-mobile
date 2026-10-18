@@ -1,5 +1,6 @@
 export const iconClasses = {
   info: 'i-lucide-info',
+  flag: 'i-lucide-flag',
   'zoom-in': 'i-lucide-zoom-in',
   hand: 'i-lucide-hand',
   'arrow-left': 'i-lucide-arrow-left',

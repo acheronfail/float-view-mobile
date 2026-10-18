@@ -934,6 +934,7 @@ export interface Settings {
   ridingPersistIntervalMs: number;
   postRideTailMs: number;
   reconnectDurationMs: number;
+  rideResumeWindowMinutes: number;
   minimumSessionDistance: number;
   themePreference: ThemePreference;
   accentPreference: AccentPreference;
@@ -950,7 +951,15 @@ export interface ExportResult {
   delivery: 'presented' | 'staged';
 }
 
+export interface PausedRide {
+  sessionId: string;
+  savedDeviceId: string;
+  displayName: string;
+  resumeUntil: string;
+}
+
 export interface AppState {
+  pausedRide: PausedRide | null;
   announcementAudio: AnnouncementAudio;
   /** Seven shared-service choices; numeric curves never cross the contract. */
   batteryCellProfiles: BatteryCellProfile[];
@@ -1088,6 +1097,7 @@ export interface BackendMethods {
     params: { deviceId: string; canId: number };
     result: Accepted;
   };
+  'session.end': { params: { sessionId: string }; result: Accepted };
   'device.disconnect': { params: EmptyParams; result: Accepted };
   'controller.shutdown': { params: EmptyParams; result: Accepted };
   'refloat.control.set': {

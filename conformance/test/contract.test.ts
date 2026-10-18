@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ConformanceClient } from '../src/client.ts';
-import { mandatoryMethods, runConformance } from '../src/suite.ts';
+import { mandatoryMethods, runConformance, runRideContinuityConformance } from '../src/suite.ts';
 import { mockTarget } from '../targets/mock.ts';
 
 test('mandatory contract has one concise method set', () => {
-  assert.equal(mandatoryMethods.length, 49);
+  assert.equal(mandatoryMethods.length, 50);
   assert.equal(new Set(mandatoryMethods).size, mandatoryMethods.length);
 });
 
@@ -29,4 +29,8 @@ test('state predicates are bounded and rejected when the socket closes', async (
   } finally {
     await mockTarget.stop();
   }
+});
+
+test('mock preserves a ride across explicit disconnect and frontend replacement', async () => {
+  await runRideContinuityConformance(mockTarget);
 });

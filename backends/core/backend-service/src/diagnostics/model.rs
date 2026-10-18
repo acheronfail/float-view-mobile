@@ -89,6 +89,7 @@ vocabulary!(ApiMethod {
     ApiBoardProfileUpdate => "boardProfile.update",
     ApiSessionList => "session.list",
     ApiSessionMarkerAdd => "session.marker.add",
+    ApiSessionEnd => "session.end",
     ApiSessionGet => "session.get",
     ApiSessionExport => "session.export",
     ApiSessionDelete => "session.delete",

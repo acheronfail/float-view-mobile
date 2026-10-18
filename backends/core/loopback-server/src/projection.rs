@@ -89,7 +89,7 @@ pub fn state(facts: &Snapshot, revision: u64, catalog_revision: u64) -> Value {
         result
     });
     json!({"batteryPresets":facts.battery_presets,"batteryPresetCatalogVersion":facts.battery_preset_catalog_version,"batteryCellProfiles":facts.battery_cell_profiles,"revision":revision,"bluetooth":bluetooth(&facts.discovery.bluetooth_state,facts.discovery.active_scan_id.is_some()),
-        "discoveredDevices":discovered,"savedDevices":facts.saved_boards,"activeConnection":active,"sessionCatalogRevision":catalog_revision,
+        "discoveredDevices":discovered,"savedDevices":facts.saved_boards,"activeConnection":active,"sessionCatalogRevision":catalog_revision,"pausedRide":facts.paused_ride,
         "announcementAudio":facts.announcement_audio,"permissions":facts.permissions,"settings":facts.settings,"location":location(&facts.location,facts.settings.location_recording_enabled),
         "sessionOperation":facts.maintenance.as_ref().map(maintenance)})
 }

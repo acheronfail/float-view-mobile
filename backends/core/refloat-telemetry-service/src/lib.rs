@@ -597,6 +597,7 @@ pub struct RefloatTelemetryService {
     poll_timer: Option<TimerToken>,
     polling_interval_ms: Option<u64>,
     started_at_ms: Option<u64>,
+    elapsed_offset_ms: u64,
     last_sample_at_ms: Option<u64>,
     riding_elapsed_ms: u64,
     sequence: u64,
@@ -648,6 +649,7 @@ impl Default for RefloatTelemetryService {
             poll_timer: None,
             polling_interval_ms: None,
             started_at_ms: None,
+            elapsed_offset_ms: 0,
             last_sample_at_ms: None,
             riding_elapsed_ms: 0,
             sequence: 0,
@@ -677,6 +679,20 @@ impl Default for RefloatTelemetryService {
 }
 
 impl RefloatTelemetryService {
+    pub fn restore_recording(
+        &mut self,
+        now_ms: u64,
+        elapsed_ms: u64,
+        sequence: u64,
+        riding_ms: u64,
+    ) {
+        self.started_at_ms = Some(now_ms);
+        self.elapsed_offset_ms = elapsed_ms;
+        self.sequence = sequence;
+        self.riding_elapsed_ms = riding_ms;
+        self.last_sample_at_ms = None;
+        self.previous_ride_state = RideState::Unknown;
+    }
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             service_generation: self.service_generation,
@@ -952,7 +968,9 @@ impl RefloatTelemetryService {
             self.pending_request = None;
             self.latest_firmware_fault =
                 reported_firmware_fault(alerts.active_fault_code).map(|v| v.reason);
-            let elapsed_ms = now_ms.saturating_sub(self.started_at_ms.unwrap_or(now_ms));
+            let elapsed_ms = self
+                .elapsed_offset_ms
+                .saturating_add(now_ms.saturating_sub(self.started_at_ms.unwrap_or(now_ms)));
             let mut records = Vec::new();
             for record in &alerts.records {
                 self.alerts_since_ticks = record.source_ticks.saturating_sub(1);
@@ -990,7 +1008,9 @@ impl RefloatTelemetryService {
             if !records.is_empty() {
                 effects.push(Effect::PublishFaultHistory(FaultHistoryObservation {
                     source_clock: self.source_clock,
-                    elapsed_ms: now_ms.saturating_sub(self.started_at_ms.unwrap_or(now_ms)),
+                    elapsed_ms: self.elapsed_offset_ms.saturating_add(
+                        now_ms.saturating_sub(self.started_at_ms.unwrap_or(now_ms)),
+                    ),
                     observed_at_epoch_ms,
                     records,
                 }));
@@ -1084,7 +1104,9 @@ impl RefloatTelemetryService {
                 if self.fault_history.len() == 20 {
                     self.fault_history.remove(0);
                 }
-                let elapsed_ms = now_ms.saturating_sub(self.started_at_ms.unwrap_or(now_ms));
+                let elapsed_ms = self
+                    .elapsed_offset_ms
+                    .saturating_add(now_ms.saturating_sub(self.started_at_ms.unwrap_or(now_ms)));
                 self.fault_history.push(RecoveredFirmwareFault {
                     code,
                     reason: fault.reason,
@@ -1115,7 +1137,9 @@ impl RefloatTelemetryService {
         if let Some(ticks) = source_ticks {
             self.source_clock = Some(FaultClock {
                 ticks,
-                elapsed_ms: now_ms.saturating_sub(started_at_ms),
+                elapsed_ms: self
+                    .elapsed_offset_ms
+                    .saturating_add(now_ms.saturating_sub(started_at_ms)),
             });
         }
         let next_sequence = self.sequence.wrapping_add(1);
@@ -1154,7 +1178,8 @@ impl RefloatTelemetryService {
             record,
             next_sequence,
             observed_at_epoch_ms,
-            now_ms.saturating_sub(started_at_ms),
+            self.elapsed_offset_ms
+                .saturating_add(now_ms.saturating_sub(started_at_ms)),
         );
 
         sample.riding_elapsed_ms = next_riding_elapsed_ms;
@@ -1182,6 +1207,7 @@ impl RefloatTelemetryService {
 
     fn reset(&mut self) -> Vec<Effect> {
         self.started_at_ms = None;
+        self.elapsed_offset_ms = 0;
         self.riding_elapsed_ms = 0;
         self.sequence = 0;
         self.previous_fault_code = 0;
@@ -2867,6 +2893,30 @@ mod tests {
         assert_eq!(sample.slow_observed_at_epoch_ms, Some(9_000));
     }
 
+    #[test]
+    fn recovered_recording_restores_all_clocks_and_sequence_without_integrating_gap() {
+        let mut service = RefloatTelemetryService::default();
+        service.restore_recording(100, 3_600_000, 200, 5000);
+        start(
+            &mut service,
+            TelemetryFamily::LegacyFixed,
+            Route::Direct,
+            100,
+        );
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Legacy(legacy::LegacyTelemetry::Sample(legacy_sample(
+                legacy::PackageState::Running,
+                10.,
+            ))),
+            100,
+            4_000_000,
+        );
+        let sample = published(&effects);
+        assert_eq!(sample.sequence, 201);
+        assert_eq!(sample.elapsed_ms, 3_600_000);
+        assert_eq!(sample.riding_elapsed_ms, 5000);
+    }
     #[test]
     fn ride_clock_pauses_for_idle_unknown_and_reconnect_and_resets_for_new_session() {
         let mut service = RefloatTelemetryService::default();

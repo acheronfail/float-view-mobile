@@ -230,6 +230,11 @@ impl fmt::Debug for SeriesAccumulator {
 }
 
 impl SeriesAccumulator {
+    /// Explicit recording boundaries always break curves, regardless of gap policy.
+    pub fn break_segment(&mut self) -> Result<(), HistoryError> {
+        increment_all(&mut self.generations)
+    }
+
     pub fn new(config: SeriesConfig) -> Result<Self, HistoryError> {
         validate_fields(&config.fields)?;
         if config.start_elapsed_ms > config.end_elapsed_ms {

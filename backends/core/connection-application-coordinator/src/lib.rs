@@ -464,6 +464,21 @@ impl std::fmt::Debug for ConnectionApplicationCoordinator {
 }
 
 impl ConnectionApplicationCoordinator {
+    pub fn clear_recording(&mut self) {
+        self.telemetry = telemetry::RefloatTelemetryService::default();
+    }
+
+    pub fn restore_recording(
+        &mut self,
+        now_ms: u64,
+        elapsed_ms: u64,
+        sequence: u64,
+        riding_ms: u64,
+    ) {
+        self.telemetry
+            .restore_recording(now_ms, elapsed_ms, sequence, riding_ms);
+    }
+
     pub fn take_request_timings(&mut self) -> Vec<RequestTiming> {
         self.timings.drain(..).collect()
     }

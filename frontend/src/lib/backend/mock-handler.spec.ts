@@ -299,7 +299,12 @@ describe('deterministic mock backend', () => {
         method: 'device.connect',
         params: { deviceId: 'mock-board', trackingMode: 'saved' },
       });
-      backend.handle({ id: index * 3 + 3, method: 'device.disconnect', params: {} });
+      const current = (backend.handle({ id: 999, method: 'state.get', params: {} }) as { result: AppState }).result;
+      backend.handle({
+        id: index * 3 + 3,
+        method: 'session.end',
+        params: { sessionId: current.activeConnection!.activeSession!.sessionId },
+      });
     }
     const items: string[] = [];
     const revisions = new Set<number>();

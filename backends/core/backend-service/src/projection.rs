@@ -251,6 +251,18 @@ impl BackendService {
             }
         });
         f::Snapshot {
+            paused_ride: p.ride.as_ref().and_then(|r| {
+                r.resume_until_ms.map(|deadline| f::PausedRide {
+                    session_id: r.session_id.clone(),
+                    saved_device_id: r.saved_device_id.clone(),
+                    display_name: p
+                        .boards
+                        .iter()
+                        .find(|b| b.saved_device_id == r.saved_device_id)
+                        .map_or_else(|| "Board".into(), |b| b.display_name.clone()),
+                    resume_until: date(deadline),
+                })
+            }),
             announcement_audio: self.policy.announcements.audio.clone(),
             battery_presets: store::battery_presets::PRESETS.clone(),
             battery_preset_catalog_version: store::battery_presets::CATALOG_VERSION.into(),
@@ -345,6 +357,7 @@ pub(crate) fn settings(v: &store::Settings) -> f::Settings {
         post_ride_tail_ms: v.post_ride_tail_ms,
         reconnect_duration_ms: v.reconnect_duration_ms,
         minimum_session_distance: v.minimum_session_distance,
+        ride_resume_window_minutes: v.ride_resume_window_minutes,
         theme_preference: v.theme_preference.clone(),
         accent_preference: v.accent_preference.clone(),
         unit_preference: v.unit_preference.clone(),

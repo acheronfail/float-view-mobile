@@ -1027,7 +1027,7 @@ async function createCompletedSession(
     }),
     /HTTP 400/
   );
-  await client.request('device.disconnect', {});
+  await client.request('session.end', { sessionId: markerSession.sessionId });
   await client.waitForState((value) => value.activeConnection === null, {
     afterRevision: ridingState.revision,
   });
@@ -1403,6 +1403,7 @@ export function assertState(state: AppState) {
     'postRideTailMs',
     'reconnectDurationMs',
     'revision',
+    'rideResumeWindowMinutes',
     'ridingPersistIntervalMs',
     'safetyDisclaimerAccepted',
     'sessionDisplayOptions',
@@ -1680,6 +1681,7 @@ export const mandatoryMethods: BackendMethod[] = [
   'device.connect',
   'device.selectController',
   'device.disconnect',
+  'session.end',
   'refloat.control.set',
   'refloat.fatalError.clear',
   'controller.shutdown',
@@ -1861,4 +1863,62 @@ async function exerciseAnnouncements(client: ConformanceClient, initial: AppStat
   }
   assert.equal((await client.request('state.get', {})).settings.revision, updated.revision);
   await client.request('settings.update', { expectedRevision: updated.revision, patch: { announcements: original } });
+}
+
+/** Ride ownership crosses connection and disposable frontend lifetimes. */
+export async function runRideContinuityConformance(target: Target) {
+  let client: ConformanceClient | undefined;
+  try {
+    const endpoint = await target.start();
+    client = await ConformanceClient.open(endpoint.url, endpoint.origin);
+    const initial = await client.request('state.get', {});
+    assert.equal(initial.settings.rideResumeWindowMinutes, 60);
+    assert.equal(initial.pausedRide, null);
+    for (const value of [0, 1441, 1.5]) {
+      await expectError(
+        client.request('settings.update', {
+          expectedRevision: initial.settings.revision,
+          patch: { rideResumeWindowMinutes: value },
+        }),
+        'invalid_request'
+      );
+    }
+    await client.request('settings.update', {
+      expectedRevision: initial.settings.revision,
+      patch: { safetyDisclaimerAccepted: true, rideResumeWindowMinutes: 60 },
+    });
+    await client.request('bluetooth.requestPermission', {});
+    await client.request('bluetooth.scan', { timeoutMs: 10000 });
+    const discovered = await client.waitForState((s) => s.discoveredDevices.length > 0);
+    const deviceId = discovered.discoveredDevices[0]!.deviceId;
+    await client.request('device.connect', { deviceId, trackingMode: 'saved' });
+    const ready = await client.waitForState((s) => s.activeConnection?.state === 'ready', { timeoutMs: 20000 });
+    const sessionId = required(ready.activeConnection?.activeSession?.sessionId, 'saved session');
+    await client.request('session.marker.add', { sessionId, operationId: '00000000-0000-4000-8000-000000000099' });
+    await client.request('device.disconnect', {});
+    const paused = await client.request('state.get', {});
+    assert.equal(paused.activeConnection, null);
+    assert.equal(paused.pausedRide?.sessionId, sessionId);
+    assert.ok(Date.parse(paused.pausedRide!.resumeUntil) > Date.now() + 59 * 60_000);
+    client.close();
+    client = await ConformanceClient.open(endpoint.url, endpoint.origin);
+    assert.equal((await client.request('state.get', {})).pausedRide?.sessionId, sessionId);
+    await client.request('bluetooth.scan', { timeoutMs: 10000 });
+    await client.waitForState((s) => s.discoveredDevices.some((d) => d.deviceId === deviceId));
+    await client.request('device.connect', { deviceId, trackingMode: 'saved' });
+    const resumed = await client.waitForState((s) => s.activeConnection?.state === 'ready', { timeoutMs: 20000 });
+    assert.equal(resumed.activeConnection?.activeSession?.sessionId, sessionId);
+    assert.equal(resumed.pausedRide, null);
+    await expectError(client.request('session.end', { sessionId: 'stale' }), 'invalid_state');
+    await client.request('device.disconnect', {});
+    await client.request('session.end', { sessionId });
+    const ended = await client.request('state.get', {});
+    assert.equal(ended.activeConnection, null);
+    assert.equal(ended.pausedRide, null);
+    assert.equal((await client.request('session.get', { sessionId })).summary.state, 'completed');
+    return { target: target.name, revision: ended.revision };
+  } finally {
+    client?.close();
+    await target.stop();
+  }
 }

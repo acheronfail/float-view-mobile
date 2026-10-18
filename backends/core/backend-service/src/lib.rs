@@ -25,6 +25,7 @@ pub use float_view_product_store::{ExportFormat, SessionLease};
 pub use process::Process;
 mod files;
 pub mod operations;
+mod ride;
 pub use files::{
     FileCompletion, FileResult, FileWork, MaintenanceJobCompletion, MaintenanceJobWork,
 };
@@ -68,6 +69,7 @@ impl BackendService {
             maintenance_worker: None,
             notifications: tokio::sync::watch::channel(0).0,
         };
+        service.policy.ride = service.store.ride_checkpoint()?;
         service.refresh_boards()?;
         service
             .changed()

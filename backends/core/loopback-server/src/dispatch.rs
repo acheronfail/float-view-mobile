@@ -421,6 +421,12 @@ impl Backend {
                     can_id: id as u8,
                 }
             }
+            "session.end" => {
+                p.only(&["sessionId"])?;
+                Operation::EndRide {
+                    session_id: p.text("sessionId")?,
+                }
+            }
             "device.disconnect" => {
                 p.only(&[])?;
                 Operation::Disconnect

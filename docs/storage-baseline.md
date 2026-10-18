@@ -8,6 +8,15 @@ data. Do not add a migration framework until there is an actual supported
 transition. Portable archive format remains **4**; SQLite PRAGMA user_version and
 individual SQL schemas are independently numbered.
 
+## Supported transition 100 → 101
+
+Marker **101** adds one catalog `ride_checkpoint` row for the current saved ride.
+The upgrade validates the exact baseline schema, creates this table transactionally,
+then atomically publishes the marker. A restart between commit and marker publication
+recognizes the exact upgraded schema and finishes publication. Existing settings gain
+`rideResumeWindowMinutes` with a default of 60; baseline recordings and format-4
+archives remain unchanged. Corruption and schema drift fail without deleting data.
+
 ## Owned state and reset boundary
 
 The shared product store owns one root:

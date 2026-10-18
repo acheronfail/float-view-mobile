@@ -363,6 +363,18 @@
             shutdownConfirmationOpen = true;
           },
         },
+        ...(connection.activeSession
+          ? [
+              {
+                label: 'End ride',
+                icon: 'flag' as const,
+                group: 'Connection',
+                appearance: 'destructive' as const,
+                disabled: backendState.busy || !connection?.activeSession,
+                onactivate: (closeMenu: () => void) => requestEndRide(closeMenu),
+              },
+            ]
+          : []),
         {
           label: 'Disconnect',
           icon: 'bluetooth-off',
@@ -381,7 +393,9 @@
     view = nextView.type;
   }
 
+  let endRideRequested = $state(false);
   function requestDisconnect(closeMenu: () => void) {
+    endRideRequested = false;
     closeMenu();
     if (shouldConfirmDisconnect(sample?.rideState)) {
       disconnectConfirmationOpen = true;
@@ -433,10 +447,17 @@
     appHeader.focusMenu();
   }
 
+  function requestEndRide(closeMenu: () => void) {
+    closeMenu();
+    endRideRequested = true;
+    if (shouldConfirmDisconnect(sample?.rideState)) disconnectConfirmationOpen = true;
+    else void disconnect();
+  }
   async function disconnect() {
     if (disconnecting) return;
     disconnecting = true;
-    await backendState.disconnectDevice();
+    if (endRideRequested && connection?.activeSession) await backendState.endRide(connection.activeSession.sessionId);
+    else await backendState.disconnectDevice();
     disconnecting = false;
     disconnectConfirmationOpen = false;
     if (!backendState.snapshot?.activeConnection) await goto('#/', { replaceState: true });
@@ -632,9 +653,13 @@
 <ConfirmDialog
   open={disconnectConfirmationOpen}
   titleId="disconnect-confirmation-title"
-  title="Disconnect board?"
-  description="The board is not idle. This will stop the active session and disconnect the board."
-  confirmLabel="Disconnect"
+  title={endRideRequested ? 'End ride?' : 'Disconnect board?'}
+  description={endRideRequested
+    ? 'The board is not idle. This will end the ride and disconnect the board.'
+    : connection?.trackingMode === 'saved'
+      ? 'The board is not idle. This will disconnect the board. Your saved ride will remain available to resume.'
+      : 'The board is not idle. This will disconnect the board.'}
+  confirmLabel={endRideRequested ? 'End ride' : 'Disconnect'}
   appearance="destructive"
   busy={disconnecting}
   onconfirm={disconnect}

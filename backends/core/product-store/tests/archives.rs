@@ -559,3 +559,52 @@ fn idle_marker_only_session_survives_recovery_and_archive_roundtrip() {
     target_store.delete_session(&imported.session_id).unwrap();
     assert!(target_store.session(&imported.session_id).is_err());
 }
+
+#[test]
+fn archive_roundtrip_preserves_recording_boundaries_and_gap_safe_summary() {
+    let (_dir, mut store, _) = setup();
+    let board = store.boards().unwrap().remove(0);
+    let ride = store
+        .create_session(&board.saved_device_id, 1, u64::MAX)
+        .unwrap();
+    let mut writer = SessionWriter::open(store.session_path(&ride.session_id).unwrap()).unwrap();
+    let moving = |seq, time| {
+        let mut s = sample(seq, time);
+        s.ride_state = RideState::Riding;
+        s.speed_kph = Some(36.);
+        s
+    };
+    writer
+        .append_samples(&[moving(1, 0), moving(2, 1000)])
+        .unwrap();
+    writer.mark_recording_gap();
+    writer
+        .append_samples(&[moving(3, 3_601_000), moving(4, 3_602_000)])
+        .unwrap();
+    writer.close().unwrap();
+    store
+        .close_session(&ride.session_id, 4_602_000, "end_ride")
+        .unwrap();
+    let cancel = FileCancellation::default();
+    let export = store
+        .prepare_export(&ride.session_id, ExportFormat::Archive)
+        .unwrap()
+        .run(&cancel)
+        .unwrap();
+    let target = TestDirectory::new();
+    let mut imported = ProductStore::open(target.path()).unwrap();
+    let checked = sink(&imported, export.path()).validate(&cancel).unwrap();
+    let session = imported.attach_import(checked).unwrap();
+    assert_eq!(session.riding_elapsed_ms, 2000);
+    assert_eq!(session.distance_m, Some(20.));
+    let db = Connection::open(imported.session_path(&session.session_id).unwrap()).unwrap();
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM session_event WHERE kind='recordingBoundary'",
+            [],
+            |r| r.get::<_, u64>(0)
+        )
+        .unwrap(),
+        1
+    );
+}

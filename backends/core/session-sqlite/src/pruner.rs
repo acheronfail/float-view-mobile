@@ -345,6 +345,7 @@ fn read_protected_sequences(
     for sql in [
         "SELECT first_sequence FROM session_numeric_field ORDER BY first_sequence",
         "SELECT source_sample_sequence FROM session_event WHERE source_sample_sequence IS NOT NULL ORDER BY source_sample_sequence",
+        "SELECT CAST(json_extract(details_json,'$.previousSequence') AS INTEGER) FROM session_event WHERE kind='recordingBoundary' ORDER BY sequence",
     ] {
         let mut statement = transaction.prepare(sql).map_err(map_sqlite)?;
         let mut rows = statement.query([]).map_err(map_sqlite)?;

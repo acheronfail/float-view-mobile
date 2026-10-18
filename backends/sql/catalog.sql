@@ -139,3 +139,14 @@ CREATE TABLE IF NOT EXISTS refloat_editor_draft (
   json TEXT NOT NULL CHECK (length(json) BETWEEN 2 AND 60000),
   updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0)
 );
+
+-- One process-independent ride owner. No Bluetooth operation is implied by recovery.
+CREATE TABLE IF NOT EXISTS ride_checkpoint (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  session_id TEXT UNIQUE NOT NULL REFERENCES session_catalog(session_id) ON DELETE CASCADE,
+  saved_device_id TEXT NOT NULL REFERENCES saved_device(saved_device_id) ON DELETE CASCADE,
+  controller_uuid BLOB NOT NULL CHECK (length(controller_uuid) = 12),
+  window_minutes INTEGER NOT NULL CHECK (window_minutes BETWEEN 1 AND 1440),
+  paused_at_ms INTEGER,
+  resume_until_ms INTEGER
+);

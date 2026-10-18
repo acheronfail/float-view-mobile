@@ -9,13 +9,14 @@ WAL, use bounded transactions, update `commit_marker` in the same transaction as
 sample batches, and fsync at ride-state transitions and close. Raw voltage is
 canonical; corrections are never written over it.
 
-Recovery treats catalog rows with an active state as interrupted, validates the
-session database with `PRAGMA quick_check`, truncates catalog counts to the last
-commit marker, and records a recovery event. No recovery path auto-deletes data.
+Recovery validates session databases and reconciles catalog counts to committed
+boundaries. The singleton `ride_checkpoint` preserves an eligible recording across
+process replacement without starting Bluetooth. Other active rows become interrupted;
+final closure applies the documented minimum-distance/marker/fault retention policy.
 
-The shared product store's canonical marker (defined in
-`../core/product-store/src/lib.rs`) establishes baseline 100 for the first public
-candidate. Recognised earlier development formats reset once without migration.
+The shared product store establishes baseline 100 for the first public candidate.
+Current marker 101 adds `ride_checkpoint` through an explicit transactional upgrade
+and restartable marker publication. Recognised earlier development formats reset once without migration.
 Baseline data is preserved; unsupported/newer/malformed markers and missing markers
 on nonempty roots fail without deletion. Ordinary corruption and I/O failure never
 reset data. Increment later incompatible storage markers and implement a tested,
@@ -237,3 +238,8 @@ Exports default to 100,000 samples and GPS every 10 samples. Configure
 fixture checks CSV line counts and archive round-trip sample/GPS counts and distance.
 Running the entire opt-in suite concurrently also passed, with expected timing
 variation from competing benchmark I/O.
+
+`recordingBoundary` events reference the first resumed sample and protect both
+sides of an interruption from pruning. Summaries exclude these offline intervals
+from riding time and speed-integrated distance; charts and location pages expose
+the gap even when its duration is below the user’s chart-gap threshold.

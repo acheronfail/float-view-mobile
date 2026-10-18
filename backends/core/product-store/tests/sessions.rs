@@ -406,3 +406,58 @@ fn cleanup_failure_after_board_removal_does_not_leave_auto_connect_selection() {
     assert_eq!(store.settings().unwrap().auto_connect_saved_device_id, None);
     assert_eq!(store.settings().unwrap().revision, selected.revision + 1);
 }
+
+#[test]
+fn paused_ride_survives_restart_without_retention_and_closes_atomically() {
+    let (dir, mut store, board) = setup();
+    let s = store.create_session(&board, 1, u64::MAX).unwrap();
+    store.own_ride(&s.session_id, &board, [7; 12], 60).unwrap();
+    store.pause_ride(1000).unwrap();
+    let deadline = store.ride_checkpoint().unwrap().unwrap().resume_until_ms;
+    store.pause_ride(5000).unwrap();
+    assert_eq!(
+        store.ride_checkpoint().unwrap().unwrap().resume_until_ms,
+        deadline
+    );
+    drop(store);
+    let mut store = ProductStore::open(dir.path()).unwrap();
+    assert_eq!(store.session(&s.session_id).unwrap().state, "active");
+    assert_eq!(
+        store.ride_checkpoint().unwrap().unwrap().resume_until_ms,
+        Some(3_601_000)
+    );
+    store.own_ride(&s.session_id, &board, [7; 12], 1).unwrap();
+    store
+        .update_settings(
+            store.settings().unwrap().revision,
+            r#"{"rideResumeWindowMinutes":1}"#,
+        )
+        .unwrap();
+    store.pause_ride(10_000).unwrap();
+    assert_eq!(
+        store.ride_checkpoint().unwrap().unwrap().resume_until_ms,
+        Some(70_000)
+    );
+    assert!(
+        store
+            .close_session(&s.session_id, 20_000, "end_ride")
+            .unwrap()
+            .is_none()
+    );
+    assert!(store.ride_checkpoint().unwrap().is_none());
+    assert!(matches!(store.session(&s.session_id), Err(Error::NotFound)));
+}
+
+#[test]
+fn process_loss_uses_last_commit_for_resume_deadline() {
+    let (dir, mut store, board) = setup();
+    let s = store.create_session(&board, 1, u64::MAX).unwrap();
+    store.own_ride(&s.session_id, &board, [7; 12], 60).unwrap();
+    record(&store, &s.session_id);
+    drop(store);
+    let store = ProductStore::open(dir.path()).unwrap();
+    let checkpoint = store.ride_checkpoint().unwrap().unwrap();
+    assert_eq!(checkpoint.paused_at_ms, Some(1_001_000));
+    assert_eq!(checkpoint.resume_until_ms, Some(4_601_000));
+    assert_eq!(store.session(&s.session_id).unwrap().committed_sequence, 2);
+}

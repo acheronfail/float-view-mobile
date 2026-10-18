@@ -46,7 +46,12 @@ impl BackendService {
         let now = self.policy.exchange.now;
         let epoch = self.policy.exchange.epoch;
         let generation = self.runtime.snapshot().application.generation;
+        self.expire_paused_ride()?;
         let result = match operation {
+            Operation::EndRide { session_id } => {
+                self.end_ride(&session_id)?;
+                f::Completion::Unit
+            }
             Operation::OpenVoiceSettings => return self.open_voice_settings(owner),
             Operation::TestAnnouncement { kind } => return self.test_announcement(owner, kind),
             Operation::AddRideMarker {
@@ -64,8 +69,9 @@ impl BackendService {
                     .as_ref()
                     .filter(|s| s.session_id == session_id)
                     .ok_or(Failure::InvalidState)?;
-                let elapsed =
-                    now.saturating_sub(active.session_start.ok_or(Failure::InvalidState)?);
+                let elapsed = active.session_elapsed_offset.saturating_add(
+                    now.saturating_sub(active.session_start.ok_or(Failure::InvalidState)?),
+                );
                 let capture = self.policy.settings.location_recording_enabled
                     && (self.policy.foreground
                         || (self.policy.location_background

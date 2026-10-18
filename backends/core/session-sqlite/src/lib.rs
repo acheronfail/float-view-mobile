@@ -152,6 +152,7 @@ impl Debug for CommitMarker {
 pub struct SessionWriter {
     connection: Connection,
     fatal_latch_transition: Option<String>,
+    recording_gap: bool,
 }
 
 impl Debug for SessionWriter {
@@ -256,7 +257,12 @@ impl SessionWriter {
         Ok(Self {
             connection,
             fatal_latch_transition,
+            recording_gap: false,
         })
+    }
+
+    pub fn mark_recording_gap(&mut self) {
+        self.recording_gap = true;
     }
 
     pub fn append_samples(
@@ -305,6 +311,7 @@ impl SessionWriter {
             .map_err(map_sqlite)
             .and_then(|value| u64::try_from(value).map_err(|_| WriterError::Incompatible))?;
 
+        let mut gap = self.recording_gap;
         for value in &validated {
             let sample = value.sample;
             let inserted = transaction
@@ -376,9 +383,25 @@ impl SessionWriter {
             if last_key.is_some_and(|key| (sample.elapsed_ms, sample.sequence) <= key) {
                 ordered_append = false;
             }
-            if ordered_append {
-                aggregate.append(sample)?;
+            if gap && aggregate.sample_count > 0 {
+                let count: u64 = transaction.query_row("SELECT COUNT(*) FROM (SELECT 1 FROM session_event WHERE kind='recordingBoundary' LIMIT 1001)", [], |r| r.get(0)).map_err(map_sqlite)?;
+                if count >= 1000 {
+                    return Err(WriterError::Full);
+                }
+                event_sequence = event_sequence
+                    .checked_add(1)
+                    .ok_or(WriterError::InvalidInput)?;
+                aggregate.event_count = aggregate
+                    .event_count
+                    .checked_add(1)
+                    .ok_or(WriterError::InvalidInput)?;
+                let previous = last_key.map_or(0, |k| k.1);
+                transaction.execute("INSERT INTO session_event(sequence,source_sample_sequence,observed_at_ms,monotonic_elapsed_ms,kind,details_json) VALUES (?,?,?,?,'recordingBoundary',?)", params![sqlite_integer(event_sequence)?, sqlite_integer(sample.sequence)?, sample.observed_at_epoch_ms, sqlite_integer(sample.elapsed_ms)?, serde_json::json!({"value":"resumed","previousSequence":previous}).to_string()]).map_err(map_sqlite)?;
             }
+            if ordered_append {
+                aggregate.append(sample, gap)?;
+            }
+            gap = false;
             let sequence = sqlite_integer(sample.sequence)?;
             for (field, numeric) in numeric_values(sample) {
                 if numeric.is_some() {
@@ -465,6 +488,7 @@ impl SessionWriter {
             )
             .map_err(map_sqlite)?;
         transaction.commit().map_err(map_sqlite)?;
+        self.recording_gap = gap;
         self.fatal_latch_transition = transitions.remove("fatalErrorLatched");
         self.marker()
     }
@@ -809,9 +833,9 @@ impl Aggregate {
         }
     }
 
-    fn append(&mut self, sample: &NormalizedSample) -> Result<(), WriterError> {
+    fn append(&mut self, sample: &NormalizedSample, gap: bool) -> Result<(), WriterError> {
         let mut distance = self.distance_m.unwrap_or(0.0);
-        if self.sample_count > 0 {
+        if self.sample_count > 0 && !gap {
             let delta = sample.elapsed_ms.saturating_sub(self.elapsed_ms);
             if sample.ride_state == RideState::Riding {
                 self.riding_elapsed_ms = self
@@ -854,7 +878,7 @@ impl Aggregate {
 
 fn aggregate_samples(transaction: &Transaction<'_>) -> Result<Aggregate, WriterError> {
     let mut statement = transaction
-        .prepare("SELECT sequence, monotonic_elapsed_ms, ride_state, speed_kph, duty_cycle FROM sample ORDER BY monotonic_elapsed_ms, sequence")
+        .prepare("SELECT sequence, monotonic_elapsed_ms, ride_state, speed_kph, duty_cycle, EXISTS(SELECT 1 FROM session_event e WHERE e.kind='recordingBoundary' AND e.source_sample_sequence=sample.sequence) FROM sample ORDER BY monotonic_elapsed_ms, sequence")
         .map_err(map_sqlite)?;
     let mut rows = statement.query([]).map_err(map_sqlite)?;
     let mut sample_count = 0_u64;
@@ -878,7 +902,8 @@ fn aggregate_samples(transaction: &Transaction<'_>) -> Result<Aggregate, WriterE
         {
             return Err(WriterError::Incompatible);
         }
-        if let Some(previous) = previous_elapsed {
+        let gap: bool = row.get(5).map_err(map_sqlite)?;
+        if let Some(previous) = previous_elapsed.filter(|_| !gap) {
             let delta = elapsed.saturating_sub(previous);
             if state == "riding" {
                 riding_elapsed_ms = riding_elapsed_ms

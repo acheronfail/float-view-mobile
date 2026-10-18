@@ -22,6 +22,7 @@ record!(Settings {
     session_display_options: float_view_product_store::SessionDisplayOptions,
     revision: u64, idle_probe_interval_ms: u64, idle_persist_interval_ms: u64,
     riding_persist_interval_ms: u64, post_ride_tail_ms: u64, reconnect_duration_ms: u64,
+    ride_resume_window_minutes: u64,
     minimum_session_distance: f64, theme_preference: String, accent_preference: String, unit_preference: String, live_widget_slots: [String; 5],
     history_gap_threshold_seconds: Option<f64>, location_recording_enabled: bool,
     include_gps_location_when_exporting: bool,
@@ -189,7 +190,14 @@ record!(Connection {
     controller_candidates: Vec<ControllerCandidate>, connection_issue: Option<ConnectionIssue>, bms: Bms,
     refloat_controls: Option<Controls>, controller_actions: ControllerActions,
 });
+record!(PausedRide {
+    session_id: String,
+    saved_device_id: String,
+    display_name: String,
+    resume_until: String
+});
 record!(Snapshot {
+    paused_ride: Option<PausedRide>,
     announcement_audio: crate::announcements::AudioState,
     battery_cell_profiles: Vec<BatteryCellProfile>,
     battery_presets: Vec<float_view_product_store::battery_presets::Preset>,

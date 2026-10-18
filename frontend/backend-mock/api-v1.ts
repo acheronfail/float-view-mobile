@@ -304,6 +304,7 @@ export class MockBackend {
   private autoConnect: 'waiting' | 'closed' | number = 'waiting';
   private autoConnectTimer?: ReturnType<typeof setTimeout>;
   private discoveryExpiryTimer?: ReturnType<typeof setTimeout>;
+  private rideExpiryTimer?: ReturnType<typeof setTimeout>;
   private refloatTimeoutOnce = false;
   private shutdownOutcome: 'no-op' | 'disconnect' = 'no-op';
   private refloatCurrentRevision = 1;
@@ -325,6 +326,7 @@ export class MockBackend {
     discoveredDevices: [],
     savedDevices: [savedBoard],
     activeConnection: null,
+    pausedRide: null,
     sessionCatalogRevision: 0,
     batteryCellProfiles,
     batteryPresets,
@@ -337,6 +339,7 @@ export class MockBackend {
       ridingPersistIntervalMs: 100,
       postRideTailMs: 5_000,
       reconnectDurationMs: 300_000,
+      rideResumeWindowMinutes: 60,
       minimumSessionDistance: 100,
       themePreference: 'system',
       accentPreference: 'purple',
@@ -403,6 +406,27 @@ export class MockBackend {
     return result;
   }
 
+  private finishRide(sessionId: string) {
+    if (this.rideExpiryTimer) clearTimeout(this.rideExpiryTimer);
+    this.rideExpiryTimer = undefined;
+    this.sessionCatalog = this.sessionCatalog.map((s) =>
+      s.sessionId === sessionId ? { ...s, endedAt: new Date().toISOString(), state: 'completed' } : s
+    );
+    this.activeSessionId = undefined;
+    this.change(
+      {
+        ...this.state,
+        pausedRide: null,
+        activeConnection:
+          this.state.activeConnection?.activeSession?.sessionId === sessionId ? null : this.state.activeConnection,
+      },
+      true
+    );
+  }
+  private expirePausedRide() {
+    const ride = this.state.pausedRide;
+    if (ride && Date.now() >= Date.parse(ride.resumeUntil)) this.finishRide(ride.sessionId);
+  }
   private dispatchRequest(value: unknown, owner = 0): Response {
     if (!value || typeof value !== 'object') {
       return failure(0, 'invalid_request', 'Request must be an object');
@@ -417,6 +441,7 @@ export class MockBackend {
 
     if (request.method.startsWith('diagnostics.') && request.method !== 'diagnostics.report')
       return this.diagnostics.handle(id, request.method, params, owner);
+    this.expirePausedRide();
     switch (request.method as BackendMethod) {
       case 'diagnostics.report': {
         const limits = {
@@ -526,28 +551,40 @@ export class MockBackend {
         if (trackingMode === 'saved' && !savedDevice) {
           return failure(id, 'not_found', 'Saved board is not available');
         }
-        this.activeSessionId = trackingMode === 'saved' ? `session-${this.nextSession++}` : undefined;
+        const paused = this.state.pausedRide;
+        const resumable =
+          trackingMode === 'saved' && paused?.savedDeviceId === savedDeviceId
+            ? this.sessionCatalog.find((s) => s.sessionId === paused.sessionId)
+            : undefined;
+        if (paused && !resumable) this.finishRide(paused.sessionId);
+        if (this.rideExpiryTimer) clearTimeout(this.rideExpiryTimer);
+        this.rideExpiryTimer = undefined;
+        this.activeSessionId =
+          trackingMode === 'saved' ? (resumable?.sessionId ?? `session-${this.nextSession++}`) : undefined;
         if (this.discoveryExpiryTimer) clearTimeout(this.discoveryExpiryTimer);
         this.discoveryExpiryTimer = undefined;
-        const activeSession: SessionSummary | null = this.activeSessionId
-          ? {
-              ...session,
-              sessionId: this.activeSessionId,
-              deviceHistoryId: savedDevice?.deviceHistoryId ?? session.deviceHistoryId,
-              displayName: savedDevice?.displayName ?? session.displayName,
-              startedAt: new Date().toISOString(),
-              endedAt: null,
-              state: 'active' as const,
-              sampleCount: 0,
-              ridingElapsedMs: 0,
-              totalElapsedMs: 0,
-            }
-          : null;
-        if (activeSession) this.sessionCatalog = [activeSession, ...this.sessionCatalog];
+        const activeSession: SessionSummary | null =
+          resumable ??
+          (this.activeSessionId
+            ? {
+                ...session,
+                sessionId: this.activeSessionId,
+                deviceHistoryId: savedDevice?.deviceHistoryId ?? session.deviceHistoryId,
+                displayName: savedDevice?.displayName ?? session.displayName,
+                startedAt: new Date().toISOString(),
+                endedAt: null,
+                state: 'active' as const,
+                sampleCount: 0,
+                ridingElapsedMs: 0,
+                totalElapsedMs: 0,
+              }
+            : null);
+        if (activeSession && !resumable) this.sessionCatalog = [activeSession, ...this.sessionCatalog];
         this.change(
           {
             ...this.state,
             discoveredDevices: [],
+            pausedRide: null,
             activeConnection: {
               ...discoveredBoard,
               state: 'ready',
@@ -700,6 +737,18 @@ export class MockBackend {
         );
         return accepted(id);
       }
+      case 'session.end': {
+        if (Object.keys(params).length !== 1 || typeof params.sessionId !== 'string')
+          return failure(id, 'invalid_request', 'Session ID is required');
+        if (
+          this.state.activeConnection?.activeSession?.sessionId !== params.sessionId &&
+          this.state.pausedRide?.sessionId !== params.sessionId
+        )
+          return failure(id, 'invalid_state', 'Ride is no longer current');
+        this.cancelAutoConnect();
+        this.finishRide(params.sessionId);
+        return accepted(id);
+      }
       case 'device.disconnect': {
         this.cancelAutoConnect();
         const deviceId = this.state.activeConnection?.deviceId;
@@ -707,20 +756,32 @@ export class MockBackend {
         if (deviceId && this.uiCheckpoint?.live?.deviceId === deviceId) this.uiCheckpoint = null;
         const activeSessionId = this.activeSessionId;
         this.activeSessionId = undefined;
-        if (activeSessionId) {
-          this.sessionCatalog = this.sessionCatalog.map((item) =>
-            item.sessionId === activeSessionId
-              ? { ...item, endedAt: new Date().toISOString(), state: 'completed' }
-              : item
-          );
-        }
+        const pausedRide =
+          activeSessionId && this.state.activeConnection?.savedDeviceId
+            ? {
+                sessionId: activeSessionId,
+                savedDeviceId: this.state.activeConnection.savedDeviceId,
+                displayName: this.state.activeConnection.displayName ?? 'Board',
+                resumeUntil: new Date(Date.now() + this.state.settings.rideResumeWindowMinutes * 60_000).toISOString(),
+              }
+            : null;
         this.change(
           {
             ...this.state,
             activeConnection: null,
+            pausedRide,
           },
           Boolean(activeSessionId)
         );
+        if (pausedRide) {
+          this.rideExpiryTimer = setTimeout(
+            () => {
+              if (this.state.pausedRide?.sessionId === pausedRide.sessionId) this.finishRide(pausedRide.sessionId);
+            },
+            Math.max(1, Date.parse(pausedRide.resumeUntil) - Date.now())
+          );
+          this.rideExpiryTimer.unref?.();
+        }
         return accepted(id);
       }
       case 'controller.shutdown':
@@ -895,6 +956,7 @@ export class MockBackend {
           'ridingPersistIntervalMs',
           'postRideTailMs',
           'reconnectDurationMs',
+          'rideResumeWindowMinutes',
           'minimumSessionDistance',
           'themePreference',
           'accentPreference',
@@ -942,6 +1004,13 @@ export class MockBackend {
           if (!a.lowerOtherAudio && this.state.announcementAudio.loweringControl !== 'adjustable')
             return failure(id, 'unavailable', 'Audio lowering is automatic');
         }
+        if (
+          'rideResumeWindowMinutes' in patch &&
+          (!Number.isInteger(patch.rideResumeWindowMinutes) ||
+            (patch.rideResumeWindowMinutes as number) < 1 ||
+            (patch.rideResumeWindowMinutes as number) > 1440)
+        )
+          return failure(id, 'invalid_request', 'Resume window must be 1–1440 whole minutes');
         const historyGap = patch.historyGapThresholdSeconds;
         if (
           !Object.keys(patch).length ||
@@ -1181,15 +1250,20 @@ export class MockBackend {
   publishTelemetry(): void {
     const active = this.state.activeConnection;
     if (!active || active.state !== 'ready') return;
-    const sequence = (active.latestSample?.sequence ?? 0) + 1;
-    const elapsedMs = sequence * this.state.settings.ridingPersistIntervalMs;
+    const sequence = (active.latestSample?.sequence ?? active.activeSession?.sampleCount ?? 0) + 1;
+    const elapsedMs = active.latestSample
+      ? active.latestSample.elapsedMs + this.state.settings.ridingPersistIntervalMs
+      : Math.max(
+          (active.activeSession?.totalElapsedMs ?? 0) + this.state.settings.ridingPersistIntervalMs,
+          active.activeSession ? Date.now() - Date.parse(active.activeSession.startedAt) : 0
+        );
     const latestSample = {
       sequence,
       observedAt: new Date().toISOString(),
       slowObservedAt: new Date(Date.now() - 250).toISOString(),
       elapsedMs,
       ridingElapsedMs:
-        (active.latestSample?.ridingElapsedMs ?? 0) +
+        (active.latestSample?.ridingElapsedMs ?? active.activeSession?.ridingElapsedMs ?? 0) +
         (active.latestSample?.rideState === 'riding' ? this.state.settings.ridingPersistIntervalMs : 0),
       rideState: 'riding' as const,
       packageState: 'running' as const,

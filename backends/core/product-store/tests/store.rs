@@ -189,7 +189,7 @@ fn unknown_future_or_malformed_markers_preserve_every_file() {
         b"16",
         b"27",
         b"99",
-        b"101",
+        b"102",
         b"garbage",
         b"100\nx",
         &[255],
@@ -267,7 +267,7 @@ fn interrupted_development_reset_finishes_and_baseline_never_resets_again() {
         assert_eq!(root.open().settings().unwrap(), value);
         assert_eq!(
             fs::read_to_string(root.0.join(".schema-version")).unwrap(),
-            "100"
+            float_view_product_store::STORAGE_VERSION
         );
     }
     // No catalog remains after interruption, but the old marker still authorizes completion.
@@ -333,7 +333,7 @@ fn interrupted_empty_initialization_retries_without_a_version_reset() {
     drop(root.open());
     assert_eq!(
         fs::read_to_string(root.0.join(".schema-version")).unwrap(),
-        "100"
+        float_view_product_store::STORAGE_VERSION
     );
     assert!(!root.0.join(".schema-version.tmp").exists());
 }
@@ -1337,4 +1337,21 @@ fn forgetting_selected_board_clears_selection_in_the_same_transaction() {
     let settings = store.settings().unwrap();
     assert_eq!(settings.revision, selected.revision + 1);
     assert_eq!(settings.auto_connect_saved_device_id, None);
+}
+
+#[test]
+fn committed_baseline_upgrade_retries_marker_publication_without_data_loss() {
+    let root = Root::new();
+    let mut store = root.open();
+    let settings = store
+        .update_settings(0, r#"{"minimumSessionDistance":73}"#)
+        .unwrap();
+    drop(store);
+    // The catalog transaction committed, then the process stopped before marker rename.
+    fs::write(root.0.join(".schema-version"), "100").unwrap();
+    assert_eq!(root.open().settings().unwrap(), settings);
+    assert_eq!(
+        fs::read_to_string(root.0.join(".schema-version")).unwrap(),
+        float_view_product_store::STORAGE_VERSION
+    );
 }

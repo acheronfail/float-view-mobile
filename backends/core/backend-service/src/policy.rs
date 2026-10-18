@@ -27,6 +27,7 @@ pub(crate) struct Connection {
     pub session: Option<Session>,
     pub session_storage_bytes: Option<u64>,
     pub session_start: Option<u64>,
+    pub session_elapsed_offset: u64,
     pub continuity: c::discovery::Continuity,
     pub package_version: Option<String>,
     pub latest: Option<telemetry::NormalizedSample>,
@@ -41,6 +42,7 @@ pub(crate) struct Connection {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Timer {
+    RideResume,
     Speech,
     Deadline(c::scheduler::DeadlineToken),
     Kernel(c::TimerToken),
@@ -60,6 +62,7 @@ pub(crate) struct TimerEntry {
 pub(crate) struct Capture {
     pub id: u64,
     pub start: u64,
+    pub offset: u64,
 }
 #[derive(PartialEq)]
 struct HostStatus(bool, bool, String, Option<String>, Vec<String>, bool);
@@ -78,6 +81,7 @@ pub(crate) struct Policy {
     pub foreground_observed: bool,
     pub auto_connect: crate::auto_connect::Opportunity,
     pub active: Option<Connection>,
+    pub ride: Option<float_view_product_store::RideCheckpoint>,
     pub timers: BTreeMap<u64, TimerEntry>,
     pub location_authorization: os::LocationAuthorization,
     pub location_background: bool,
@@ -110,6 +114,7 @@ impl Policy {
             foreground_observed: false,
             auto_connect: crate::auto_connect::Opportunity::Closed,
             active: None,
+            ride: None,
             timers: BTreeMap::new(),
             location_authorization: os::LocationAuthorization::Unavailable,
             location_background: false,
@@ -241,6 +246,8 @@ impl BackendService {
         self.policy.exchange.sequence = envelope.sequence;
         self.policy.exchange.now = envelope.monotonic_ms;
         self.policy.exchange.epoch = envelope.epoch_ms;
+        self.expire_paused_ride()?;
+        self.sync_ride_timer()?;
         let now = envelope.monotonic_ms;
         let epoch = envelope.epoch_ms;
         self.diagnostics.generation = self.policy.active.as_ref().map_or(0, |a| a.generation);
@@ -629,7 +636,9 @@ impl BackendService {
                 observed_at_ms,
             } => {
                 if let Some(capture) = self.policy.capture.as_ref().filter(|c| c.id == capture_id) {
-                    let elapsed_ms = envelope.monotonic_ms.saturating_sub(capture.start);
+                    let elapsed_ms = capture
+                        .offset
+                        .saturating_add(envelope.monotonic_ms.saturating_sub(capture.start));
                     self.runtime_command(Command::AppendLocations(vec![
                         session::LocationObservation {
                             observed_at_epoch_ms: observed_at_ms,
@@ -812,6 +821,19 @@ impl BackendService {
         } else {
             None
         };
+        if let Some(ride) = self
+            .policy
+            .ride
+            .as_ref()
+            .filter(|r| r.paused_at_ms.is_some())
+            .cloned()
+            && (!saved
+                || board
+                    .as_ref()
+                    .is_none_or(|b| b.saved_device_id != ride.saved_device_id))
+        {
+            self.finish_paused_ride(&ride.session_id, "different_board")?;
+        }
         self.stop_scan();
         let generation = self.policy.exchange.id()?;
         self.policy.active = Some(Connection {
@@ -823,6 +845,7 @@ impl BackendService {
             session: None,
             session_storage_bytes: None,
             session_start: None,
+            session_elapsed_offset: 0,
             continuity: c::discovery::Continuity::default(),
             refloat_draft_key: None,
             package_version: None,
@@ -897,9 +920,12 @@ impl BackendService {
         let generation = a.generation;
         self.policy.ble.clear();
         self.policy.exchange.clear_connection(generation);
-        self.policy
-            .timers
-            .retain(|_, t| matches!(t.kind, Timer::Request(_) | Timer::Discovery | Timer::Speech));
+        self.policy.timers.retain(|_, t| {
+            matches!(
+                t.kind,
+                Timer::Request(_) | Timer::Discovery | Timer::Speech | Timer::RideResume
+            )
+        });
         self.policy.capture = None;
         if self.runtime.snapshot().session_attached {
             self.runtime
@@ -909,9 +935,28 @@ impl BackendService {
         self.diagnostics
             .finish(self.policy.exchange.now, self.policy.exchange.epoch);
         if let Some(session) = self.policy.active.as_ref().and_then(|a| a.session.as_ref()) {
-            self.store
-                .close_session(&session.session_id, self.policy.exchange.epoch, reason)
-                .map_err(crate::store_failure)?;
+            if matches!(
+                reason,
+                "explicit_disconnect"
+                    | "native_stop_requested"
+                    | "controller_shutdown"
+                    | "service_shutdown"
+                    | "reconnect_timeout"
+            ) && self.policy.ride.is_some()
+            {
+                self.store
+                    .pause_ride(self.policy.exchange.epoch)
+                    .map_err(crate::store_failure)?;
+            } else {
+                self.store
+                    .close_session(
+                        &session.session_id,
+                        self.policy.exchange.epoch.max(session.started_at_ms),
+                        reason,
+                    )
+                    .map_err(crate::store_failure)?;
+            }
+            self.policy.ride = self.store.ride_checkpoint().map_err(crate::store_failure)?;
         }
         self.runtime
             .apply(Command::Application(c::Command::Reset {
@@ -920,6 +965,7 @@ impl BackendService {
             .map_err(|_| Failure::Internal)?;
         self.policy.active = None;
         self.policy.latest_location = None;
+        self.sync_ride_timer()?;
         self.refresh_boards().map_err(crate::store_failure)?;
         self.changed()
     }
@@ -938,6 +984,13 @@ impl BackendService {
             return Ok(());
         };
         a.battery.reconnect();
+        self.runtime.mark_recording_gap();
+        if a.session.is_some() {
+            self.store
+                .pause_ride(self.policy.exchange.epoch)
+                .map_err(crate::store_failure)?;
+            self.policy.ride = self.store.ride_checkpoint().map_err(crate::store_failure)?;
+        }
         if a.reconnect_started.is_none() {
             a.reconnect_started = Some(self.policy.exchange.now);
         }
@@ -952,9 +1005,12 @@ impl BackendService {
         self.policy.ble.clear();
         a.state = LinkState::Disconnected;
         self.policy.exchange.clear_connection(a.generation);
-        self.policy
-            .timers
-            .retain(|_, t| matches!(t.kind, Timer::Request(_) | Timer::Discovery | Timer::Speech));
+        self.policy.timers.retain(|_, t| {
+            matches!(
+                t.kind,
+                Timer::Request(_) | Timer::Discovery | Timer::Speech | Timer::RideResume
+            )
+        });
         self.policy.capture = None;
         let delay = (1_000u64 << a.reconnect_attempt.min(5))
             .min(30_000)
@@ -989,7 +1045,10 @@ impl BackendService {
         self.policy.exchange.push(Effect::ArmTimer {
             id,
             delay_ms,
-            connection: !matches!(kind, Timer::Request(_) | Timer::Discovery | Timer::Speech),
+            connection: !matches!(
+                kind,
+                Timer::Request(_) | Timer::Discovery | Timer::Speech | Timer::RideResume
+            ),
         })
     }
     pub(crate) fn cancel_timer(&mut self, kind: Timer) {
@@ -1016,13 +1075,14 @@ impl BackendService {
                 delay_ms,
                 connection: !matches!(
                     timer.kind,
-                    Timer::Request(_) | Timer::Discovery | Timer::Speech
+                    Timer::Request(_) | Timer::Discovery | Timer::Speech | Timer::RideResume
                 ),
             })?;
             self.policy.timers.insert(id, timer);
             return Ok(());
         }
         match timer.kind {
+            Timer::RideResume => self.expire_paused_ride()?,
             Timer::Speech => self.step_announcements()?,
             Timer::Request(request) => {
                 if let Some(p) = self.pending.get(&request) {
@@ -1476,8 +1536,41 @@ impl BackendService {
                     )
                     .map_err(crate::store_failure)?;
             }
+            let resume = self
+                .policy
+                .ride
+                .as_ref()
+                .filter(|r| r.paused_at_ms.is_some())
+                .cloned();
+            if let Some(ride) = resume.as_ref() {
+                if ride.saved_device_id == board.saved_device_id
+                    && ride.controller_uuid == facts.selected.identity.controller_uuid
+                {
+                    a.session = Some(
+                        self.store
+                            .session(&ride.session_id)
+                            .map_err(crate::store_failure)?,
+                    );
+                } else {
+                    if self.runtime.snapshot().session_attached {
+                        self.runtime
+                            .apply(Command::DetachSession)
+                            .map_err(|_| Failure::Internal)?;
+                    }
+                    self.store
+                        .close_session(
+                            &ride.session_id,
+                            self.policy.exchange.epoch,
+                            "different_controller",
+                        )
+                        .map_err(crate::store_failure)?;
+                    self.policy.ride = None;
+                    a.session = None;
+                }
+            }
             if a.session.is_none() {
                 a.session_start = Some(self.policy.exchange.now);
+                a.session_elapsed_offset = 0;
                 a.session = Some(
                     self.store
                         .create_session(
@@ -1514,6 +1607,41 @@ impl BackendService {
                     })
                     .map_err(|_| Failure::Internal)?;
             }
+            let session = a.session.as_ref().ok_or(Failure::Internal)?;
+            if resume
+                .as_ref()
+                .is_some_and(|r| r.session_id == session.session_id)
+            {
+                let elapsed = session.committed_elapsed_ms.max(
+                    self.policy
+                        .exchange
+                        .epoch
+                        .saturating_sub(session.started_at_ms)
+                        .max(0) as u64,
+                );
+                a.session_start = Some(self.policy.exchange.now);
+                a.session_elapsed_offset = elapsed;
+                self.runtime.restore_recording(
+                    self.policy.exchange.now,
+                    elapsed,
+                    session.committed_sequence,
+                    session.riding_elapsed_ms,
+                );
+            }
+            a.continuity = c::discovery::Continuity::new(
+                true,
+                Some(facts.selected.route),
+                Some(facts.selected.identity.controller_uuid),
+            );
+            self.store
+                .own_ride(
+                    &session.session_id,
+                    &board.saved_device_id,
+                    facts.selected.identity.controller_uuid,
+                    self.policy.settings.ride_resume_window_minutes,
+                )
+                .map_err(crate::store_failure)?;
+            self.policy.ride = self.store.ride_checkpoint().map_err(crate::store_failure)?;
         }
         self.diagnostics.metadata(self.policy.exchange.now,self.policy.exchange.epoch,serde_json::json!({
             "firmware_major":facts.selected.identity.major,"firmware_minor":facts.selected.identity.minor,"package":facts.refloat_version.to_string(),"hardware":facts.selected.identity.hardware_name,"route":if facts.selected.route.can_id().is_some(){"can"}else{"direct"},
@@ -1527,6 +1655,7 @@ impl BackendService {
             true,
         );
         a.package_version = Some(facts.refloat_version.to_string());
+        self.cancel_timer(Timer::RideResume);
         self.refresh_boards().map_err(crate::store_failure)?;
         let cached = facts
             .configuration_cache_identity
@@ -1572,7 +1701,12 @@ impl BackendService {
                 .as_ref()
                 .and_then(|a| a.session_start)
                 .ok_or(Failure::InvalidState)?;
-            self.policy.capture = Some(Capture { id, start });
+            let offset = self
+                .policy
+                .active
+                .as_ref()
+                .map_or(0, |a| a.session_elapsed_offset);
+            self.policy.capture = Some(Capture { id, start, offset });
             self.policy
                 .exchange
                 .push(Effect::StartLocation { capture_id: id })?;
@@ -1737,20 +1871,28 @@ mod tests {
             while !self.service.drain_os().effects.is_empty() {}
         }
         fn discover(&mut self) {
+            let base = self.service.policy.exchange.now.max(
+                self.service
+                    .policy
+                    .ride
+                    .as_ref()
+                    .and_then(|r| r.paused_at_ms)
+                    .map_or(0, |v| v.saturating_sub(1_700_000_000_000).max(0) as u64),
+            );
             self.fact(
                 Fact::Bluetooth {
                     radio: Radio::PoweredOn,
                     scan: Permission::Granted,
                     connect: Permission::Granted,
                 },
-                1,
+                base + 1,
             )
             .unwrap();
             self.fact(
                 Fact::Storage {
                     available_bytes: 1_000_000_000,
                 },
-                2,
+                base + 2,
             )
             .unwrap();
             let scan_id = self.service.start_scan(10_000).unwrap();
@@ -1762,7 +1904,7 @@ mod tests {
                     name: Some("Board".into()),
                     rssi: Some(-40),
                 },
-                3,
+                base + 3,
             )
             .unwrap();
             self.drain();
@@ -1776,7 +1918,7 @@ mod tests {
                     generation,
                     state: LinkState::Ready,
                 },
-                4,
+                self.service.policy.exchange.now + 1,
             )
             .unwrap();
             self.identify();
@@ -3057,6 +3199,141 @@ mod tests {
         }
     }
 
+    #[test]
+    fn resume_expiry_does_not_shorten_bluetooth_retries() {
+        let mut t = Test::new();
+        t.activate(true);
+        t.service.policy.settings = t
+            .service
+            .store
+            .update_settings(0, r#"{"rideResumeWindowMinutes":1}"#)
+            .unwrap();
+        t.service.reconnect().unwrap();
+        let id = t.service.policy.ride.as_ref().unwrap().session_id.clone();
+        let deadline = t
+            .service
+            .policy
+            .ride
+            .as_ref()
+            .unwrap()
+            .resume_until_ms
+            .unwrap();
+        t.fact(
+            Fact::Storage {
+                available_bytes: 1_000_000_000,
+            },
+            (deadline - 1_700_000_000_000) as u64,
+        )
+        .unwrap();
+        assert!(t.service.policy.ride.is_none());
+        assert!(t.service.policy.active.as_ref().unwrap().session.is_none());
+        assert!(
+            t.service
+                .policy
+                .active
+                .as_ref()
+                .unwrap()
+                .reconnect_started
+                .is_some()
+        );
+        assert!(
+            t.service
+                .policy
+                .timers
+                .values()
+                .any(|timer| timer.kind == Timer::Reconnect)
+        );
+        assert!(matches!(
+            t.service.store.session(&id),
+            Err(float_view_product_store::Error::NotFound)
+        ));
+    }
+    #[test]
+    fn explicit_pause_resume_restart_and_end_keep_one_ride() {
+        let mut t = Test::new();
+        t.activate(true);
+        let id = t.service.policy.ride.as_ref().unwrap().session_id.clone();
+        t.service.disconnect("explicit_disconnect").unwrap();
+        assert!(t.service.policy.active.is_none());
+        assert_eq!(
+            t.service
+                .published_snapshot()
+                .paused_ride
+                .unwrap()
+                .session_id,
+            id
+        );
+        // Replacing the shared owner leaves the paused ride recoverable.
+        let old = std::mem::replace(
+            &mut t.service,
+            BackendService::open(&{
+                let path = t.root.with_extension("replacement");
+                std::fs::create_dir(&path).unwrap();
+                path
+            })
+            .unwrap(),
+        );
+        drop(old);
+        t.service = BackendService::open(&t.root).unwrap();
+        t.activate(true);
+        assert_eq!(
+            t.service
+                .policy
+                .active
+                .as_ref()
+                .unwrap()
+                .session
+                .as_ref()
+                .unwrap()
+                .session_id,
+            id
+        );
+        assert!(t.service.published_snapshot().paused_ride.is_none());
+        t.service.end_ride(&id).unwrap();
+        assert!(t.service.policy.active.is_none());
+        assert!(t.service.policy.ride.is_none());
+        assert!(matches!(
+            t.service.end_ride(&id),
+            Err(Failure::InvalidState)
+        ));
+        std::fs::remove_dir_all(t.root.with_extension("replacement")).unwrap();
+    }
+    #[test]
+    fn pause_expiry_and_wrong_controller_do_not_resume_old_recording() {
+        let mut t = Test::new();
+        t.activate(true);
+        let id = t.service.policy.ride.as_ref().unwrap().session_id.clone();
+        t.service.disconnect("explicit_disconnect").unwrap();
+        let deadline = t
+            .service
+            .policy
+            .ride
+            .as_ref()
+            .unwrap()
+            .resume_until_ms
+            .unwrap();
+        t.service.policy.exchange.epoch = deadline;
+        t.service.expire_paused_ride().unwrap();
+        assert!(t.service.policy.ride.is_none());
+        t.activate(true);
+        assert_ne!(t.service.policy.ride.as_ref().unwrap().session_id, id);
+        t.service.disconnect("explicit_disconnect").unwrap();
+        let r = t.service.policy.ride.clone().unwrap();
+        // A different controller at the same Bluetooth endpoint cannot inherit the ride.
+        let db = rusqlite::Connection::open(t.root.join("catalog.sqlite")).unwrap();
+        db.execute(
+            "UPDATE ride_checkpoint SET controller_uuid=?",
+            [&[8u8; 12][..]],
+        )
+        .unwrap();
+        drop(db);
+        t.service.policy.ride = t.service.store.ride_checkpoint().unwrap();
+        t.activate(true);
+        assert_ne!(
+            t.service.policy.ride.as_ref().unwrap().session_id,
+            r.session_id
+        );
+    }
     #[test]
     fn reconnect_preserves_session_identity_and_old_timer_cannot_disconnect_new_connection() {
         let mut t = Test::new();

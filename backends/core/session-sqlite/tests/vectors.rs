@@ -460,3 +460,133 @@ fn scalar(database: &Connection, sql: &str) -> i64 {
         .query_row(sql, [], |row| row.get(0))
         .expect("scalar")
 }
+
+#[test]
+fn explicit_recording_boundary_excludes_offline_time_and_distance_after_reopen() {
+    use float_view_session_history_kernel::GapPolicy;
+    use float_view_session_sqlite::{PublishedBoundary, SessionReader};
+    let directory = TestDirectory::new();
+    let path = directory.file("ride.sqlite");
+    let mut writer = SessionWriter::create(&path, metadata()).unwrap();
+    let moving = |sequence, elapsed| {
+        let mut s = sample(sequence, elapsed);
+        s.ride_state = RideState::Riding;
+        s.speed_kph = Some(36.);
+        s
+    };
+    writer
+        .append_samples(&[moving(1, 0), moving(2, 1000)])
+        .unwrap();
+    writer.mark_recording_gap();
+    let marker = writer
+        .append_samples(&[moving(3, 3_601_000), moving(4, 3_602_000)])
+        .unwrap();
+    assert_eq!(marker.riding_elapsed_ms, 2000);
+    assert_eq!(marker.distance_m, Some(20.));
+    writer.close().unwrap();
+    let mut reader = SessionReader::open(&path).unwrap();
+    let series = reader
+        .reduce_series(
+            &["speedKph".into()],
+            0,
+            3_602_000,
+            100,
+            GapPolicy::ExplicitMilliseconds(3_600_000),
+            PublishedBoundary::from(&marker),
+        )
+        .unwrap();
+    assert_eq!(series.columns[0].generations.first(), Some(&0));
+    assert_eq!(series.columns[0].generations.last(), Some(&1));
+    drop(reader);
+    // Force the existing out-of-order recomputation path to agree with incremental summaries.
+    let mut writer = SessionWriter::open(&path).unwrap();
+    let recomputed = writer.append_samples(&[moving(5, 500)]).unwrap();
+    assert_eq!(recomputed.riding_elapsed_ms, 2000);
+    assert_eq!(recomputed.distance_m, Some(20.));
+}
+
+#[test]
+fn short_recording_gap_survives_gps_pagination_and_pruning() {
+    use float_view_session_history_kernel::GapPolicy;
+    use float_view_session_sqlite::{PublishedBoundary, SessionPruner, SessionReader};
+    let directory = TestDirectory::new();
+    let path = directory.file("short-gap.sqlite");
+    let mut writer = SessionWriter::create(&path, metadata()).unwrap();
+    let sample = |seq, elapsed| {
+        let mut s = sample(seq, elapsed);
+        s.speed_kph = Some(36.);
+        s
+    };
+    writer
+        .append_samples(&[sample(1, 0), sample(2, 1000)])
+        .unwrap();
+    writer.mark_recording_gap();
+    writer
+        .append_samples(&[sample(3, 1100), sample(4, 2000)])
+        .unwrap();
+    let marker = writer
+        .append_locations(&[
+            LocationObservation {
+                observed_at_epoch_ms: 1_001_000,
+                elapsed_ms: 1000,
+                latitude: 1.,
+                longitude: 1.,
+                accuracy_m: None,
+            },
+            LocationObservation {
+                observed_at_epoch_ms: 1_001_100,
+                elapsed_ms: 1100,
+                latitude: 1.001,
+                longitude: 1.001,
+                accuracy_m: None,
+            },
+        ])
+        .unwrap();
+    writer.close().unwrap();
+    let mut reader = SessionReader::open(&path).unwrap();
+    let page = reader
+        .location_page(0, 2000, 1, None, PublishedBoundary::from(&marker))
+        .unwrap();
+    let next = reader
+        .location_page(
+            0,
+            2000,
+            1,
+            page.next_location_sequence,
+            PublishedBoundary::from(&marker),
+        )
+        .unwrap();
+    assert_eq!(next.gaps.len(), 1);
+    assert_eq!(next.gaps[0].start_elapsed_ms, 1000);
+    assert_eq!(next.gaps[0].end_elapsed_ms, 1100);
+    drop(reader);
+    let mut pruner = SessionPruner::open(&path).unwrap();
+    let plan = pruner.preview(10).unwrap();
+    pruner.commit(plan, 1_002_001).unwrap();
+    drop(pruner);
+    let db = Connection::open(&path).unwrap();
+    for seq in [2, 3] {
+        assert!(
+            db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sample WHERE sequence=?)",
+                [seq],
+                |r| r.get::<_, bool>(0)
+            )
+            .unwrap()
+        );
+    }
+    drop(db);
+    let mut reader = SessionReader::open(&path).unwrap();
+    let marker = reader.marker().unwrap();
+    let series = reader
+        .reduce_series(
+            &["speedKph".into()],
+            0,
+            2000,
+            10,
+            GapPolicy::ExplicitMilliseconds(3_600_000),
+            PublishedBoundary::from(&marker),
+        )
+        .unwrap();
+    assert!(series.columns[0].generations.last() > series.columns[0].generations.first());
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PausedRide from '$lib/features/sessions/PausedRide.svelte';
   import { createMotion } from '$lib/ui/motion';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
@@ -157,6 +158,7 @@
 </AppHeaderSubtitle>
 
 <section aria-label="VESC devices" class="flex flex-col gap-4 py-2">
+  {#if backendState.snapshot?.pausedRide}<PausedRide ride={backendState.snapshot.pausedRide} />{/if}
   {#if backendState.status === 'connected'}
     {#if notice}
       <div role="status" class="rounded-lg border border-outline bg-elevated p-4">

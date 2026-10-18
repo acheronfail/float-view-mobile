@@ -122,7 +122,7 @@ fn inspect_storage(root: &Path) -> Result<StorageAction> {
     }
     let text = read_marker(&marker)?;
     match text.as_deref().map(str::trim) {
-        Some(STORAGE_VERSION) => {
+        Some(STORAGE_VERSION | "100") => {
             // A missing catalog beside recordings is corruption, not a new root.
             if !root.join("catalog.sqlite").try_exists()? && !initialization_only(root, true)? {
                 return Err(Error::Corrupt);
@@ -162,7 +162,10 @@ fn initialization_only(root: &Path, marked: bool) -> Result<bool> {
             }
             ".schema-version" if marked => {}
             ".schema-version.tmp" => {
-                if read_marker(&entry.path())?.as_deref() != Some(STORAGE_VERSION) {
+                if !matches!(
+                    read_marker(&entry.path())?.as_deref(),
+                    Some(STORAGE_VERSION | "100")
+                ) {
                     return Ok(false);
                 }
             }
@@ -172,7 +175,7 @@ fn initialization_only(root: &Path, marked: bool) -> Result<bool> {
     Ok(true)
 }
 
-fn write_marker(root: &Path) -> Result<()> {
+pub(crate) fn write_marker(root: &Path) -> Result<()> {
     let temporary = root.join(".schema-version.tmp");
     if temporary.symlink_metadata().is_ok() {
         require_kind(&temporary, false)?;
@@ -293,8 +296,14 @@ pub(crate) fn validate_catalog(catalog: &Connection, fresh: bool) -> Result<()> 
     if catalog.query_row("PRAGMA quick_check(1)", [], |r| r.get::<_, String>(0))? != "ok" {
         return Err(Error::Corrupt);
     }
+    validate_catalog_shape(catalog, fresh, false)
+}
+fn validate_catalog_shape(catalog: &Connection, fresh: bool, baseline: bool) -> Result<()> {
     let expected = Connection::open_in_memory()?;
     expected.execute_batch(CATALOG_SCHEMA)?;
+    if baseline {
+        expected.execute_batch("DROP TABLE ride_checkpoint")?;
+    }
     fn schema(db: &Connection) -> Result<Vec<(String, String, String)>> {
         let mut statement = db.prepare("SELECT type,name,COALESCE(sql,'') FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name LIMIT 65")?;
         let rows = statement
@@ -339,4 +348,33 @@ pub(crate) fn owned_session_temporary(name: &str) -> bool {
         && !sequence.is_empty()
         && pid.bytes().all(|b| b.is_ascii_digit())
         && sequence.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// The sole published transition: additive catalog ownership, followed by marker publication.
+/// An interrupted marker publication accepts only the exact committed new schema.
+pub(crate) fn upgrade_baseline(root: &Path, catalog: &Connection, fresh: bool) -> Result<()> {
+    if read_marker(&root.join(".schema-version"))?
+        .as_deref()
+        .map(str::trim)
+        != Some("100")
+    {
+        return Ok(());
+    }
+    if !fresh && validate_catalog(catalog, false).is_err() {
+        if catalog.query_row("PRAGMA quick_check(1)", [], |r| r.get::<_, String>(0))? != "ok" {
+            return Err(Error::Corrupt);
+        }
+        validate_catalog_shape(catalog, false, true)?;
+        catalog.execute_batch("BEGIN IMMEDIATE")?;
+        let start = CATALOG_SCHEMA
+            .find("CREATE TABLE IF NOT EXISTS ride_checkpoint")
+            .ok_or(Error::Corrupt)?;
+        let result = catalog.execute_batch(&CATALOG_SCHEMA[start..]);
+        if let Err(error) = result {
+            let _ = catalog.execute_batch("ROLLBACK");
+            return Err(error.into());
+        }
+        catalog.execute_batch("COMMIT")?;
+    }
+    write_marker(root)
 }

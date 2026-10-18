@@ -16,6 +16,8 @@ pub use archive::{ArchiveExport, ArchiveImport, ExportFormat};
 pub use files::{FileCancellation, ImportSink, StagedFile};
 mod cache;
 mod lifecycle;
+mod ride;
+pub use ride::RideCheckpoint;
 mod maintenance;
 pub use maintenance::{
     Maintenance, MaintenanceCancellation, MaintenanceCompletion, MaintenanceWork,
@@ -36,7 +38,7 @@ pub use tunes::{
     Tune, TuneIdentity, TunePage, TuneValue, TuneValues, is_tune_field, validate_tune_values,
 };
 
-pub const STORAGE_VERSION: &str = "100";
+pub const STORAGE_VERSION: &str = "101";
 pub const CATALOG_SCHEMA: &str = include_str!("../../../sql/catalog.sql");
 
 /// Errors intentionally exclude SQL, paths, identifiers and other private data.
@@ -101,6 +103,7 @@ impl ProductStore {
         let catalog = Connection::open(root.join("catalog.sqlite"))?;
         catalog.busy_timeout(std::time::Duration::from_millis(limits::SQLITE_BUSY_MS))?;
         catalog.pragma_update(None, "trusted_schema", false)?;
+        root::upgrade_baseline(&root, &catalog, fresh)?;
         // Validate existing storage before CREATE IF NOT EXISTS can mask drift.
         root::validate_catalog(&catalog, fresh)?;
         catalog.execute_batch(CATALOG_SCHEMA)?;

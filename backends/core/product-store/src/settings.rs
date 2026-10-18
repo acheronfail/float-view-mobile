@@ -16,6 +16,8 @@ pub struct Settings {
     pub riding_persist_interval_ms: u64,
     pub post_ride_tail_ms: u64,
     pub reconnect_duration_ms: u64,
+    #[serde(default = "default_resume_window")]
+    pub ride_resume_window_minutes: u64,
     pub minimum_session_distance: f64,
     pub theme_preference: String,
     pub accent_preference: String,
@@ -81,6 +83,7 @@ impl Default for Settings {
             riding_persist_interval_ms: 100,
             post_ride_tail_ms: 5_000,
             reconnect_duration_ms: 300_000,
+            ride_resume_window_minutes: default_resume_window(),
             minimum_session_distance: 100.,
             theme_preference: "system".into(),
             accent_preference: "purple".into(),
@@ -141,6 +144,8 @@ impl ProductStore {
                 "ridingPersistIntervalMs" => clamp_integer(&mut value, 50, 10_000)?,
                 "postRideTailMs" => clamp_integer(&mut value, 0, 300_000)?,
                 "reconnectDurationMs" => clamp_integer(&mut value, 0, 3_600_000)?,
+                "rideResumeWindowMinutes"
+                    if value.as_u64().is_some_and(|v| (1..=1440).contains(&v)) => {}
                 "minimumSessionDistance" => clamp_float(&mut value, 0., 1_000_000.)?,
                 "historyGapThresholdSeconds" if value.is_null() => {}
                 "historyGapThresholdSeconds" => clamp_float(&mut value, 0.1, 3_600.)?,
@@ -198,6 +203,7 @@ pub(crate) fn read(db: &rusqlite::Connection) -> Result<Settings> {
         || !(50..=10_000).contains(&value.riding_persist_interval_ms)
         || value.post_ride_tail_ms > 300_000
         || value.reconnect_duration_ms > 3_600_000
+        || !(1..=1440).contains(&value.ride_resume_window_minutes)
         || !value.minimum_session_distance.is_finite()
         || !(0.0..=1_000_000.0).contains(&value.minimum_session_distance)
         || !matches!(
@@ -299,4 +305,8 @@ pub(crate) fn valid_live_widget_slots(value: &Value) -> bool {
                 .iter()
                 .all(|v| v.as_str().is_some_and(|v| LIVE_WIDGET_FIELDS.contains(&v)))
     })
+}
+
+fn default_resume_window() -> u64 {
+    60
 }
