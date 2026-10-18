@@ -67,6 +67,10 @@ fn late_fast_reply_does_not_consume_pending_distance_request() {
         60,
     );
     receive(&mut coordinator, selectable_fast_payload(), 70);
+    receive(&mut coordinator, selectable_fast_payload(), 71);
+    receive(&mut coordinator, empty_alert_history(), 72);
+    receive(&mut coordinator, selectable_fast_payload(), 73);
+    receive(&mut coordinator, vec![62], 74);
     let generation = coordinator.snapshot().generation;
     coordinator
         .apply(Command::Refresh {
@@ -89,12 +93,8 @@ fn late_fast_reply_does_not_consume_pending_distance_request() {
     payload[24..28].copy_from_slice(&42.5_f32.to_be_bytes());
     let late_slow = payload.clone();
     receive(&mut coordinator, payload, 1_112);
-    receive(
-        &mut coordinator,
-        selectable_fixture("1.3.0-command-10-mode-0-normal"),
-        1_113,
-    );
-    receive(&mut coordinator, vec![62], 1_114);
+    receive(&mut coordinator, empty_alert_history(), 1_113);
+    receive(&mut coordinator, selectable_fast_payload(), 1_114);
     coordinator
         .apply(Command::Refresh {
             generation,
@@ -118,6 +118,10 @@ fn late_fast_reply_does_not_consume_pending_distance_request() {
     assert_eq!(sample.distance_m, Some(42.5));
     assert_eq!(sample.odometer_m, Some(12345.0));
     assert!(sample.slow_observed_at_epoch_ms.is_some());
+}
+
+fn empty_alert_history() -> Vec<u8> {
+    vec![36, 101, 35, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 }
 
 fn ready_configuration() -> (ConnectionApplicationCoordinator, TimerToken) {
@@ -162,7 +166,10 @@ fn ready_configuration() -> (ConnectionApplicationCoordinator, TimerToken) {
         65,
     );
     assert_eq!(write(&telemetry_request).payload, [36, 101, 31]);
-    let bms_request = receive(&mut coordinator, dynamic_idle_payload(), 70);
+    let history_request = receive(&mut coordinator, dynamic_idle_payload(), 70);
+    assert_eq!(write(&history_request).payload, [36, 101, 35, 0, 0, 0, 0]);
+    receive(&mut coordinator, empty_alert_history(), 71);
+    let bms_request = receive(&mut coordinator, dynamic_idle_payload(), 72);
     assert_eq!(write(&bms_request).payload, [62]);
     receive(&mut coordinator, vec![62], 80);
 
@@ -409,6 +416,7 @@ fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
             }
             93 => configuration_current_response_1_3_0(),
             14 => current_limits_payload(0x2EFD_0142, Some(15)),
+            36 if payload.get(2) == Some(&35) => empty_alert_history(),
             36 if payload.get(2) == Some(&33) => {
                 if payload.get(3) == Some(&1) {
                     selectable_fast_payload()

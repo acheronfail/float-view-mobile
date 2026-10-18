@@ -14,6 +14,18 @@ import { encodeFrame, FrameAssembler } from '../fixture/frame.ts';
 import { VescSimulator } from '../fixture/simulator.ts';
 import { idleTelemetry } from '../fixture/telemetry.ts';
 
+test('Refloat history returns transient faults after the active fault clears', () => {
+  const model = new RefloatControlModel('1.3.0');
+  model.recordFirmwareFault(4);
+  model.recordFirmwareFault(0);
+  const response = model.alertsResponse(Uint8Array.of(36, 101, 35, 0, 0, 0, 0))!;
+  assert.equal(response[11], 0, 'fault is no longer active');
+  assert.equal(response[12], 2, 'both start and end survive');
+  assert.deepEqual([...response.slice(13)], [0, 0, 0, 1, 1, 1, 4, 0, 0, 0, 0, 2, 1, 0, 0]);
+  assert.equal(model.state.fatalErrorLatched, true);
+  assert.equal(new RefloatControlModel('1.1.2').alertsResponse(Uint8Array.of(36, 101, 35, 0, 0, 0, 0)), undefined);
+});
+
 interface GoldenCase {
   name: string;
   version: RefloatVersion;

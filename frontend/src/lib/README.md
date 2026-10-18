@@ -49,6 +49,14 @@ snapshot preserve it without a catalog schema or storage marker change.
 
 ## Telemetry presentation
 
+Live telemetry exposes the fatal error latch separately from an active VESC
+firmware fault. A danger overlay over the gauge names the active or most recently
+recovered fault while the latch remains set, including an unknown raw fault code.
+Clearing an active fault alone does not remove a latched warning. The retained
+last beep reason alone never creates this overlay. Detailed telemetry shows the
+latch and last recovered fault too. Apple and Android receive these fields through
+the same shared Rust snapshot projection and existing C/JNI host bindings.
+
 The shared frontend consumes the stable normalized contract without Apple or
 Android branches. Live telemetry groups motion, raw electrical load,
 temperatures, rider input, control contributions, accumulated values, charging,

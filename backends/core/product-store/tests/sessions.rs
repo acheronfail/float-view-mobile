@@ -28,6 +28,51 @@ fn record(store: &ProductStore, id: &str) {
     writer.close().unwrap();
 }
 #[test]
+fn fault_only_sessions_survive_distance_filter_and_restart() {
+    for restart in [false, true] {
+        let (dir, mut store, board) = setup();
+        store
+            .update_settings(
+                store.settings().unwrap().revision,
+                r#"{"minimumSessionDistance":1000}"#,
+            )
+            .unwrap();
+        let s = store.create_session(&board, 1, u64::MAX).unwrap();
+        let mut writer = SessionWriter::open(store.session_path(&s.session_id).unwrap()).unwrap();
+        writer
+            .append_fault_history(
+                &float_view_refloat_telemetry_service::FaultHistoryObservation {
+                    elapsed_ms: 100,
+                    observed_at_epoch_ms: 1_000_100,
+                    records: vec![float_view_refloat_telemetry_service::FaultRecord {
+                        source_ticks: 100,
+                        active: true,
+                        raw_code: 4,
+                    }],
+                },
+            )
+            .unwrap();
+        writer.close().unwrap();
+        if restart {
+            drop(store);
+            store = ProductStore::open(dir.path()).unwrap();
+            assert_eq!(store.session(&s.session_id).unwrap().state, "interrupted");
+        } else {
+            assert!(
+                store
+                    .close_session(&s.session_id, 1_000_200, "disconnect")
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        assert_eq!(
+            store.session(&s.session_id).unwrap().recorded_sample_count,
+            0
+        );
+    }
+}
+
+#[test]
 fn session_snapshots_are_immutable_and_creation_is_storage_gated() {
     let (_dir, mut store, board) = setup();
     assert_eq!(

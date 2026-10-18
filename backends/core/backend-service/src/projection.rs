@@ -413,6 +413,11 @@ pub(crate) fn sample(
         charging: v.charging,
         alert_reason: v.alert_reason.map(camel),
         firmware_fault: v.firmware_fault.map(camel),
+        fatal_error_latched: v.fatal_error_latched,
+        last_firmware_fault: v.last_firmware_fault.map(|fault| f::ReportedFirmwareFault {
+            code: fault.code,
+            reason: camel(fault.reason),
+        }),
         pack_voltage_v: v.pack_voltage_v,
         duty_cycle: v.duty_cycle,
         controller_temp_c: v.controller_temp_c,

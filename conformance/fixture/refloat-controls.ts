@@ -1,4 +1,4 @@
-import type { RefloatVersion } from './refloat.ts';
+import { firmwareFaultCode, type RefloatVersion } from './refloat.ts';
 import type { TelemetrySample } from './telemetry.ts';
 
 export type RefloatBooleanControl = 'package' | 'flywheel' | 'leds' | 'headlights';
@@ -157,6 +157,41 @@ export interface RefloatControlApplication {
 export class RefloatControlModel {
   readonly version: RefloatVersion;
   readonly state: RefloatControlModelState;
+  private faultCode = 0;
+  private faultTicks = 0;
+  private faultHistory: { ticks: number; active: boolean; code: number }[] = [];
+
+  recordFirmwareFault(code: number) {
+    if (!Number.isInteger(code) || code < 0 || code > 255) throw new Error('Invalid fault code');
+    if (code === this.faultCode) return;
+    this.faultCode = code;
+    if (code) this.state.fatalErrorLatched = true;
+    this.faultHistory.push({ ticks: ++this.faultTicks, active: code !== 0, code });
+    this.faultHistory = this.faultHistory.slice(-20);
+  }
+
+  alertsResponse(payload: Uint8Array): Uint8Array | undefined {
+    if (!(this.version.startsWith('1.2.') || this.version === '1.3.0') || payload.length !== 7 || payload[2] !== 35)
+      return;
+    const since = new DataView(payload.buffer, payload.byteOffset, payload.byteLength).getUint32(3, false);
+    const records = this.faultHistory.filter((r) => r.ticks > since);
+    const bytes = [36, 101, 35, 0, 0, 0, this.faultCode ? 1 : 0, 0, 0, 0, 0, this.faultCode];
+    if (this.faultCode) bytes.push(0); // Empty bounded name; app maps the raw code.
+    bytes.push(records.length);
+    for (const r of records) {
+      bytes.push(
+        (r.ticks >>> 24) & 255,
+        (r.ticks >>> 16) & 255,
+        (r.ticks >>> 8) & 255,
+        r.ticks & 255,
+        1,
+        r.active ? 1 : 0,
+        r.code
+      );
+      if (r.code) bytes.push(0);
+    }
+    return Uint8Array.from(bytes);
+  }
 
   constructor(version: RefloatVersion, initial: Partial<RefloatControlModelState> = {}) {
     this.version = version;
@@ -237,6 +272,8 @@ export class RefloatControlModel {
   }
 
   applyToSample(sample: TelemetrySample): TelemetrySample {
+    const fault = this.state.fatalErrorActive ? (sample.firmwareFault ?? 'unknown') : sample.firmwareFault;
+    this.recordFirmwareFault(fault === null ? 0 : firmwareFaultCode(fault));
     return {
       ...sample,
       packageState: this.state.flywheelEnabled

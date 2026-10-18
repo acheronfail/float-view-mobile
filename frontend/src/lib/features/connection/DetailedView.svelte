@@ -92,6 +92,13 @@
         ['Last stop reason', stopReasonLabel(sample?.stopCondition)],
         ['Setpoint adjustment / pushback', telemetryState(sample?.setpointAdjustment)],
         ['Last reported beep reason', beepReasonLabel(sample?.alertReason)],
+        ['Fatal error latched', telemetryFlag(sample?.fatalErrorLatched)],
+        [
+          'Last firmware fault',
+          sample?.lastFirmwareFault
+            ? `${telemetryState(sample.lastFirmwareFault.reason)} (code ${sample.lastFirmwareFault.code})`
+            : 'Unavailable',
+        ],
         [
           'Active firmware fault',
           sample ? (sample.firmwareFault ? telemetryState(sample.firmwareFault) : 'None') : 'Unavailable',

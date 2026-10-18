@@ -21,7 +21,14 @@ export function beepReasonLabel(reason: AlertReason | null | undefined): string 
 
 type StatusSample = Pick<
   LiveSample,
-  'packageState' | 'stopCondition' | 'setpointAdjustment' | 'wheelslip' | 'charging' | 'firmwareFault'
+  | 'packageState'
+  | 'stopCondition'
+  | 'setpointAdjustment'
+  | 'wheelslip'
+  | 'charging'
+  | 'firmwareFault'
+  | 'fatalErrorLatched'
+  | 'lastFirmwareFault'
 >;
 
 export function liveStatus(
@@ -34,9 +41,8 @@ export function liveStatus(
   }
 
   // The firmware retains beep reasons after the beep ends. They cannot establish an active warning.
-  if (sample?.firmwareFault) {
-    return { display: `Firmware fault · ${telemetryState(sample.firmwareFault)}`, safetyStateActive: true };
-  }
+  const fault = firmwareFaultWarning(sample);
+  if (fault) return { display: fault.title, safetyStateActive: true };
   if (charging) return { display: 'Charging', safetyStateActive: false };
 
   if (!sample) return { display: 'Connected', safetyStateActive: false };
@@ -67,5 +73,23 @@ export function liveStatus(
           ? 'Starting up'
           : 'Connected',
     safetyStateActive: false,
+  };
+}
+
+/** A retained beep reason alone cannot establish an active or latched warning. */
+export function firmwareFaultWarning(
+  sample: Pick<LiveSample, 'firmwareFault' | 'fatalErrorLatched' | 'lastFirmwareFault'> | null | undefined
+): { title: string; description: string } | null {
+  if (!sample?.firmwareFault && sample?.fatalErrorLatched !== true) return null;
+  const reason = sample.firmwareFault ?? sample.lastFirmwareFault?.reason;
+  const code = sample.lastFirmwareFault?.code;
+  const label = reason
+    ? telemetryState(reason) + (reason === 'unknown' && code != null ? ` (code ${code})` : '')
+    : 'Reason unavailable';
+  return {
+    title: `Firmware fault · ${label}`,
+    description: sample.firmwareFault
+      ? 'Stop riding and investigate this controller fault.'
+      : 'Fatal error latched. Stop riding and investigate the cause before clearing it.',
   };
 }

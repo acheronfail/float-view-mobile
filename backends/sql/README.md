@@ -31,6 +31,26 @@ lost updates. Raw schemas and device-current snapshots are not stored in this
 table. Shared schema cache files are separate, bounded, digest-verified, and
 disposable.
 
+Refloat 1.2+ fault history is polled through command 35 on the controller's normal
+scheduler route. `firmwareFaultHistory` session events retain each
+fault start/end, the raw VESC code, the normalized reason, and the controller's
+original system ticks. Their ride time and wall time identify retrieval, since
+history may predate connection. `fatalErrorLatched` transitions are stored
+separately from active `firmwareFault` transitions. Fault-bearing sessions survive
+the minimum-distance filter. History is committed through the attached session
+writer as soon as it arrives, independently of the next
+telemetry sample, and survives pruning and archive export/import. These records
+use existing event storage, so the supported schema and archive format stay the
+same. Old recordings contain no newly inferred faults.
+
+History reads overlap the last tick and deduplicate up to the firmware's 20
+records, retaining simultaneous fault start/end events. Reconnect preserves this
+cursor; controller clock rollback or wrap resets it. The firmware buffer can
+overwrite faults during long disconnections, and power cycling clears its
+history before it can be fetched. Unsupported older packages retain active-fault
+sampling only. A session bounds fault history to 10,000 events; reaching the limit
+reports a storage failure rather than silently discarding faults.
+
 ## SQLite scale checks
 
 From `backends/core`, run the opt-in stress tests against isolated temporary,

@@ -8,6 +8,7 @@
 
 use std::fmt::{self, Debug, Formatter};
 
+pub use dynamic::alerts::FaultRecord;
 use float_view_refloat_dynamic_telemetry as dynamic;
 use float_view_refloat_legacy_telemetry as legacy;
 use float_view_vesc_request_scheduler::{
@@ -74,6 +75,7 @@ pub struct Configuration {
     pub route: Route,
     pub family: TelemetryFamily,
     pub selectable_gnss: bool,
+    pub alerts_available: bool,
     pub settings: Settings,
 }
 
@@ -106,6 +108,7 @@ pub enum RequestKind {
     SelectableFast,
     SelectableSlow,
     SelectableFault,
+    Alerts,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -124,6 +127,7 @@ pub enum DecodedTelemetry {
     Dynamic(dynamic::DynamicSample),
     Selectable(dynamic::SelectableSample),
     SelectableFault(Option<legacy::ActiveFirmwareFault>),
+    Alerts(dynamic::alerts::Alerts),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -254,6 +258,33 @@ impl Debug for ExtensionValue {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReportedFirmwareFault {
+    pub code: u8,
+    pub reason: FirmwareFault,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FaultHistoryObservation {
+    /// When history was retrieved on the ride timeline. Source ticks remain in each record.
+    pub elapsed_ms: u64,
+    pub observed_at_epoch_ms: i64,
+    pub records: Vec<dynamic::alerts::FaultRecord>,
+}
+
+pub fn reported_firmware_fault(code: u8) -> Option<ReportedFirmwareFault> {
+    dynamic::alerts::FaultRecord {
+        source_ticks: 0,
+        active: code != 0,
+        raw_code: code,
+    }
+    .fault()
+    .map(|fault| ReportedFirmwareFault {
+        code,
+        reason: map_dynamic_firmware_fault(fault),
+    })
+}
+
 #[derive(Clone, PartialEq)]
 pub struct NormalizedSample {
     pub sequence: u64,
@@ -273,6 +304,7 @@ pub struct NormalizedSample {
     pub alert_reason: Option<AlertReason>,
     pub firmware_fault: Option<FirmwareFault>,
     pub fatal_error_latched: Option<bool>,
+    pub last_firmware_fault: Option<ReportedFirmwareFault>,
     pub pack_voltage_v: Option<f64>,
     pub duty_cycle: Option<f64>,
     pub controller_temp_c: Option<f64>,
@@ -351,6 +383,7 @@ pub enum Effect {
         facts: RequestFacts,
     },
     Publish(Box<NormalizedSample>),
+    PublishFaultHistory(FaultHistoryObservation),
     Failure(Failure),
     Diagnostic(Diagnostic),
 }
@@ -546,6 +579,13 @@ pub struct RefloatTelemetryService {
     latest_compact: Option<SlowCache>,
     selectable_gnss: bool,
     latest_firmware_fault: Option<FirmwareFault>,
+    alerts_available: bool,
+    next_alerts_due_ms: Option<u64>,
+    seen_faults: Vec<dynamic::alerts::FaultRecord>,
+    alerts_since_ticks: u32,
+    last_source_ticks: Option<u32>,
+    last_firmware_fault: Option<ReportedFirmwareFault>,
+    previous_fatal_error_latched: Option<bool>,
     active: bool,
     next_timer_nonce: u64,
 }
@@ -586,6 +626,13 @@ impl Default for RefloatTelemetryService {
             latest_compact: None,
             selectable_gnss: false,
             latest_firmware_fault: None,
+            alerts_available: false,
+            next_alerts_due_ms: None,
+            seen_faults: Vec::new(),
+            alerts_since_ticks: 0,
+            last_source_ticks: None,
+            last_firmware_fault: None,
+            previous_fatal_error_latched: None,
             active: false,
             next_timer_nonce: 0,
         }
@@ -708,7 +755,9 @@ impl RefloatTelemetryService {
             ),
             TelemetryFamily::LegacyFixed => None,
         };
-        let next_fault_due = if configuration.family == TelemetryFamily::Selectable {
+        let next_fault_due = if configuration.family == TelemetryFamily::Selectable
+            && !configuration.alerts_available
+        {
             Some(
                 now_ms
                     .checked_add(FAULT_PROBE_INTERVAL_MS)
@@ -727,6 +776,8 @@ impl RefloatTelemetryService {
         self.next_compact_due_ms = next_compact_due;
         self.next_fault_due_ms = next_fault_due;
         self.selectable_gnss = configuration.selectable_gnss;
+        self.alerts_available = configuration.alerts_available;
+        self.next_alerts_due_ms = configuration.alerts_available.then_some(now_ms);
         self.latest_firmware_fault = None;
         self.active = true;
         let interval = if self.previous_ride_state == RideState::Riding {
@@ -847,6 +898,53 @@ impl RefloatTelemetryService {
             return Ok(Vec::new());
         }
         let pending = self.pending_request;
+        if let DecodedTelemetry::Alerts(alerts) = &telemetry {
+            if pending != Some(RequestKind::Alerts) || !self.alerts_available {
+                return Ok(vec![Effect::Diagnostic(
+                    Diagnostic::UnexpectedTelemetryResponse,
+                )]);
+            }
+            if alerts.records.len() > dynamic::alerts::MAX_FAULT_RECORDS
+                || alerts
+                    .records
+                    .iter()
+                    .any(|record| record.active != (record.raw_code != 0))
+            {
+                return Err(ServiceError::InvalidTelemetry);
+            }
+            self.pending_request = None;
+            self.latest_firmware_fault =
+                reported_firmware_fault(alerts.active_fault_code).map(|v| v.reason);
+            let mut records = Vec::new();
+            for record in &alerts.records {
+                self.alerts_since_ticks = record.source_ticks.saturating_sub(1);
+                if self.seen_faults.contains(record) {
+                    continue;
+                }
+                if self.seen_faults.len() == dynamic::alerts::MAX_FAULT_RECORDS {
+                    self.seen_faults.remove(0);
+                }
+                self.seen_faults.push(*record);
+                if let Some(fault) = reported_firmware_fault(record.raw_code) {
+                    self.last_firmware_fault = Some(fault);
+                }
+                records.push(*record);
+            }
+            if let Some(fault) = reported_firmware_fault(alerts.active_fault_code) {
+                self.last_firmware_fault = Some(fault);
+            }
+            let mut effects = Vec::new();
+            if !records.is_empty() {
+                effects.push(Effect::PublishFaultHistory(FaultHistoryObservation {
+                    elapsed_ms: now_ms.saturating_sub(self.started_at_ms.unwrap_or(now_ms)),
+                    observed_at_epoch_ms,
+                    records,
+                }));
+            }
+            // Refresh controls promptly after history, even with a long idle cadence.
+            effects.extend(self.request_sample(now_ms)?);
+            return Ok(effects);
+        }
         let matched = matches!(
             (&telemetry, self.family, pending),
             (
@@ -881,15 +979,55 @@ impl RefloatTelemetryService {
             self.latest_firmware_fault = fault.map(|value| map_legacy_firmware_fault(value.fault));
             return Ok(Vec::new());
         }
+        let source_ticks = match &telemetry {
+            DecodedTelemetry::Dynamic(sample) => Some(sample.source_ticks),
+            DecodedTelemetry::Selectable(sample) => Some(sample.source_ticks),
+            _ => None,
+        };
+        let raw_fault_code = match &telemetry {
+            DecodedTelemetry::Dynamic(sample) => sample.firmware_fault_raw_code,
+            DecodedTelemetry::Legacy(legacy::LegacyTelemetry::ActiveFirmwareFault(fault)) => {
+                Some(fault.raw_code)
+            }
+            _ => None,
+        };
         let mut record = common_record(telemetry)?;
+        if let Some(ticks) = source_ticks {
+            if self.last_source_ticks.is_some_and(|last| ticks < last) {
+                self.seen_faults.clear();
+                self.alerts_since_ticks = 0;
+                if self
+                    .last_source_ticks
+                    .is_some_and(|last| ticks.wrapping_sub(last) > i32::MAX as u32)
+                {
+                    self.last_firmware_fault = None;
+                    self.latest_firmware_fault = None;
+                    self.previous_fatal_error_latched = None;
+                }
+                self.next_alerts_due_ms = self.alerts_available.then_some(now_ms);
+            }
+            self.last_source_ticks = Some(ticks);
+        }
+        if let Some(code) = raw_fault_code {
+            self.last_firmware_fault = reported_firmware_fault(code);
+        }
         if matches!(
             pending,
             Some(RequestKind::Compact | RequestKind::SelectableSlow)
         ) {
             self.pending_request = None;
             self.latest_compact = Some(SlowCache::from_record(&record, observed_at_epoch_ms));
-            return self.selectable_followup(now_ms, false);
+            return self.telemetry_followup(now_ms, false);
         }
+        if record.fatal_error_latched == Some(true)
+            && self.previous_fatal_error_latched == Some(false)
+        {
+            if record.firmware_fault.is_none() {
+                self.last_firmware_fault = None;
+            }
+            self.next_alerts_due_ms = self.alerts_available.then_some(now_ms);
+        }
+        self.previous_fatal_error_latched = record.fatal_error_latched;
         if self.family == TelemetryFamily::Selectable {
             record.firmware_fault = self.latest_firmware_fault;
             if record.firmware_fault.is_some() {
@@ -949,7 +1087,7 @@ impl RefloatTelemetryService {
         if self.polling_interval_ms != Some(target_interval) {
             effects.extend(self.restart_polling(target_interval, now_ms)?);
         }
-        effects.extend(self.selectable_followup(now_ms, true)?);
+        effects.extend(self.telemetry_followup(now_ms, true)?);
         Ok(effects)
     }
 
@@ -974,6 +1112,11 @@ impl RefloatTelemetryService {
         self.scheduler_generation = None;
         self.route = None;
         self.family = TelemetryFamily::Dynamic;
+        self.seen_faults.clear();
+        self.alerts_since_ticks = 0;
+        self.last_source_ticks = None;
+        self.last_firmware_fault = None;
+        self.previous_fatal_error_latched = None;
         effects
     }
 
@@ -992,6 +1135,8 @@ impl RefloatTelemetryService {
         self.next_fault_due_ms = None;
         self.latest_compact = None;
         self.selectable_gnss = false;
+        self.alerts_available = false;
+        self.next_alerts_due_ms = None;
         self.latest_firmware_fault = None;
         effects
     }
@@ -1062,22 +1207,33 @@ impl RefloatTelemetryService {
     // Successful fast samples may be followed by the due slow/fault probes on
     // the same scheduler lane. Timer ticks always start with fast state so an
     // idle interval at or above one second cannot starve control confirmation.
-    fn selectable_followup(
+    fn telemetry_followup(
         &mut self,
         now_ms: u64,
         allow_slow: bool,
     ) -> Result<Vec<Effect>, ServiceError> {
-        if self.family != TelemetryFamily::Selectable || self.pending_request.is_some() {
+        if self.pending_request.is_some() {
             return Ok(Vec::new());
         }
-        let kind = if allow_slow && self.next_compact_due_ms.is_some_and(|due| now_ms >= due) {
+        let kind = if self.family == TelemetryFamily::Selectable
+            && allow_slow
+            && self.next_compact_due_ms.is_some_and(|due| now_ms >= due)
+        {
             self.next_compact_due_ms = Some(
                 now_ms
                     .checked_add(COMPACT_INTERVAL_MS)
                     .ok_or(ServiceError::MonotonicOverflow)?,
             );
             RequestKind::SelectableSlow
-        } else if self.next_fault_due_ms.is_some_and(|due| now_ms >= due) {
+        } else if self.next_alerts_due_ms.is_some_and(|due| now_ms >= due) {
+            self.next_alerts_due_ms = Some(
+                now_ms
+                    .checked_add(FAULT_PROBE_INTERVAL_MS)
+                    .ok_or(ServiceError::MonotonicOverflow)?,
+            );
+            RequestKind::Alerts
+        } else if !self.alerts_available && self.next_fault_due_ms.is_some_and(|due| now_ms >= due)
+        {
             self.next_fault_due_ms = Some(
                 now_ms
                     .checked_add(FAULT_PROBE_INTERVAL_MS)
@@ -1121,6 +1277,10 @@ impl RefloatTelemetryService {
             .scheduler_generation
             .ok_or(ServiceError::InvalidTelemetry)?;
         let (command, context) = match kind {
+            RequestKind::Alerts => (
+                dynamic::alerts::ALERTS_COMMAND,
+                RequestContext::RefloatTelemetry(route),
+            ),
             RequestKind::Layout => (
                 REALTIME_DATA_IDS_COMMAND,
                 RequestContext::RefloatLayout(route),
@@ -1143,6 +1303,7 @@ impl RefloatTelemetryService {
             ),
         };
         let mut payload = match kind {
+            RequestKind::Alerts => dynamic::alerts::alerts_request(self.alerts_since_ticks),
             RequestKind::SelectableFast => dynamic::selectable_fast_request().to_vec(),
             RequestKind::SelectableSlow => {
                 dynamic::selectable_slow_request(self.selectable_gnss).to_vec()
@@ -1233,6 +1394,7 @@ impl RefloatTelemetryService {
             alert_reason: value.alert_reason,
             firmware_fault: value.firmware_fault,
             fatal_error_latched: value.fatal_error_latched,
+            last_firmware_fault: self.last_firmware_fault,
             pack_voltage_v: value.pack_voltage_v,
             duty_cycle: value.duty_cycle,
             controller_temp_c: value.controller_temp_c,
@@ -1302,7 +1464,9 @@ fn common_record(value: DecodedTelemetry) -> Result<CommonRecord, ServiceError> 
         }
         DecodedTelemetry::Dynamic(value) => common_dynamic_sample(value)?,
         DecodedTelemetry::Selectable(value) => common_selectable_sample(value)?,
-        DecodedTelemetry::SelectableFault(_) => return Err(ServiceError::InvalidTelemetry),
+        DecodedTelemetry::SelectableFault(_) | DecodedTelemetry::Alerts(_) => {
+            return Err(ServiceError::InvalidTelemetry);
+        }
     };
     validate_common_record(&record)?;
     Ok(record)
@@ -1707,6 +1871,7 @@ mod tests {
             route,
             family,
             selectable_gnss: false,
+            alerts_available: false,
             settings: settings(),
         }
     }
@@ -1912,6 +2077,94 @@ mod tests {
                 observed_at_epoch_ms,
             })
             .expect("receive")
+    }
+
+    #[test]
+    fn retrieves_transient_fault_history_and_deduplicates_overlapping_polls() {
+        let mut service = RefloatTelemetryService::default();
+        let mut config = configuration(TelemetryFamily::Selectable, Route::Can(23));
+        config.alerts_available = true;
+        service
+            .apply(Command::Start {
+                configuration: config,
+                now_ms: 0,
+            })
+            .unwrap();
+        let mut state = selectable_sample(Some(dynamic::PackageState::Ready), 0.0);
+        state.fatal_error_latched = Some(true);
+        state.source_ticks = 1000;
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Selectable(state.clone()),
+            100,
+            1_000_100,
+        );
+        let (kind, facts) = enqueue(&effects);
+        assert_eq!(kind, RequestKind::Alerts);
+        assert_eq!(facts.payload, [34, 23, 36, 101, 35, 0, 0, 0, 0]);
+        let records = vec![
+            dynamic::alerts::FaultRecord {
+                source_ticks: 900,
+                active: true,
+                raw_code: 4,
+            },
+            dynamic::alerts::FaultRecord {
+                source_ticks: 900,
+                active: false,
+                raw_code: 0,
+            },
+        ];
+        let alerts = dynamic::alerts::Alerts {
+            active_fault_code: 0,
+            records: records.clone(),
+        };
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Alerts(alerts.clone()),
+            110,
+            1_000_110,
+        );
+        assert!(effects.iter().any(|e| matches!(e, Effect::PublishFaultHistory(h) if h.records == records && h.elapsed_ms == 10)));
+        assert_eq!(enqueue(&effects).0, RequestKind::SelectableFast);
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Selectable(state.clone()),
+            120,
+            1_000_120,
+        );
+        assert_eq!(published(&effects).firmware_fault, None);
+        assert_eq!(published(&effects).fatal_error_latched, Some(true));
+        assert_eq!(
+            published(&effects).last_firmware_fault,
+            reported_firmware_fault(4)
+        );
+
+        // The cursor overlaps its last tick so simultaneous start/end records cannot be skipped.
+        service.pending_request = Some(RequestKind::Alerts);
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Alerts(alerts),
+            130,
+            1_000_130,
+        );
+        assert!(
+            !effects
+                .iter()
+                .any(|e| matches!(e, Effect::PublishFaultHistory(_)))
+        );
+        assert_eq!(service.alerts_since_ticks, 899);
+
+        // A reboot can repeat tick/code pairs; it starts a fresh history cursor.
+        state.source_ticks = 1;
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Selectable(state),
+            140,
+            1_000_140,
+        );
+        assert_eq!(published(&effects).last_firmware_fault, None);
+        assert_eq!(enqueue(&effects).0, RequestKind::Alerts);
+        assert_eq!(service.alerts_since_ticks, 0);
     }
 
     #[test]

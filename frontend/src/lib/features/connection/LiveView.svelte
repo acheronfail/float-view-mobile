@@ -16,6 +16,7 @@
   import { readingsAreDimmed, refloatMenuActions } from './live';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import Icon from '$lib/ui/Icon.svelte';
+  import { firmwareFaultWarning } from './live-status';
   import WidgetNumbers from './WidgetNumbers.svelte';
   import WidgetGauge from './WidgetGauge.svelte';
   import WidgetPower from './WidgetPower.svelte';
@@ -24,6 +25,7 @@
 
   const connection = $derived(backendState.snapshot?.activeConnection);
   const sample = $derived(connection?.latestSample);
+  const faultWarning = $derived(firmwareFaultWarning(sample));
 
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
   const dimmed = $derived(connection ? readingsAreDimmed(connection) : false);
@@ -69,24 +71,36 @@
           {sample}
           {units}
         />
-        {#if connection.refloatControls?.packageEnabled === false}
-          <div
-            class="absolute inset-x-2 top-2 flex items-center justify-between gap-2 rounded-xl border border-danger bg-surface px-3 py-2 text-danger shadow-lg"
-          >
-            <p role="status" class="flex items-center gap-2 text-sm font-semibold">
-              <Icon name="triangle-alert" class="shrink-0 text-xl" />
-              Refloat is disabled
-            </p>
-            <button
-              type="button"
-              class="min-h-11 shrink-0 touch-manipulation rounded-lg border border-danger bg-danger/10 px-3 py-2 text-sm font-semibold disabled:opacity-50"
-              disabled={!enableRefloat || enableRefloat.disabled || backendState.busy}
-              aria-label="Enable Refloat"
-              aria-busy={enableRefloat?.pending || undefined}
-              onpointerdown={(event) => activateFromPointer(event, enable, { scrollable: true })}
-              onclick={(event) => activateFromKeyboardOrAssistiveClick(event, enable)}
-              >{enableRefloat?.pending ? 'Enabling…' : 'Enable'}</button
-            >
+        {#if faultWarning || connection.refloatControls?.packageEnabled === false}
+          <div class="absolute inset-x-2 top-2 z-10 flex flex-col gap-2">
+            {#if faultWarning}
+              <div role="alert" class="rounded-xl border border-danger bg-surface px-3 py-2 text-danger shadow-lg">
+                <p class="flex items-center gap-2 text-sm font-semibold">
+                  <Icon name="triangle-alert" class="shrink-0 text-xl" />{faultWarning.title}
+                </p>
+                <p class="mt-1 text-xs">{faultWarning.description}</p>
+              </div>
+            {/if}
+            {#if connection.refloatControls?.packageEnabled === false}
+              <div
+                class="flex items-center justify-between gap-2 rounded-xl border border-danger bg-surface px-3 py-2 text-danger shadow-lg"
+              >
+                <p role="status" class="flex items-center gap-2 text-sm font-semibold">
+                  <Icon name="triangle-alert" class="shrink-0 text-xl" />
+                  Refloat is disabled
+                </p>
+                <button
+                  type="button"
+                  class="min-h-11 shrink-0 touch-manipulation rounded-lg border border-danger bg-danger/10 px-3 py-2 text-sm font-semibold disabled:opacity-50"
+                  disabled={!enableRefloat || enableRefloat.disabled || backendState.busy}
+                  aria-label="Enable Refloat"
+                  aria-busy={enableRefloat?.pending || undefined}
+                  onpointerdown={(event) => activateFromPointer(event, enable, { scrollable: true })}
+                  onclick={(event) => activateFromKeyboardOrAssistiveClick(event, enable)}
+                  >{enableRefloat?.pending ? 'Enabling…' : 'Enable'}</button
+                >
+              </div>
+            {/if}
           </div>
         {/if}
       </div>

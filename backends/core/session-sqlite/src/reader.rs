@@ -427,7 +427,7 @@ impl SessionReader {
             ""
         };
         let sql = format!(
-            "SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json FROM session_event WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2 AND sequence <= ?3 {cursor_filter} AND kind IN ('packageState','packageMode','footpadState','stopCondition','setpointAdjustment','wheelslip','darkride','charging','alertReason','firmwareFault') ORDER BY monotonic_elapsed_ms, sequence LIMIT ?7"
+            "SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json FROM session_event WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2 AND sequence <= ?3 {cursor_filter} AND kind IN ('packageState','packageMode','footpadState','stopCondition','setpointAdjustment','wheelslip','darkride','charging','alertReason','firmwareFault','fatalErrorLatched','firmwareFaultHistory') ORDER BY monotonic_elapsed_ms, sequence LIMIT ?7"
         );
         let mut statement = transaction.prepare_cached(&sql).map_err(map_sqlite)?;
         let mapped = statement
@@ -457,13 +457,17 @@ impl SessionReader {
             let (sequence, source, elapsed, kind, details_json) = row.map_err(map_sqlite)?;
             let details: serde_json::Value =
                 serde_json::from_str(&details_json).map_err(|_| ReaderError::Incompatible)?;
-            let valid_details = details.as_object().is_some_and(|object| {
-                object.len() == 1
-                    && object
-                        .get("value")
-                        .and_then(|value| value.as_str())
-                        .is_some()
-            });
+            let valid_details = if kind == "firmwareFaultHistory" {
+                super::faults::valid_fault_details(&details)
+            } else {
+                details.as_object().is_some_and(|object| {
+                    object.len() == 1
+                        && object
+                            .get("value")
+                            .and_then(|value| value.as_str())
+                            .is_some()
+                })
+            };
             let source_sample_sequence = source.map(from_i64).transpose()?;
             if !valid_details
                 || source_sample_sequence

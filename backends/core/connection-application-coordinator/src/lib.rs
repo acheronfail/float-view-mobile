@@ -238,6 +238,7 @@ pub enum Effect {
     PrepareActivation(ActivationFacts),
     PublishState(Box<Snapshot>),
     PublishTelemetry(Box<telemetry::NormalizedSample>),
+    PublishFaultHistory(telemetry::FaultHistoryObservation),
     PublishBmsState(bms::Snapshot),
     PublishBmsObservation(Box<bms::BmsObservation>),
     ApplyConfigurationCache(ConfigurationCacheEffect),
@@ -860,6 +861,7 @@ impl ConnectionApplicationCoordinator {
             route,
             family,
             selectable_gnss: self.refloat_gnss,
+            alerts_available: activation.compatibility.control.fatal_clear_available,
             settings: self.settings,
         };
         configuration.validate()?;
@@ -1880,6 +1882,9 @@ impl ConnectionApplicationCoordinator {
             telemetry::RequestKind::SelectableFault => legacy::decode_fault_only(&payload)
                 .ok()
                 .map(telemetry::DecodedTelemetry::SelectableFault),
+            telemetry::RequestKind::Alerts => dynamic::alerts::decode_alerts(&payload)
+                .ok()
+                .map(telemetry::DecodedTelemetry::Alerts),
             telemetry::RequestKind::Layout => None,
         };
         let Some(decoded) = decoded else {
@@ -2114,6 +2119,9 @@ impl ConnectionApplicationCoordinator {
                 }
                 telemetry::Effect::Enqueue { facts, .. } => {
                     self.enqueue(facts, now_ms, effects)?;
+                }
+                telemetry::Effect::PublishFaultHistory(observation) => {
+                    push_effect(effects, Effect::PublishFaultHistory(observation))?;
                 }
                 telemetry::Effect::Publish(sample) => {
                     let mutation_effects =
