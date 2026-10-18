@@ -20,7 +20,9 @@ written by `sips`. The output includes the iOS light/default and dark AppIcon PN
 Android density/adaptive-icon WebP assets used by the native targets.
 
 The centered loading screen uses only the rider silhouette, without the icon
-background. Regenerate its early HTML, iOS/macOS PNG and Android vector assets
+background. Native and early HTML loading screens tint it teal in light mode and
+mint in dark mode to match the app icon artwork. Regenerate its early HTML,
+iOS/macOS PNG and Android vector assets
 and the frontend map’s SVG symbol independently on any platform with Python 3 and ImageMagick:
 
 ```sh

@@ -14,6 +14,13 @@ const theme = ts.transpileModule(
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }
 ).outputText;
 const colors = { light: 'rgb(248, 250, 252)', dark: 'rgb(2, 6, 23)' };
+const symbolColors = { light: 'rgb(15, 118, 110)', dark: 'rgb(162, 212, 216)' };
+
+async function loadingColor(page: Page) {
+  return page
+    .getByRole('status', { name: 'Loading Float View' })
+    .evaluate((element) => getComputedStyle(element).color);
+}
 
 async function appearance(page: Page) {
   return page.evaluate(() => ({
@@ -72,6 +79,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               const loading = page.getByRole('status', { name: 'Loading Float View' });
               assert.equal(await loading.isVisible(), true);
               assert.equal(await loading.innerText(), 'Loading…');
+              assert.equal(await loadingColor(page), symbolColors[initial]);
               const position = await loading.evaluate((element) => {
                 const symbol = element.querySelector('svg')!.getBoundingClientRect();
                 const message = element.querySelector('p')!.getBoundingClientRect();
@@ -96,6 +104,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 controller.reconcile(authoritative);
               }, authoritative);
               assert.equal((await appearance(page)).background, colors[authoritative]);
+              assert.equal(await loadingColor(page), symbolColors[authoritative]);
               if (hint !== 'throw') {
                 assert.equal(await page.evaluate(() => localStorage.getItem('float-view-theme')), authoritative);
               }
@@ -103,6 +112,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               const changedSystem = system === 'dark' ? 'light' : 'dark';
               await page.emulateMedia({ colorScheme: changedSystem });
               assert.equal((await appearance(page)).background, colors[authoritative]);
+              assert.equal(await loadingColor(page), symbolColors[authoritative]);
               await page.evaluate(() => {
                 const probe = (
                   window as unknown as {
@@ -116,11 +126,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 changedSystem
               );
               assert.equal((await appearance(page)).background, colors[changedSystem]);
+              assert.equal(await loadingColor(page), symbolColors[changedSystem]);
               await page.evaluate(() => {
                 (window as unknown as { startupProbe: { stop(): void } }).startupProbe.stop();
               });
               await page.emulateMedia({ colorScheme: system });
               assert.equal((await appearance(page)).background, colors[changedSystem]);
+              assert.equal(await loadingColor(page), symbolColors[changedSystem]);
               assert.deepEqual(errors, []);
             } finally {
               await context.close();

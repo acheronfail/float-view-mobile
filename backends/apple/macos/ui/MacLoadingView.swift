@@ -2,23 +2,18 @@ import AppKit
 
 @MainActor
 final class MacLoadingView: NSView {
+  private let symbol = NSImageView()
   private let message = NSTextField(labelWithString: "Loading…")
 
   override init(frame: NSRect) {
     super.init(frame: frame)
-    let symbol = NSImageView()
     if let url = MacResources.url(forResource: "LoadingSymbol", withExtension: "png"),
        let image = NSImage(contentsOf: url)
     {
       image.isTemplate = true
       symbol.image = image
     }
-    symbol.contentTintColor = NSColor(name: nil) { appearance in
-      if appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua {
-        return NSColor(srgbRed: 162 / 255, green: 212 / 255, blue: 216 / 255, alpha: 1)
-      }
-      return NSColor(srgbRed: 14 / 255, green: 116 / 255, blue: 144 / 255, alpha: 1)
-    }
+    updateAppearance()
     symbol.setAccessibilityElement(false)
     message.font = .systemFont(ofSize: 15)
     message.textColor = .secondaryLabelColor
@@ -37,7 +32,25 @@ final class MacLoadingView: NSView {
   }
 
   @available(*, unavailable)
-  required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
+  required init?(coder _: NSCoder) {
+    fatalError("init(coder:) is unavailable")
+  }
 
-  func showFailure() { message.stringValue = "Unable to open Float View" }
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    updateAppearance()
+  }
+
+  private func updateAppearance() {
+    let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    // Resolve the template tint for this view and refresh it after window or
+    // system appearance changes, including while startup is still pending.
+    symbol.contentTintColor = dark
+      ? NSColor(srgbRed: 162 / 255, green: 212 / 255, blue: 216 / 255, alpha: 1)
+      : NSColor(srgbRed: 15 / 255, green: 118 / 255, blue: 110 / 255, alpha: 1)
+  }
+
+  func showFailure() {
+    message.stringValue = "Unable to open Float View"
+  }
 }

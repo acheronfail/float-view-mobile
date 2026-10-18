@@ -32,7 +32,7 @@ class LoadingPresentation(context: Context) : LinearLayout(context) {
     }
 
     fun applyTheme(dark: Boolean) {
-        symbol.setColorFilter(Color.parseColor(if (dark) "#A2D4D8" else "#0E7490"))
+        symbol.setColorFilter(Color.parseColor(if (dark) "#A2D4D8" else "#0F766E"))
         message.setTextColor(Color.parseColor(if (dark) "#94A3B8" else "#64748B"))
     }
 

@@ -1,4 +1,5 @@
 import AppKit
+import FloatViewBackend
 @testable import FloatViewMac
 import Testing
 
@@ -36,6 +37,45 @@ struct MacThemeTests {
         .aqua,
         .darkAqua,
       ]))
+  }
+
+  @Test("loading artwork repaints in the same window when appearance changes")
+  func loadingArtwork() throws {
+    let app = NSApplication.shared
+    let original = app.appearance
+    defer { app.appearance = original }
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+      styleMask: [.titled], backing: .buffered, defer: false
+    )
+    window.isReleasedWhenClosed = false
+    defer { window.close() }
+    let loading = MacLoadingView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+    window.contentView = loading
+    let stack = try #require(loading.subviews.first as? NSStackView)
+    let symbol = try #require(stack.arrangedSubviews.first as? NSImageView)
+    #expect(symbol.image?.isTemplate == true)
+
+    var captures: [Data] = []
+    for (preference, expected) in [
+      (ThemePreference.light, [15.0, 118.0, 110.0]),
+      (.dark, [162.0, 212.0, 216.0]),
+      (.light, [15.0, 118.0, 110.0]),
+    ] {
+      MacTheme.apply(preference, to: app)
+      loading.layoutSubtreeIfNeeded()
+      let tint = try #require(symbol.contentTintColor?.usingColorSpace(.sRGB))
+      for (component, value) in zip([tint.redComponent, tint.greenComponent, tint.blueComponent], expected) {
+        #expect(abs(component * 255 - value) < 0.01)
+      }
+      let bitmap = try #require(symbol.bitmapImageRepForCachingDisplay(in: symbol.bounds))
+      symbol.cacheDisplay(in: symbol.bounds, to: bitmap)
+      try captures.append(#require(bitmap.representation(using: .png, properties: [:])))
+    }
+    // Check actual image output too: changing theme must repaint the template,
+    // and switching back must restore the same artwork without recreating it.
+    #expect(captures[0] != captures[1])
+    #expect(captures[0] == captures[2])
   }
 
   @Test("canvas resolves in the appearance of each window")
