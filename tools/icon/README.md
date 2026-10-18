@@ -30,7 +30,23 @@ python3 tools/icon/generate-loading-symbol.py
 macOS uses `macos-mask.svg` to round the artwork, with an 824px face centered
 on a transparent 1024px canvas so its Dock size matches other macOS icons.
 The mask and padding are applied before generating every ICNS resolution,
-including the `sips` fallback. iOS and Android use their existing platform shapes.
+including the `sips` fallback. This light ICNS also gives unbundled SwiftPM launches
+an icon. iOS and Android use their existing platform shapes.
+
+`FloatView.icon/` provides the macOS 26 appearance variants. Its rider SVG is
+generated from `icon.svg`; `icon.json` sets the pale slate/teal default and the
+charcoal/mint dark appearance. `backends/apple/package-macos.sh` requires Xcode 26
+or later and compiles it into `Assets.car` plus a light ICNS fallback before
+signing. Packaged apps let macOS select the icon appearance, including system
+tinting; they do not replace it with a static Dock image. macOS 14/15 and bare
+SwiftPM launches use the light fallback.
+
+Android uses the light palette in its default density and adaptive-icon assets,
+with the original dark palette in `mipmap-night-*` and `drawable-night-nodpi`.
+System night mode selects those resources; launcher caching can delay refreshing
+the displayed icon. The existing monochrome layer supports Android 13+ themed
+icons, whose colours follow the launcher's wallpaper/theme settings instead of
+our teal/mint palettes. No launcher aliases or component switching are used.
 
 iOS derives its light icon from the same SVG geometry with a pale slate background
 and teal rider; the existing artwork supplies the explicit dark appearance.

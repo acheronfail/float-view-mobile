@@ -69,11 +69,33 @@ if [[ "${1:-}" == "--ios-only" ]]; then
   exit 0
 fi
 
+# The layered macOS icon is compiled by package-macos.sh for system appearances.
+python3 - "$source_svg" "$script_dir/FloatView.icon/Assets/rider.svg" <<'PYTHON'
+import pathlib
+import sys
+import xml.etree.ElementTree as ET
+
+namespace = "http://www.w3.org/2000/svg"
+ET.register_namespace("", namespace)
+source = ET.parse(sys.argv[1]).getroot()
+rider = next(group for group in source.findall(f"{{{namespace}}}g") if group.get("id") == "g4")
+for element in rider.iter():
+    for attribute in ("stroke", "fill", "style"):
+        element.attrib.pop(attribute, None)
+svg = ET.Element(f"{{{namespace}}}svg", {
+    "viewBox": "-37.5 0 125 125", "width": "1024", "height": "1024", "fill": "#0f766e",
+})
+svg.append(rider)
+destination = pathlib.Path(sys.argv[2])
+destination.parent.mkdir(parents=True, exist_ok=True)
+ET.ElementTree(svg).write(destination, encoding="unicode")
+PYTHON
+
 # macOS does not mask ICNS artwork. Inset the face to 824px on a 1024px
 # transparent canvas and apply the rounded macOS silhouette before resizing.
 rsvg-convert -w 1024 -h 1024 "$script_dir/macos-mask.svg" \
   -o "$temporary_dir/macos-mask.png"
-magick "$master_png" -resize 824x824! -background none -gravity center \
+magick "$temporary_dir/light.png" -resize 824x824! -background none -gravity center \
   -extent 1024x1024 "$temporary_dir/macos-mask.png" \
   -compose DstIn -composite "$mac_master_png"
 
@@ -112,42 +134,61 @@ if [[ "$mac_icon_generated" != true ]]; then
     >/dev/null
 fi
 
-# Android keeps density-specific WebP fallbacks for pre-adaptive-icon devices.
-# The round variants are explicitly circular so launchers do not have to mask them.
-icon_background="$(magick "$master_png" -format '%[pixel:p{0,0}]' info:)"
-magick "$master_png" -alpha on -fuzz 1% -transparent "$icon_background" \
-  "$transparent_mark_png"
-magick -size 1024x1024 "xc:$icon_background" \
-  -fill "$icon_background" -draw 'circle 512,512 512,0' \
-  "$transparent_mark_png" -compose over -composite "$round_master_png"
+# Android selects day/night drawables without changing the launcher component.
+# Keep the monochrome silhouette for launchers that use wallpaper-themed icons.
+for appearance in light dark; do
+  if [[ "$appearance" == light ]]; then
+    android_master_png="$temporary_dir/light.png"
+    night_qualifier=""
+  else
+    android_master_png="$master_png"
+    night_qualifier="-night"
+  fi
+  drawable_dir="$android_resources_dir/drawable${night_qualifier}-nodpi"
+  mkdir -p "$drawable_dir"
+  icon_background="$(magick "$android_master_png" -format '%[pixel:p{0,0}]' info:)"
+  magick "$android_master_png" -alpha on -fuzz 1% -transparent "$icon_background" \
+    "$transparent_mark_png"
+  magick -size 1024x1024 canvas:none \
+    -fill "$icon_background" -draw 'circle 512,512 512,0' \
+    "$transparent_mark_png" -compose over -composite "$round_master_png"
 
-for density_spec in \
-  'mdpi 48' \
-  'hdpi 72' \
-  'xhdpi 96' \
-  'xxhdpi 144' \
-  'xxxhdpi 192'; do
-  read -r density density_size <<< "$density_spec"
-  density_dir="$android_resources_dir/mipmap-$density"
-  mkdir -p "$density_dir"
-  magick "$master_png" -resize "${density_size}x${density_size}!" \
-    -define webp:lossless=true "$density_dir/ic_launcher.webp"
-  magick "$round_master_png" -resize "${density_size}x${density_size}!" \
-    -define webp:lossless=true "$density_dir/ic_launcher_round.webp"
+  for density_spec in \
+    'mdpi 48' \
+    'hdpi 72' \
+    'xhdpi 96' \
+    'xxhdpi 144' \
+    'xxxhdpi 192'; do
+    read -r density density_size <<< "$density_spec"
+    density_dir="$android_resources_dir/mipmap${night_qualifier}-$density"
+    mkdir -p "$density_dir"
+    magick "$android_master_png" -resize "${density_size}x${density_size}!" \
+      -define webp:lossless=true "$density_dir/ic_launcher.webp"
+    magick "$round_master_png" -resize "${density_size}x${density_size}!" \
+      -define webp:lossless=true "$density_dir/ic_launcher_round.webp"
+  done
+
+  # Keep the rider within Android's 66/108 adaptive-icon safe zone.
+  magick "$transparent_mark_png" -resize 66x66! "$temporary_dir/padded-mark.png"
+  magick -size 108x108 canvas:none "$temporary_dir/padded-mark.png" \
+    -gravity center -composite "$adaptive_foreground_png"
+  magick "$adaptive_foreground_png" -define webp:lossless=true \
+    "$drawable_dir/ic_launcher_foreground.webp"
+  magick -size 108x108 "xc:$icon_background" -define webp:lossless=true \
+    "$drawable_dir/ic_launcher_background.webp"
 done
 
-# Adaptive icons use a padded foreground layer so the rider mark remains inside
-# Android's safe zone, plus a monochrome silhouette for themed launchers.
-magick "$transparent_mark_png" -resize 66x66! "$temporary_dir/padded-mark.png"
-magick -size 108x108 canvas:none "$temporary_dir/padded-mark.png" \
-  -gravity center -composite "$adaptive_foreground_png"
+# Night-qualified density fallbacks take precedence over an unqualified adaptive
+# icon. Supply the adaptive XML in night mode too, preserving masking/monochrome.
+mkdir -p "$android_resources_dir/mipmap-night-anydpi-v26"
+for icon_name in ic_launcher ic_launcher_round; do
+  cp "$android_resources_dir/mipmap-anydpi-v26/$icon_name.xml" \
+    "$android_resources_dir/mipmap-night-anydpi-v26/$icon_name.xml"
+done
+
 magick "$adaptive_foreground_png" -fill white -colorize 100% \
   "$adaptive_monochrome_png"
-magick "$adaptive_foreground_png" -define webp:lossless=true \
-  "$android_resources_dir/drawable-nodpi/ic_launcher_foreground.webp"
 magick "$adaptive_monochrome_png" -define webp:lossless=true \
   "$android_resources_dir/drawable-nodpi/ic_launcher_monochrome.webp"
-magick -size 108x108 "xc:$icon_background" -define webp:lossless=true \
-  "$android_resources_dir/drawable-nodpi/ic_launcher_background.webp"
 
 printf 'Generated Float View icons from %s\n' "$source_svg"

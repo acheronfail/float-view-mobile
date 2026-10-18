@@ -2,6 +2,15 @@ import AppKit
 
 @MainActor
 func installApplicationIcon(on application: NSApplication) {
+  // Packaged apps let macOS choose the compiled light/dark/tinted appearance.
+  // A manual NSImage override would pin the Dock icon to one appearance.
+  if Bundle.main.bundleURL.pathExtension == "app",
+     Bundle.main.object(forInfoDictionaryKey: "CFBundleIconName") != nil
+  {
+    return
+  }
+  // Unbundled SwiftPM launches still need an icon.
+
   guard
     let iconURL = MacResources.url(
       forResource: "FloatView",

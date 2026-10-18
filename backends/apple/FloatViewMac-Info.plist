@@ -13,6 +13,8 @@
   <string>6.0</string>
   <key>CFBundleDisplayName</key>
   <string>Float View</string>
+  <key>CFBundleIconName</key>
+  <string>FloatView</string>
   <key>CFBundleIconFile</key>
   <string>FloatView.icns</string>
   <key>CFBundleName</key>

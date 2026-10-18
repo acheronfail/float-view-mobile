@@ -17,6 +17,13 @@ rm -f "$contents/MacOS/FloatViewMac"
 cp "$executable" "$contents/MacOS/FloatViewMac"
 # Put SwiftPM resources in the standard app location for signing and discovery.
 cp -R "$resources/." "$contents/Resources/"
+# Compile appearance variants into Assets.car, with a light ICNS fallback for
+# systems before macOS 26. Keep this before either ad-hoc or distribution signing.
+xcrun actool "$apple_root/../../tools/icon/FloatView.icon" \
+  --compile "$contents/Resources" --platform macosx \
+  --minimum-deployment-target 14.0 --app-icon FloatView \
+  --output-partial-info-plist "$contents/Resources/FloatView-icon-info.plist"
+rm -f "$contents/Resources/FloatView-icon-info.plist"
 # Source resources can have inherited restrictive build permissions.
 chmod -R a+rX "$bundle"
 /usr/bin/plutil -lint "$contents/Info.plist"

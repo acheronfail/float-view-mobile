@@ -58,6 +58,9 @@ cannot be established in software; unrelated platforms need no regression run.
 with `package-macos.sh`, also used by physical macOS conformance. The app bundle
 includes the permission usage descriptions and bundle identity needed by Core
 Location; launching the bare executable with `swift run` omits that metadata.
+Packaging requires Xcode 26 or later to compile the light/dark app icon. macOS 26
+selects its appearance through system icon settings; earlier macOS versions use
+the light fallback. See [icon generation](../../tools/icon/README.md).
 To check location permission presentation, launch this app with Location Services
 enabled and permission not yet requested, then use Settings → Permissions →
 Location → Request access. Confirm the native prompt appears and allowing access
