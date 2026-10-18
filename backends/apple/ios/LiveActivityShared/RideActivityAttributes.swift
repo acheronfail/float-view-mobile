@@ -15,6 +15,9 @@ struct RideActivityAttributes: ActivityAttributes {
     var footpadRight: String
     var imperial: Bool
     var observedAt: Date?
+    /// iOS 26 may report the wallpaper's appearance to widgets instead of the
+    /// system setting. The native host supplies its resolved app appearance.
+    var isDark: Bool? = nil
 
     var loadLabel: String {
       switch source {

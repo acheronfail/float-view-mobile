@@ -24,7 +24,9 @@ require_command magick
 require_command python3
 require_command sips
 
-python3 "$script_dir/generate-loading-symbol.py"
+if [[ "${1:-}" != "--ios-only" ]]; then
+  python3 "$script_dir/generate-loading-symbol.py"
+fi
 
 if [[ ! -f "$source_svg" ]]; then
   printf 'tools/icon: source SVG not found: %s\n' "$source_svg" >&2
@@ -48,8 +50,24 @@ mkdir -p \
 
 rsvg-convert -w 1024 -h 1024 "$source_svg" -o "$master_png"
 
-# iOS uses one universal 1024px PNG app-icon slot.
-magick "$master_png" -define png:exclude-chunk=all "$ios_icon_dir/AppIcon.png"
+# iOS uses the light artwork by default and the original artwork in Dark Mode.
+# Derive the variant from the same geometry so future artwork edits stay in sync.
+magick "$master_png" -alpha off -define png:exclude-chunk=all "$ios_icon_dir/AppIcon-Dark.png"
+python3 - "$source_svg" "$temporary_dir/icon-light.svg" <<'PYTHON'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text()
+source = source.replace("#121418", "#f1f5f9").replace("#a2d4d8", "#0f766e").replace("#000000", "#0f766e")
+pathlib.Path(sys.argv[2]).write_text(source)
+PYTHON
+rsvg-convert -w 1024 -h 1024 "$temporary_dir/icon-light.svg" -o "$temporary_dir/light.png"
+magick "$temporary_dir/light.png" -alpha off -define png:exclude-chunk=all "$ios_icon_dir/AppIcon.png"
+
+if [[ "${1:-}" == "--ios-only" ]]; then
+  printf 'Generated iOS light and dark icons from %s\n' "$source_svg"
+  exit 0
+fi
 
 # macOS does not mask ICNS artwork. Inset the face to 824px on a 1024px
 # transparent canvas and apply the rounded macOS silhouette before resizing.

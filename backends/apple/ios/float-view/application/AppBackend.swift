@@ -8,7 +8,10 @@ final class AppBackend: ObservableObject {
   @Published var frontend: FrontendEndpoint?
   @Published private(set) var frontendStartupFailed = false
   @Published private(set) var serviceStartupFailed = false
-  @Published private(set) var themePreference: ThemePreference
+  @Published private(set) var themePreference: ThemePreference {
+    didSet { rideActivity.setThemePreference(themePreference) }
+  }
+
   var frontendServer: LoopbackServer?
   var frontendGeneration = 0
 
@@ -25,8 +28,11 @@ final class AppBackend: ObservableObject {
   }
 
   func retryStartup() {
-    if service == nil { startOwner() }
-    else { activateFrontend() }
+    if service == nil {
+      startOwner()
+    } else {
+      activateFrontend()
+    }
   }
 
   private func startOwner() {
@@ -36,7 +42,9 @@ final class AppBackend: ObservableObject {
     do {
       let relay = BluetoothEventRelay()
       #if FLOAT_VIEW_CONFORMANCE && DEBUG && targetEnvironment(simulator)
-        let bluetooth: any BluetoothPort = FixtureBluetoothAdapter(eventHandler: { @Sendable event in relay.emit(event) })
+        let bluetooth: any BluetoothPort = FixtureBluetoothAdapter(eventHandler: { @Sendable event in
+          relay.emit(event)
+        })
       #else
         let bluetooth: any BluetoothPort = CoreBluetoothAdapter(
           eventHandler: { @Sendable event in relay.emit(event) },
@@ -65,9 +73,9 @@ final class AppBackend: ObservableObject {
       }
       let html = try Data(contentsOf: htmlURL)
       try service.start(presenter: { @Sendable value in IOSExportPresenter.schedule(value) },
-                         liveActivity: { [rideActivity] state in
-                           rideActivity.receive(state)
-                         }) { [weak self] preference in
+                        liveActivity: { [rideActivity] state in
+                          rideActivity.receive(state)
+                        }) { [weak self] preference in
         Task { @MainActor [weak self] in self?.themePreference = preference }
       }
       self.service = service

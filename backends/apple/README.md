@@ -527,7 +527,7 @@ When stopped, the first section shows Board / Stopped instead of load.
 Four columns switch to a two-by-two grid when space is tight or text is large.
 The grid moves the footpad indicator beside Load or Board and omits the app heading.
 Text scaling is bounded by role to keep the grid within ActivityKit's height limit,
-with the main values scaling up to XXXL. Temperature is shown in white, rounded to
+with the main values scaling up to XXXL. Temperature uses the primary text colour, rounded to
 whole degrees in the selected units, beside a coloured thermometer in the Temp heading.
 The icon colour matches the temperature bars: green
 at 30°C or below, through orange to red at 60°C (45°C for battery cells).
@@ -536,8 +536,16 @@ temperature widget, excluding detached or five-second-old BMS observations.
 In Xcode, open `ios/FloatViewLiveActivity/FloatViewLiveActivity.swift` and enable
 the Canvas for Lock Screen previews of riding, stopped, imperial and unavailable
 readings, plus expanded Island, stale-reading and narrow-width/default/XXXL previews.
+The light preview also covers riding, stopped, stale and large-text layouts.
 
-The dark gauge palette is shared visually: duty yellow, motor pink, battery current green. Charge uses the
+The Lock Screen card follows the app's light/dark preference (including System),
+with adaptive text, background and footpad colours. The native ActivityKit worker
+forwards the resolved appearance because iOS 26 can report a wallpaper-based dark
+appearance to the widget even in system light mode. Appearance changes bypass
+the telemetry coalescing delay on the next worker iteration. While iOS suspends
+the app, updates wait until the host can run again. Load colours match the frontend gauge palettes:
+light mode uses darker amber, rose and green; dark mode uses yellow, pink and mint.
+The Dynamic Island keeps the dark palette against its black surface. Charge uses the
 same estimate/controller-reported selection as the frontend power widget.
 
 The shared service emits a coalesced native presentation effect. The iOS host

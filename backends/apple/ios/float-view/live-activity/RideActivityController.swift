@@ -10,6 +10,23 @@ final class RideActivityController: @unchecked Sendable {
   private let lock = NSLock()
   private var latest: LiveActivityState?
   private var worker: Task<Void, Never>?
+  @MainActor private var themePreference: ThemePreference = .system
+
+  @MainActor
+  func setThemePreference(_ preference: ThemePreference) {
+    themePreference = preference
+  }
+
+  @MainActor
+  private var isDark: Bool {
+    switch themePreference {
+    case .dark: true
+    case .light: false
+    case .system:
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        .first?.traitCollection.userInterfaceStyle == .dark
+    }
+  }
 
   @MainActor
   init() {
@@ -58,7 +75,8 @@ final class RideActivityController: @unchecked Sendable {
             highestTemperatureC: state.highestTemperatureC, temperatureSource: state.temperatureSource,
             status: state.status, footpadLeft: state.footpadLeft, footpadRight: state.footpadRight,
             imperial: state.imperial,
-            observedAt: state.observedAt.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+            observedAt: state.observedAt.map { Date(timeIntervalSince1970: Double($0) / 1000) },
+            isDark: self?.isDark
           )
           let payload = ActivityContent(
             state: content,
@@ -76,7 +94,8 @@ final class RideActivityController: @unchecked Sendable {
           let now = Date()
           let uptime = ProcessInfo.processInfo.systemUptime
           if let current = activity {
-            let reason = baseline
+            let appearanceChanged = content.isDark != lastContent?.isDark
+            let reason = appearanceChanged ? LiveActivityUpdatePolicy.Reason.transition : baseline
               ? (content != lastContent ? LiveActivityUpdatePolicy.Reason.baseline : nil)
               : policy.reason(for: presentation, observedAt: content.observedAt, now: now, uptime: uptime)
             if let reason {

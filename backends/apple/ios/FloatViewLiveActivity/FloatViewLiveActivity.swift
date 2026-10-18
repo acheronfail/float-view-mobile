@@ -6,14 +6,12 @@ import WidgetKit
 struct FloatViewLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: RideActivityAttributes.self) { context in
-      RideSummary(state: context.state, stale: context.isStale)
-        .activityBackgroundTint(Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255))
-        .activitySystemActionForegroundColor(.white)
-        .environment(\.colorScheme, .dark)
+      LockScreenSummary(state: context.state, stale: context.isStale)
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.center) {
           RideSummary(state: context.state, stale: context.isStale)
+            .environment(\.colorScheme, .dark)
         }
       } compactLeading: {
         if context.state.status == "Stopped" {
@@ -27,6 +25,7 @@ struct FloatViewLiveActivity: Widget {
         } else {
           FootpadIndicator(state: context.state, stale: context.isStale)
             .frame(width: 24, height: 14)
+            .environment(\.colorScheme, .dark)
         }
       } compactTrailing: {
         if context.state.status == "Stopped" {
@@ -51,9 +50,44 @@ struct FloatViewLiveActivity: Widget {
   }
 }
 
+/// The Island always has a black surface; only the Lock Screen follows appearance.
+private struct LockScreenSummary: View {
+  let state: RideActivityAttributes.ContentState
+  let stale: Bool
+  @Environment(\.colorScheme) private var colorScheme
+
+  private var appearance: ColorScheme {
+    state.isDark.map { $0 ? .dark : .light } ?? colorScheme
+  }
+
+  var body: some View {
+    RideSummary(state: state, stale: stale)
+      .environment(\.colorScheme, appearance)
+      .activityBackgroundTint(RideActivityPalette.background(for: appearance))
+      .activitySystemActionForegroundColor(appearance == .dark ? .white : .black)
+  }
+}
+
+private enum RideActivityPalette {
+  static func background(for scheme: ColorScheme) -> Color {
+    scheme == .dark ? Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255) : .white
+  }
+
+  static func active(for scheme: ColorScheme) -> Color {
+    scheme == .dark ? Color(red: 110 / 255, green: 231 / 255, blue: 183 / 255)
+      : Color(red: 4 / 255, green: 120 / 255, blue: 87 / 255)
+  }
+
+  static func warning(for scheme: ColorScheme) -> Color {
+    scheme == .dark ? Color(red: 253 / 255, green: 164 / 255, blue: 175 / 255)
+      : Color(red: 190 / 255, green: 18 / 255, blue: 60 / 255)
+  }
+}
+
 private struct RideSummary: View {
   let state: RideActivityAttributes.ContentState
   let stale: Bool
+  @Environment(\.colorScheme) private var colorScheme
   @Environment(\.dynamicTypeSize) private var typeSize
 
   var body: some View {
@@ -67,7 +101,7 @@ private struct RideSummary: View {
         }
       }
     }
-    .foregroundStyle(.white)
+    .foregroundStyle(.primary)
     .padding(typeSize >= .xxLarge ? 10 : 12)
   }
 
@@ -119,7 +153,10 @@ private struct RideSummary: View {
           footpads
         }
       }
-      value(stale ? "—" : (state.status ?? state.loadText), color: state.status == nil ? state.loadColor : .white)
+      value(
+        stale ? "—" : (state.status ?? state.loadText),
+        color: state.status == nil ? state.loadColor(for: colorScheme) : .primary
+      )
       if stale {
         detail("No telemetry")
       } else if state.status == nil {
@@ -170,11 +207,11 @@ private struct RideSummary: View {
 
   private func title(_ text: String) -> some View {
     // Bound secondary text so the three-line grid fits ActivityKit's 160-point height.
-    Text(text).font(.caption2).foregroundStyle(.white.opacity(0.85))
+    Text(text).font(.caption2).foregroundStyle(.primary.opacity(0.85))
       .dynamicTypeSize(...DynamicTypeSize.xxLarge)
   }
 
-  private func value(_ text: String, color: Color = .white) -> some View {
+  private func value(_ text: String, color: Color = .primary) -> some View {
     Text(text).font(.headline).monospacedDigit().foregroundStyle(color)
       .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
   }
@@ -201,18 +238,25 @@ private extension RideActivityAttributes.ContentState {
     return Color(red: Double(rgb[0]) / 255, green: Double(rgb[1]) / 255, blue: Double(rgb[2]) / 255)
   }
 
-  /// Primary gauge's dark palette (app.css), suited to the Island's black surface.
+  /// Compact Island text always uses the dark palette.
   var loadColor: Color {
+    loadColor(for: .dark)
+  }
+
+  /// Matches the frontend primary gauge's light and dark palettes.
+  func loadColor(for scheme: ColorScheme) -> Color {
     switch source {
-    case "duty": Color(red: 252 / 255, green: 211 / 255, blue: 77 / 255)
-    case "motor": Color(red: 253 / 255, green: 164 / 255, blue: 175 / 255)
-    case "battery": Color(red: 110 / 255, green: 231 / 255, blue: 183 / 255)
+    case "duty": scheme == .dark ? Color(red: 252 / 255, green: 211 / 255, blue: 77 / 255)
+      : Color(red: 148 / 255, green: 108 / 255, blue: 0)
+    case "motor": RideActivityPalette.warning(for: scheme)
+    case "battery": RideActivityPalette.active(for: scheme)
     default: .gray
     }
   }
 }
 
 private struct FootpadIndicator: View {
+  @Environment(\.colorScheme) private var colorScheme
   let state: RideActivityAttributes.ContentState
   let stale: Bool
 
@@ -238,9 +282,9 @@ private struct FootpadIndicator: View {
 
   private func color(_ value: String) -> Color {
     switch stale ? "neutral" : value {
-    case "active": Color(red: 110 / 255, green: 231 / 255, blue: 183 / 255)
-    case "warning": Color(red: 253 / 255, green: 164 / 255, blue: 175 / 255)
-    default: Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255)
+    case "active": RideActivityPalette.active(for: colorScheme)
+    case "warning": RideActivityPalette.warning(for: colorScheme)
+    default: colorScheme == .dark ? RideActivityPalette.background(for: .dark) : Color(.systemGray5)
     }
   }
 }
@@ -277,6 +321,19 @@ private struct FootpadIndicator: View {
     FloatViewLiveActivity()
   } contentStates: {
     RideActivityAttributes.previewState()
+  }
+
+  #Preview("Light · riding, stopped, stale and large text") {
+    VStack(spacing: 16) {
+      RideSummary(state: RideActivityAttributes.previewState(), stale: false)
+      RideSummary(state: RideActivityAttributes.previewState(status: "Stopped"), stale: false)
+      RideSummary(state: RideActivityAttributes.previewState(), stale: true)
+      RideSummary(state: RideActivityAttributes.previewState(imperial: true), stale: false)
+        .dynamicTypeSize(.xxxLarge)
+    }
+    .frame(width: 343)
+    .background(RideActivityPalette.background(for: .light))
+    .environment(\.colorScheme, .light)
   }
 
   #Preview("Stale readings") {
