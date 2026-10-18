@@ -32,7 +32,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
       let cellTemperature = 26.1;
-      let mode: 'absent' | 'detected' | 'fresh' | 'stale' = 'absent';
+      let mode: 'absent' | 'discovering' | 'unavailable' | 'offline' | 'detected' | 'fresh' | 'stale' = 'discovering';
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
       await page.routeWebSocket('**/api/ws?*', (socket) => {
         const server = socket.connectToServer();
@@ -42,8 +42,18 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             message.event === 'state.changed' ? message.data : message.result?.activeConnection ? message.result : null;
           if (state?.activeConnection) {
             state.activeConnection.bms = {
-              status: mode === 'absent' ? 'not_found' : 'attached',
-              connection: mode === 'absent' ? null : { kind: 'can', canId: 42 },
+              status:
+                mode === 'absent'
+                  ? 'not_found'
+                  : mode === 'offline'
+                    ? 'unavailable'
+                    : mode === 'discovering' || mode === 'unavailable'
+                      ? mode
+                      : 'attached',
+              connection:
+                mode === 'absent' || mode === 'discovering' || mode === 'unavailable'
+                  ? null
+                  : { kind: 'can', canId: 42 },
               candidates: [],
               latestSnapshot:
                 mode === 'fresh' || mode === 'stale'
@@ -87,6 +97,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const height = (await temperatures.boundingBox())!.height;
       const shortcut = page.getByRole('button', { name: 'Open battery management system', exact: true });
       assert.equal(await shortcut.count(), 0);
+      mode = 'unavailable';
+      await shortcut.waitFor();
+      assert.equal(await temperatures.getByRole('progressbar').count(), 2);
+      mode = 'absent';
+      await shortcut.waitFor({ state: 'hidden' });
+      assert.equal(await temperatures.getByRole('progressbar').count(), 2);
       mode = 'detected';
       const battery = temperatures.getByRole('progressbar', { name: 'Battery cells temperature', exact: true });
       await battery.waitFor();
@@ -203,6 +219,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           'Unavailable'
       );
       assert.equal(await circuitry.getAttribute('aria-valuetext'), 'Unavailable');
+      mode = 'offline';
+      await shortcut.click();
+      await dialog.waitFor();
+      await dialog.getByText('Unavailable', { exact: true }).first().waitFor();
+      await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      assert.equal(await temperatures.getByRole('progressbar').count(), 4);
       mode = 'absent';
       await battery.waitFor({ state: 'hidden' });
       assert.equal(await shortcut.count(), 0);

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { LiveSample } from '../../backend/contract';
-  import { bmsMenuVisible, freshBmsSnapshot } from './bms';
+  import { freshBmsSnapshot } from './bms';
   import { liveValue } from './live-values';
   import type { BmsState } from '../../backend/contract';
   import { colorForTemperature } from './gauge-colors';
@@ -29,7 +29,9 @@
   const circuitryTemperature = $derived(
     freshBmsSnapshot(bms, Math.max(nowMs, Date.now()))?.highestCircuitryTemperatureC ?? null
   );
-  const showBattery = $derived(bmsMenuVisible(bms) || batteryTemperature != null);
+  const showBattery = $derived(
+    bms != null && bms.status !== 'not_found' && (bms.connection != null || bms.candidates.length > 0)
+  );
 
   const readings = $derived([
     { key: 'controller', name: 'VESC', value: sample?.controllerTempC },
