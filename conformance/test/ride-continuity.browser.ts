@@ -45,12 +45,27 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           throw e;
         });
       await page.getByRole('button', { name: 'End ride', exact: true }).waitFor();
+      assert.ok(
+        await page.locator('button[aria-label="Disconnect"]').evaluate((button) => {
+          const end = document.querySelector('button[aria-label="End ride"]');
+          return !!end && !!(button.compareDocumentPosition(end) & Node.DOCUMENT_POSITION_FOLLOWING);
+        })
+      );
       await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
       const confirm = page.getByRole('alertdialog', { name: 'Disconnect board?', exact: true });
       await confirm.getByRole('button', { name: 'Disconnect', exact: true }).click();
       const card = page.getByRole('complementary', { name: 'Paused ride' });
       await card.waitFor();
       assert.equal((await client.request('state.get', {})).pausedRide?.sessionId, sessionId);
+      const homeEnd = card.getByRole('button', { name: 'End ride', exact: true });
+      await homeEnd.tap();
+      const homeConfirmation = page.getByRole('alertdialog', { name: 'End ride?', exact: true });
+      await homeConfirmation.waitFor();
+      assert.equal(sent.filter((m) => m === 'session.end').length, 0);
+      await homeConfirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await homeConfirmation.waitFor({ state: 'hidden' });
+      assert.equal((await client.request('state.get', {})).pausedRide?.sessionId, sessionId);
+      assert.ok(await homeEnd.evaluate((button) => button === document.activeElement));
       await page.goto(`${endpoint.origin}/#/settings`);
       const window = page.getByRole('spinbutton', { name: 'Resume ride within (minutes)' });
       await window.fill('0');
@@ -73,6 +88,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal((await client.request('state.get', {})).pausedRide?.sessionId, sessionId);
       await end.focus();
       await page.keyboard.press('Enter');
+      const pausedConfirmation = page.getByRole('alertdialog', { name: 'End ride?', exact: true });
+      await pausedConfirmation.waitFor();
+      assert.equal(sent.filter((m) => m === 'session.end').length, 0);
+      await pausedConfirmation.getByRole('button', { name: 'End ride', exact: true }).focus();
+      await page.keyboard.press('Enter');
       await client.waitForState((s) => s.pausedRide === null);
       assert.equal(sent.filter((m) => m === 'session.end').length, 1);
       assert.equal((await client.request('session.get', { sessionId })).summary.state, 'completed');
@@ -92,6 +112,15 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         (await client.request('state.get', {})).activeConnection?.activeSession?.sessionId,
         next.activeConnection!.activeSession!.sessionId
       );
+      assert.equal(sent.filter((m) => m === 'session.end').length, 1);
+      await ending.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await ending.waitFor({ state: 'hidden' });
+      assert.equal(
+        (await client.request('state.get', {})).activeConnection?.activeSession?.sessionId,
+        next.activeConnection!.activeSession!.sessionId
+      );
+      await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+      await page.getByRole('button', { name: 'End ride', exact: true }).click();
       await ending.getByRole('button', { name: 'End ride', exact: true }).tap();
       await client.waitForState((s) => s.activeConnection === null);
       assert.equal((await client.request('state.get', {})).pausedRide, null);

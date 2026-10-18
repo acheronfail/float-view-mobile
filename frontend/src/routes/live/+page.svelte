@@ -363,6 +363,14 @@
             shutdownConfirmationOpen = true;
           },
         },
+        {
+          label: 'Disconnect',
+          icon: 'bluetooth-off',
+          group: 'Connection',
+          appearance: 'destructive' as const,
+          disabled: backendState.busy,
+          onactivate: (closeMenu: () => void) => requestDisconnect(closeMenu),
+        },
         ...(connection.activeSession
           ? [
               {
@@ -375,14 +383,6 @@
               },
             ]
           : []),
-        {
-          label: 'Disconnect',
-          icon: 'bluetooth-off',
-          group: 'Connection',
-          appearance: 'destructive' as const,
-          disabled: backendState.busy,
-          onactivate: (closeMenu: () => void) => requestDisconnect(closeMenu),
-        },
       ],
     });
   });
@@ -450,8 +450,7 @@
   function requestEndRide(closeMenu: () => void) {
     closeMenu();
     endRideRequested = true;
-    if (shouldConfirmDisconnect(sample?.rideState)) disconnectConfirmationOpen = true;
-    else void disconnect();
+    disconnectConfirmationOpen = true;
   }
   async function disconnect() {
     if (disconnecting) return;
@@ -655,7 +654,7 @@
   titleId="disconnect-confirmation-title"
   title={endRideRequested ? 'End ride?' : 'Disconnect board?'}
   description={endRideRequested
-    ? 'The board is not idle. This will end the ride and disconnect the board.'
+    ? 'This will end the ride and disconnect the board. Reconnecting will start a new ride.'
     : connection?.trackingMode === 'saved'
       ? 'The board is not idle. This will disconnect the board. Your saved ride will remain available to resume.'
       : 'The board is not idle. This will disconnect the board.'}

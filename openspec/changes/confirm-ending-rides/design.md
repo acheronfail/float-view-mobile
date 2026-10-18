@@ -15,3 +15,7 @@ Keep pending admission and errors in the existing action owner. Cancel returns f
 ## Risks / Trade-offs
 
 One extra deliberate action to finish a paused ride; automatic expiry is unchanged.
+
+## Verification
+
+Frontend type checks, lint, production build and conformance TypeScript passed. Chromium and WebKit verified menu ordering, cancellation without completion, focus restoration and single pointer/keyboard completion requests.
