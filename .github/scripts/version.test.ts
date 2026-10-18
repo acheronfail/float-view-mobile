@@ -226,6 +226,39 @@ test('candidate helper reserves immutable numbered prereleases before and after 
   assert.equal(git(['status', '--porcelain'], dir), '');
 });
 
+test('candidate bumps reserve separate immutable sequences and CLI supports minor', () => {
+  const dir = repository();
+  git(['tag', 'v1.0.0'], dir);
+  const origin = remote(dir);
+  const sha = git(['rev-parse', 'HEAD'], dir);
+  assert.equal(release('candidate', dir, 'patch'), 'v1.0.1-rc.1');
+  assert.equal(release('candidate', dir, 'minor'), 'v1.1.0-rc.1');
+  assert.equal(release('candidate', dir, 'major'), 'v2.0.0-rc.1');
+  const result = spawnSync(
+    process.execPath,
+    ['--strip-types', new URL('./release.ts', import.meta.url).pathname, 'candidate', 'minor'],
+    { cwd: dir, encoding: 'utf8' }
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Pushed v1\.1\.0-rc\.2/);
+  for (const tag of ['v1.0.1-rc.1', 'v1.1.0-rc.1', 'v1.1.0-rc.2', 'v2.0.0-rc.1']) {
+    assert.equal(git(['cat-file', '-t', `refs/tags/${tag}`], origin), 'tag');
+    assert.equal(git(['rev-parse', `${tag}^{commit}`], origin), sha);
+  }
+  assert.equal(git(['tag', '--list', 'v1.1.0'], dir), '');
+  assert.equal(git(['status', '--porcelain'], dir), '');
+  for (const bump of ['wrong', '', 'v1.1.0']) {
+    assert.throws(() => release('candidate', dir, bump), /Usage/);
+    const invalid = spawnSync(
+      process.execPath,
+      ['--strip-types', new URL('./release.ts', import.meta.url).pathname, 'candidate', bump],
+      { cwd: dir, encoding: 'utf8' }
+    );
+    assert.notEqual(invalid.status, 0);
+  }
+  assert.throws(() => release('minor', dir, 'minor'), /Usage/);
+});
+
 test('candidate metadata rejects zero, padded, malformed or overflowing numbers', () => {
   assert.equal(parseVersion('v1.0.0-rc.12').appVersion, '1.0.0');
   for (const value of ['v1.0.0-rc.0', 'v1.0.0-rc.01', 'v1.0.0-rc.1.extra', 'v1.0.0-rc.9007199254740992'])

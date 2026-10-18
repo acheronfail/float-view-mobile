@@ -10,9 +10,11 @@ export function preview(ref = 'HEAD', cwd = process.cwd()) {
   return { commit, previousTag, version, notes };
 }
 
-export function release(bump: string, cwd = process.cwd()): string {
+export function release(bump: string, cwd = process.cwd(), candidateBump?: string): string {
   if (!['patch', 'minor', 'major', 'candidate'].includes(bump))
     throw new Error('Usage: just release patch|minor|major|candidate');
+  if (candidateBump !== undefined && (bump !== 'candidate' || !['patch', 'minor', 'major'].includes(candidateBump)))
+    throw new Error('Usage: just release candidate [patch|minor|major]');
   if (git(['status', '--porcelain'], cwd)) throw new Error('Release requires a clean working tree');
   if (git(['branch', '--show-current'], cwd) !== 'master') throw new Error('Release requires the master branch');
   git(
@@ -25,11 +27,18 @@ export function release(bump: string, cwd = process.cwd()): string {
   const base = latestStable(commit, cwd) ?? 'v0.0.0';
   let version: string;
   if (bump === 'candidate') {
-    const target = parseVersion(base).major < 1 ? 'v1.0.0' : bumpVersion(base, 'patch');
+    const target = candidateBump
+      ? bumpVersion(base, candidateBump as Bump)
+      : parseVersion(base).major < 1
+        ? 'v1.0.0'
+        : bumpVersion(base, 'patch');
     if (git(['tag', '--list', target], cwd)) throw new Error(`Stable version ${target} is already reserved`);
     const prefix = `${target}-rc.`;
-    const numbers = git(['tag', '--list', `${prefix}*`], cwd).split('\n')
-      .map(tag => tag.slice(prefix.length)).filter(value => /^[1-9][0-9]*$/.test(value)).map(Number);
+    const numbers = git(['tag', '--list', `${prefix}*`], cwd)
+      .split('\n')
+      .map((tag) => tag.slice(prefix.length))
+      .filter((value) => /^[1-9][0-9]*$/.test(value))
+      .map(Number);
     version = `${prefix}${Math.max(0, ...numbers) + 1}`;
     parseVersion(version);
   } else version = bumpVersion(base, bump as Bump);
@@ -43,8 +52,10 @@ export function release(bump: string, cwd = process.cwd()): string {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const action = process.argv[2] ?? '';
   const ref = process.argv[3];
-  if (process.argv.length > 4 || (action !== 'preview' && ref))
-    throw new Error('Usage: just release patch|minor|major|candidate or just release preview [ref]');
+  if (process.argv.length > 4 || (!['preview', 'candidate'].includes(action) && ref))
+    throw new Error(
+      'Usage: just release patch|minor|major, just release candidate [patch|minor|major], or just release preview [ref]'
+    );
   if (action === 'preview') {
     const result = preview(ref);
     console.error(
@@ -52,6 +63,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     );
     console.log(result.notes);
   } else {
-    console.log(`Pushed ${release(action)}; the tag starts the release workflow.`);
+    console.log(`Pushed ${release(action, process.cwd(), ref)}; the tag starts the release workflow.`);
   }
 }
