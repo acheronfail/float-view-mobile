@@ -552,7 +552,13 @@ impl DeviceMutationCoordinator {
                 command: control::CUSTOM_APP_DATA_COMMAND,
                 refloat_command: payload.as_slice().get(2).copied(),
             },
-            priority: scheduler::Priority::Auxiliary,
+            // Initial lighting state must share FIFO priority with schema pages;
+            // routine refreshes remain auxiliary once both switches are known.
+            priority: if controls.leds_enabled.is_none() || controls.headlights_enabled.is_none() {
+                scheduler::Priority::ControllerWork
+            } else {
+                scheduler::Priority::Auxiliary
+            },
             context: scheduler::RequestContext::RefloatLighting(route),
             timeout_ms: LIGHTING_TIMEOUT_MS,
             generation: self.generation,
@@ -605,6 +611,9 @@ impl DeviceMutationCoordinator {
             BooleanControl::Leds => controls.leds_enabled,
             BooleanControl::Headlights => controls.headlights_enabled,
         };
+        if confirmed.is_none() {
+            return Err(CoordinatorError::InvalidState);
+        }
         if confirmed == Some(enabled) {
             return Ok(vec![Effect::Idempotent(self.snapshot())]);
         }
@@ -850,10 +859,9 @@ impl DeviceMutationCoordinator {
             || !self.connection_ready
             || !self.writable
             || self.pending.is_some()
-            || self
-                .controls
-                .as_ref()
-                .is_none_or(|controls| controls.status != ControlStatus::Ready)
+            || self.controls.as_ref().is_none_or(|controls| {
+                controls.status == ControlStatus::Unavailable || controls.flywheel_enabled.is_none()
+            })
         {
             return Err(CoordinatorError::InvalidState);
         }

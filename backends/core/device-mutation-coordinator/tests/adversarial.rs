@@ -142,6 +142,70 @@ fn configuration_requires_the_complete_current_safety_state() {
 }
 
 #[test]
+fn initial_lighting_observation_shares_schema_priority_then_returns_to_auxiliary() {
+    let mut coordinator = DeviceMutationCoordinator::new();
+    configure(
+        &mut coordinator,
+        Route::Direct,
+        firmware(0),
+        stable_profile(),
+    );
+    for priority in [Priority::ControllerWork, Priority::Auxiliary] {
+        let effects = coordinator
+            .apply(Command::RefreshLighting {
+                generation: Generation(7),
+            })
+            .unwrap();
+        assert!(effects.iter().any(|effect| matches!(effect,
+            Effect::SubmitObservation(request) if request.priority == priority)));
+        observe_lighting(&mut coordinator, 1, &[36, 101, 20, 3]);
+    }
+}
+
+#[test]
+fn controls_only_wait_for_the_state_they_need() {
+    for (control, enabled) in [
+        (BooleanControl::Package, false),
+        (BooleanControl::Flywheel, true),
+        (BooleanControl::Leds, false),
+        (BooleanControl::Headlights, false),
+    ] {
+        let mut coordinator = DeviceMutationCoordinator::new();
+        configure(
+            &mut coordinator,
+            Route::Direct,
+            firmware(0),
+            stable_profile(),
+        );
+        let command = Command::SetControl {
+            generation: Generation(7),
+            control,
+            enabled,
+        };
+        assert_eq!(
+            coordinator.apply(command.clone()),
+            Err(CoordinatorError::InvalidState)
+        );
+        let mut telemetry = sample(1, RideState::Idle, PackageMode::Normal);
+        telemetry.fatal_error_latched = None;
+        observe(&mut coordinator, telemetry);
+        // Lighting and fatal state are still unknown. Package/flywheel need neither.
+        assert_eq!(
+            coordinator.snapshot().controls.unwrap().status,
+            ControlStatus::Loading
+        );
+        if matches!(control, BooleanControl::Leds | BooleanControl::Headlights) {
+            assert_eq!(
+                coordinator.apply(command.clone()),
+                Err(CoordinatorError::InvalidState)
+            );
+            observe_lighting(&mut coordinator, 1, &[36, 101, 20, 3]);
+        }
+        submission(&coordinator.apply(command).unwrap());
+    }
+}
+
+#[test]
 fn configuration_does_not_wait_for_lower_priority_lighting_observation() {
     let mut coordinator = DeviceMutationCoordinator::new();
     configure(

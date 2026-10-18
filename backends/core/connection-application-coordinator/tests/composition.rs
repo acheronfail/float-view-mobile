@@ -374,6 +374,25 @@ fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
     receive_can_motor(&mut coordinator, motor_configuration_payload(42), 1, 30);
     receive(&mut coordinator, selectable_info_payload(), 40);
     let mut effects = activate_with_cache(&mut coordinator, 50, None);
+    let lighting_timer = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::ReplaceTimer {
+                token: token @ TimerToken::Mutation(MutationTimerToken::LightingRefresh(_)),
+                ..
+            } => Some(*token),
+            _ => None,
+        })
+        .unwrap();
+    coordinator
+        .apply(Command::TimerFired {
+            generation: coordinator.snapshot().generation,
+            token: lighting_timer,
+            now_ms: 51,
+        })
+        .unwrap();
+    let mut controls_ready_during_download = false;
+    let mut telemetry_confirmed_during_download = false;
     let compressed = configuration_schema_1_3_0();
     let mut schema_requests = 0;
     let mut stale_chunks = 0;
@@ -382,8 +401,12 @@ fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
             break;
         }
         let request = write(&effects).payload.clone();
-        assert_eq!(&request[..2], &[34, 1]);
-        let payload = &request[2..];
+        let payload = if request == [62] {
+            request.as_slice()
+        } else {
+            assert_eq!(&request[..2], &[34, 1]);
+            &request[2..]
+        };
         let response = match payload[0] {
             92 => {
                 assert_eq!(payload[1], 0);
@@ -415,6 +438,11 @@ fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
                 response
             }
             93 => configuration_current_response_1_3_0(),
+            62 => vec![62],
+            36 if payload.get(2) == Some(&20) => {
+                assert!(schema_requests < compressed.len().div_ceil(400));
+                vec![36, 101, 20, 3]
+            }
             14 => current_limits_payload(0x2EFD_0142, Some(15)),
             36 if payload.get(2) == Some(&35) => empty_alert_history(),
             36 if payload.get(2) == Some(&33) => {
@@ -427,9 +455,19 @@ fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
             _ => panic!("Unexpected bootstrap request: {payload:?}"),
         };
         effects = receive(&mut coordinator, response, 60 + step * 10);
+        let snapshot = coordinator.snapshot();
+        if snapshot.configuration.availability == Availability::Loading {
+            let controls = snapshot.mutations.controls.as_ref().unwrap();
+            telemetry_confirmed_during_download |= controls.package_enabled.is_some()
+                && controls.flywheel_enabled.is_some()
+                && controls.leds_enabled.is_none();
+            controls_ready_during_download |= controls.status == ControlStatus::Ready;
+        }
     }
     let config = coordinator.snapshot().configuration;
     assert!(stale_chunks > 0);
+    assert!(telemetry_confirmed_during_download);
+    assert!(controls_ready_during_download);
     assert!(
         schema_requests > 1,
         "cold bootstrap must download the entire schema"

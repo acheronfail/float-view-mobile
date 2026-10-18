@@ -45,7 +45,9 @@ export function flywheelDisableUnavailable(connection: ActiveConnection | null |
   const controls = connection?.refloatControls;
   return (
     connection?.state !== 'ready' ||
-    controls?.status !== 'ready' ||
+    !controls ||
+    controls.status === 'unavailable' ||
+    controls.flywheelEnabled !== true ||
     !controls.writable ||
     controls.pendingAction !== null
   );
@@ -128,7 +130,7 @@ export function fatalErrorClearUnavailableReason(connection: ActiveConnection | 
   if (connection.latestSample?.rideState !== 'idle') return 'Step off the board and wait until it is idle.';
   if (controls.pendingAction !== null) return 'Wait for the current board operation to finish.';
   if (
-    controls.status !== 'ready' ||
+    controls.flywheelEnabled !== false ||
     controls.fatalErrorLatched !== true ||
     controls.fatalErrorActive !== false ||
     controls.fatalErrorClearable !== true
@@ -141,7 +143,10 @@ export function refloatMenuActions(connection: ActiveConnection): RefloatMenuAct
   const controls = connection.refloatControls;
   if (!controls || controls.status === 'unavailable') return [];
   const actionable =
-    connection.state === 'ready' && controls.status === 'ready' && controls.writable && controls.pendingAction === null;
+    connection.state === 'ready' &&
+    controls.flywheelEnabled !== null &&
+    controls.writable &&
+    controls.pendingAction === null;
   const idle = connection.latestSample?.rideState === 'idle';
   const flywheel = controls.flywheelEnabled === true;
 

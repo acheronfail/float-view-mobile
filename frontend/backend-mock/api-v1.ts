@@ -1765,14 +1765,24 @@ export class MockBackend {
   private setRefloatControl(id: number, control: RefloatControl, enabled: boolean): Response {
     const active = this.state.activeConnection;
     const controls = active?.refloatControls;
-    if (!active || active.state !== 'ready' || !controls || controls.status !== 'ready' || !controls.writable) {
+    if (
+      !active ||
+      active.state !== 'ready' ||
+      !controls ||
+      controls.status === 'unavailable' ||
+      controls.flywheelEnabled === null ||
+      !controls.writable
+    ) {
       return failure(id, 'invalid_state', 'Refloat controls are not writable');
     }
     if (controls.pendingAction !== null) return failure(id, 'invalid_state', 'Another Refloat action is pending');
     if (controls.flywheelEnabled && !(control === 'flywheel' && !enabled)) {
       return failure(id, 'invalid_state', 'Only flywheel disable is available in flywheel mode');
     }
-    if ((control === 'leds' || control === 'headlights') && !controls.lightingAvailable) {
+    if (
+      (control === 'leds' || control === 'headlights') &&
+      (!controls.lightingAvailable || controls.ledsEnabled === null || controls.headlightsEnabled === null)
+    ) {
       return failure(id, 'invalid_state', 'Refloat lighting is unavailable');
     }
     const activeFlywheelDisable = control === 'flywheel' && !enabled && controls.flywheelEnabled === true;
@@ -1819,10 +1829,10 @@ export class MockBackend {
       !active ||
       active.state !== 'ready' ||
       !controls ||
-      controls.status !== 'ready' ||
+      controls.status === 'unavailable' ||
       !controls.writable ||
       controls.pendingAction !== null ||
-      controls.flywheelEnabled ||
+      controls.flywheelEnabled !== false ||
       !controls.fatalErrorClearAvailable ||
       controls.fatalErrorLatched !== true ||
       controls.fatalErrorActive !== false ||

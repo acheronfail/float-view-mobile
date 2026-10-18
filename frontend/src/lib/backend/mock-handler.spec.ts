@@ -32,6 +32,29 @@ const bmsSnapshot: BmsSnapshot = {
 };
 
 describe('deterministic mock backend', () => {
+  it('authorizes confirmed controls independently of aggregate loading state', () => {
+    for (const control of ['package', 'flywheel', 'leds', 'headlights'] as const) {
+      const backend = new MockBackend();
+      backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+      backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
+      backend.simulateRideState('idle');
+      backend.simulateRefloatControls({
+        status: 'loading',
+        ledsEnabled: null,
+        headlightsEnabled: null,
+        fatalErrorLatched: null,
+        fatalErrorActive: null,
+        fatalErrorClearable: null,
+      });
+      const request = { id: 3, method: 'refloat.control.set', params: { control, enabled: control === 'flywheel' } };
+      if (control === 'leds' || control === 'headlights') {
+        expect(backend.handle(request)).toMatchObject({ error: { code: 'invalid_state' } });
+        backend.simulateRefloatControls({ ledsEnabled: true, headlightsEnabled: true });
+      }
+      expect(backend.handle(request)).toHaveProperty('result');
+    }
+  });
+
   it('persists validated appearance and publishes it on the owning saved board', () => {
     const backend = new MockBackend();
     const appearance = { ...defaultBoardAppearance, rail: 4, leftTop: '#ed5555' };

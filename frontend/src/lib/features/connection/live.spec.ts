@@ -82,6 +82,32 @@ describe('live board behavior', () => {
     expect(lightingMenuActions(ready)).toEqual([]);
   });
 
+  it('enables confirmed controls while schema, lighting, or fatal state is still loading', () => {
+    const ready = connection('ready');
+    ready.refloatConfiguration = { availability: 'loading' } as ActiveConnection['refloatConfiguration'];
+    ready.latestSample = { rideState: 'idle', packageState: 'ready' } as ActiveConnection['latestSample'];
+    ready.refloatControls = {
+      ...refloatControls,
+      status: 'loading',
+      ledsEnabled: null,
+      headlightsEnabled: null,
+      fatalErrorLatched: null,
+      fatalErrorActive: null,
+      fatalErrorClearable: null,
+    };
+    expect(refloatMenuActions(ready).every((action) => !action.disabled)).toBe(true);
+    expect(lightingMenuActions(ready).every((action) => action.disabled)).toBe(true);
+    expect(fatalErrorClearUnavailableReason(ready)).toContain('confirm');
+    ready.refloatControls.ledsEnabled = true;
+    ready.refloatControls.headlightsEnabled = false;
+    expect(lightingMenuActions(ready).every((action) => !action.disabled)).toBe(true);
+    ready.refloatControls.flywheelEnabled = null;
+    expect(refloatMenuActions(ready).every((action) => action.disabled)).toBe(true);
+    expect(lightingMenuActions(ready).every((action) => action.disabled)).toBe(true);
+    ready.refloatControls.flywheelEnabled = true;
+    expect(flywheelDisableUnavailable(ready)).toBe(false);
+  });
+
   it('dims retained readings for every state except ready', () => {
     expect(readingsAreDimmed(connection('ready'))).toBe(false);
     expect(readingsAreDimmed(connection('reconnecting'))).toBe(true);
@@ -293,9 +319,10 @@ describe('live board behavior', () => {
       checked: null,
       disabled: true,
     });
+    // Lighting writes encode both switches, so both states must be confirmed.
     expect(lightingBox(ready, 'headlights')).toMatchObject({
       checked: false,
-      disabled: false,
+      disabled: true,
     });
     ready.refloatControls.packageEnabled = false;
     expect(refloatMenuActions(ready)[0]).toMatchObject({ label: 'Enable Refloat', enabled: true });

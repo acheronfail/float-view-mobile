@@ -20,10 +20,11 @@ export function lightingBox(connection: ActiveConnection | null | undefined, con
     !available ||
     checked == null ||
     connection?.state !== 'ready' ||
-    controls?.status !== 'ready' ||
+    controls?.flywheelEnabled !== false ||
+    controls.ledsEnabled === null ||
+    controls.headlightsEnabled === null ||
     !controls.writable ||
-    controls.pendingAction !== null ||
-    controls.flywheelEnabled === true;
+    controls.pendingAction !== null;
   return {
     checked,
     pending,
