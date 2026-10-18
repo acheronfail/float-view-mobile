@@ -32,12 +32,16 @@ Pauses and reconnects SHALL preserve missing intervals in elapsed time without a
 
 ### Requirement: Shared ride completion actions
 
-Live SHALL offer Disconnect and End ride; End ride SHALL finalize and disconnect, with confirmation unless the latest ride state is idle. Home SHALL show a paused-ride card with board, remaining window and End ride; the paused session viewer SHALL show the same status/action. Disconnected completion SHALL be immediate and retain qualifying data. Controls SHALL support primary pointer and guarded keyboard activation.
+Live SHALL place End ride after Disconnect. Every End ride action SHALL require confirmation explaining that reconnecting starts a new ride. Confirmed completion SHALL finalize the ride and disconnect when connected. Home SHALL show a paused-ride card with board, remaining window and End ride; the paused session viewer SHALL show the same status/action. Cancellation SHALL retain the ride; qualifying data SHALL remain saved. Controls SHALL support primary pointer and guarded keyboard activation.
 
 #### Scenario: Finish a paused ride
 - **WHEN** the user activates End ride on Home or the paused session viewer
-- **THEN** the ride is finalized once without reconnecting or requesting confirmation
+- **THEN** a confirmation appears; cancellation preserves the ride and acceptance finalizes it once without reconnecting
 
 #### Scenario: Finish while riding
-- **WHEN** the user selects End ride on Live while riding or ride state is unknown
+- **WHEN** the user selects End ride on Live in any ride state
 - **THEN** completion and disconnection occur only after confirmation
+
+#### Scenario: Menu order
+- **WHEN** the Live menu shows both Disconnect and End ride
+- **THEN** End ride appears after Disconnect

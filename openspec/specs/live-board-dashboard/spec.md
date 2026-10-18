@@ -186,7 +186,7 @@ Configure board SHALL open a modal bottom sheet that covers almost the entire vi
 
 ### Requirement: Conditional disconnect confirmation
 
-Disconnect SHALL proceed without confirmation only when the latest persisted ride state is exactly `idle`. Disconnect SHALL pause eligible saved rides; End ride SHALL finalize and disconnect using the same confirmation rule. Confirmation copy SHALL distinguish these outcomes. A non-idle, unknown, or unavailable latest ride state SHALL require explicit confirmation before the disconnect request is sent.
+Disconnect SHALL proceed without confirmation only when the latest persisted ride state is exactly `idle`. Disconnect SHALL pause eligible saved rides; End ride SHALL always require confirmation before finalizing and disconnecting, including when idle. Confirmation copy SHALL distinguish these outcomes. A non-idle, unknown, or unavailable latest ride state SHALL require explicit confirmation before the disconnect request is sent.
 
 #### Scenario: Idle disconnect
 
