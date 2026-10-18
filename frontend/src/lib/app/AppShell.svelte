@@ -182,6 +182,9 @@
     clear(owner) {
       if (headerRegistration?.owner === owner) headerRegistration = undefined;
     },
+    openMenu() {
+      if (appHeader.menu?.length && !appHeader.menuUnavailable) menuOpen = true;
+    },
     focusMenu() {
       appHeaderButton?.focus();
     },

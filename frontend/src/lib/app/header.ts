@@ -37,6 +37,7 @@ export type AppHeaderConfig = AppHeaderPatch & {
 export type AppHeaderContext = {
   set(owner: string, patch: AppHeaderPatch): void;
   clear(owner: string): void;
+  openMenu(): void;
   focusMenu(): void;
 };
 

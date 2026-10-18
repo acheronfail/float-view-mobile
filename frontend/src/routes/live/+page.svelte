@@ -509,13 +509,13 @@
     if (!(await refloatConfiguration.flush())) return;
     refloatConfigurationOpen = false;
     await tick();
-    appHeader.focusMenu();
+    appHeader.openMenu();
   }
 
   async function closeRefloatTunes() {
     refloatTunesOpen = false;
     await tick();
-    appHeader.focusMenu();
+    appHeader.openMenu();
   }
 </script>
 

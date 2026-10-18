@@ -190,6 +190,19 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           if (viewport.width === 390) await done.tap();
           else await page.keyboard.press('Escape');
           await panel.waitFor({ state: 'hidden' });
+          if (title === 'Configure Refloat' || title === 'Tunes') {
+            await actionOverlay.waitFor();
+            assert.equal(await menu.getAttribute('aria-expanded'), 'true', 'dismissal returns to Board actions');
+            assert.equal(
+              await actionOverlay
+                .getByRole('button', { name: 'Done', exact: true })
+                .evaluate((el) => el === document.activeElement),
+              true,
+              'the reopened menu owns focus'
+            );
+            await page.keyboard.press('Escape');
+            await actionOverlay.waitFor({ state: 'hidden' });
+          }
           assert.equal(await menu.evaluate((el) => el === document.activeElement), true);
         }
       }
@@ -199,7 +212,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await editor.getByRole('spinbutton').first().fill('0.85');
       await editor.getByRole('button', { name: 'Done', exact: true }).tap();
       await editor.waitFor({ state: 'hidden' });
-      await menu.tap();
+      await actionOverlay.waitFor();
       await actionOverlay.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
       await editor.getByRole('spinbutton').first().waitFor();
       assert.equal(await editor.getByRole('spinbutton').first().inputValue(), '0.85', 'Done retains the draft');
@@ -214,6 +227,34 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await editor.isVisible(), true, 'Escape cancels the confirmation without closing the editor');
       await editor.getByRole('button', { name: 'Done', exact: true }).tap();
       await editor.waitFor({ state: 'hidden' });
+      await actionOverlay.waitFor();
+      await page.keyboard.press('Escape');
+      await actionOverlay.waitFor({ state: 'hidden' });
+      for (const [label, title] of [
+        ['Configure Refloat', 'Configure Refloat'],
+        ['Tunes…', 'Tunes'],
+      ]) {
+        for (const dismissal of ['keyboard', 'native']) {
+          await menu.tap();
+          await actionOverlay.getByRole('button', { name: label, exact: true }).tap();
+          const panel = page.getByRole('dialog', { name: title, exact: true });
+          await panel.waitFor();
+          if (dismissal === 'keyboard') {
+            await panel.getByRole('button', { name: 'Done', exact: true }).focus();
+            await page.keyboard.press('Enter');
+          } else {
+            assert.equal(
+              await page.evaluate(() => window.dispatchEvent(new Event('floatview:back', { cancelable: true }))),
+              false
+            );
+          }
+          await panel.waitFor({ state: 'hidden' });
+          await actionOverlay.waitFor();
+          await page.keyboard.press('Escape');
+          await actionOverlay.waitFor({ state: 'hidden' });
+          assert.match(page.url(), /#\/live$/);
+        }
+      }
       const battery = page.getByRole('button', { name: 'Open battery management system', exact: true });
       await battery.focus();
       await page.keyboard.press('Enter');
