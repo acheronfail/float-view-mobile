@@ -25,6 +25,23 @@
 
   let dialog = $state<HTMLElement>();
   let doneButton = $state<HTMLButtonElement>();
+  let scrollable = $state(false);
+  let moreAbove = $state(false);
+  let moreBelow = $state(false);
+
+  function updateScrollHints(node: HTMLElement) {
+    scrollable = node.scrollHeight > node.clientHeight + 1;
+    moreAbove = scrollable && node.scrollTop > 1;
+    moreBelow = scrollable && node.scrollTop + node.clientHeight < node.scrollHeight - 1;
+  }
+
+  function observeDescription(node: HTMLElement) {
+    const observer = new ResizeObserver(() => updateScrollHints(node));
+    observer.observe(node);
+    if (node.firstElementChild) observer.observe(node.firstElementChild);
+    updateScrollHints(node);
+    return { destroy: () => observer.disconnect() };
+  }
 
   $effect(() => {
     if (!open || typeof document === 'undefined') return;
@@ -83,13 +100,18 @@
       <!-- The scroll region needs focus so keyboard users can read the entire description. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div
+        use:observeDescription
         id={`${titleId}-description`}
         role="region"
         aria-label={`${title} help`}
         tabindex="0"
-        class="mt-2 min-h-0 touch-pan-y overflow-y-auto overscroll-contain text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-muted"
+        onscroll={(event) => updateScrollHints(event.currentTarget)}
+        class:scrollable
+        class:more-above={moreAbove}
+        class:more-below={moreBelow}
+        class="help-description mt-2 min-h-0 touch-pan-y overflow-y-auto overscroll-contain p-3 text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-muted"
       >
-        {description}
+        <div>{description}</div>
       </div>
       <div class="mt-6 flex shrink-0 justify-end">
         <button
@@ -103,3 +125,24 @@
     </div>
   </div>
 {/if}
+
+<style>
+  .help-description {
+    --help-shadow-above: transparent;
+    --help-shadow-below: transparent;
+  }
+
+  .scrollable {
+    box-shadow:
+      inset 0 10px 10px -10px var(--help-shadow-above),
+      inset 0 -10px 10px -10px var(--help-shadow-below);
+  }
+
+  .more-above {
+    --help-shadow-above: color-mix(in srgb, var(--app-foreground) 24%, transparent);
+  }
+
+  .more-below {
+    --help-shadow-below: color-mix(in srgb, var(--app-foreground) 24%, transparent);
+  }
+</style>

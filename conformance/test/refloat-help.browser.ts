@@ -67,6 +67,16 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.ok(doneBounds && doneBounds.y >= 16 && doneBounds.y + doneBounds.height <= viewport.height - 16);
         assert.equal(await body.evaluate((el) => el.scrollTop), 0);
         assert.ok(await body.evaluate((el) => el.scrollHeight > el.clientHeight));
+        await page.waitForFunction(() => {
+          const el = document.querySelector('[role="dialog"] [role="region"]')!;
+          return (
+            el.classList.contains('scrollable') &&
+            el.classList.contains('more-below') &&
+            !el.classList.contains('more-above')
+          );
+        });
+        const border = await body.evaluate((el) => getComputedStyle(el).borderTopWidth);
+        assert.equal(border, '0px');
         await body.hover();
         await page.mouse.wheel(0, 300);
         await page.waitForFunction(() => document.querySelector('[role="dialog"] [role="region"]')!.scrollTop > 0);
@@ -74,8 +84,20 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.keyboard.press('End');
         await page.waitForFunction(() => {
           const el = document.querySelector('[role="dialog"] [role="region"]')!;
-          return el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+          return (
+            el.scrollTop + el.clientHeight >= el.scrollHeight - 1 &&
+            el.classList.contains('more-above') &&
+            !el.classList.contains('more-below')
+          );
         });
+        await page.setViewportSize({ width: 600, height: 12000 });
+        await page.waitForFunction(
+          () => !document.querySelector('[role="dialog"] [role="region"]')!.classList.contains('scrollable')
+        );
+        await page.setViewportSize(viewport);
+        await page.waitForFunction(() =>
+          document.querySelector('[role="dialog"] [role="region"]')!.classList.contains('scrollable')
+        );
         await done.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
         assert.equal(await dialog.count(), 1);
         await done.tap();
