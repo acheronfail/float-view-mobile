@@ -3,6 +3,7 @@ import { emptyEstimate } from '../../../../backend-mock/battery';
 import { describe, expect, it } from 'vitest';
 import type { ActiveConnection } from '$lib/backend/contract';
 import {
+  fatalErrorClearUnavailableReason,
   controllerShutdownConfirmation,
   controllerShutdownDisabled,
   controllerRouteDescription,
@@ -136,6 +137,26 @@ describe('live board behavior', () => {
     ]);
   });
 
+  it('explains clear availability without offering clear in the Refloat menu', () => {
+    const ready = connection('ready');
+    ready.refloatControls = { ...refloatControls };
+    ready.latestSample = { rideState: 'idle', packageState: 'ready' } as ActiveConnection['latestSample'];
+    expect(fatalErrorClearUnavailableReason(ready)).toBeNull();
+    expect(refloatMenuActions(ready).some((item) => item.label === 'Clear fatal error')).toBe(false);
+    ready.refloatControls.fatalErrorActive = true;
+    expect(fatalErrorClearUnavailableReason(ready)).toContain('still active');
+    ready.refloatControls = { ...refloatControls, fatalErrorClearAvailable: false };
+    expect(fatalErrorClearUnavailableReason(ready)).toContain('power cycle');
+    ready.refloatControls = { ...refloatControls, writable: false };
+    expect(fatalErrorClearUnavailableReason(ready)).toContain('read-only');
+    ready.refloatControls = { ...refloatControls, pendingAction: 'clearFatalError' };
+    expect(fatalErrorClearUnavailableReason(ready)).toContain('operation');
+    ready.refloatControls = { ...refloatControls, fatalErrorClearable: null };
+    expect(fatalErrorClearUnavailableReason(ready)).toContain('confirm');
+    ready.state = 'reconnecting';
+    expect(fatalErrorClearUnavailableReason(ready)).toContain('Reconnect');
+  });
+
   it('derives ready, riding, read-only, reconnecting, lighting, fatal, and pending menu gates', () => {
     const ready = connection('ready');
     ready.refloatControls = { ...refloatControls };
@@ -143,14 +164,13 @@ describe('live board behavior', () => {
     expect(refloatMenuActions(ready).map((item) => [item.label, item.disabled])).toEqual([
       ['Disable Refloat…', false],
       ['Enable flywheel…', false],
-      ['Clear fatal error', false],
     ]);
 
     ready.latestSample = { rideState: 'riding', packageState: 'running' } as ActiveConnection['latestSample'];
     const riding = refloatMenuActions(ready);
     expect(lightingBox(ready, 'leds').disabled).toBe(false);
     expect(riding.find((item) => item.label === 'Disable Refloat…')?.disabled).toBe(true);
-    expect(riding.find((item) => item.label === 'Clear fatal error')?.disabled).toBe(true);
+    expect(fatalErrorClearUnavailableReason(ready)).toContain('idle');
 
     ready.refloatControls = { ...refloatControls, writable: false };
     expect(lightingBox(ready, 'leds').disabled).toBe(true);
@@ -172,7 +192,7 @@ describe('live board behavior', () => {
     expect(lightingBox(ready, 'leds')).toMatchObject({ checked: null, disabled: true, status: 'Unavailable' });
     const unavailable = refloatMenuActions(ready);
     expect(unavailable.some((item) => item.label.startsWith('LEDs'))).toBe(false);
-    expect(unavailable.find((item) => item.kind === 'clearFatalError')?.disabled).toBe(true);
+    expect(fatalErrorClearUnavailableReason(ready)).toContain('still active');
     expect(unavailable.every((item) => item.disabled)).toBe(true);
   });
 

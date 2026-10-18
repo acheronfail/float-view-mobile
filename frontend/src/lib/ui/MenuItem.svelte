@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  export type MenuItemAppearance = 'normal' | 'warning' | 'destructive';
+  export type MenuItemAppearance = 'normal' | 'warning' | 'danger' | 'destructive';
 </script>
 
 <script lang="ts">
@@ -32,7 +32,7 @@
 <button
   type="button"
   class="flex w-full touch-manipulation flex-row items-center gap-2 px-4 py-3 text-left hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-  class:text-danger={appearance === 'destructive'}
+  class:text-danger={appearance === 'destructive' || appearance === 'danger'}
   class:text-warning={appearance === 'warning'}
   disabled={disabled || pending || checked === null}
   role={typeof checked === 'boolean' ? 'switch' : undefined}

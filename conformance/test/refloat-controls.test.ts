@@ -9,7 +9,7 @@ import {
   type RefloatProductControl,
 } from '../fixture/refloat-controls.ts';
 import type { RefloatVersion } from '../fixture/refloat.ts';
-import { composeBoard } from '../fixture/boards.ts';
+import { composeBoard, composeInteractiveBoard } from '../fixture/boards.ts';
 import { encodeFrame, FrameAssembler } from '../fixture/frame.ts';
 import { VescSimulator } from '../fixture/simulator.ts';
 import { idleTelemetry } from '../fixture/telemetry.ts';
@@ -25,6 +25,26 @@ test('Refloat history returns transient faults after the active fault clears', (
   assert.deepEqual([...response.slice(13)], [0, 0, 0, 1, 1, 1, 4, 0, 0, 0, 0, 2, 1, 0, 0]);
   assert.equal(model.state.fatalErrorLatched, true);
   assert.equal(new RefloatControlModel('1.1.2').alertsResponse(Uint8Array.of(36, 101, 35, 0, 0, 0, 0)), undefined);
+});
+
+test('manual workbench starts clean and retains only faults it generated', () => {
+  const board = composeInteractiveBoard({
+    advertisedName: 'Fault test',
+    topology: 'direct',
+    canPingIds: [],
+    controllers: [{ alias: 'board', canId: 0, firmware: '6.06', refloat: '1.3.0', uuid: new Uint8Array(12) }],
+    telemetry: { phase: () => 'idle', next: () => idleTelemetry },
+  });
+  const model = board.controllers[0]!.refloatControls!;
+  assert.equal(model.state.fatalErrorLatched, false);
+  model.applyToSample({ ...idleTelemetry, firmwareFault: 'overVoltage' });
+  assert.equal(model.state.fatalErrorLatched, true);
+  assert.equal(model.alertsResponse(Uint8Array.of(36, 101, 35, 0, 0, 0, 0))![11], 1);
+  model.applyToSample(idleTelemetry);
+  assert.equal(model.state.fatalErrorLatched, true);
+  assert.equal(model.alertsResponse(Uint8Array.of(36, 101, 35, 0, 0, 0, 0))![11], 0);
+  assert.equal(model.apply(Uint8Array.of(36, 101, 36, 1), { rideState: 'idle' }).accepted, true);
+  assert.equal(model.state.fatalErrorLatched, false);
 });
 
 interface GoldenCase {

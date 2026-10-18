@@ -3,6 +3,7 @@ export const iconClasses = {
   'zoom-in': 'i-lucide-zoom-in',
   hand: 'i-lucide-hand',
   'arrow-left': 'i-lucide-arrow-left',
+  'chevron-right': 'i-lucide-chevron-right',
   bell: 'i-lucide-bell',
   check: 'i-lucide-check',
   'lock-keyhole': 'i-lucide-lock-keyhole',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beepReasonLabel, firmwareFaultWarning, liveStatus, stopReasonLabel } from './live-status';
+import { beepReasonLabel, firmwareFaultWarning, hasFirmwareFaults, liveStatus, stopReasonLabel } from './live-status';
 
 const sample = {
   packageState: 'ready' as const,
@@ -29,6 +29,21 @@ describe('live status presentation', () => {
     expect(
       firmwareFaultWarning({ ...recovered, lastFirmwareFault: { code: 255, reason: 'unknown' } })?.title
     ).toContain('code 255');
+  });
+
+  it('offers history for current warnings and retained occurrences only', () => {
+    expect(hasFirmwareFaults(null)).toBe(false);
+    expect(hasFirmwareFaults({ ...sample, faultHistory: [] })).toBe(false);
+    expect(hasFirmwareFaults({ ...sample, fatalErrorLatched: true, faultHistory: [] })).toBe(true);
+    expect(hasFirmwareFaults({ ...sample, firmwareFault: 'driver', faultHistory: [] })).toBe(true);
+    expect(
+      hasFirmwareFaults({
+        ...sample,
+        faultHistory: [{ code: 3, reason: 'driver', elapsedMs: 0, observedElapsedMs: 0 }],
+      })
+    ).toBe(true);
+    expect(firmwareFaultWarning({ ...sample, fatalErrorLatched: true })?.description).toContain('VESC Tool');
+    expect(firmwareFaultWarning({ ...sample, fatalErrorLatched: true })?.description).not.toContain('fault has ended');
   });
 
   it('clears the stop explanation on engagement despite retained stop and beep reasons', () => {

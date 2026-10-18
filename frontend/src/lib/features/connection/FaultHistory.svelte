@@ -2,10 +2,11 @@
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import { untrack } from 'svelte';
   import { loadFirmwareFaults } from '$lib/features/faults/session-faults';
-  import type { RideFault } from '$lib/features/faults/faults';
+  import { faultLabel, type RideFault } from '$lib/features/faults/faults';
   import FullScreenOverlay from '$lib/ui/FullScreenOverlay.svelte';
   import { backendState } from '$lib/backend/state.svelte';
   import FaultList from '$lib/features/faults/FaultList.svelte';
+  import { fatalErrorClearUnavailableReason } from './live';
   import { firmwareFaultWarning } from './live-status';
   let { onclose }: { onclose: () => void } = $props();
   const connection = $derived(backendState.snapshot?.activeConnection);
@@ -51,6 +52,19 @@
   });
   const faults = $derived(recorded ?? (sessionId ? [] : (sample?.faultHistory ?? [])));
   const warning = $derived(firmwareFaultWarning(sample));
+  const reason = $derived(sample?.firmwareFault ?? sample?.lastFirmwareFault?.reason);
+  const latched = $derived(
+    sample?.fatalErrorLatched === true || connection?.refloatControls?.fatalErrorLatched === true
+  );
+  const clearing = $derived(connection?.refloatControls?.pendingAction === 'clearFatalError');
+  const clearUnavailable = $derived(fatalErrorClearUnavailableReason(connection));
+  let clearError = $state('');
+  async function clearLatch() {
+    if (clearUnavailable || backendState.busy) return;
+    clearError = '';
+    if (!(await backendState.clearRefloatFatalError()))
+      clearError = backendState.error ?? 'The latch could not be cleared. Try again.';
+  }
 </script>
 
 <FullScreenOverlay title="Fault history" titleId="fault-history-title" {onclose}>
@@ -60,7 +74,25 @@
         <p class="font-semibold text-danger">
           {sample?.firmwareFault ? 'Controller fault active' : 'Fatal error latched'}
         </p>
-        <p class="mt-1">Stop riding and investigate the cause before clearing or power cycling.</p>
+        {#if reason}<p class="mt-1 font-medium">{faultLabel(reason, sample?.lastFirmwareFault?.code ?? null)}</p>{/if}
+        <p class="mt-1">{warning.description}</p>
+        {#if latched}
+          <button
+            type="button"
+            class="mt-3 min-h-11 touch-manipulation rounded-lg border border-danger px-3 py-2 font-semibold text-danger disabled:opacity-50"
+            disabled={clearUnavailable !== null || backendState.busy}
+            aria-describedby={clearUnavailable ? 'fault-clear-unavailable' : undefined}
+            aria-busy={clearing || undefined}
+            onpointerdown={(event) => activateFromPointer(event, clearLatch, { scrollable: true })}
+            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, clearLatch)}
+            >{clearing ? 'Clearing…' : 'Clear fatal error'}</button
+          >
+          {#if clearUnavailable && !clearing}<p id="fault-clear-unavailable" class="mt-2">{clearUnavailable}</p>{/if}
+          <p class="mt-2 text-xs text-muted">
+            Clearing resets the latch. It does not fix the cause or erase fault history.
+          </p>
+          {#if clearError}<p role="alert" class="mt-2 text-danger">{clearError}</p>{/if}
+        {/if}
       </div>
     {/if}
     <p class="text-sm text-muted">
@@ -85,7 +117,9 @@
     {:else if sessionId && recorded === null && !error}
       <p class="py-6 text-center text-muted" role="status">Loading history…</p>
     {:else if !error}
-      <p class="py-6 text-center text-muted">No faults recorded.</p>
+      <p class="py-6 text-center text-muted">
+        {warning ? 'No fault details recorded for this ride.' : 'No faults recorded.'}
+      </p>
     {/if}
   </div>
 </FullScreenOverlay>

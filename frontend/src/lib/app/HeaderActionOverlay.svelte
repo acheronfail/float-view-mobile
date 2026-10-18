@@ -150,7 +150,7 @@
                   aria-busy={action.pending || undefined}
                   disabled={action.disabled || action.pending || action.checked === null}
                   class="flex min-h-14 min-w-0 touch-pan-y items-center gap-2 rounded-lg border border-outline bg-surface px-3 py-2 text-left hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  class:text-danger={action.appearance === 'destructive'}
+                  class:text-danger={action.appearance === 'destructive' || action.appearance === 'danger'}
                   class:text-warning={action.appearance === 'warning'}
                   onpointerdown={(event) =>
                     activateFromPointer(event, () => activate(action, false), { scrollable: true })}

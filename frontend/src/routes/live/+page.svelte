@@ -20,6 +20,7 @@
   import { lightingMenuActions } from '$lib/features/connection/lighting';
   import FaultHistory from '$lib/features/connection/FaultHistory.svelte';
   import LiveCharts from '$lib/features/connection/LiveCharts.svelte';
+  import { hasFirmwareFaults } from '$lib/features/connection/live-status';
   import LiveView from '$lib/features/connection/LiveView.svelte';
   import BmsView from '$lib/features/connection/BmsView.svelte';
   import { bmsMenuVisible } from '$lib/features/connection/bms';
@@ -262,15 +263,20 @@
               },
             ]
           : []),
-        {
-          label: 'Fault history…',
-          icon: 'triangle-alert' as const,
-          group: 'View',
-          onactivate: (closeMenu: () => void) => {
-            closeMenu();
-            faultHistoryOpen = true;
-          },
-        },
+        ...(hasFirmwareFaults(sample)
+          ? [
+              {
+                label: 'Fault history…',
+                icon: 'triangle-alert' as const,
+                group: 'View',
+                appearance: 'danger' as const,
+                onactivate: (closeMenu: () => void) => {
+                  closeMenu();
+                  faultHistoryOpen = true;
+                },
+              },
+            ]
+          : []),
         ...lightingMenuActions(connection).map((action) => ({
           label: action.label,
           icon: action.control === 'leds' ? ('lightbulb' as const) : ('flashlight' as const),
@@ -285,16 +291,10 @@
         })),
         ...refloatMenuActions(connection).map((action) => ({
           label: action.label,
-          icon:
-            action.kind === 'clearFatalError'
-              ? ('triangle-alert' as const)
-              : action.control === 'flywheel'
-                ? ('rotate-cw' as const)
-                : ('power' as const),
+          icon: action.control === 'flywheel' ? ('rotate-cw' as const) : ('power' as const),
           group: 'Refloat',
           disabled: action.disabled,
           pending: action.pending,
-          appearance: action.kind === 'clearFatalError' ? ('warning' as const) : ('normal' as const),
           onactivate: (closeMenu: () => void) => activateRefloatAction(action, closeMenu),
         })),
         ...(connection.refloatConfiguration
@@ -392,10 +392,6 @@
 
   function activateRefloatAction(action: ReturnType<typeof refloatMenuActions>[number], closeMenu: () => void) {
     closeMenu();
-    if (action.kind === 'clearFatalError') {
-      void performFatalClear();
-      return;
-    }
     refloatConfirmation = refloatControlConfirmation(action.control, action.enabled);
     if (refloatConfirmation) return;
     void performRefloatControl(action.control, action.enabled);
@@ -408,12 +404,6 @@
     if (!selectedControl || selectedEnabled === undefined) return;
     await backendState.setRefloatControl(selectedControl, selectedEnabled);
     refloatConfirmation = null;
-    await tick();
-    appHeader.focusMenu();
-  }
-
-  async function performFatalClear() {
-    await backendState.clearRefloatFatalError();
     await tick();
     appHeader.focusMenu();
   }
@@ -554,6 +544,9 @@
     {#if view === 'normal'}
       <div use:motion.surface={'content'} class="h-full min-h-0 flex-1 overflow-hidden">
         <LiveView
+          onfaulthistory={() => {
+            faultHistoryOpen = true;
+          }}
           {charging}
           {nowMs}
           onenablerefloat={() => {

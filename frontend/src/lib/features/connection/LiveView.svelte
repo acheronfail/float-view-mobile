@@ -3,12 +3,14 @@
     onconfigure,
     onbms,
     onenablerefloat,
+    onfaulthistory,
     nowMs,
     charging = false,
   }: {
     onconfigure?: (trigger: HTMLButtonElement) => void;
     onbms?: (trigger: HTMLButtonElement) => void;
     onenablerefloat: () => void;
+    onfaulthistory: () => void;
     nowMs: number;
     charging?: boolean;
   } = $props();
@@ -74,11 +76,23 @@
         {#if faultWarning || connection.refloatControls?.packageEnabled === false}
           <div class="absolute inset-x-2 top-2 z-10 flex flex-col gap-2">
             {#if faultWarning}
-              <div role="alert" class="rounded-xl border border-danger bg-surface px-3 py-2 text-danger shadow-lg">
-                <p class="flex items-center gap-2 text-sm font-semibold">
-                  <Icon name="triangle-alert" class="shrink-0 text-xl" />{faultWarning.title}
-                </p>
-                <p class="mt-1 text-xs">{faultWarning.description}</p>
+              <div role="alert">
+                <button
+                  type="button"
+                  class="flex w-full touch-manipulation items-center gap-2 rounded-xl border border-danger bg-surface px-3 py-2 text-left text-danger shadow-lg"
+                  aria-label={`Open fault history: ${faultWarning.title}`}
+                  onpointerdown={(event) => activateFromPointer(event, onfaulthistory, { scrollable: true })}
+                  onclick={(event) => activateFromKeyboardOrAssistiveClick(event, onfaulthistory)}
+                >
+                  <Icon name="triangle-alert" class="shrink-0 text-xl" />
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-sm font-semibold">{faultWarning.title}</span>
+                    <span class="mt-1 block text-xs"
+                      >{sample?.firmwareFault ? 'Controller fault active' : 'Fatal error latched'} · View details</span
+                    >
+                  </span>
+                  <Icon name="chevron-right" class="shrink-0" />
+                </button>
               </div>
             {/if}
             {#if connection.refloatControls?.packageEnabled === false}

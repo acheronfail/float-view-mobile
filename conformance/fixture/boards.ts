@@ -310,7 +310,7 @@ export function composeInteractiveBoard(selection: InteractiveBoardSelection): B
       telemetryLayoutPayload: codec.layoutPayload ?? new Uint8Array(),
       telemetryPhases: [],
       refloat: codec,
-      refloatControls: new RefloatControlModel(item.refloat),
+      refloatControls: new RefloatControlModel(item.refloat, { fatalErrorLatched: false }),
       refloatConfiguration: new RefloatConfigurationModel(item.refloat as StableRefloatConfigurationVersion),
       telemetry: selection.telemetry,
       shutdown: new ControllerShutdownModel(),

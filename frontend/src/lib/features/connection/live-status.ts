@@ -89,7 +89,19 @@ export function firmwareFaultWarning(
   return {
     title: `Firmware fault · ${label}`,
     description: sample.firmwareFault
-      ? 'Stop riding and investigate this controller fault.'
-      : 'Fault ended; fatal error latched. Stop riding and investigate before power cycling or using Clear fatal error in Board actions.',
+      ? 'Step off the board. This controller fault is still active.'
+      : reason
+        ? 'The fault has ended, but Refloat has kept the error latched.'
+        : 'Refloat has not provided the cause. Step off the board and check the fault log in VESC Tool before riding again.',
   };
+}
+
+/** Retained occurrences keep history discoverable after the warning clears. */
+export function hasFirmwareFaults(
+  sample:
+    | Pick<LiveSample, 'firmwareFault' | 'lastFirmwareFault' | 'fatalErrorLatched' | 'faultHistory'>
+    | null
+    | undefined
+): boolean {
+  return firmwareFaultWarning(sample) !== null || (sample?.faultHistory?.length ?? 0) > 0;
 }

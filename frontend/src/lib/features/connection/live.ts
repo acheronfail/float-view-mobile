@@ -8,16 +8,14 @@ import type {
   RefloatControl,
 } from '$lib/backend/contract';
 
-export type RefloatMenuAction =
-  | {
-      kind: 'control';
-      control: 'package' | 'flywheel';
-      enabled: boolean;
-      label: string;
-      disabled: boolean;
-      pending: boolean;
-    }
-  | { kind: 'clearFatalError'; label: string; disabled: boolean; pending: boolean };
+export type RefloatMenuAction = {
+  kind: 'control';
+  control: 'package' | 'flywheel';
+  enabled: boolean;
+  label: string;
+  disabled: boolean;
+  pending: boolean;
+};
 
 export interface RefloatControlConfirmation {
   control: RefloatControl;
@@ -104,6 +102,29 @@ export function refloatControlConfirmation(
   return null;
 }
 
+/** Explain why fault history cannot currently offer a clear action. */
+export function fatalErrorClearUnavailableReason(connection: ActiveConnection | null | undefined): string | null {
+  const controls = connection?.refloatControls;
+  if (connection?.state !== 'ready') return 'Reconnect to the board to clear the latch.';
+  if (!controls || controls.status === 'unavailable') return 'Wait for live board status.';
+  if (!controls.fatalErrorClearAvailable)
+    return 'This Refloat version cannot clear the latch from the app. After checking the fault log, power cycle the board.';
+  if (!controls.writable) return 'This connection is read-only. The latch cannot be cleared from the app.';
+  if (controls.flywheelEnabled) return 'Exit flywheel mode before clearing the latch.';
+  if (controls.fatalErrorActive === true || connection.latestSample?.firmwareFault)
+    return 'The controller fault is still active. It must end before the latch can be cleared.';
+  if (connection.latestSample?.rideState !== 'idle') return 'Step off the board and wait until it is idle.';
+  if (controls.pendingAction !== null) return 'Wait for the current board operation to finish.';
+  if (
+    controls.status !== 'ready' ||
+    controls.fatalErrorLatched !== true ||
+    controls.fatalErrorActive !== false ||
+    controls.fatalErrorClearable !== true
+  )
+    return 'Waiting for the board to confirm that the latch can be cleared.';
+  return null;
+}
+
 export function refloatMenuActions(connection: ActiveConnection): RefloatMenuAction[] {
   const controls = connection.refloatControls;
   if (!controls || controls.status === 'unavailable') return [];
@@ -141,14 +162,6 @@ export function refloatMenuActions(connection: ActiveConnection): RefloatMenuAct
         (controls.flywheelEnabled === false && connection.latestSample?.packageState !== 'ready'),
     },
   ];
-  if (controls.fatalErrorClearAvailable && controls.fatalErrorLatched === true) {
-    actions.push({
-      kind: 'clearFatalError',
-      label: 'Clear fatal error',
-      pending: controls.pendingAction === 'clearFatalError',
-      disabled: !actionable || !idle || controls.fatalErrorActive !== false || controls.fatalErrorClearable !== true,
-    });
-  }
   return actions;
 }
 

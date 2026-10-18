@@ -65,10 +65,15 @@ Choose a coherent semantic scene, then optionally pin individual bounded values
 while the remaining motion continues, freeze/resume generated motion, or reset
 to the scene baseline. Connection controls can serialize a disconnect around a
 CAN move, identity replacement, ping-visibility change, or unchanged reconnect.
+New workbench controllers start without a fatal latch. Apply the `firmwareFault`
+scene to generate an overvoltage occurrence, then `idle` to end the active fault
+while retaining its history and latch. Float View can clear the latch from Fault
+history once idle; clearing keeps recorded occurrences.
+
 The request area reports the selected route, command class, response kind,
 fragmentation, counters, and bounded diagnostics. Refloat 1.0.0 serves exact
 command 1 and command 10 detail 1–4 layouts; 1.1.0 and 1.2.3 serve negotiated
-command 31/32 layouts and compact command 10 detail 4. Command 35 and commands
+command 31/32 layouts and compact command 10 detail 4. Refloat 1.2+ also serves command 35 fault history; commands
 41–43 remain unsupported.
 
 Scenario JSON is a shareable, strictly validated document capped at 65,536 UTF-8

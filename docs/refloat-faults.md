@@ -3,10 +3,16 @@
 ## What users see
 
 Live shows a persistent warning while a controller fault is active or Refloat's
-fatal error remains latched. **Fault history…** in Board actions opens a plain
-list, newest first. Saved connections read the ride's recorded history; guests
+fatal error remains latched. Tapping the warning opens **Fault history**.
+The danger-styled **Fault history…** item in Board actions is shown only while a
+warning or recorded occurrence exists, and opens a plain list, newest first. Saved connections read the ride's recorded history; guests
 keep the 20 most recent occurrences. Clearing the latch does not remove history.
 The sheet restores after WebView recreation and reports read failures with Retry.
+**Clear fatal error** lives only in this sheet. It explains unavailable actions,
+keeps active faults from being cleared, and distinguishes a known cause from an
+unknown latch. If Refloat has not provided the cause, it directs the user to step
+off and check the controller fault log in VESC Tool. Clearing resets the latch; it
+does not repair the cause or erase history.
 
 Session review shows a **Faults** list and red markers on charts and the map.
 Selecting a timed fault inspects that point in the ride. Nearby chart markers
