@@ -356,3 +356,22 @@ function assertError(response: Response, code: string) {
   assert.ok('error' in response, JSON.stringify(response));
   assert.equal(response.error.code, code);
 }
+
+test('possible CAN conflicts are nonfatal authoritative warnings and clear on reconnect', () => {
+  const backend = connectedBackend();
+  backend.simulateCanReplyConflict();
+  const warned = state(backend);
+  assertState(warned);
+  assert.equal(warned.activeConnection?.state, 'ready');
+  assert.equal(warned.activeConnection?.connectionIssue, null);
+  assert.equal(warned.activeConnection?.connectionWarning?.code, 'possible_can_id_conflict');
+  assert.match(warned.activeConnection?.connectionWarning?.message ?? '', /different CAN IDs/);
+  assert.equal(warned.activeConnection?.connectionWarning?.message.includes('uuid'), false);
+  backend.simulateControllerSelection(controllerCandidates);
+  assert.equal(state(backend).activeConnection?.connectionWarning?.code, 'possible_can_id_conflict');
+  result(handle(backend, 8999, 'device.disconnect', {}));
+  result(handle(backend, 9000, 'device.connect', { deviceId: 'mock-board', trackingMode: 'saved' }));
+  const reconnected = state(backend);
+  assertState(reconnected);
+  assert.equal(reconnected.activeConnection?.connectionWarning, null);
+});

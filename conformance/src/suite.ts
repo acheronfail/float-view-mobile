@@ -1717,6 +1717,11 @@ export function assertState(state: AppState) {
     assert.equal(active.controllerActions.shutdownAvailable, false);
   }
 
+  assert.ok(Object.hasOwn(active, 'connectionWarning'));
+  if (active.connectionWarning !== null) {
+    assert.equal(active.connectionWarning.code, 'possible_can_id_conflict');
+    assert.ok(active.connectionWarning.message.length > 0 && active.connectionWarning.message.length <= 1_024);
+  }
   if (active.connectionIssue) {
     assert.ok(stableConnectionIssueCodes.has(active.connectionIssue.code));
     assert.ok(active.connectionIssue.message.length > 0);

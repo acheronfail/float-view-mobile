@@ -377,6 +377,16 @@ fn malformed_write_response_fails_the_exact_lease_and_allows_retry() {
 
 #[test]
 fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
+    cold_schema_download(false);
+}
+
+#[test]
+fn duplicate_schema_pages_warn_without_interrupting_configuration_or_lighting() {
+    cold_schema_download(true);
+}
+
+fn cold_schema_download(duplicate_each_page: bool) {
+    let mut previous_schema = None;
     let mut coordinator = ConnectionApplicationCoordinator::default();
     let mut facts = begin_facts(10);
     facts.preferred_controller_can_id = Some(1);
@@ -429,14 +439,26 @@ fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
                     duplicate.extend_from_slice(&(compressed.len() as u32).to_be_bytes());
                     duplicate.extend_from_slice(&0_u32.to_be_bytes());
                     duplicate.extend_from_slice(&compressed[..400]);
+                    if duplicate_each_page {
+                        duplicate = previous_schema
+                            .clone()
+                            .expect("previous accepted schema page");
+                    }
                     let ignored = receive(&mut coordinator, duplicate, 60 + step * 10);
-                    assert_eq!(ignored, vec![Effect::Diagnostic(
-                        float_view_connection_application_coordinator::Diagnostic::ConfigurationStale)]);
-                    assert_eq!(
-                        coordinator.snapshot(),
-                        before,
-                        "late schema chunk must retain the active request and deadline"
-                    );
+                    if duplicate_each_page {
+                        assert!(ignored.iter().any(|e| matches!(e, Effect::Diagnostic(
+                            float_view_connection_application_coordinator::Diagnostic::ConfigurationStale))));
+                        assert_eq!(coordinator.snapshot().scheduler, before.scheduler);
+                        assert_eq!(coordinator.snapshot().configuration, before.configuration);
+                    } else {
+                        assert_eq!(ignored, vec![Effect::Diagnostic(
+                            float_view_connection_application_coordinator::Diagnostic::ConfigurationStale)]);
+                        assert_eq!(
+                            coordinator.snapshot(),
+                            before,
+                            "late schema chunk must retain the active request and deadline"
+                        );
+                    }
                     stale_chunks += 1;
                 }
                 let mut response = vec![92, 0];
@@ -465,6 +487,9 @@ fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
             }
             _ => panic!("Unexpected bootstrap request: {payload:?}"),
         };
+        if response.first() == Some(&92) {
+            previous_schema = Some(response.clone());
+        }
         effects = receive(&mut coordinator, response, 60 + step * 10);
         let snapshot = coordinator.snapshot();
         if snapshot.configuration.availability == Availability::Loading {
@@ -475,6 +500,10 @@ fn cold_refloat_1_3_0_schema_download_completes_through_express_can_1() {
             controls_ready_during_download |= controls.status == ControlStatus::Ready;
         }
     }
+    assert_eq!(
+        coordinator.snapshot().possible_can_id_conflict,
+        duplicate_each_page
+    );
     let config = coordinator.snapshot().configuration;
     assert!(stale_chunks > 0);
     assert!(telemetry_confirmed_during_download);

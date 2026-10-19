@@ -536,6 +536,8 @@ export interface ActiveConnection extends Device {
   controllerConnection: ControllerConnection | null;
   controllerCandidates: ControllerCandidate[];
   connectionIssue: ConnectionIssue | null;
+  /** Connection-scoped evidence, not a confirmed diagnosis. Clears on reconnect. */
+  connectionWarning: { code: 'possible_can_id_conflict'; message: string } | null;
   bms: BmsState;
   /** Null only before Refloat discovery begins. Never persisted. */
   refloatControls: RefloatControls | null;

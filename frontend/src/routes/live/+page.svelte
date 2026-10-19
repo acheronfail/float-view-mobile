@@ -597,6 +597,16 @@
 
 <section aria-labelledby="app-title" class="flex h-full min-h-0 flex-1 flex-col gap-2">
   {#if connection}
+    {#if connection.connectionWarning}
+      <aside
+        role="status"
+        aria-label="Possible CAN ID conflict"
+        class="shrink-0 rounded-lg border border-warning/50 bg-warning/10 p-3 text-sm"
+      >
+        <p class="font-semibold">Possible CAN ID conflict</p>
+        <p>{connection.connectionWarning.message}</p>
+      </aside>
+    {/if}
     {#if view === 'normal'}
       <div use:motion.surface={'content'} class="h-full min-h-0 flex-1 overflow-hidden">
         <LiveView

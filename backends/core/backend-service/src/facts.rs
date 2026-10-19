@@ -187,7 +187,7 @@ record!(Connection {
     battery_estimate: crate::battery_estimator::Estimate, live_widget_slots: [String; 5],
     latest_location: Option<LiveLocation>, current_limits: Option<CurrentLimits>, controller_route: Option<Route>,
     transport_firmware: Option<TransportFirmware>,
-    controller_candidates: Vec<ControllerCandidate>, connection_issue: Option<ConnectionIssue>, bms: Bms,
+    controller_candidates: Vec<ControllerCandidate>, connection_issue: Option<ConnectionIssue>, connection_warning: Option<ConnectionIssue>, bms: Bms,
     refloat_controls: Option<Controls>, controller_actions: ControllerActions,
 });
 record!(PausedRide {

@@ -220,6 +220,12 @@ impl BackendService {
                         vesc_supported: v.vesc_supported,
                     })
                     .collect(),
+                connection_warning: runtime
+                    .possible_can_id_conflict
+                    .then(|| f::ConnectionIssue {
+                        code: "possible_can_id_conflict".into(),
+                        message: c::CAN_REPLY_WARNING.into(),
+                    }),
                 connection_issue: runtime.discovery.issue.map(|i| f::ConnectionIssue {
                     code: i.code.as_str().into(),
                     message: i.message.into(),

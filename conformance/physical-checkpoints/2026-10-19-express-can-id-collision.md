@@ -55,6 +55,23 @@ source and successful correction. Exact receiver binary source was not captured.
 This checkpoint does not establish other devices, background execution or
 motor-control behavior.
 
+The app now reports a nonfatal **Possible CAN ID conflict** warning after
+unexpected exact duplicates of three separate solicited CAN reads within ten
+seconds. Each duplicate must arrive within 1.5 seconds of its original reply;
+repeated copies of one response count once. Tracking retains at most eight
+responses of at most 8 KiB each, excludes streaming telemetry and direct reads,
+and resets on reconnect. The warning names the gateway, controller and
+receivers/accessories to check, without changing their settings or preventing
+otherwise working reads.
+
+This is evidence-based detection, not a complete CAN collision inventory.
+Truncated copies that never form valid frames, collisions without duplicate
+replies, and ambiguous replies that match the current request may escape the
+heuristic. A CAN scan reports responding addresses rather than device counts.
+The warning path has deterministic protocol, public snapshot and Chromium/WebKit
+coverage; the corrected physical board was not deliberately returned to a
+conflicting address to exercise the new warning.
+
 Private inventories, addresses, raw traces, temporary probe source/results,
 configuration backup, approved proposal and rollback remain in
 `.local/physical-testing/2026-10-19-express-duplicates/`.

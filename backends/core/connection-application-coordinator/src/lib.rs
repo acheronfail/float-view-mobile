@@ -8,6 +8,9 @@
 
 use std::collections::VecDeque;
 
+mod reply_health;
+pub use reply_health::WARNING as CAN_REPLY_WARNING;
+
 pub use float_view_controller_discovery as discovery;
 pub use float_view_device_mutation_coordinator as mutation;
 pub use float_view_refloat_compatibility as compatibility;
@@ -82,6 +85,7 @@ pub struct ActivationFacts {
 
 #[derive(Clone, PartialEq)]
 pub struct Snapshot {
+    pub possible_can_id_conflict: bool,
     pub generation: Generation,
     pub phase: Phase,
     pub standalone_bms: bool,
@@ -99,6 +103,7 @@ impl std::fmt::Debug for Snapshot {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Snapshot")
+            .field("possible_can_id_conflict", &self.possible_can_id_conflict)
             .field("generation", &self.generation)
             .field("phase", &self.phase)
             .field("standalone_bms", &self.standalone_bms)
@@ -389,6 +394,7 @@ pub struct RequestTiming {
 }
 
 pub struct ConnectionApplicationCoordinator {
+    reply_health: reply_health::ReplyHealth,
     timings: VecDeque<RequestTiming>,
     generation: Generation,
     phase: Phase,
@@ -417,6 +423,7 @@ pub struct ConnectionApplicationCoordinator {
 impl Default for ConnectionApplicationCoordinator {
     fn default() -> Self {
         Self {
+            reply_health: reply_health::ReplyHealth::default(),
             timings: VecDeque::new(),
             generation: Generation(0),
             phase: Phase::Disconnected,
@@ -534,6 +541,7 @@ impl ConnectionApplicationCoordinator {
     #[must_use]
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
+            possible_can_id_conflict: self.reply_health.warned,
             generation: self.generation,
             phase: self.phase,
             standalone_bms: self.standalone_bms,
@@ -702,7 +710,7 @@ impl ConnectionApplicationCoordinator {
             && let Ok(reported_id) = controller_data::decode_controller_can_id(&payload)
             && reported_id != can_id
         {
-            return Ok(vec![Effect::Diagnostic(Diagnostic::UnexpectedResponse)]);
+            return self.unexpected_reply(&payload, now_ms, Diagnostic::UnexpectedResponse);
         }
         // Schema pages share command 92. Correlate the echoed index/offset
         // before the scheduler retires a request; delayed pages must not fail
@@ -718,7 +726,7 @@ impl ConnectionApplicationCoordinator {
             }) = configuration_response(&payload)
             && (actual_index != index || actual_offset != offset)
         {
-            return Ok(vec![Effect::Diagnostic(Diagnostic::ConfigurationStale)]);
+            return self.unexpected_reply(&payload, now_ms, Diagnostic::ConfigurationStale);
         }
         // Fast and slow command-33 replies share a command ID, but echo different
         // field masks. A late reply must not retire the other request's deadline.
@@ -734,9 +742,15 @@ impl ConnectionApplicationCoordinator {
                 scheduler::Route::Can(_) => 2,
             };
             if request.payload.get(offset + 3..offset + 12) != Some(header) {
-                return Ok(vec![Effect::Diagnostic(Diagnostic::UnexpectedResponse)]);
+                return self.unexpected_reply(&payload, now_ms, Diagnostic::UnexpectedResponse);
             }
         }
+        let warning_changed = self
+            .scheduler
+            .snapshot()
+            .in_flight
+            .is_none_or(|request| request.expected_response != expected)
+            && self.reply_health.unexpected(&payload, now_ms);
         let (_, scheduler_effects) = self.scheduler.receive(
             payload,
             expected,
@@ -745,6 +759,9 @@ impl ConnectionApplicationCoordinator {
             now_ms,
         )?;
         let mut effects = Vec::new();
+        if warning_changed {
+            self.publish_state(&mut effects)?;
+        }
         self.process_scheduler(
             scheduler_effects,
             now_ms,
@@ -753,6 +770,19 @@ impl ConnectionApplicationCoordinator {
         )?;
         let resumed = self.scheduler.resume(now_ms)?;
         self.process_scheduler(resumed, now_ms, observed_at_epoch_ms, &mut effects)?;
+        Ok(effects)
+    }
+
+    fn unexpected_reply(
+        &mut self,
+        payload: &[u8],
+        now_ms: u64,
+        diagnostic: Diagnostic,
+    ) -> Result<Vec<Effect>, CoordinatorError> {
+        let mut effects = vec![Effect::Diagnostic(diagnostic)];
+        if self.reply_health.unexpected(payload, now_ms) {
+            self.publish_state(&mut effects)?;
+        }
         Ok(effects)
     }
 
@@ -1134,6 +1164,7 @@ impl ConnectionApplicationCoordinator {
         self.process_mutation(mutation_effects, now_ms, effects)?;
         self.configuration.reset();
         self.current_limits = None;
+        self.reply_health = reply_health::ReplyHealth::default();
         self.configuration_token = None;
         // A reconnect resets connection work, but the retained ride still owns
         // its original monotonic origin and unique sample sequence.
@@ -1328,6 +1359,9 @@ impl ConnectionApplicationCoordinator {
                     push_effect(effects, Effect::Write(request))?;
                 }
                 scheduler::Effect::Complete { request, outcome } => {
+                    if let scheduler::Completion::Response(ref payload) = outcome {
+                        self.reply_health.accepted(&request, payload, now_ms);
+                    }
                     self.record_request(
                         &request,
                         match outcome {

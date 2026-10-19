@@ -46,6 +46,7 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   controllerConnection: null,
   controllerCandidates: [],
   connectionIssue: null,
+  connectionWarning: null,
   bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
   refloatControls: null,
   refloatConfiguration: null,

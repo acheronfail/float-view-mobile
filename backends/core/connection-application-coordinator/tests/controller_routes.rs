@@ -150,3 +150,42 @@ fn every_supported_vesc_wire_version_accepts_the_exact_route_read() {
         assert_eq!(coordinator.snapshot().discovery.route, Some(Route::Can(1)));
     }
 }
+
+#[test]
+fn repeated_duplicate_can_reads_publish_a_nonfatal_warning_and_reset_on_reconnect() {
+    let mut coordinator = scanning(&[1, 2]);
+    let motor = motor_payload(42);
+    receive(&mut coordinator, motor.clone(), 40);
+    for time in 41..50 {
+        receive(&mut coordinator, motor.clone(), time);
+    }
+    assert!(!coordinator.snapshot().possible_can_id_conflict);
+    let id = vec![50, 0, 2, 0, 0, 1];
+    receive(&mut coordinator, id.clone(), 50);
+    receive(&mut coordinator, id, 51);
+    assert!(!coordinator.snapshot().possible_can_id_conflict);
+    let motor = motor_payload(43);
+    receive(&mut coordinator, motor.clone(), 60);
+    let stale = coordinator
+        .apply(Command::Receive {
+            generation: float_view_connection_application_coordinator::Generation(0),
+            payload: motor.clone(),
+            now_ms: 61,
+            observed_at_epoch_ms: 1_700_000_000_061,
+        })
+        .unwrap();
+    assert_eq!(stale, vec![Effect::Diagnostic(Diagnostic::StaleEvent)]);
+    assert!(!coordinator.snapshot().possible_can_id_conflict);
+    let effects = receive(&mut coordinator, motor, 61);
+    assert!(coordinator.snapshot().possible_can_id_conflict);
+    assert_eq!(coordinator.snapshot().phase, Phase::Identifying);
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::PublishState(s) if s.possible_can_id_conflict))
+    );
+    receive(&mut coordinator, vec![50, 0, 2, 0, 0, 2], 70);
+    assert_eq!(coordinator.snapshot().phase, Phase::SelectingController);
+    coordinator.apply(Command::Begin(begin_facts(100))).unwrap();
+    assert!(!coordinator.snapshot().possible_can_id_conflict);
+}

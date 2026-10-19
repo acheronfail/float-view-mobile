@@ -648,6 +648,7 @@ export class MockBackend {
               },
               controllerCandidates: [],
               connectionIssue: null,
+              connectionWarning: null,
               bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
               refloatControls: readyRefloatControls(),
               refloatConfiguration: {
@@ -1629,6 +1630,22 @@ export class MockBackend {
         controllerCandidates: this.pendingCandidates,
         connectionIssue: null,
         activeSession: null,
+      },
+    });
+  }
+
+  simulateCanReplyConflict(): void {
+    const active = this.state.activeConnection;
+    if (!active) throw new Error('No active connection');
+    this.change({
+      ...this.state,
+      activeConnection: {
+        ...active,
+        connectionWarning: {
+          code: 'possible_can_id_conflict',
+          message:
+            'Duplicate CAN replies may prevent live values and Refloat configuration from loading. Check that your Bluetooth gateway, motor controller, and every receiver/accessory use different CAN IDs, then reconnect.',
+        },
       },
     });
   }

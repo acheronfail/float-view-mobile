@@ -414,6 +414,7 @@ describe('BackendState', () => {
         controllerConnection: { kind: 'direct' },
         controllerCandidates: [],
         connectionIssue: null,
+        connectionWarning: null,
         bms: { status: 'not_found', connection: null, candidates: [], latestSnapshot: null },
         refloatControls: {
           status: 'ready',
@@ -693,6 +694,7 @@ describe('live box save ownership', () => {
       controllerConnection: null,
       controllerCandidates: [],
       connectionIssue: null,
+      connectionWarning: null,
       bms: { status: 'not_found', connection: null, candidates: [], latestSnapshot: null },
       refloatControls: null,
       refloatConfiguration: null,

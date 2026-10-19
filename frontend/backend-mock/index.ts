@@ -475,6 +475,11 @@ export function simulateMockForeground(foreground: boolean): void {
   activeMockBackend?.simulateForeground(foreground);
 }
 
+/** Read-only protocol-fault stand-in for connection warning rendering tests. */
+export function simulateMockCanReplyConflict(): void {
+  activeMockBackend?.simulateCanReplyConflict();
+}
+
 export function getMockBootstrap(port: number) {
   return {
     webSocketUrl: `ws://127.0.0.1:${port}/api/ws?token=${encodeURIComponent(sessionToken)}`,

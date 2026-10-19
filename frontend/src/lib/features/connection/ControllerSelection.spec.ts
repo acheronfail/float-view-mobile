@@ -31,6 +31,7 @@ const connection: ActiveConnection = {
     },
   ],
   connectionIssue: null,
+  connectionWarning: null,
   bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
   refloatControls: null,
   refloatConfiguration: null,
