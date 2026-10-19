@@ -64,6 +64,7 @@ jobs:
       - name: Test release tooling
         run: |
           node --strip-types --test .github/scripts/*.test.ts
+          python3 -B .github/scripts/android-backup.test.py
           python3 -B .github/scripts/android-store.test.py
           python3 -B .github/scripts/mac-store.test.py
           python3 -B .github/scripts/mac-upload.test.py

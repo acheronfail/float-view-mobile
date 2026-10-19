@@ -20,9 +20,17 @@ Saved rides also retain Refloat and VESC firmware versions and the direct/CAN
 connection path at each successful connection or reconnect. This recorded
 connection context excludes controller UUIDs and Bluetooth addresses.
 
-These records are not automatically uploaded to the developer. Your operating
-system may include app data in its backups or device transfers according to its
-settings and platform rules. Float View does not provide its own cloud backup.
+These records are not automatically uploaded to the developer. On Android,
+Float View allows the operating system to back up the complete settings/ride
+store using encrypted cloud backup and device-to-device transfer, subject to
+your system settings, backup provider and available quota. This can include
+precise recorded routes and saved board associations. Diagnostic logs, temporary
+exports, derived schema caches, WebView data and app permission-history hints
+are excluded. Android cloud Auto Backup has a 25 MB per-app limit and may skip
+a store above that size; keep your own recording exports. Backups and restored
+copies follow the operating system/provider's retention and security rules.
+Other platforms may also include data in system backups or transfers.
+Float View does not operate its own cloud-backup service.
 
 ## Online maps
 
@@ -53,8 +61,11 @@ is best-effort and is not provided as an offline download service.
 
 Optional spoken announcements use the operating system's text-to-speech service.
 Float View does not record microphone audio or provide speech recognition.
-Voice downloads and, on Android, any network processing by your selected speech
-engine are governed by the platform or engine provider's settings and policies.
+Android announcements select an installed English voice marked by the speech
+engine as not requiring a network connection; if none is available, the app
+reports that speech needs attention. Voice downloads and the operating system
+or selected engine's services are governed by their provider's settings and
+policies.
 Live Activities and notifications display ride information through the platform;
 Float View does not use remote push notifications or a push server.
 
