@@ -24,7 +24,9 @@ if (macExplicitlyRequested && (!isTag || event !== 'workflow_dispatch'))
   throw new Error('Manual Mac store preparation requires a stable release tag or numbered candidate; never master or nightly');
 const macStoreRequested = isTag && (event === 'push' || (event === 'workflow_dispatch' && macExplicitlyRequested));
 const macStoreDelivery = macStoreRequested && event === 'push' ? 'upload' : macDelivery;
-const androidExplicitlyRequested = process.env.FLOAT_VIEW_BUILD_ANDROID_STORE === 'true';
+const androidDelivery = process.env.FLOAT_VIEW_ANDROID_DELIVERY || 'none';
+if (!['none', 'check', 'upload'].includes(androidDelivery)) throw new Error('Invalid Android delivery action');
+const androidExplicitlyRequested = process.env.FLOAT_VIEW_BUILD_ANDROID_STORE === 'true' || androidDelivery !== 'none';
 if (androidExplicitlyRequested && (!isTag || event !== 'workflow_dispatch'))
   throw new Error('Manual Android store preparation requires a stable release tag or numbered candidate; never master or nightly');
 const androidStoreRequested = isTag && (event === 'push' || (event === 'workflow_dispatch' && androidExplicitlyRequested));
@@ -52,6 +54,7 @@ const skip =
 const output = {
   ...metadata, storeBuild: String(storeRequested), storeDelivery, macStoreBuild: String(macStoreRequested), macStoreDelivery,
   androidStoreBuild: String(androidStoreRequested),
+  androidStoreDelivery: androidStoreRequested && event === 'push' ? 'upload' : androidDelivery,
   buildNumber: identity.buildNumber, runURL: identity.runURL,
   buildRecordArtifact: `build-record-${identity.attempt}`, commit, skip: String(skip),
 };

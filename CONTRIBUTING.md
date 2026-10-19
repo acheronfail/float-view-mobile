@@ -188,8 +188,12 @@ Stable and candidate tags select Release configuration, while nightlies use Debu
 Current downloads remain AltStore IPAs, signed APKs and notarized Developer ID
 Mac ZIPs. Local iOS Release archive/export preparation is documented in the
 [Apple host guide](backends/apple/README.md#ios-app-store-preparation); it neither
-uploads to a store nor changes the GitHub packages. Android App Bundles remain
-planned work. Only stable `vX.Y.Z` or numbered `vX.Y.Z-rc.N` release tags select protected App Store jobs.
+uploads to a store nor changes the GitHub packages. Android App Bundles have an independent protected signing job and
+[Google Play internal delivery path](docs/android-distribution.md#protected-google-play-delivery).
+One `android-store-signing` approval covers signing and enabled internal upload;
+closed/production promotion remains manual. Tagged manual runs accept
+`android-store=true` for build-only or `android-delivery=check|upload`;
+master/nightly store requests are rejected. Only stable `vX.Y.Z` or numbered `vX.Y.Z-rc.N` release tags select protected App Store jobs.
 `just release ...` pushes that tag and selects iOS signing/delivery; master
 commits and rolling nightlies never select them. One owner approval on
 `ios-store-signing` covers signing and subsequent delivery; `ios-store-upload`
@@ -205,4 +209,6 @@ See the Apple host guide for gates and retries.
 Run the focused release-tooling checks with
 `node --strip-types --test .github/scripts/*.test.ts` and
 `python3 -B .github/scripts/ios-store.test.py` and
-`python3 -B .github/scripts/ios-upload.test.py`.
+`python3 -B .github/scripts/ios-upload.test.py`. Android delivery checks are
+`python3 -B .github/scripts/android-store.test.py` and
+`python3 -B .github/scripts/android-upload.test.py` (JDK 17+ and OpenSSL required).

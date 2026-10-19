@@ -71,7 +71,7 @@ See [Google's Play App Signing procedure](https://support.google.com/googleplay/
 
 ## Store delivery and installation checks
 
-The protected AAB build/signing path is described below. Final package/source audit and internal-track delivery remain open; hosted
+The protected AAB build/signing path is described below. Final package/source audit and automated internal-track delivery remain open; hosted
 CI signing and downloaded-artifact verification have passed for the candidate
 recorded below. Local checks
 do not establish store delivery or device acceptance. Store credentials must not
@@ -183,3 +183,70 @@ depend on the provider/device. Session exports remain the independent backup
 route. XML selection and Release packaging checks do not establish a real
 provider restore or manufacturer transfer; retain that coverage limit. See
 [Android Auto Backup](https://developer.android.com/identity/data/autobackup).
+
+## Protected Google Play delivery
+
+`android-store-upload` consumes the signed AAB and `package.json` from the same
+workflow run. One owner approval on `android-store-signing` authorizes signing
+and subsequent internal-test delivery. The separate `google-play-upload`
+environment holds only upload authentication and has tag-only `v*` deployment
+rules, with no second reviewer gate. The owner has installed the environment secret. Service-account authentication
+and access to the existing bundle/internal track passed a local API inspection;
+both delivery readiness switches are enabled. Hosted delivery remains to be tested.
+
+Create a dedicated Google Cloud project, enable the Google Play Android Developer
+API, and create a service account. It needs no general Google Cloud project role
+for this flow. In Play Console, invite its email with access to Float View only,
+**View app information (read-only)** and **Release apps to testing tracks**.
+Do not grant production-release, financial or account-wide permissions. Store a
+JSON private key in ignored local storage and back it up securely; install it as
+an environment secret without printing it. See [Google's setup instructions](https://developers.google.com/android-publisher/getting_started).
+
+Configure `google-play-upload`:
+
+| Setting | Purpose |
+| --- | --- |
+| Secret `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | Dedicated service-account JSON key; raw JSON, not base64 |
+| Variable `ANDROID_UPLOAD_CERT_SHA256` | Same enrolled upload-certificate fingerprint as the signing environment |
+| Variable `GOOGLE_PLAY_UPLOAD_READY` | `true` only after credential/access setup |
+
+Repository variable `GOOGLE_PLAY_UPLOAD_ENABLED=true` selects delivery. Stable/RC
+tag pushes request internal upload automatically when enabled. Master/nightly
+builds cannot select it. For a fresh manual run on an existing stable/RC tag,
+`android-store=true` builds/signs only; `android-delivery=check` builds/signs and
+checks Google without uploading or changing track assignments;
+`android-delivery=upload` builds/signs and delivers to internal testing. These
+inputs do not select Apple jobs. A fresh manual run receives a new shared build
+number, while rerunning failed jobs preserves the original number.
+
+The uploader checks the exact tag/source/run/build identity, AAB hash, registered
+upload certificate and strict JAR signature before authentication. It uses the
+Google OAuth service-account flow with Python's standard library and OpenSSL;
+there is no new application or publishing-library dependency. Only Float View's
+**internal** track is writable. Its completed release serves existing internal
+testers; it does not add testers, promote to closed/production tracks or edit
+listing/pricing/policy declarations. Closed-test promotion remains an owner
+Console action. GitHub downloads and Apple jobs remain independent.
+
+Uploads are serialized. The script compares Google's version-code/SHA-256 record
+before sending bytes; a matching completed internal release is already delivered.
+A newer internal build or conflicting hash stops the job. Receipts record source,
+run, version code, hash, edit ID and stage, never credentials. An interrupted
+attempt inspects its saved edit before creating another, because creating a new
+edit invalidates the previous edit for that account. If the edit expired or the
+upload cannot be established, stop and inspect Google; use a fresh workflow run
+for a corrected or unobservable consumed build. Do not blindly retry upload POSTs.
+
+The commit requests `ERROR_IF_IN_REVIEW`, without falling back to cancelling an
+existing review or changing submission flags. Google may reject incomplete policy
+or draft-app states; resolve those in Console before retrying. Avoid editing the
+app in Play Console while CI delivery is running: Console changes invalidate API
+edits. See Google's [edit lifecycle](https://developers.google.com/android-publisher/edits)
+and [commit behavior](https://developers.google.com/android-publisher/api-ref/rest/v3/edits/commit).
+
+Download `FloatView-android-upload-<build>-attempt-<attempt>` for the receipt.
+`delivered` confirms the matching bundle and completed internal track in a fresh
+Google edit; storefront/device propagation can still take time. Software tests
+cover signatures, credentials, routing, conflicts and interrupted attempts.
+Local service-account authentication and app access are verified; hosted
+authentication/upload remains unverified until the first approved run.

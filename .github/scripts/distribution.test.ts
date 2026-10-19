@@ -575,3 +575,24 @@ test('Android store bundles require explicit release tags and independent manual
   assert.equal(f.run('prepare', { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/tags/v1.0.0-rc.1' }).status, 0);
   assert.match(f.output(), /androidStoreBuild=false/);
 });
+
+
+test('Android delivery stays behind tagged signing and leaves Apple selection independent', () => {
+  const f = fixture();
+  const manual = { GITHUB_EVENT_NAME: 'workflow_dispatch', FLOAT_VIEW_ANDROID_DELIVERY: 'upload' };
+  assert.notEqual(f.run('prepare', manual).status, 0);
+  git(['tag', 'v1.1.0-rc.5'], f.cwd);
+  const ref = { GITHUB_REF: 'refs/tags/v1.1.0-rc.5' };
+  assert.equal(f.run('prepare', { ...ref, ...manual }).status, 0);
+  assert.match(f.output(), /androidStoreBuild=true/);
+  assert.match(f.output(), /androidStoreDelivery=upload/);
+  assert.match(f.output(), /storeBuild=false/);
+  assert.match(f.output(), /macStoreBuild=false/);
+  assert.equal(f.run('prepare', { ...ref, ...manual, FLOAT_VIEW_ANDROID_DELIVERY: 'check' }).status, 0);
+  assert.match(f.output(), /androidStoreDelivery=check/);
+  assert.equal(f.run('prepare', { ...ref, GITHUB_EVENT_NAME: 'push' }).status, 0);
+  assert.match(f.output(), /androidStoreDelivery=upload/);
+  assert.equal(f.run('prepare', { ...ref, GITHUB_EVENT_NAME: 'workflow_dispatch', FLOAT_VIEW_BUILD_ANDROID_STORE: 'true' }).status, 0);
+  assert.match(f.output(), /androidStoreDelivery=none/);
+  assert.notEqual(f.run('prepare', { ...ref, ...manual, FLOAT_VIEW_ANDROID_DELIVERY: 'invalid' }).status, 0);
+});

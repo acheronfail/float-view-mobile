@@ -144,3 +144,20 @@ Store artifacts SHALL include platform distribution signatures, required metadat
 
 - **WHEN** a user downloads the production direct-distribution ZIP onto a clean supported Mac
 - **THEN** signature and notarization validation succeed without requiring removal of quarantine attributes
+
+### Requirement: Google internal delivery follows Android signing approval
+
+Google delivery SHALL consume the exact verified signed AAB from its CI run after
+Android signing approval, with separate credential storage and explicit readiness.
+It SHALL write only the internal track and SHALL NOT manage testers or promote
+closed/production releases. Delivery failure SHALL NOT gate sideload publication.
+
+#### Scenario: Owner approves a ready Android release
+
+- **WHEN** a stable/RC tag requests upload and Android signing is approved
+- **THEN** enabled delivery verifies the source/run/build/hash/signature, uploads once and confirms the matching completed internal release, without a second approval
+
+#### Scenario: Google delivery is interrupted
+
+- **WHEN** an upload or commit has an ambiguous result
+- **THEN** a retry inspects remote version-code/hash and any retained edit before new mutations; conflicting, newer or unobservable builds fail actionably without blind re-upload or cancelling existing review

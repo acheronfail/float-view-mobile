@@ -10,6 +10,11 @@ on:
         description: Rebuild a tagged release Play bundle (no Google upload)
         type: boolean
         default: false
+      android-delivery:
+        description: Tagged Android internal-testing check/upload (master/nightly forbidden)
+        type: choice
+        options: [none, check, upload]
+        default: none
       ios-store:
         description: Rebuild a tagged release store IPA (select its vX.Y.Z or vX.Y.Z-rc.N ref)
         type: boolean
@@ -46,6 +51,7 @@ jobs:
       mac-store-build: ${{ steps.version.outputs.macStoreBuild }}
       mac-store-delivery: ${{ steps.version.outputs.macStoreDelivery }}
       android-store-build: ${{ steps.version.outputs.androidStoreBuild }}
+      android-store-delivery: ${{ steps.version.outputs.androidStoreDelivery }}
       store-build: ${{ steps.version.outputs.storeBuild }}
       store-delivery: ${{ steps.version.outputs.storeDelivery }}
     env:
@@ -66,6 +72,7 @@ jobs:
           node --strip-types --test .github/scripts/*.test.ts
           python3 -B .github/scripts/android-backup.test.py
           python3 -B .github/scripts/android-store.test.py
+          python3 -B .github/scripts/android-upload.test.py
           python3 -B .github/scripts/mac-store.test.py
           python3 -B .github/scripts/mac-upload.test.py
           python3 -B .github/scripts/ios-store.test.py
@@ -75,6 +82,7 @@ jobs:
         env:
           FLOAT_VIEW_BUILD_RECORD: ${{ runner.temp }}/build-record.json
           FLOAT_VIEW_BUILD_ANDROID_STORE: ${{ inputs.android-store }}
+          FLOAT_VIEW_ANDROID_DELIVERY: ${{ inputs.android-delivery }}
           FLOAT_VIEW_BUILD_MAC_STORE: ${{ inputs.mac-store }}
           FLOAT_VIEW_MAC_DELIVERY: ${{ inputs.mac-delivery }}
           FLOAT_VIEW_BUILD_IOS_STORE: ${{ inputs.ios-store }}
@@ -640,6 +648,69 @@ jobs:
             ${{ runner.temp }}/FloatView-*.aab
             ${{ runner.temp }}/package.json
           if-no-files-found: error
+          retention-days: 90
+
+  android-store-upload:
+    needs: [prepare, android-store]
+    if: needs.android-store.result == 'success' && needs.prepare.outputs.android-store-delivery != 'none' && vars.GOOGLE_PLAY_UPLOAD_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: google-play-upload
+    concurrency:
+      group: google-play-internal-upload
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FLOAT_VIEW_VERSION: ${{ needs.prepare.outputs.version }}
+      FLOAT_VIEW_BUILD_NUMBER: ${{ needs.prepare.outputs.build-number }}
+      ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+    steps:
+      - name: Check out approved source and release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Java for independent signature verification
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+      - name: Download signed bundle and earlier upload receipts from this run
+        env:
+          RECEIPT_PREFIX: FloatView-android-upload-${{ needs.prepare.outputs.build-number }}-attempt-
+          BUNDLE_PREFIX: FloatView-android-store-${{ needs.prepare.outputs.build-number }}-attempt-
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/artifacts.json"
+          artifact="$(jq -rs --arg prefix "$BUNDLE_PREFIX" '[.[].artifacts[] | select(.expired == false) | select(.name | startswith($prefix)) | select((.name | ltrimstr($prefix) | tonumber) <= (env.GITHUB_RUN_ATTEMPT | tonumber))] | sort_by(.name | ltrimstr($prefix) | tonumber) | last | .name // empty' "$RUNNER_TEMP/artifacts.json")"
+          test -n "$artifact"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "$RUNNER_TEMP/android-package"
+          mkdir -p "$RUNNER_TEMP/android-upload-prior"
+          if jq -es --arg prefix "$RECEIPT_PREFIX" 'any(.[].artifacts[]; .name | startswith($prefix))' "$RUNNER_TEMP/artifacts.json" >/dev/null; then
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern "$RECEIPT_PREFIX*" --dir "$RUNNER_TEMP/android-upload-prior"
+          fi
+      - name: Verify approved bundle and deliver to Play internal testing
+        env:
+          GOOGLE_PLAY_UPLOAD_READY: ${{ vars.GOOGLE_PLAY_UPLOAD_READY }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          DELIVERY_ACTION: ${{ needs.prepare.outputs.android-store-delivery }}
+        run: |
+          args=()
+          case "$DELIVERY_ACTION" in
+            check) args+=(--check-only) ;;
+            upload) ;;
+            *) echo "Invalid Android delivery action" >&2; exit 1 ;;
+          esac
+          python3 -B .github/scripts/android-upload.py "$RUNNER_TEMP/android-package" "$RUNNER_TEMP/android-upload-receipt" --prior-receipts "$RUNNER_TEMP/android-upload-prior" "${args[@]}"
+      - name: Retain Google delivery receipt
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: FloatView-android-upload-${{ needs.prepare.outputs.build-number }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/android-upload-receipt/upload-receipt.json
+          if-no-files-found: ignore
           retention-days: 90
 
   macos:

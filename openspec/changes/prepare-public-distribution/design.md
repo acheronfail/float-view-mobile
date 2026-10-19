@@ -232,3 +232,18 @@ Primary licence references:
 - [CC BY 3.0 conditions](https://creativecommons.org/licenses/by/3.0/)
 - [Apple Developer Program agreement, including FOSS clause 3.3.1(v)](https://developer.apple.com/support/terms/apple-developer-program-license-agreement/)
 - [Mozilla MPL compatibility guidance](https://www.mozilla.org/en-US/MPL/2.0/FAQ/)
+
+### Google Play CI internal delivery
+
+The owner selected one Android signing approval for both signing and subsequent
+internal upload. `google-play-upload` is a separate tag-restricted credential
+environment without an additional reviewer. Explicit repository/environment
+readiness switches are enabled after owner credential installation and a passing
+local authentication/app-access inspection. The account is
+limited to this app and testing releases; closed/production promotion stays
+manual. Tag pushes select delivery; a tagged manual run can choose build-only,
+check or upload independently from Apple. Exact signed-artifact/run verification,
+remote version-code/hash checks, serialized edit transactions and retained edit
+receipts guard retries. Inspect an interrupted edit before opening another;
+Google permits only one edit per account/app. Existing review must fail rather
+than be cancelled automatically. No new application runtime dependency is needed.
