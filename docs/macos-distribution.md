@@ -118,6 +118,34 @@ Debug/conformance builds retain those controls. The Mac privacy manifest is pack
 match iOS, with an additional required-reason declaration for user-selected
 files outside the container. See the [Mac privacy/map audit](macos-distribution-audit.md).
 
+## App Review: local server entitlement
+
+Include the following explanation in the Mac App Review Information notes before
+submission. If automated review questions the server entitlement, reply with the
+same explanation. Retain the existing hardware instructions and demonstration link.
+
+> Float View requires `com.apple.security.network.server` for its embedded local
+> HTTP/WebSocket server. On launch, the app starts this server bound exclusively
+> to the IPv4 loopback address `127.0.0.1`. The app's embedded WKWebView loads the
+> bundled user interface from that server and uses HTTP/WebSocket requests to
+> communicate with the native backend for Bluetooth telemetry, settings and ride
+> recording/import/export. The listener is not bound to LAN or public network
+> interfaces. Backend API requests require the expected local origin and a
+> randomly generated per-launch token. This is an internal component of the app;
+> users do not need to enable a server feature or connect another device to it.
+> The entitlement is required for normal operation, including opening the app
+> and viewing Settings without connected board hardware. The outgoing client
+> entitlement alone does not permit this listener.
+
+The bind is implemented in `backends/core/loopback-server/src/server.rs`
+(`Ipv4Addr::LOCALHOST`); the Mac host starts it and loads its origin in
+`backends/apple/macos/lifecycle/MacAppDelegate.swift`. Apple documents the
+[server entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.network.server)
+as permitting incoming connections. Removing it requires an architectural change,
+not just a packaging edit. An entitlement-justification request can be answered
+with the existing binary; await Apple's response before deciding whether a new
+build is necessary.
+
 ## Storage and channel switching
 
 Direct-download data lives under `~/Library/Application Support/FloatView`.
