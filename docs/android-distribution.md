@@ -192,7 +192,8 @@ and subsequent internal-test delivery. The separate `google-play-upload`
 environment holds only upload authentication and has tag-only `v*` deployment
 rules, with no second reviewer gate. The owner has installed the environment secret. Service-account authentication
 and access to the existing bundle/internal track passed a local API inspection;
-both delivery readiness switches are enabled. Hosted delivery remains to be tested.
+both delivery readiness switches are enabled. Hosted delivery passed for the
+candidate recorded below.
 
 Create a dedicated Google Cloud project, enable the Google Play Android Developer
 API, and create a service account. It needs no general Google Cloud project role
@@ -248,5 +249,9 @@ Download `FloatView-android-upload-<build>-attempt-<attempt>` for the receipt.
 `delivered` confirms the matching bundle and completed internal track in a fresh
 Google edit; storefront/device propagation can still take time. Software tests
 cover signatures, credentials, routing, conflicts and interrupted attempts.
-Local service-account authentication and app access are verified; hosted
-authentication/upload remains unverified until the first approved run.
+[Candidate v1.1.0-rc.5, build 127](https://github.com/acheronfail/float-view-mobile/actions/runs/39261200590),
+source `fae1f22a`, passed protected Android signing and automated internal-track
+delivery. An independent Google API inspection matched the bundle SHA-256 with
+the CI receipt and confirmed the completed internal release. Detailed receipts
+stay local. This establishes CI delivery, not installation or physical acceptance
+of build 127, closed-test completion or production access.
