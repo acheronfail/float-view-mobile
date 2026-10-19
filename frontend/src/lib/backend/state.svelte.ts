@@ -225,8 +225,8 @@ export class BackendState {
     return this.run((client) => client.request('session.end', { sessionId }).then(() => undefined));
   }
 
-  async disconnectDevice(): Promise<void> {
-    await this.run((client) => client.request('device.disconnect', {}).then(() => undefined));
+  async disconnectDevice(): Promise<boolean> {
+    return this.run((client) => client.request('device.disconnect', {}).then(() => undefined));
   }
 
   async shutdownController(): Promise<boolean> {

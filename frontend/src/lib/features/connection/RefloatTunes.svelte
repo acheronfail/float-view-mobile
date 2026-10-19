@@ -21,10 +21,13 @@
   let current = $state<RefloatConfigurationValues | null>(null);
   let fields = $state<RefloatConfigurationField[]>([]);
   let loading = $state(false);
+  let switchError = $state<{ tuneId: string; message: string } | null>(null);
   let switchingTuneId = $state<string | null>(null);
   let saveConfirmation = $state(false);
   let saving = $state(false);
   let saveError = $state<string | null>(null);
+  let renameError = $state<string | null>(null);
+  let deleteError = $state<string | null>(null);
   let renameConfirmation = $state(false);
   let deleteConfirmation = $state(false);
   let name = $state('');
@@ -50,6 +53,7 @@
 
   async function initialize() {
     loading = true;
+    switchError = null;
     status = null;
     try {
       if (!(await backendState.openRefloatConfiguration())) return;
@@ -89,16 +93,22 @@
   async function selectTune(tuneId: string) {
     if (switchingTuneId || loading || backendState.busy) return;
     switchingTuneId = tuneId;
+    switchError = null;
     status = null;
     try {
       const tune = await backendState.getRefloatTune(tuneId);
-      if (!tune) return;
+      if (!tune) {
+        switchError = { tuneId, message: backendState.error ?? 'The preset could not be loaded. Please try again.' };
+        return;
+      }
       selected = tune;
       if (!current || applyUnavailableReason || selectedIsActive) return;
       const result = await backendState.applyRefloatTune(tune.tuneId, tune.revision, current.revision);
       if (result) {
         current = result;
         status = `${tune.name} was applied and verified.`;
+      } else {
+        switchError = { tuneId, message: backendState.error ?? 'The preset could not be applied. Please try again.' };
       }
     } finally {
       switchingTuneId = null;
@@ -143,11 +153,13 @@
     if (!selected) return;
     name = selected.name;
     description = selected.description ?? '';
+    renameError = null;
     renameConfirmation = true;
   }
 
   async function rename() {
     if (!selected || !name.trim()) return;
+    renameError = null;
     const updated = await backendState.updateRefloatTune(
       selected.tuneId,
       selected.revision,
@@ -155,7 +167,10 @@
       description.trim() || null,
       selected.values
     );
-    if (!updated) return;
+    if (!updated) {
+      renameError = backendState.error ?? 'The preset could not be renamed. Please try again.';
+      return;
+    }
     selected = updated;
     renameConfirmation = false;
     status = 'Preset details saved.';
@@ -163,7 +178,12 @@
   }
 
   async function remove() {
-    if (!selected || !(await backendState.deleteRefloatTune(selected.tuneId, selected.revision))) return;
+    if (!selected) return;
+    deleteError = null;
+    if (!(await backendState.deleteRefloatTune(selected.tuneId, selected.revision))) {
+      deleteError = backendState.error ?? 'The preset could not be deleted. Please try again.';
+      return;
+    }
     const deletedName = selected.name;
     selected = null;
     deleteConfirmation = false;
@@ -172,7 +192,7 @@
   }
 </script>
 
-{#if backendState.error}
+{#if backendState.error && !switchError && !saveConfirmation && !renameConfirmation && !deleteConfirmation}
   <p role="alert" class="text-warning">{backendState.error}</p>
   <button
     type="button"
@@ -198,26 +218,31 @@
     <div class="grid gap-2" aria-label="Saved tune presets">
       {#each tunes as tune (tune.tuneId)}
         {@const active = !!current && !!selected && selected.tuneId === tune.tuneId && selectedIsActive}
-        <button
-          type="button"
-          aria-pressed={selected?.tuneId === tune.tuneId}
-          aria-busy={switchingTuneId === tune.tuneId}
-          disabled={loading || !!switchingTuneId || backendState.busy}
-          class="touch-manipulation rounded-lg border bg-elevated p-3 text-left"
-          class:border-accent={selected?.tuneId === tune.tuneId}
-          class:border-outline={selected?.tuneId !== tune.tuneId}
-          onpointerdown={(event) => activateFromPointer(event, () => selectTune(tune.tuneId), { scrollable: true })}
-          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => selectTune(tune.tuneId))}
-        >
-          <span class="flex items-start justify-between gap-2">
-            <strong>{tune.name}</strong>
-            {#if switchingTuneId === tune.tuneId}<span class="text-xs text-muted">Applying…</span>{/if}
-            {#if active}<span class="rounded-full bg-success/15 px-2 py-0.5 text-xs text-success">Active</span>{/if}
-          </span>
-          <span class="mt-1 block text-xs text-muted"
-            >{tune.description ?? `Refloat ${tune.identity.packageVersion}`}</span
+        <div class="grid gap-2">
+          <button
+            type="button"
+            aria-pressed={selected?.tuneId === tune.tuneId}
+            aria-busy={switchingTuneId === tune.tuneId}
+            disabled={loading || !!switchingTuneId || backendState.busy}
+            class="touch-manipulation rounded-lg border bg-elevated p-3 text-left"
+            class:border-accent={selected?.tuneId === tune.tuneId}
+            class:border-outline={selected?.tuneId !== tune.tuneId}
+            onpointerdown={(event) => activateFromPointer(event, () => selectTune(tune.tuneId), { scrollable: true })}
+            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => selectTune(tune.tuneId))}
           >
-        </button>
+            <span class="flex items-start justify-between gap-2">
+              <strong>{tune.name}</strong>
+              {#if switchingTuneId === tune.tuneId}<span class="text-xs text-muted">Applying…</span>{/if}
+              {#if active}<span class="rounded-full bg-success/15 px-2 py-0.5 text-xs text-success">Active</span>{/if}
+            </span>
+            <span class="mt-1 block text-xs text-muted"
+              >{tune.description ?? `Refloat ${tune.identity.packageVersion}`}</span
+            >
+          </button>
+          {#if switchError?.tuneId === tune.tuneId}<p role="alert" class="text-sm text-warning">
+              {switchError.message}
+            </p>{/if}
+        </div>
       {:else}
         {#if !loading}
           <p class="rounded-lg border border-outline p-3 text-sm text-muted">No saved Tune presets yet.</p>
@@ -249,10 +274,12 @@
           disabled={!!switchingTuneId || backendState.busy}
           onpointerdown={(event) =>
             activateFromPointer(event, () => {
+              deleteError = null;
               deleteConfirmation = true;
             })}
           onclick={(event) =>
             activateFromKeyboardOrAssistiveClick(event, () => {
+              deleteError = null;
               deleteConfirmation = true;
             })}>Delete</button
         >
@@ -297,13 +324,13 @@
   confirmLabel="Save preset"
   busy={saving || backendState.busy}
   confirmDisabled={!name.trim()}
+  error={saveError}
   onconfirm={saveCurrent}
   oncancel={() => {
     saveConfirmation = false;
   }}
 >
   <div class="grid gap-3">
-    {#if saveError}<p role="alert" class="text-sm text-warning">{saveError}</p>{/if}
     <label class="text-sm">
       <span class="mb-1 block text-muted">Name</span>
       <input class="w-full rounded-md border border-outline bg-elevated px-3 py-2" maxlength="128" bind:value={name} />
@@ -328,6 +355,7 @@
   confirmLabel="Save details"
   busy={backendState.busy}
   confirmDisabled={!name.trim()}
+  error={renameError}
   onconfirm={rename}
   oncancel={() => {
     renameConfirmation = false;
@@ -358,6 +386,7 @@
   confirmLabel="Delete preset"
   appearance="destructive"
   busy={backendState.busy}
+  error={deleteError}
   onconfirm={remove}
   oncancel={() => {
     deleteConfirmation = false;

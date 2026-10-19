@@ -20,6 +20,7 @@
     appearance = 'normal',
     busy = false,
     confirmDisabled = false,
+    error = null,
     onconfirm,
     oncancel,
     children,
@@ -33,6 +34,7 @@
     appearance?: DialogAppearance;
     busy?: boolean;
     confirmDisabled?: boolean;
+    error?: string | null;
     onconfirm: Activation;
     oncancel: Activation;
     children?: Snippet;
@@ -97,14 +99,17 @@
       aria-modal="true"
       aria-labelledby={titleId}
       aria-describedby={`${titleId}-description`}
-      class="relative w-full max-w-sm rounded-2xl border border-outline bg-surface p-5 shadow-2xl"
+      class="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col rounded-2xl border border-outline bg-surface p-5 shadow-2xl"
     >
-      <h2 id={titleId} class="text-xl font-semibold">{title}</h2>
-      <p id={`${titleId}-description`} class="mt-2 text-sm leading-6 text-muted">{description}</p>
-      {#if children}
-        <div class="mt-4">{@render children()}</div>
-      {/if}
-      <div class="mt-6 flex justify-end gap-3">
+      <h2 id={titleId} class="shrink-0 text-xl font-semibold">{title}</h2>
+      <div class="min-h-0 overflow-y-auto">
+        <p id={`${titleId}-description`} class="mt-2 text-sm leading-6 text-muted">{description}</p>
+        {#if children}
+          <div class="mt-4">{@render children()}</div>
+        {/if}
+      </div>
+      {#if error}<p role="alert" class="mt-3 shrink-0 text-sm text-warning">{error}</p>{/if}
+      <div class="mt-6 flex shrink-0 justify-end gap-3">
         <button
           bind:this={cancelButton}
           type="button"

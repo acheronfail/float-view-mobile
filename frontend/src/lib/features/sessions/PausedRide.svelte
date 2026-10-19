@@ -26,7 +26,8 @@
     if (pending) return;
     pending = true;
     error = '';
-    if (!(await backendState.endRide(ride.sessionId))) error = 'Could not end the ride. Try again.';
+    if (!(await backendState.endRide(ride.sessionId)))
+      error = backendState.error ?? 'Could not end the ride. Try again.';
     else confirmationOpen = false;
     pending = false;
   }
@@ -58,10 +59,9 @@
   confirmLabel="End ride"
   appearance="destructive"
   busy={pending}
+  {error}
   onconfirm={end}
   oncancel={() => {
     confirmationOpen = false;
   }}
->
-  {#if error}<p role="alert" class="text-sm text-danger">{error}</p>{/if}
-</ConfirmDialog>
+/>

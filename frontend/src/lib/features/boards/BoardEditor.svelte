@@ -46,6 +46,7 @@
   let loaded = $state(false);
   let autoConnectBusy = $state(false);
   let autoConnectError = $state<string | null>(null);
+  let appearanceError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
   let failedPatch: Record<string, unknown> = {};
   let discardDrafts = false;
@@ -173,6 +174,7 @@
   }
 
   function saveAppearance(next: BoardAppearance) {
+    appearanceError = null;
     appearance = next;
     if (appearanceQueued) return;
     appearanceQueued = true;
@@ -188,6 +190,7 @@
     pendingSaves--;
     if (!active) return;
     if (saved) {
+      if (patch.appearance) appearanceError = null;
       if (patch.batteryPresetId) {
         for (const key of [
           'batteryPresetId',
@@ -204,6 +207,7 @@
     } else {
       Object.assign(failedPatch, patch);
       saveError = backendState.error ?? 'Settings could not be saved. Please try again.';
+      if (patch.appearance) appearanceError = saveError;
     }
   }
 
@@ -411,8 +415,25 @@
       void closeAppearance();
     }}
   >
-    <FullScreenOverlay title="Board appearance" titleId={appearanceTitleId} onclose={closeAppearance}>
-      <BoardAppearanceEditor value={appearance} onchange={saveAppearance} />
+    <FullScreenOverlay title="Board appearance" titleId={appearanceTitleId} fixedContent onclose={closeAppearance}>
+      <div class="flex h-full min-h-0 flex-col">
+        <div class="min-h-0 flex-1 overflow-y-auto py-3">
+          <BoardAppearanceEditor value={appearance} onchange={saveAppearance} />
+        </div>
+        {#if appearanceError}
+          <div class="shrink-0 border-t border-outline bg-canvas py-3">
+            <p role="alert" class="text-sm text-warning">{appearanceError}</p>
+            <button
+              type="button"
+              class="mt-2 touch-manipulation rounded border border-outline px-3 py-2 text-sm"
+              disabled={pendingSaves > 0}
+              onpointerdown={(event) => activateFromPointer(event, () => saveAppearance(appearance))}
+              onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => saveAppearance(appearance))}
+              >Retry save</button
+            >
+          </div>
+        {/if}
+      </div>
     </FullScreenOverlay>
   </dialog>
 {/if}

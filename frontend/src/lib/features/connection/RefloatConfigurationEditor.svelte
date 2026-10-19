@@ -20,6 +20,7 @@
 
   let { controller }: { controller: RefloatConfigurationController } = $props();
   let writeConfirmation = $state(false);
+  let writeError = $state<string | null>(null);
   const controlsExpanded = $derived(controller.position.controlsExpanded);
   const selectedSectionKey = $derived(controller.position.sectionKey);
   let scroller = $state<HTMLDivElement>();
@@ -44,7 +45,18 @@
   });
 
   async function write() {
-    if (await controller.write()) writeConfirmation = false;
+    writeError = null;
+    try {
+      if (await controller.write()) writeConfirmation = false;
+      else writeError = backendState.error ?? 'The configuration could not be written. Please try again.';
+    } catch (error) {
+      writeError = error instanceof Error ? error.message : 'The configuration could not be written. Please try again.';
+    }
+  }
+
+  function confirmWrite() {
+    writeError = null;
+    writeConfirmation = true;
   }
 
   function showHelp(field: RefloatConfigurationFieldContract, trigger: HTMLButtonElement) {
@@ -246,14 +258,8 @@
         type="button"
         class="min-h-11 touch-manipulation rounded-md bg-accent px-3 py-2 text-sm leading-tight text-on-accent disabled:opacity-50"
         disabled={!controller.canWrite || controller.loading || backendState.busy}
-        onpointerdown={(event) =>
-          activateFromPointer(event, () => {
-            writeConfirmation = true;
-          })}
-        onclick={(event) =>
-          activateFromKeyboardOrAssistiveClick(event, () => {
-            writeConfirmation = true;
-          })}>Write configuration</button
+        onpointerdown={(event) => activateFromPointer(event, confirmWrite)}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, confirmWrite)}>Write configuration</button
       >
     </div>
   {/if}
@@ -277,6 +283,7 @@
   appearance="warning"
   busy={controller.loading || backendState.busy}
   confirmDisabled={!controller.canWrite}
+  error={writeError}
   onconfirm={write}
   oncancel={() => {
     writeConfirmation = false;

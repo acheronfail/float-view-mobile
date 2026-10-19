@@ -35,6 +35,21 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const errors: string[] = [];
       page.on('pageerror', (e) => errors.push(e.message));
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      let failAppearance = false;
+      await page.routeWebSocket('**/api/ws?*', (socket) => {
+        const server = socket.connectToServer();
+        server.onMessage((raw) => socket.send(raw));
+        socket.onMessage((raw) => {
+          const request = JSON.parse(String(raw));
+          if (failAppearance && request.method === 'boardProfile.update' && request.params.patch?.appearance) {
+            socket.send(
+              JSON.stringify({ id: request.id, error: { code: 'unavailable', message: 'Appearance test failure' } })
+            );
+            return;
+          }
+          server.send(raw);
+        });
+      });
       await page.goto(`${endpoint.origin}/#/live`);
       const open = async () => {
         await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
@@ -62,7 +77,18 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await editor.getByText('1 / 6', { exact: true }).count(), 1);
       await next.click({ button: 'right' });
       assert.equal(await editor.getByText('1 / 6', { exact: true }).count(), 1);
+      failAppearance = true;
       await next.tap();
+      const appearanceOverlay = page.getByRole('dialog', { name: 'Board appearance', exact: true });
+      const saveAlert = appearanceOverlay.getByRole('alert');
+      await saveAlert.waitFor();
+      assert.equal(await saveAlert.textContent(), 'Appearance test failure');
+      const errorBounds = await saveAlert.boundingBox();
+      assert.ok(errorBounds && errorBounds.y >= 0 && errorBounds.y + errorBounds.height <= 740);
+      failAppearance = false;
+      await appearanceOverlay.getByRole('button', { name: 'Retry save', exact: true }).tap();
+      await saveAlert.waitFor({ state: 'hidden' });
+      await saved(2);
       assert.equal(await editor.getByText('2 / 6', { exact: true }).count(), 1);
       await next.focus();
       await page.keyboard.press('Enter');

@@ -74,6 +74,7 @@
     if (isActive) wasActive = true;
   });
   let liveVersion = $state(0);
+  let actionError = $state<string | null>(null);
   let refreshError = $state('');
   let unavailable = $state(false);
   let refresher: ReturnType<typeof startRideRefresh> | null = null;
@@ -309,6 +310,7 @@
 
   function requestDeleteSession(closeMenu: () => void) {
     closeMenu();
+    actionError = null;
     if (backendState.selectedSession) deleteConfirmationOpen = true;
   }
 
@@ -337,8 +339,13 @@
   async function deleteSession() {
     if (deleting) return;
     deleting = true;
+    actionError = null;
     const deleted = await backendState.deleteSelectedSession();
     deleting = false;
+    if (!deleted) {
+      actionError = backendState.error ?? 'The session could not be deleted. Please try again.';
+      return;
+    }
     deleteConfirmationOpen = false;
     if (deleted) await goto(returnHref, { replaceState: true });
   }
@@ -508,6 +515,7 @@
   confirmLabel="Delete"
   appearance="destructive"
   busy={deleting}
+  error={actionError}
   onconfirm={deleteSession}
   oncancel={cancelDeleteSession}
 />

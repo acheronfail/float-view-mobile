@@ -153,6 +153,35 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await cruise.tap();
         await page.getByRole('status').filter({ hasText: 'Cruise was applied and verified.' }).waitFor();
         assert.equal(applies, 4, 'a failed switch must be retryable with one tap');
+        await page.getByRole('button', { name: 'Rename', exact: true }).tap();
+        const renameDialog = page.getByRole('alertdialog', { name: 'Rename preset', exact: true });
+        await renameDialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Renamed Cruise');
+        failMethod = 'refloat.tune.update';
+        await renameDialog.getByRole('button', { name: 'Save details', exact: true }).tap();
+        await renameDialog.getByRole('alert').waitFor();
+        assert.equal(await renameDialog.getByRole('alert').textContent(), 'Preset test failure');
+        assert.equal(
+          await renameDialog.getByRole('textbox', { name: 'Name', exact: true }).inputValue(),
+          'Renamed Cruise'
+        );
+        failMethod = null;
+        await renameDialog.getByRole('button', { name: 'Save details', exact: true }).focus();
+        await page.keyboard.press('Enter');
+        await renameDialog.waitFor({ state: 'hidden' });
+        await page.getByRole('button', { name: 'Delete', exact: true }).tap();
+        const deleteDialog = page.getByRole('alertdialog', { name: 'Delete Renamed Cruise?', exact: true });
+        failMethod = 'refloat.tune.delete';
+        await deleteDialog.getByRole('button', { name: 'Delete preset', exact: true }).tap();
+        await deleteDialog.getByRole('alert').waitFor();
+        assert.equal(await deleteDialog.getByRole('alert').textContent(), 'Preset test failure');
+        await deleteDialog.getByRole('button', { name: 'Cancel', exact: true }).tap();
+        await deleteDialog.waitFor({ state: 'hidden' });
+        await page.getByRole('button', { name: 'Delete', exact: true }).tap();
+        assert.equal(await deleteDialog.getByRole('alert').count(), 0);
+        failMethod = null;
+        await deleteDialog.getByRole('button', { name: 'Delete preset', exact: true }).tap();
+        await deleteDialog.waitFor({ state: 'hidden' });
+        await page.getByRole('button', { name: /Renamed Cruise/ }).waitFor({ state: 'hidden' });
         assert.deepEqual(errors, []);
       } finally {
         await browser.close();

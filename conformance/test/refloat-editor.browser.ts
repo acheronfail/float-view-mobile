@@ -181,4 +181,106 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await stopMockServer();
     }
   });
+  test(`${name}: configuration write failures stay visible in the confirmation`, { timeout: 60000 }, async () => {
+    const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
+    const endpoint = getMockBootstrap(port);
+    const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
+    const browser = await engine.launch();
+    try {
+      await client.request('bluetooth.requestPermission', {});
+      await client.request('bluetooth.scan', { timeoutMs: 100 });
+      const scan = await client.waitForState((s) => s.discoveredDevices.length > 0);
+      await client.request('device.connect', { deviceId: scan.discoveredDevices[0]!.deviceId, trackingMode: 'saved' });
+      await client.waitForState((s) => s.activeConnection?.state === 'ready');
+      const context = await browser.newContext({ viewport: { width: 390, height: 600 }, hasTouch: true });
+      if (name === 'chromium') await context.grantPermissions(['local-network-access'], { origin: endpoint.origin });
+      await context.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      const current = await client.request('refloat.configuration.read', { source: 'current', refresh: true });
+      let failWrite = true;
+      let writes = 0;
+      await context.routeWebSocket('**/api/ws?*', (socket) => {
+        const server = socket.connectToServer();
+        server.onMessage((raw) => socket.send(raw));
+        socket.onMessage((raw) => {
+          const request = JSON.parse(String(raw));
+          if (request.method === 'refloat.configuration.write') {
+            writes++;
+            if (failWrite) {
+              socket.send(
+                JSON.stringify({
+                  id: request.id,
+                  error: { code: 'invalid_state', message: 'Configuration test failure' },
+                })
+              );
+              return;
+            }
+            socket.send(
+              JSON.stringify({
+                id: request.id,
+                result: { ...current, revision: current.revision + 1, values: request.params.values },
+              })
+            );
+            return;
+          }
+          server.send(raw);
+        });
+      });
+      const page = await context.newPage();
+      page.setDefaultTimeout(5000);
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`${endpoint.origin}/`);
+      await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
+      await page.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
+      const input = page.getByRole('spinbutton', { name: 'Duty Tiltback', exact: true });
+      await input.fill('0.85');
+      await page.getByRole('button', { name: 'Section and search controls', exact: true }).tap();
+      await page.setViewportSize({ width: 390, height: 400 });
+      const scroller = page.locator('div.overflow-y-auto').filter({ has: input });
+      await page.waitForFunction(() => {
+        const input = document.querySelector('input[type=number]');
+        const scroller = input?.closest('div.overflow-y-auto');
+        return scroller && scroller.scrollHeight > scroller.clientHeight;
+      });
+      await scroller.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      const scrollTop = await scroller.evaluate((el) => el.scrollTop);
+      assert.ok(scrollTop > 0);
+      const open = page.getByRole('button', { name: 'Write configuration', exact: true });
+      await open.tap();
+      const dialog = page.getByRole('alertdialog', { name: 'Write persistent Refloat configuration?' });
+      const confirm = dialog.getByRole('button', { name: 'Write and verify', exact: true });
+      await confirm.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
+      await confirm.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
+      assert.equal(writes, 0);
+      await confirm.tap();
+      const alert = dialog.getByRole('alert');
+      await alert.waitFor();
+      assert.equal(await alert.textContent(), 'Configuration test failure');
+      const bounds = await alert.boundingBox();
+      assert.ok(bounds && bounds.y >= 0 && bounds.y + bounds.height <= 400, 'write error is outside the viewport');
+      assert.equal(await scroller.evaluate((el) => el.scrollTop), scrollTop);
+      assert.equal(await confirm.isEnabled(), true);
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).tap();
+      await dialog.waitFor({ state: 'hidden' });
+      assert.equal(await input.inputValue(), '0.85');
+      await page.setViewportSize({ width: 390, height: 600 });
+      await open.tap();
+      assert.equal(await dialog.getByRole('alert').count(), 0, 'reopening retained the old error');
+      await confirm.tap();
+      await alert.waitFor();
+      failWrite = false;
+      await confirm.focus();
+      await page.keyboard.press('Enter');
+      await dialog.waitFor({ state: 'hidden' });
+      assert.equal(writes, 3, 'pointer or keyboard activation duplicated a write');
+      assert.equal(await open.isDisabled(), true, 'successful write did not clear the pending changes');
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      client.close();
+      await stopMockServer();
+    }
+  });
 }

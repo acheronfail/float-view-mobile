@@ -36,6 +36,7 @@
 
   const SCAN_INTERVAL_MS = 10_000;
   const RETRY_INTERVAL_MS = 1_000;
+  let connectionError = $state<string | null>(null);
   let pendingDevice = $state<DiscoveredDevice | null>(null);
 
   onMount(() => {
@@ -93,6 +94,7 @@
   async function chooseDevice(device: DiscoveredDevice) {
     if (backendState.busy) return;
     if (!device.savedDeviceId) {
+      connectionError = null;
       pendingDevice = device;
       return;
     }
@@ -106,11 +108,12 @@
   async function connectNewBoard(trackingMode: 'saved' | 'guest') {
     const device = pendingDevice;
     if (!device) return;
-    pendingDevice = null;
+    connectionError = null;
     if (await backendState.connectDevice(device.deviceId, trackingMode)) {
+      pendingDevice = null;
       await goto('#/live');
     } else {
-      pendingDevice = device;
+      connectionError = backendState.error ?? 'The board could not be connected. Please try again.';
     }
   }
 
@@ -277,6 +280,7 @@
 
 <NewBoardDialog
   open={pendingDevice !== null}
+  error={connectionError}
   boardName={pendingDevice?.name || 'This board'}
   busy={backendState.busy}
   oncancel={cancelNewBoard}

@@ -12,6 +12,7 @@
 
   let { savedDeviceId }: { savedDeviceId: string } = $props();
   const restoration = getContext<UiRestoration>(UI_RESTORATION);
+  let actionError = $state<string | null>(null);
   let presentationReady = $state(false);
   let configureOpen = $state(false);
   let forgetConfirmationOpen = $state(false);
@@ -93,6 +94,7 @@
 
   function requestForget(closeMenu: () => void) {
     closeMenu();
+    actionError = null;
     if (!active) forgetConfirmationOpen = true;
   }
 
@@ -108,8 +110,13 @@
   async function forgetBoard() {
     if (forgetting || active) return;
     forgetting = true;
+    actionError = null;
     const deleted = await backendState.deleteSavedDevice(savedDeviceId);
     forgetting = false;
+    if (!deleted) {
+      actionError = backendState.error ?? 'The board could not be forgotten. Please try again.';
+      return;
+    }
     forgetConfirmationOpen = false;
     if (deleted) await goto('#/sessions', { replaceState: true });
   }
@@ -163,6 +170,7 @@
   confirmLabel="Forget board"
   appearance="destructive"
   busy={forgetting}
+  error={actionError}
   onconfirm={forgetBoard}
   oncancel={cancelForget}
 />

@@ -10,6 +10,7 @@
     open,
     boardName,
     busy = false,
+    error = null,
     oncancel,
     onguest,
     onsave,
@@ -17,6 +18,7 @@
     open: boolean;
     boardName: string;
     busy?: boolean;
+    error?: string | null;
     oncancel: Activation;
     onguest: Activation;
     onsave: Activation;
@@ -89,6 +91,7 @@
       <p id="new-board-description" class="mt-2 text-sm leading-6 text-muted">
         {boardName} is not saved yet. Guest mode shows the live view, but nothing will be saved or tracked.
       </p>
+      {#if error}<p role="alert" class="mt-3 text-sm text-warning">{error}</p>{/if}
       <div class="mt-6 flex flex-col gap-2">
         <button
           bind:this={cancelButton}

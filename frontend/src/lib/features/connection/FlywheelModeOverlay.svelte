@@ -6,10 +6,12 @@
   let {
     busy = false,
     disabled = false,
+    error = null,
     ondisable,
   }: {
     busy?: boolean;
     disabled?: boolean;
+    error?: string | null;
     ondisable: Activation;
   } = $props();
 
@@ -46,10 +48,11 @@
     <p id="flywheel-mode-description" class="mt-3 text-sm leading-6 text-muted">
       Disengage the board before disabling flywheel mode.
     </p>
+    {#if error}<p role="alert" class="mt-3 text-sm text-warning">{error}</p>{/if}
     <button
       bind:this={disableButton}
       type="button"
-      class="text-on-warning mt-6 w-full touch-manipulation rounded-lg bg-warning px-4 py-3 font-semibold"
+      class="mt-6 w-full touch-manipulation rounded-lg bg-warning px-4 py-3 font-semibold text-on-warning"
       disabled={busy || disabled}
       onpointerdown={(event) => activateFromPointer(event, disable)}
       onclick={(event) => activateFromKeyboardOrAssistiveClick(event, disable)}>Disable</button

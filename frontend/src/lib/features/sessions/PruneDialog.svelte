@@ -24,6 +24,7 @@
   let targetResolutionSeconds = $state(5);
   let preview = $state<SessionPrunePreview | null>(null);
   let previewResolution = $state<number | null>(null);
+  let operationError = $state<string | null>(null);
   let busy = $state(false);
   let wasOpen = false;
 
@@ -33,6 +34,7 @@
   $effect(() => {
     if (open && !wasOpen) {
       targetResolutionSeconds = suggestedPruneResolution(existingResolutionSeconds);
+      operationError = null;
       preview = null;
       previewResolution = null;
     }
@@ -47,13 +49,18 @@
   async function proceed() {
     if (busy || !resolutionValid) return;
     busy = true;
+    operationError = null;
     try {
       if (!previewCurrent) {
         preview = await onpreview(targetResolutionSeconds);
         previewResolution = preview ? targetResolutionSeconds : null;
+        if (!preview) operationError = error ?? 'The prune preview could not be loaded. Please try again.';
         return;
       }
       if (await onprune(targetResolutionSeconds)) await oncancel();
+      else operationError = error ?? 'Sessions could not be pruned. Please try again.';
+    } catch (cause) {
+      operationError = cause instanceof Error ? cause.message : 'Sessions could not be pruned. Please try again.';
     } finally {
       busy = false;
     }
@@ -69,6 +76,7 @@
   appearance="warning"
   {busy}
   confirmDisabled={!resolutionValid}
+  error={operationError}
   onconfirm={proceed}
   {oncancel}
 >
@@ -109,5 +117,4 @@
       {/if}
     </div>
   {/if}
-  {#if error}<p class="mt-3 text-sm text-warning" role="alert">{error}</p>{/if}
 </ConfirmDialog>

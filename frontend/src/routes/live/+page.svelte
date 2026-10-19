@@ -60,6 +60,8 @@
   let disconnectConfirmationOpen = $state(false);
   let connectionIssueConfirmationOpen = $state(false);
   let firmwareUnsupportedConfirmationOpen = $state(false);
+  let confirmationError = $state<string | null>(null);
+  let flywheelError = $state<string | null>(null);
   let disconnecting = $state(false);
   let shutdownConfirmationOpen = $state(false);
   let refloatConfirmation = $state<RefloatControlConfirmation | null>(null);
@@ -161,6 +163,7 @@
       connectionIssueConfirmationOpen = false;
       lastConnectionIssueKey = null;
     } else if (issueKey !== lastConnectionIssueKey) {
+      confirmationError = null;
       connectionIssueConfirmationOpen = true;
       lastConnectionIssueKey = issueKey;
     }
@@ -176,6 +179,7 @@
       firmwareUnsupportedConfirmationOpen = false;
       lastUnsupportedFirmwareKey = null;
     } else if (firmwareKey !== lastUnsupportedFirmwareKey) {
+      confirmationError = null;
       firmwareUnsupportedConfirmationOpen = true;
       lastUnsupportedFirmwareKey = firmwareKey;
     }
@@ -360,6 +364,7 @@
           disabled: backendState.busy || controllerShutdownDisabled(connection),
           onactivate: (closeMenu: () => void) => {
             closeMenu();
+            confirmationError = null;
             shutdownConfirmationOpen = true;
           },
         },
@@ -395,6 +400,7 @@
 
   let endRideRequested = $state(false);
   function requestDisconnect(closeMenu: () => void) {
+    confirmationError = null;
     endRideRequested = false;
     closeMenu();
     if (shouldConfirmDisconnect(sample?.rideState)) {
@@ -406,6 +412,7 @@
 
   function activateRefloatAction(action: ReturnType<typeof refloatMenuActions>[number], closeMenu: () => void) {
     closeMenu();
+    confirmationError = null;
     refloatConfirmation = refloatControlConfirmation(action.control, action.enabled);
     if (refloatConfirmation) return;
     void performRefloatControl(action.control, action.enabled);
@@ -416,15 +423,25 @@
     const selectedControl = control ?? confirmed?.control;
     const selectedEnabled = enabled ?? confirmed?.enabled;
     if (!selectedControl || selectedEnabled === undefined) return;
-    await backendState.setRefloatControl(selectedControl, selectedEnabled);
+    confirmationError = null;
+    if (!(await backendState.setRefloatControl(selectedControl, selectedEnabled))) {
+      confirmationError = backendState.error ?? 'The Refloat control could not be changed. Please try again.';
+      return;
+    }
     refloatConfirmation = null;
     await tick();
     appHeader.focusMenu();
   }
 
+  $effect(() => {
+    if (!flywheelOverlayVisible(connection)) flywheelError = null;
+  });
+
   async function disableFlywheelMode() {
     if (!connection || flywheelDisableUnavailable(connection)) return;
-    await backendState.setRefloatControl('flywheel', false);
+    flywheelError = null;
+    if (!(await backendState.setRefloatControl('flywheel', false)))
+      flywheelError = backendState.error ?? 'Flywheel mode could not be disabled. Please try again.';
   }
 
   async function cancelRefloatConfirmation() {
@@ -435,7 +452,11 @@
 
   async function performControllerShutdown() {
     if (!connection || controllerShutdownDisabled(connection)) return;
-    await backendState.shutdownController();
+    confirmationError = null;
+    if (!(await backendState.shutdownController())) {
+      confirmationError = backendState.error ?? 'The controller could not be shut down. Please try again.';
+      return;
+    }
     shutdownConfirmationOpen = false;
     await tick();
     if (backendState.snapshot?.activeConnection) appHeader.focusMenu();
@@ -449,15 +470,27 @@
 
   function requestEndRide(closeMenu: () => void) {
     closeMenu();
+    confirmationError = null;
     endRideRequested = true;
     disconnectConfirmationOpen = true;
   }
   async function disconnect() {
     if (disconnecting) return;
     disconnecting = true;
-    if (endRideRequested && connection?.activeSession) await backendState.endRide(connection.activeSession.sessionId);
-    else await backendState.disconnectDevice();
+    confirmationError = null;
+    const completed =
+      endRideRequested && connection?.activeSession
+        ? await backendState.endRide(connection.activeSession.sessionId)
+        : await backendState.disconnectDevice();
     disconnecting = false;
+    if (!completed) {
+      confirmationError =
+        backendState.error ??
+        (endRideRequested
+          ? 'The ride could not be ended. Please try again.'
+          : 'The board could not be disconnected. Please try again.');
+      return;
+    }
     disconnectConfirmationOpen = false;
     if (!backendState.snapshot?.activeConnection) await goto('#/', { replaceState: true });
   }
@@ -470,8 +503,11 @@
 
   async function retryConnection() {
     const deviceId = connection?.deviceId;
-    connectionIssueConfirmationOpen = false;
-    if (deviceId) await backendState.connectDevice(deviceId, connection?.trackingMode ?? 'saved');
+    if (!deviceId) return;
+    confirmationError = null;
+    if (await backendState.connectDevice(deviceId, connection?.trackingMode ?? 'saved')) {
+      connectionIssueConfirmationOpen = false;
+    } else confirmationError = backendState.error ?? 'The board could not be connected. Please try again.';
   }
 
   function continueWithUnsupportedFirmware() {
@@ -479,13 +515,13 @@
   }
 
   async function cancelConnectionIssue() {
-    connectionIssueConfirmationOpen = false;
     await disconnect();
+    if (!confirmationError) connectionIssueConfirmationOpen = false;
   }
 
   async function cancelUnsupportedFirmware() {
-    firmwareUnsupportedConfirmationOpen = false;
     await disconnect();
+    if (!confirmationError) firmwareUnsupportedConfirmationOpen = false;
   }
 
   function openConfigure(closeMenu?: () => void) {
@@ -607,6 +643,8 @@
     description={connection?.connectionIssue?.message ?? 'An unknown connection issue occurred.'}
     confirmLabel="Retry"
     appearance="warning"
+    busy={backendState.busy}
+    error={confirmationError}
     onconfirm={retryConnection}
     oncancel={cancelConnectionIssue}
   />
@@ -619,6 +657,8 @@
       ?.packageVersion} is not supported. Live values may be incomplete."
     confirmLabel="Continue"
     appearance="warning"
+    busy={backendState.busy}
+    error={confirmationError}
     onconfirm={continueWithUnsupportedFirmware}
     oncancel={cancelUnsupportedFirmware}
   />
@@ -661,6 +701,7 @@
   confirmLabel={endRideRequested ? 'End ride' : 'Disconnect'}
   appearance="destructive"
   busy={disconnecting}
+  error={confirmationError}
   onconfirm={disconnect}
   oncancel={cancelDisconnect}
 />
@@ -673,6 +714,7 @@
   confirmLabel={refloatConfirmation?.confirmLabel ?? 'Confirm'}
   appearance="warning"
   busy={backendState.busy}
+  error={confirmationError}
   onconfirm={() => performRefloatControl()}
   oncancel={cancelRefloatConfirmation}
 />
@@ -685,6 +727,7 @@
   confirmLabel={controllerShutdownConfirmation.confirmLabel}
   appearance="destructive"
   busy={backendState.busy || connection?.controllerActions.pendingAction === 'shutdown'}
+  error={confirmationError}
   onconfirm={performControllerShutdown}
   oncancel={cancelControllerShutdown}
 />
@@ -715,6 +758,7 @@
   <FlywheelModeOverlay
     busy={backendState.busy || connection?.refloatControls?.pendingAction === 'flywheel'}
     disabled={flywheelDisableUnavailable(connection)}
+    error={flywheelError}
     ondisable={disableFlywheelMode}
   />
 {/if}
