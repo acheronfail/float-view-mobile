@@ -6,6 +6,10 @@ on:
     tags: ["v*", "!v*-nightly.*"]
   workflow_dispatch:
     inputs:
+      android-store:
+        description: Rebuild a tagged release Play bundle (no Google upload)
+        type: boolean
+        default: false
       ios-store:
         description: Rebuild a tagged release store IPA (select its vX.Y.Z or vX.Y.Z-rc.N ref)
         type: boolean
@@ -41,6 +45,7 @@ jobs:
       skip: ${{ steps.version.outputs.skip }}
       mac-store-build: ${{ steps.version.outputs.macStoreBuild }}
       mac-store-delivery: ${{ steps.version.outputs.macStoreDelivery }}
+      android-store-build: ${{ steps.version.outputs.androidStoreBuild }}
       store-build: ${{ steps.version.outputs.storeBuild }}
       store-delivery: ${{ steps.version.outputs.storeDelivery }}
     env:
@@ -59,6 +64,7 @@ jobs:
       - name: Test release tooling
         run: |
           node --strip-types --test .github/scripts/*.test.ts
+          python3 -B .github/scripts/android-store.test.py
           python3 -B .github/scripts/mac-store.test.py
           python3 -B .github/scripts/mac-upload.test.py
           python3 -B .github/scripts/ios-store.test.py
@@ -67,6 +73,7 @@ jobs:
         id: version
         env:
           FLOAT_VIEW_BUILD_RECORD: ${{ runner.temp }}/build-record.json
+          FLOAT_VIEW_BUILD_ANDROID_STORE: ${{ inputs.android-store }}
           FLOAT_VIEW_BUILD_MAC_STORE: ${{ inputs.mac-store }}
           FLOAT_VIEW_MAC_DELIVERY: ${{ inputs.mac-delivery }}
           FLOAT_VIEW_BUILD_IOS_STORE: ${{ inputs.ios-store }}
@@ -512,6 +519,127 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  android-store:
+    needs: prepare
+    if: needs.prepare.outputs.android-store-build == 'true' && vars.ANDROID_STORE_SIGNING_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: android-store-signing
+    env:
+      FLOAT_VIEW_VERSION: ${{ needs.prepare.outputs.version }}
+      FLOAT_VIEW_BUILD_NUMBER: ${{ needs.prepare.outputs.build-number }}
+      FLOAT_VIEW_BUILD_CONFIGURATION: ${{ needs.prepare.outputs.configuration }}
+      ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+      # Transfer reusable Cargo artifacts, not large per-checkout incremental state.
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            'platforms;android-36' 'build-tools;35.0.0' 'ndk;28.2.13676358'
+          # Override any runner-provided NDK so Cargo uses the pinned revision.
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+
+      - name: Cache Cargo downloads and Android compilation
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backends/core/target
+            !backends/core/target/**/incremental/**
+          key: android-rust-v2-${{ runner.os }}-${{ runner.arch }}-ndk28.2.13676358-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-${{ hashFiles('backends/core/**/*.rs', 'backends/core/**/Cargo.toml', 'backends/core/*.sh', 'backends/sql/**') }}
+          restore-keys: |
+            android-rust-v2-${{ runner.os }}-${{ runner.arch }}-ndk28.2.13676358-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      # The Gradle Rust build helper invokes Cargo with --locked --offline.
+      - name: Fetch locked Rust dependencies
+        working-directory: backends/core
+        run: |
+          cargo fetch --locked \
+            --target aarch64-linux-android --target armv7-linux-androideabi \
+            --target i686-linux-android --target x86_64-linux-android
+
+      # Cache the wrapper, dependencies, compiled build scripts and task outputs.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
+
+      - name: Require Android store readiness
+        env:
+          READY: ${{ vars.ANDROID_STORE_SIGNING_READY }}
+        run: test "$READY" = true
+
+      - name: Build Release bundle
+        working-directory: backends/android
+        run: ./gradlew --no-daemon --build-cache bundleRelease
+
+      - name: Sign bundle with Play upload key
+        env:
+          UPLOAD_KEY: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_PASSWORD: ${{ secrets.ANDROID_UPLOAD_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${UPLOAD_KEY:?Missing Play upload keystore}"
+          : "${ANDROID_UPLOAD_PASSWORD:?Missing Play upload password}"
+          umask 077
+          keystore="$RUNNER_TEMP/play-upload.p12"
+          trap 'rm -f "$keystore"' EXIT
+          printf '%s' "$UPLOAD_KEY" | base64 --decode > "$keystore"
+          jarsigner -keystore "$keystore" -storepass:env ANDROID_UPLOAD_PASSWORD \
+            -keypass:env ANDROID_UPLOAD_PASSWORD -digestalg SHA-256 -sigalg SHA256withRSA \
+            -signedjar "$RUNNER_TEMP/FloatView-$FLOAT_VIEW_VERSION.aab" \
+            backends/android/app/build/outputs/bundle/release/app-release.aab float-view-play-upload
+          LC_ALL=C jarsigner -verify -strict -keystore "$keystore" \
+            -storepass:env ANDROID_UPLOAD_PASSWORD "$RUNNER_TEMP/FloatView-$FLOAT_VIEW_VERSION.aab"
+          keytool -exportcert -keystore "$keystore" -storepass:env ANDROID_UPLOAD_PASSWORD \
+            -alias float-view-play-upload -file "$RUNNER_TEMP/upload-certificate.der"
+
+      - name: Validate bundle and retain source record
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/bundletool.jar" \
+            https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
+          echo "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  $RUNNER_TEMP/bundletool.jar" | sha256sum --check
+          python3 -B .github/scripts/android-store.py \
+            "$RUNNER_TEMP/FloatView-$FLOAT_VIEW_VERSION.aab" "$RUNNER_TEMP/bundletool.jar" \
+            "$RUNNER_TEMP/upload-certificate.der" "$RUNNER_TEMP/package.json"
+
+      - name: Retain signed Play bundle
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: FloatView-android-store-${{ env.FLOAT_VIEW_BUILD_NUMBER }}-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/FloatView-*.aab
+            ${{ runner.temp }}/package.json
+          if-no-files-found: error
+          retention-days: 90
 
   macos:
     needs: prepare

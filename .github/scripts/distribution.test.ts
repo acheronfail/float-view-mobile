@@ -558,3 +558,20 @@ test('first stable publication includes app history despite earlier candidates',
   assert.match(body, /commits\/v1.0.0/);
   assert.doesNotMatch(body, /compare\/v1.0.0-rc/);
 });
+
+test('Android store bundles require explicit release tags and independent manual selection', () => {
+  const f = fixture();
+  assert.equal(f.run('prepare').status, 0);
+  assert.match(f.output(), /androidStoreBuild=false/);
+  const requested = { GITHUB_EVENT_NAME: 'workflow_dispatch', FLOAT_VIEW_BUILD_ANDROID_STORE: 'true' };
+  assert.notEqual(f.run('prepare', requested).status, 0);
+  git(['tag', 'v1.0.0-rc.1'], f.cwd);
+  assert.equal(f.run('prepare', { GITHUB_REF: 'refs/tags/v1.0.0-rc.1', GITHUB_EVENT_NAME: 'push' }).status, 0);
+  assert.match(f.output(), /androidStoreBuild=true/);
+  assert.equal(f.run('prepare', { ...requested, GITHUB_REF: 'refs/tags/v1.0.0-rc.1' }).status, 0);
+  assert.match(f.output(), /androidStoreBuild=true/);
+  assert.match(f.output(), /storeBuild=false/);
+  assert.match(f.output(), /macStoreBuild=false/);
+  assert.equal(f.run('prepare', { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/tags/v1.0.0-rc.1' }).status, 0);
+  assert.match(f.output(), /androidStoreBuild=false/);
+});

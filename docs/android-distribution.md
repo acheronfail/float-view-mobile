@@ -71,12 +71,10 @@ See [Google's Play App Signing procedure](https://support.google.com/googleplay/
 
 ## Store delivery and installation checks
 
-The AAB build/upload path remains separate work: Release configuration, the
-existing CI-derived `versionCode`, protected signing/upload jobs selected only
-by explicit stable/candidate release tags, package/source audit, native 16 KB
-page-size checks, and internal-track upload. A JAR signing check does not verify
-any of these. Store credentials must not be required for local source builds or
-ordinary APK publication.
+The protected AAB build/signing path is described below. Hosted CI verification,
+final package/source audit and internal-track delivery remain open. Local checks
+do not establish store delivery or device acceptance. Store credentials must not
+be required for local source builds or ordinary APK publication.
 
 After enrollment, verify Play-delivered APKs carry the expected app-signing
 certificate. Test sideload-to-Play and Play-to-sideload replacement on a device
@@ -93,7 +91,56 @@ installations. Export recordings before any intentional uninstall.
 The [RC6 APK](https://github.com/acheronfail/float-view-mobile/releases/tag/v1.0.0-rc.6)
 passes APK signature verification and matches the retained official app-signing
 certificate. Both retained app-key and separate upload-key signing checks pass.
-Play enrollment, signed AAB validation and Play-delivered route-switch checks
-remain open. The owner confirmed separate backups of both the original
+The owner subsequently reported successful Play enrollment and supplied the
+matching app-signing SHA-256 fingerprint. Local Release AAB structure,
+upload-key signing/strict signature verification, package/version/target SDK,
+non-debuggable manifest, four-ABI inventory and 64-bit 16 KB LOAD alignment
+checks pass; the bundle requests 16 KB APK alignment. This local unversioned
+package is not for upload. Hosted CI validation and Play-delivered route-switch
+checks remain open. The owner confirmed separate backups of both the original
 app-signing key/password and the new upload key/password. Detailed records are
 local.
+
+## Protected Play bundle signing
+
+The `android-store` job in `Build apps` produces an independently retained AAB;
+its success does not gate the existing GitHub APK publication. It does not upload
+to Google, invite testers or start a rollout. Stable/candidate tag pushes select
+it only when repository variable `ANDROID_STORE_SIGNING_ENABLED=true`.
+Ordinary master/nightly runs skip it. A deliberate manual retry must select an
+existing stable/candidate tag and set the `android-store` input; a fresh run
+receives a fresh shared CI number without replacing published GitHub downloads.
+
+Configure environment `android-store-signing` with an owner review and tag-only
+`v*` deployment rules. Self-approval may be enabled by the owner for this personal
+repository. Keep these environment settings:
+
+| Setting | Purpose |
+| --- | --- |
+| Secret `ANDROID_UPLOAD_KEYSTORE_BASE64` | Separate Play upload keystore, alias `float-view-play-upload` |
+| Secret `ANDROID_UPLOAD_PASSWORD` | Upload keystore/key password |
+| Variable `ANDROID_UPLOAD_CERT_SHA256` | SHA-256 of the upload certificate registered with Play, lowercase hex without colons |
+| Variable `ANDROID_STORE_SIGNING_READY` | `true` only after custody/enrollment and secret setup |
+
+The job uses Release configuration and the same `FLOAT_VIEW_VERSION` and
+CI-derived `FLOAT_VIEW_BUILD_NUMBER` as other packages. It signs with `jarsigner`,
+strictly verifies the signature against the selected keystore, and checks the
+signer's fingerprint against the enrolled upload certificate. The pinned,
+checksum-verified Google bundletool validates structure, package/version,
+non-debuggable manifest and target SDK. The package audit checks the closed
+four-ABI native library inventory, 16 KB LOAD alignment on the 64-bit libraries,
+and the bundle's `PAGE_ALIGNMENT_16K` setting for generated APKs. These packaging
+checks do not establish operation on a 16 KB device.
+
+Download `FloatView-android-store-<build>-attempt-<attempt>` from the approved run.
+Retain its AAB and `package.json` together. Verify its source, version, build,
+hash and upload certificate before manually uploading it to **Testing → Internal
+testing → Create new release**. Never upload a local unversioned check bundle.
+An upload-key-signed AAB is not an installable APK; Play signs generated APKs
+with the enrolled app-signing key. Verify that delivered certificate separately.
+
+New personal accounts must complete a closed test with at least 12 testers
+continuously opted in for 14 days before applying for production access.
+Internal testing does not satisfy that requirement. Complete listing, Data
+safety and actual permission/foreground-service declarations before closed-test
+review. See [Google's account testing requirements](https://support.google.com/googleplay/android-developer/answer/14151465).
