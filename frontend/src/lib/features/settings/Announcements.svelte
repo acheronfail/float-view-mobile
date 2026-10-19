@@ -278,10 +278,12 @@
         </p>
       </div>
     {/if}
-    <p class="text-xs text-muted">
-      On iPhone: Settings → Accessibility → Spoken Content (Read &amp; Speak) → Voices → English. Choose a voice and tap
-      its cloud icon to download it on Wi-Fi.
-    </p>
+    {#if backendState.platform === 'ios'}
+      <p class="text-xs text-muted">
+        On iPhone: Settings → Accessibility → Spoken Content (Read &amp; Speak) → Voices → English. Choose a voice and
+        tap its cloud icon to download it on Wi-Fi.
+      </p>
+    {/if}
     <div class="flex flex-wrap gap-2">
       {#each ['speed', 'load', 'combined'] as name (name)}
         {@const kind = name as 'speed' | 'load' | 'combined'}
