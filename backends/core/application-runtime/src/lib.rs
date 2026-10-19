@@ -819,6 +819,31 @@ mod tests {
     }
 
     #[test]
+    fn malformed_input_does_not_lose_valid_discovery_responses_in_the_same_chunk() {
+        let mut runtime = ApplicationRuntime::new();
+        runtime
+            .apply(Command::Application(begin(10)))
+            .expect("begin");
+        let generation = runtime.snapshot().application.generation;
+        let firmware = float_view_vesc_frame::encode(&firmware_response()).unwrap();
+        let info = float_view_vesc_frame::encode(&[36, 101, 0, 10]).unwrap();
+        let mut corrupt = float_view_vesc_frame::encode(&[36, 101, 20, 3]).unwrap();
+        corrupt[4] ^= 0xff;
+        let effects = runtime
+            .apply(Command::ReceiveBytes {
+                generation,
+                bytes: [firmware, corrupt, vec![3, 0x0f, 0xfe], info].concat(),
+                now_ms: 20,
+                observed_at_epoch_ms: 1_700_000_000_020,
+            })
+            .expect("valid discovery responses survive intervening corruption");
+        assert!(effects.iter().any(|effect| matches!(
+            effect,
+            Effect::Application(CoordinatorEffect::PrepareActivation(_))
+        )));
+    }
+
+    #[test]
     fn stale_generation_is_diagnostic_only() {
         let mut runtime = ApplicationRuntime::new();
         runtime

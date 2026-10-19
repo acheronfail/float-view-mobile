@@ -38,6 +38,14 @@ JNI exports. Select tests and packaging checks by impact using the root
 only for affected BLE, background, Activity or file-presentation behavior that
 software cannot establish; unrelated platforms need no regression run.
 
+The Bluetooth adapter requests ATT MTU 517 before service discovery and supplies
+the confirmed write capacity to shared segmentation, which caps chunks at 244
+bytes. Receive capacity is independent of that outgoing cap: older Express
+firmware advances notification fragments by `min(MTU, 255)` without subtracting
+ATT overhead, so an MTU of 247 can discard three bytes at each full fragment.
+Rejected or failed negotiation retains the default 20-byte capacity;
+missing callbacks remain bounded by the shared connection-attempt deadline.
+
 ## Local SDK and verification
 
 Install the [Android command-line tools](https://developer.android.com/studio#command-tools)

@@ -1,7 +1,7 @@
 //! Safe bounded VESC framing implementation.
 //!
-//! The shared iOS/macOS backend selects this crate for CRC, encoding, exact
-//! decoding, and stream-boundary interpretation through narrow native bridges.
+//! The shared native runtime selects this crate for CRC, encoding, exact
+//! decoding, and stream-boundary interpretation.
 //! VESC payload protocols and application-owned stream lifetime remain outside
 //! this crate.
 
@@ -224,56 +224,113 @@ pub fn scan_next(bytes: &[u8]) -> StreamScan {
 #[derive(Debug, Default)]
 pub struct StreamDecoder {
     buffer: Vec<u8>,
+    recovering: bool,
 }
 
 impl StreamDecoder {
     /// Construct an empty stream decoder.
     #[must_use]
     pub const fn new() -> Self {
-        Self { buffer: Vec::new() }
+        Self {
+            buffer: Vec::new(),
+            recovering: false,
+        }
     }
 
     /// Append one fragment and return every complete payload now available.
     ///
-    /// Aggregate overflow clears all retained bytes. A complete malformed frame
-    /// is consumed before its error is returned, matching the shipped decoders.
+    /// Malformed candidates enter recovery, which can search past false incomplete
+    /// headers. Normal assembly preserves incomplete outer frames, even when their
+    /// payload contains valid frame-shaped bytes. Valid output takes precedence over
+    /// a framing error in the same input; malformed payloads are never returned.
     pub fn append(&mut self, bytes: &[u8]) -> Result<Vec<Vec<u8>>, FrameError> {
         let Some(aggregate_bytes) = self.buffer.len().checked_add(bytes.len()) else {
             self.buffer.clear();
+            self.recovering = true;
             return Err(FrameError::PayloadTooLarge);
         };
         if aggregate_bytes > MAX_STREAM_BYTES {
             self.buffer.clear();
+            self.recovering = true;
             return Err(FrameError::PayloadTooLarge);
         }
         self.buffer.extend_from_slice(bytes);
 
         let mut payloads = Vec::new();
+        let mut offset = 0;
+        let mut incomplete = None;
+        let mut error = None;
+        // Noise scanning is linear in the bounded buffer. Limit the aggregate
+        // bytes CRC-checked as well, including adversarial overlapping candidates.
+        let mut crc_budget = MAX_STREAM_BYTES;
         loop {
-            match scan_next(&self.buffer) {
+            match scan_next(&self.buffer[offset..]) {
                 StreamScan::NeedMore { consumed } => {
-                    self.buffer.drain(..consumed);
-                    return Ok(payloads);
+                    // Bytes outside a frame also indicate a lost boundary. A
+                    // damaged reply's trailing bytes can follow a valid frame
+                    // recovered from the middle of the overlap.
+                    if consumed > 0 {
+                        self.recovering = true;
+                    }
+                    offset += consumed;
+                    if offset == self.buffer.len() || !self.recovering {
+                        break;
+                    }
+                    incomplete.get_or_insert(offset);
+                    offset += 1;
                 }
                 StreamScan::Frame {
                     frame_offset,
                     frame_length,
-                    consumed,
+                    ..
                 } => {
-                    let result = decode(&self.buffer[frame_offset..frame_offset + frame_length]);
-                    self.buffer.drain(..consumed);
-                    payloads.push(result?);
+                    offset += frame_offset;
+                    let frame = &self.buffer[offset..offset + frame_length];
+                    // Footer rejection needs no CRC work. On budget exhaustion,
+                    // retain this unvalidated candidate for the next input rather
+                    // than repeatedly scanning the preceding recovery noise.
+                    if frame.last() == Some(&FRAME_FOOTER) {
+                        if frame_length > crc_budget {
+                            incomplete = Some(offset);
+                            break;
+                        }
+                        crc_budget -= frame_length;
+                    }
+                    match decode(frame) {
+                        Ok(payload) => {
+                            payloads.push(payload);
+                            offset += frame_length;
+                            incomplete = None;
+                            self.recovering = false;
+                        }
+                        Err(reason) => {
+                            error.get_or_insert(reason);
+                            self.recovering = true;
+                            // The length may itself be damaged. Advancing by the
+                            // whole candidate could swallow a subsequent good frame.
+                            offset += 1;
+                        }
+                    }
                 }
                 StreamScan::PayloadTooLarge { consumed } => {
-                    self.buffer.drain(..consumed);
-                    return Err(FrameError::PayloadTooLarge);
+                    offset += consumed;
+                    error.get_or_insert(FrameError::PayloadTooLarge);
+                    self.recovering = true;
                 }
                 StreamScan::StreamTooLarge { .. } => {
                     self.buffer.clear();
+                    self.recovering = true;
                     return Err(FrameError::PayloadTooLarge);
                 }
             }
         }
+        self.buffer.drain(..incomplete.unwrap_or(offset));
+        if payloads.is_empty()
+            && let Some(error) = error
+        {
+            return Err(error);
+        }
+        Ok(payloads)
     }
 }
 
@@ -493,23 +550,23 @@ mod tests {
     }
 
     #[test]
-    fn stream_consumes_bad_frames_and_recovers_retained_input() {
+    fn stream_recovers_valid_output_in_the_same_input() {
         let valid = fixture_frame("short-packet");
         let expected = decode(&valid).unwrap();
 
         let mut bad_crc = StreamDecoder::new();
         let bytes = [fixture_frame("corrupt-crc"), valid.clone()].concat();
-        assert_eq!(bad_crc.append(&bytes), Err(FrameError::InvalidCrc));
-        assert_eq!(bad_crc.append(&[]), Ok(vec![expected.clone()]));
+        assert_eq!(bad_crc.append(&bytes), Ok(vec![expected.clone()]));
+        assert_eq!(bad_crc.append(&[]), Ok(Vec::new()));
 
         let mut invalid_footer = valid.clone();
         *invalid_footer.last_mut().unwrap() = 4;
         let mut bad_footer = StreamDecoder::new();
         assert_eq!(
             bad_footer.append(&[invalid_footer, valid.clone()].concat()),
-            Err(FrameError::InvalidFrame)
+            Ok(vec![expected.clone()])
         );
-        assert_eq!(bad_footer.append(&[]), Ok(vec![expected.clone()]));
+        assert_eq!(bad_footer.append(&[]), Ok(Vec::new()));
 
         let mut oversized = StreamDecoder::new();
         assert_eq!(
@@ -517,6 +574,111 @@ mod tests {
             Err(FrameError::PayloadTooLarge)
         );
         assert_eq!(oversized.append(&valid), Ok(vec![expected]));
+    }
+
+    #[test]
+    fn corruption_does_not_discard_preceding_or_following_responses() {
+        let before = encode(&[36, 101, 20, 3]).unwrap();
+        let after = encode(&[36, 101, 33, 1, 0, 0]).unwrap();
+        let bytes = [before.clone(), fixture_frame("corrupt-crc"), after.clone()].concat();
+        assert_eq!(
+            StreamDecoder::new().append(&bytes),
+            Ok(vec![decode(&before).unwrap(), decode(&after).unwrap()])
+        );
+    }
+
+    #[test]
+    fn recovery_searches_past_false_incomplete_headers_across_fragments() {
+        let valid = fixture_frame("short-packet");
+        let mut decoder = StreamDecoder::new();
+        let corrupt = [fixture_frame("corrupt-crc"), vec![3, 0x0f, 0xfe]].concat();
+        assert!(decoder.append(&corrupt).is_err());
+        let mut received = Vec::new();
+        for chunk in valid.chunks(2) {
+            received.extend(decoder.append(chunk).unwrap_or_default());
+        }
+        assert_eq!(received, vec![decode(&valid).unwrap()]);
+    }
+
+    #[test]
+    fn damaged_length_does_not_swallow_a_valid_frame() {
+        let valid = fixture_frame("short-packet");
+        let bytes = [vec![2, 40, 0xff], valid.clone(), vec![0xff; 40]].concat();
+        assert_eq!(
+            StreamDecoder::new().append(&bytes),
+            Ok(vec![decode(&valid).unwrap()])
+        );
+    }
+
+    #[test]
+    fn overlapping_bootstrap_replies_do_not_stall_later_telemetry() {
+        let schema = encode(&[vec![92, 0], vec![0x55; 408]].concat()).unwrap();
+        let limits = encode(&[vec![14], vec![0xaa; 487]].concat()).unwrap();
+        let telemetry = encode(&[36, 101, 33, 1, 0x55, 0xaa]).unwrap();
+        let lighting = encode(&[36, 101, 20, 3]).unwrap();
+        // A duplicate schema is interrupted by another reply, as in the
+        // private Express capture. All public payload bytes are synthetic.
+        let bytes = [
+            schema.clone(),
+            schema[..220].to_vec(),
+            limits.clone(),
+            schema[220..].to_vec(),
+            telemetry.clone(),
+            lighting.clone(),
+        ]
+        .concat();
+        for chunk_size in [1, 20, 182, 244, MAX_STREAM_BYTES] {
+            let mut decoder = StreamDecoder::new();
+            let mut received = Vec::new();
+            for chunk in bytes.chunks(chunk_size) {
+                received.extend(decoder.append(chunk).unwrap_or_default());
+            }
+            assert_eq!(
+                received,
+                [&schema, &limits, &telemetry, &lighting].map(|frame| decode(frame).unwrap()),
+                "chunk size {chunk_size}"
+            );
+        }
+    }
+
+    #[test]
+    fn normal_fragments_preserve_frame_shaped_payloads_after_recovery() {
+        let inner = encode(&[36, 101, 20, 3]).unwrap();
+        let payload = [vec![0x55; 20], inner, vec![0xaa; 300]].concat();
+        let outer = encode(&payload).unwrap();
+        let boundary = 3 + 20 + 9;
+        for recover_first in [false, true] {
+            let mut decoder = StreamDecoder::new();
+            if recover_first {
+                let sync = fixture_frame("short-packet");
+                assert_eq!(
+                    decoder.append(&[fixture_frame("corrupt-crc"), sync.clone()].concat()),
+                    Ok(vec![decode(&sync).unwrap()])
+                );
+            }
+            assert_eq!(decoder.append(&outer[..boundary]), Ok(Vec::new()));
+            assert_eq!(
+                decoder.append(&outer[boundary..]),
+                Ok(vec![payload.clone()])
+            );
+        }
+    }
+
+    #[test]
+    fn adversarial_overlapping_candidates_make_bounded_progress() {
+        let valid = fixture_frame("short-packet");
+        let mut decoder = StreamDecoder::new();
+        let mut received = decoder
+            .append(&[vec![3; MAX_PAYLOAD_BYTES], valid.clone()].concat())
+            .unwrap_or_default();
+        for _ in 0..MAX_STREAM_BYTES {
+            if !received.is_empty() {
+                break;
+            }
+            received.extend(decoder.append(&[]).unwrap_or_default());
+        }
+        assert_eq!(received, vec![decode(&valid).unwrap()]);
+        assert!(decoder.buffer.len() <= MAX_STREAM_BYTES);
     }
 
     #[test]

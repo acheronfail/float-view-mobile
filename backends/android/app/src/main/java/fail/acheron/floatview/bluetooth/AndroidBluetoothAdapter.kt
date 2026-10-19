@@ -184,6 +184,7 @@ class AndroidBluetoothAdapter(
         private var response = false
         private var reportedWrite = false
         private var closed = false
+        private val mtu = GattMtuNegotiation()
         private val pacing = Runnable {
             val op = current
             if (!closed && !response && op != null) { current = null; progress(op, "available") }
@@ -199,6 +200,7 @@ class AndroidBluetoothAdapter(
         }
         fun close() {
             closed = true; current = null; handler.removeCallbacks(pacing)
+            mtu.close()
             try { gatt?.disconnect(); gatt?.close() } catch (_: SecurityException) { }
             gatt = null; tx = null; rx = null
         }
@@ -208,11 +210,23 @@ class AndroidBluetoothAdapter(
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     link(ConnectionState.DISCOVERING_SERVICES)
-                    // Keep ATT MTU 23: larger MTUs have corrupted VESC Express notifications on Samsung.
-                    try { if (!gatt.discoverServices()) fail() } catch (_: SecurityException) { fail() }
+                    if (!mtu.begin()) return
+                    try {
+                        if (!gatt.requestMtu(GattMtuNegotiation.REQUESTED_MTU) && mtu.complete(23, false)) {
+                            discoverServices(gatt)
+                        }
+                    } catch (_: SecurityException) { fail() }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> { link(ConnectionState.DISCONNECTED); close() }
             }
+        }
+        override fun onMtuChanged(gatt: BluetoothGatt, value: Int, status: Int) {
+            if (closed || gatt !== this.gatt || !mtu.complete(value, status == BluetoothGatt.GATT_SUCCESS)) return
+            diagnosticHandler("gatt_mtu payload=${mtu.payloadBytes}")
+            discoverServices(gatt)
+        }
+        private fun discoverServices(gatt: BluetoothGatt) {
+            try { if (!gatt.discoverServices()) fail() } catch (_: SecurityException) { fail() }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (closed || gatt !== this.gatt) return
@@ -223,8 +237,8 @@ class AndroidBluetoothAdapter(
             eventHandler(BluetoothEvent.Profile(generation, fail.acheron.floatview.application.BluetoothProfile(
                 status == BluetoothGatt.GATT_SUCCESS && service != null,
                 ((rx?.properties ?: 0) and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0,
-                if (properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) 20 else 0,
-                if (properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) 20 else 0,
+                if (properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) mtu.payloadBytes else 0,
+                if (properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) mtu.payloadBytes else 0,
             )))
         }
         fun enable(operation: Long) {
@@ -254,12 +268,12 @@ class AndroidBluetoothAdapter(
             }
         }
         fun write(operation: Long, response: Boolean, bytes: ByteArray) {
-            if (closed || current != null || bytes.size > 20) { fail(); return }
+            if (closed || current != null || bytes.size > mtu.payloadBytes) { fail(); return }
             val gatt = gatt ?: return
             val characteristic = tx ?: return
             current = operation; this.response = response
             if (!reportedWrite) {
-                diagnosticHandler("gatt_write mode=${if (response) "with_response" else "without_response"} ceiling=20 payload=${bytes.size}")
+                diagnosticHandler("gatt_write mode=${if (response) "with_response" else "without_response"} ceiling=${mtu.payloadBytes} payload=${bytes.size}")
                 reportedWrite = true
             }
             characteristic.writeType = if (response) BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT else BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
