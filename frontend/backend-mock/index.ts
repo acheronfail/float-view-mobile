@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 import {
+  type RefloatTune,
   MAX_MESSAGE_BYTES,
   MAX_SESSION_DATA_REQUEST_BYTES,
   MAX_SESSION_IMPORT_BYTES,
@@ -180,7 +181,11 @@ server.on('upgrade', (request, socket, head) => {
 
 export function startMockServer(
   port = DEFAULT_PORT,
-  options: { safetyDisclaimerAccepted?: boolean; autoConnectSavedDeviceId?: string | null } = {}
+  options: {
+    safetyDisclaimerAccepted?: boolean;
+    autoConnectSavedDeviceId?: string | null;
+    initialRefloatTunes?: RefloatTune[];
+  } = {}
 ): Promise<number> {
   if (mockRunning) return Promise.reject(new Error('Mock server is already running'));
   sessionToken = randomBytes(32).toString('base64url');
@@ -202,7 +207,11 @@ export function startMockServer(
 }
 
 function createWebSocketServer(
-  options: { safetyDisclaimerAccepted?: boolean; autoConnectSavedDeviceId?: string | null } = {}
+  options: {
+    safetyDisclaimerAccepted?: boolean;
+    autoConnectSavedDeviceId?: string | null;
+    initialRefloatTunes?: RefloatTune[];
+  } = {}
 ) {
   const value = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
   const delivery = new WeakMap<import('ws').WebSocket, { sendingState: boolean; pendingState?: string }>();

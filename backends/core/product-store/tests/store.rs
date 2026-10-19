@@ -1355,3 +1355,94 @@ fn committed_baseline_upgrade_retries_marker_publication_without_data_loss() {
         float_view_product_store::STORAGE_VERSION
     );
 }
+
+#[test]
+fn tune_library_pages_all_versions_and_preserves_incompatible_values_on_rename() {
+    use float_view_product_store::*;
+    let root = Root::new();
+    let mut store = root.open();
+    let (identity, values, schema) = tune_fixture();
+    let older = TuneIdentity {
+        package_version: "1.2.3".into(),
+        ..identity.clone()
+    };
+    let old = store
+        .create_tune("Old", None, &older, &values, &schema, 1)
+        .unwrap();
+    let new = store
+        .create_tune("New", None, &identity, &values, &schema, 2)
+        .unwrap();
+    assert_eq!(
+        store.tunes(&identity, 50, None).unwrap().items,
+        vec![new.clone()]
+    );
+    let first = store.tunes_filtered(None, 1, None).unwrap();
+    assert_eq!(first.items, vec![new]);
+    let cursor = first.next_cursor.as_deref().unwrap();
+    assert_eq!(
+        store.tunes_filtered(None, 1, Some(cursor)).unwrap().items,
+        vec![old.clone()]
+    );
+    assert_eq!(
+        store.tunes(&identity, 1, Some(cursor)),
+        Err(Error::InvalidInput)
+    );
+    let filtered_cursor = {
+        store
+            .create_tune("Second", None, &identity, &values, &schema, 3)
+            .unwrap();
+        store
+            .tunes(&identity, 1, None)
+            .unwrap()
+            .next_cursor
+            .unwrap()
+    };
+    assert_eq!(
+        store.tunes_filtered(None, 1, Some(&filtered_cursor)),
+        Err(Error::InvalidInput)
+    );
+    let mut different_schema = schema.clone();
+    different_schema.fingerprint = "b".repeat(64);
+    let renamed = store
+        .update_tune(
+            &old.configuration_id,
+            1,
+            "Renamed old",
+            Some("Preserved"),
+            &values,
+            &different_schema,
+            4,
+        )
+        .unwrap();
+    assert_eq!(renamed.identity, older);
+    assert_eq!(renamed.values, values);
+    assert_eq!(renamed.revision, 2);
+    let mut changed = values;
+    changed.insert("gain".into(), TuneValue::Integer(3));
+    assert_eq!(
+        store.update_tune(
+            &old.configuration_id,
+            2,
+            "Changed",
+            None,
+            &changed,
+            &different_schema,
+            5
+        ),
+        Err(Error::InvalidInput)
+    );
+    assert_eq!(
+        store.update_tune(
+            &old.configuration_id,
+            1,
+            "Stale",
+            None,
+            &renamed.values,
+            &different_schema,
+            5
+        ),
+        Err(Error::Conflict { revision: 2 })
+    );
+    store.delete_tune(&old.configuration_id, 2).unwrap();
+    assert_eq!(store.tune(&old.configuration_id), Err(Error::NotFound));
+}

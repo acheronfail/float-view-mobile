@@ -28,7 +28,7 @@
     open: boolean;
     titleId: string;
     title: string;
-    description: string;
+    description?: string;
     confirmLabel?: string;
     cancelLabel?: string;
     appearance?: DialogAppearance;
@@ -98,12 +98,14 @@
       role="alertdialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      aria-describedby={`${titleId}-description`}
+      aria-describedby={description ? `${titleId}-description` : undefined}
       class="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col rounded-2xl border border-outline bg-surface p-5 shadow-2xl"
     >
       <h2 id={titleId} class="shrink-0 text-xl font-semibold">{title}</h2>
       <div class="min-h-0 overflow-y-auto">
-        <p id={`${titleId}-description`} class="mt-2 text-sm leading-6 text-muted">{description}</p>
+        {#if description}<p id={`${titleId}-description`} class="mt-2 text-sm leading-6 text-muted">
+            {description}
+          </p>{/if}
         {#if children}
           <div class="mt-4">{@render children()}</div>
         {/if}

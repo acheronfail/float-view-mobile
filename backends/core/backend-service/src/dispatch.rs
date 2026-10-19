@@ -272,7 +272,11 @@ impl BackendService {
             } => {
                 let page = self
                     .store
-                    .tunes(&identity_store(identity), limit, cursor.as_deref())
+                    .tunes_filtered(
+                        identity.map(identity_store).as_ref(),
+                        limit,
+                        cursor.as_deref(),
+                    )
                     .map_err(store_failure)?;
                 f::Completion::Tunes(f::TunePage {
                     items: page.items.iter().map(tune).collect::<Result<_, _>>()?,

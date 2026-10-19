@@ -1156,7 +1156,8 @@ export interface BackendMethods {
     result: RefloatConfigurationValues;
   };
   'refloat.tune.list': {
-    params: { identity: RefloatConfigurationIdentity; limit: number; cursor?: string | null };
+    /** null lists the entire library; cursors are bound to this filter. */
+    params: { identity: RefloatConfigurationIdentity | null; limit: number; cursor?: string | null };
     result: RefloatTuneListPage;
   };
   'refloat.tune.get': { params: { tuneId: string }; result: RefloatTune };

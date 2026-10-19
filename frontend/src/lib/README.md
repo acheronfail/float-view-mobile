@@ -459,3 +459,21 @@ marks earlier context as missing rather than applying later firmware facts to th
 whole ride. Native archives preserve this history through pruning and import;
 CSV remains telemetry-only. See [session storage](../../../backends/sql/README.md#recorded-connection-context)
 for payload and read bounds.
+
+## Saved tune library
+
+The Tunes sheet shows all saved tunes in one list, with compatible tunes first.
+Every card shows its Refloat version. Incompatible cards are muted; tapping one
+explains why it cannot be applied. A separate full-height card menu opens rename
+and delete actions without applying the tune. Compatible cards also offer
+Overwrite: a confirmed fresh board read replaces the existing preset values while
+preserving its ID, name, description and exact identity, using its saved revision.
+Save tune is the only list action.
+
+`refloat.tune.list` requires an identity object for exact matches or explicit
+`null` for all versions. Both scopes return at most 50 entries per page and bind
+cursors to the filter. The UI loads matching pages first, then library pages as the list scrolls,
+retaining at most 1,000 unique rows.
+Metadata-only updates preserve the stored identity and values even when the
+connected board uses another schema; changed values still require validation.
+Apple and Android use the same shared Rust dispatch and store implementation.

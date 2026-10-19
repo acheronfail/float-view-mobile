@@ -1106,3 +1106,60 @@ describe('announcement mock contract', () => {
     ).toMatchObject({ error: { code: 'invalid_request' } });
   });
 });
+
+describe('tune library', () => {
+  it('pages across versions, binds cursors to scope, and renames older values without converting them', () => {
+    const identity = {
+      packageName: 'refloat' as const,
+      packageVersion: '1.2.3',
+      schemaFingerprint: 'a'.repeat(64),
+      wireSignature: 42,
+    };
+    const values = { old_parameter: { type: 'integer' as const, value: 7 } };
+    const old = {
+      tuneId: 'old',
+      revision: 1,
+      name: 'Old',
+      description: null,
+      identity,
+      values,
+      createdAt: '2026-10-01T00:00:00Z',
+      updatedAt: '2026-10-01T00:00:00Z',
+    };
+    const backend = new MockBackend(() => {}, {
+      initialRefloatTunes: [
+        old,
+        {
+          ...old,
+          tuneId: 'new',
+          identity: { ...identity, packageVersion: '1.3.0' },
+          updatedAt: '2026-10-02T00:00:00Z',
+        },
+      ],
+    });
+    const request = (method: string, params: object) => backend.handle({ id: 1, method, params });
+    const page = request('refloat.tune.list', { identity: null, limit: 1 }) as {
+      result: { items: { tuneId: string }[]; nextCursor: string };
+    };
+    expect(page.result.items.map((item) => item.tuneId)).toEqual(['new']);
+    expect(request('refloat.tune.list', { identity: null, limit: 1, cursor: page.result.nextCursor })).toMatchObject({
+      result: { items: [expect.objectContaining({ tuneId: 'old' })], nextCursor: null },
+    });
+    expect(request('refloat.tune.list', { identity, limit: 1, cursor: page.result.nextCursor })).toMatchObject({
+      error: { code: 'invalid_request' },
+    });
+    expect(request('refloat.tune.list', { limit: 50 })).toMatchObject({ error: { code: 'invalid_request' } });
+    expect(
+      request('refloat.tune.update', { tuneId: 'old', expectedRevision: 1, name: 'Renamed', description: null, values })
+    ).toMatchObject({ result: { name: 'Renamed', revision: 2, identity, values } });
+    expect(
+      request('refloat.tune.update', {
+        tuneId: 'old',
+        expectedRevision: 2,
+        name: 'Changed',
+        description: null,
+        values: { old_parameter: { type: 'integer', value: 8 } },
+      })
+    ).toMatchObject({ error: { code: 'invalid_request' } });
+  });
+});

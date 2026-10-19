@@ -201,7 +201,10 @@ impl ProductStore {
         if at_ms < existing.created_at_ms {
             return Err(Error::InvalidInput);
         }
-        validate_tune_values(&existing.identity, values, schema)?;
+        // Metadata edits preserve already validated values, even with another board schema open.
+        if values != &existing.values {
+            validate_tune_values(&existing.identity, values, schema)?;
+        }
         tx.execute("UPDATE refloat_configuration SET revision=?,name=?,description=?,values_json=?,updated_at_ms=? WHERE configuration_id=? AND revision=?",params![crate::next_revision(expected_revision)?,name,description,json(values,limits::MAX_TUNE_VALUES_BYTES)?,at_ms,id,expected_revision])?;
         let result = read(&tx, id)?;
         tx.commit()?;
@@ -226,7 +229,21 @@ impl ProductStore {
         limit: usize,
         cursor: Option<&str>,
     ) -> Result<TunePage> {
-        identity.validate()?;
+        self.tunes_filtered(Some(identity), limit, cursor)
+    }
+    pub fn tunes_filtered(
+        &self,
+        identity: Option<&TuneIdentity>,
+        limit: usize,
+        cursor: Option<&str>,
+    ) -> Result<TunePage> {
+        if let Some(identity) = identity {
+            identity.validate()?;
+        }
+        let identity_digest = identity
+            .map(TuneIdentity::digest)
+            .transpose()?
+            .unwrap_or_else(|| "all".into());
         if !(1..=limits::MAX_TUNE_PAGE).contains(&limit) {
             return Err(Error::InvalidInput);
         }
@@ -240,7 +257,7 @@ impl ProductStore {
                         .map_err(|_| Error::InvalidInput)?;
                 validate_id(&c.id)?;
                 timestamp(c.updated)?;
-                if c.identity_digest != identity.digest()? {
+                if c.identity_digest != identity_digest {
                     return Err(Error::InvalidInput);
                 }
                 Ok(c)
@@ -251,13 +268,13 @@ impl ProductStore {
         } else {
             ""
         };
-        let mut statement = self.catalog.prepare_cached(&format!("{SELECT} WHERE package_name=?1 AND package_version=?2 AND schema_fingerprint=?3 AND wire_signature=?4{cursor_filter} ORDER BY updated_at_ms DESC,configuration_id DESC LIMIT ?7"))?;
+        let mut statement = self.catalog.prepare_cached(&format!("{SELECT} WHERE (?1 IS NULL OR (package_name=?1 AND package_version=?2 AND schema_fingerprint=?3 AND wire_signature=?4)){cursor_filter} ORDER BY updated_at_ms DESC,configuration_id DESC LIMIT ?7"))?;
         let rows = statement.query_map(
             params![
-                identity.package_name,
-                identity.package_version,
-                identity.schema_fingerprint,
-                identity.wire_signature,
+                identity.map(|i| &i.package_name),
+                identity.map(|i| &i.package_version),
+                identity.map(|i| &i.schema_fingerprint),
+                identity.map(|i| i.wire_signature),
                 cursor.as_ref().map(|c| c.updated),
                 cursor.as_ref().map(|c| &c.id),
                 limit + 1
@@ -275,7 +292,7 @@ impl ProductStore {
                 .map(|t| {
                     Ok::<String, Error>(STANDARD.encode(json(
                         &Cursor {
-                            identity_digest: identity.digest()?,
+                            identity_digest: identity_digest.clone(),
                             updated: t.updated_at_ms,
                             id: t.configuration_id.clone(),
                         },

@@ -117,3 +117,21 @@ fn periodic_os_observations_do_not_invent_public_revisions() {
         }
     }
 }
+
+#[tokio::test]
+async fn all_tune_library_is_shared_by_apple_and_android_hosts() {
+    for platform in [Platform::Macos, Platform::Ios, Platform::Android] {
+        let server = support::server(platform, b"html").unwrap();
+        server.backend.start().unwrap();
+        let response = server.backend.request(1, serde_json::json!({"id":1,"method":"refloat.tune.list","params":{"identity":null,"limit":50}})).await;
+        assert_eq!(response["result"]["items"], serde_json::json!([]));
+        let missing = server
+            .backend
+            .request(
+                1,
+                serde_json::json!({"id":2,"method":"refloat.tune.list","params":{"limit":50}}),
+            )
+            .await;
+        assert_eq!(missing["error"]["code"], "invalid_request");
+    }
+}

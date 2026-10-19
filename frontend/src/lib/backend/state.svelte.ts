@@ -280,7 +280,7 @@ export class BackendState {
   }
 
   listRefloatTunes(
-    identity: RefloatConfigurationIdentity,
+    identity: RefloatConfigurationIdentity | null,
     limit = 50,
     cursor: string | null = null
   ): Promise<RefloatTuneListPage | null> {

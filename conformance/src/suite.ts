@@ -1320,6 +1320,34 @@ export async function exerciseRefloatConfiguration(
   });
   const listed = await client.request('refloat.tune.list', { identity: current.identity, limit: 1, cursor: null });
   assert.ok(listed.items.some((item) => item.tuneId === tune.tuneId));
+  const library = await client.request('refloat.tune.list', { identity: null, limit: 50 });
+  assert.ok(library.items.some((item) => item.tuneId === tune.tuneId));
+  const extra = await client.request('refloat.tune.create', {
+    name: 'Pagination fixture',
+    description: null,
+    identity: current.identity,
+    sourceRevision: current.revision,
+    values: tuneValues,
+  });
+  const firstLibraryPage = await client.request('refloat.tune.list', { identity: null, limit: 1 });
+  assert.ok(firstLibraryPage.nextCursor);
+  const secondLibraryPage = await client.request('refloat.tune.list', {
+    identity: null,
+    limit: 1,
+    cursor: firstLibraryPage.nextCursor,
+  });
+  assert.notEqual(firstLibraryPage.items[0]!.tuneId, secondLibraryPage.items[0]!.tuneId);
+  await expectError(
+    client.request('refloat.tune.list', { identity: current.identity, limit: 1, cursor: firstLibraryPage.nextCursor }),
+    'invalid_request'
+  );
+  await client.request('refloat.tune.delete', { tuneId: extra.tuneId, expectedRevision: extra.revision });
+  const otherVersion = await client.request('refloat.tune.list', {
+    identity: { ...current.identity, packageVersion: 'other-version' },
+    limit: 50,
+  });
+  assert.equal(otherVersion.items.length, 0);
+  await expectError(client.request('refloat.tune.list', { limit: 50 } as never), 'invalid_request');
   assert.deepEqual(await client.request('refloat.tune.get', { tuneId: tune.tuneId }), tune);
   const updated = await client.request('refloat.tune.update', {
     tuneId: tune.tuneId,

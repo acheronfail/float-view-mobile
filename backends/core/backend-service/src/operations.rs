@@ -65,7 +65,7 @@ pub enum Operation {
         values: BTreeMap<String, ConfigurationValue>,
     },
     ListTunes {
-        identity: ConfigurationIdentity,
+        identity: Option<ConfigurationIdentity>,
         limit: usize,
         cursor: Option<String>,
     },

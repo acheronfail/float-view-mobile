@@ -415,9 +415,12 @@ export class MockBackend {
       safetyDisclaimerAccepted?: boolean;
       autoConnectSavedDeviceId?: string | null;
       advertising?: boolean;
+      initialRefloatTunes?: RefloatTune[];
     } = {}
   ) {
     this.publish = publish;
+    for (const tune of (options.initialRefloatTunes ?? []).slice(0, 1000))
+      this.tunes.set(tune.tuneId, structuredClone(tune));
     this.state.settings.safetyDisclaimerAccepted = options.safetyDisclaimerAccepted ?? false;
     this.state.settings.autoConnectSavedDeviceId = options.autoConnectSavedDeviceId ?? null;
     this.advertising = options.advertising ?? true;
@@ -1726,12 +1729,18 @@ export class MockBackend {
   private listRefloatTunes(id: number, params: Record<string, unknown>): Response {
     const identity = validRefloatIdentity(params.identity);
     const limit = integer(params.limit);
-    const offset = decodeTuneCursor(params.cursor);
-    if (!identity || !limit || limit > MAX_REFLOAT_TUNE_LIST_PAGE || offset === null) {
+    const offset = decodeTuneCursor(params.cursor, identity);
+    if (
+      (params.identity !== null && !identity) ||
+      limit === null ||
+      limit < 1 ||
+      limit > MAX_REFLOAT_TUNE_LIST_PAGE ||
+      offset === null
+    ) {
       return failure(id, 'invalid_request', 'Tune list parameters are invalid');
     }
     const matching = [...this.tunes.values()]
-      .filter((tune) => sameRefloatIdentity(tune.identity, identity))
+      .filter((tune) => !identity || sameRefloatIdentity(tune.identity, identity))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.tuneId.localeCompare(right.tuneId));
     const items = matching.slice(offset, offset + limit).map((tune) => ({
       tuneId: tune.tuneId,
@@ -1744,7 +1753,7 @@ export class MockBackend {
     }));
     return success(id, {
       items,
-      nextCursor: offset + limit < matching.length ? encodeTuneCursor(offset + limit) : null,
+      nextCursor: offset + limit < matching.length ? encodeTuneCursor(offset + limit, identity) : null,
     });
   }
 
@@ -1786,7 +1795,24 @@ export class MockBackend {
     const name = boundedText(params.name, MAX_REFLOAT_TUNE_NAME_BYTES, false);
     const description = boundedText(params.description, MAX_REFLOAT_TUNE_DESCRIPTION_BYTES, true);
     const values = asObject(params.values);
-    if (typeof name !== 'string' || description === undefined || !values || !validRefloatTuneValues(values)) {
+    const unchanged =
+      values &&
+      Object.keys(values).length === Object.keys(current.values).length &&
+      Object.entries(current.values).every(([key, value]) => {
+        const proposed = asObject(values[key]);
+        return (
+          proposed &&
+          Object.keys(proposed).sort().join(',') === 'type,value' &&
+          proposed.type === value.type &&
+          proposed.value === value.value
+        );
+      });
+    if (
+      typeof name !== 'string' ||
+      description === undefined ||
+      !values ||
+      (!unchanged && (!sameRefloatIdentity(current.identity, refloatIdentity) || !validRefloatTuneValues(values)))
+    ) {
       return failure(id, 'invalid_request', 'Tune update parameters are invalid');
     }
     const updated = {
@@ -2419,16 +2445,23 @@ function decodeRefloatPageCursor(value: unknown): number | null {
   }
 }
 
-function encodeTuneCursor(offset: number): string {
-  return Buffer.from(JSON.stringify({ offset }), 'utf8').toString('base64');
+function encodeTuneCursor(offset: number, identity: RefloatConfigurationIdentity | null): string {
+  return Buffer.from(JSON.stringify({ offset, identity }), 'utf8').toString('base64');
 }
 
-function decodeTuneCursor(value: unknown): number | null {
+function decodeTuneCursor(value: unknown, identity: RefloatConfigurationIdentity | null): number | null {
   if (value === undefined || value === null) return 0;
   if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > MAX_REFLOAT_TUNE_CURSOR_BYTES) return null;
   try {
     const decoded = JSON.parse(Buffer.from(value, 'base64').toString('utf8')) as Record<string, unknown>;
-    return Number.isInteger(decoded.offset) && Number(decoded.offset) >= 0 ? Number(decoded.offset) : null;
+    return (identity === null
+      ? decoded.identity === null
+      : !!validRefloatIdentity(decoded.identity) &&
+        sameRefloatIdentity(decoded.identity as RefloatConfigurationIdentity, identity)) &&
+      Number.isInteger(decoded.offset) &&
+      Number(decoded.offset) >= 0
+      ? Number(decoded.offset)
+      : null;
   } catch {
     return null;
   }

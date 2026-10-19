@@ -41,8 +41,12 @@ const connection: ActiveConnection = {
 describe('Refloat Tunes', () => {
   it('presents board presets without exposing configuration-editor drafts', () => {
     const body = render(RefloatTunes, { props: { connection } }).body;
-    expect(body).toContain('Save current tune');
-    expect(body).toContain('tap a saved preset to switch to it');
+    expect(body).toContain('Save tune');
+    expect(body).not.toContain('View all saved tunes');
+    expect(body).not.toContain('Show tunes for');
+    expect(body).not.toContain('Load more tunes');
+    expect(body).not.toContain('Tap a saved preset');
+    expect(body).not.toContain('Only tunes matching');
     expect(body).not.toContain('Apply preset');
     expect(body).not.toContain('draft');
     expect(body).not.toContain('Update from');

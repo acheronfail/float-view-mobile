@@ -502,7 +502,11 @@ impl Backend {
                     return Err(Failure::InvalidRequest);
                 }
                 Operation::ListTunes {
-                    identity: p.identity()?,
+                    identity: if p.0.get("identity") == Some(&Value::Null) {
+                        None
+                    } else {
+                        Some(p.identity()?)
+                    },
                     limit: limit as usize,
                     cursor,
                 }
