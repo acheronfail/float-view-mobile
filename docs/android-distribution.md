@@ -71,8 +71,9 @@ See [Google's Play App Signing procedure](https://support.google.com/googleplay/
 
 ## Store delivery and installation checks
 
-The protected AAB build/signing path is described below. Hosted CI verification,
-final package/source audit and internal-track delivery remain open. Local checks
+The protected AAB build/signing path is described below. Final package/source audit and internal-track delivery remain open; hosted
+CI signing and downloaded-artifact verification have passed for the candidate
+recorded below. Local checks
 do not establish store delivery or device acceptance. Store credentials must not
 be required for local source builds or ordinary APK publication.
 
@@ -96,8 +97,7 @@ matching app-signing SHA-256 fingerprint. Local Release AAB structure,
 upload-key signing/strict signature verification, package/version/target SDK,
 non-debuggable manifest, four-ABI inventory and 64-bit 16 KB LOAD alignment
 checks pass; the bundle requests 16 KB APK alignment. This local unversioned
-package is not for upload. Hosted CI validation and Play-delivered route-switch
-checks remain open. The owner confirmed separate backups of both the original
+package is not for upload. Play-delivered route-switch checks remain open. The owner confirmed separate backups of both the original
 app-signing key/password and the new upload key/password. Detailed records are
 local.
 
@@ -144,3 +144,42 @@ continuously opted in for 14 days before applying for production access.
 Internal testing does not satisfy that requirement. Complete listing, Data
 safety and actual permission/foreground-service declarations before closed-test
 review. See [Google's account testing requirements](https://support.google.com/googleplay/android-developer/answer/14151465).
+
+[Candidate v1.1.0-rc.3, build 120](https://github.com/acheronfail/float-view-mobile/actions/runs/39218240672),
+source `fae159af`, passed protected Android signing and GitHub candidate
+publication. Independent downloaded-AAB checks passed: strict JAR signature,
+registered upload certificate, artifact hash/source/build identity, bundletool
+structure, Release manifest/package/version/target SDK, packaged licence/artwork/map
+notice presence and native/bundle 16 KB alignment. The Apple signing jobs executed
+no steps and their upload jobs were skipped. The aggregate run therefore shows
+failure despite Android signing and GitHub publication succeeding. This does not
+establish a complete Android source/permission audit, Google upload or physical
+Play-delivered acceptance. Detailed receipts and the internal-test handoff stay local.
+
+The [Android privacy/Play worksheet](android-distribution-audit.md) inventories
+current data flows, location and foreground-service declarations, audience
+selection and remaining closed-test gates. Its native disclosure/map-request
+changes require a new build; they are not present in build 120.
+
+## Android system backup
+
+Android Auto Backup and device-to-device transfer are enabled for the complete
+`files/float-view/logs/` product store (the historical directory name also holds
+settings and ride databases). Include its marker, catalog, session databases and
+SQLite WAL sidecars together. Android stops the process for full backup;
+`backupInForeground=false` avoids requesting interruption of active foreground
+use. Restored stores use the normal supported-baseline checks/recovery. Do not
+allow restoration from arbitrary newer app versions or reset unsupported data.
+
+The XML excludes disposable Exports, derived schema caches and coordination-lock
+files. Diagnostics live outside the included root. Permission-history preferences
+and WebView state are not selected; OS permissions must be re-established on the
+destination device. Modern cloud backup requires encryption capability, while
+legacy rules accept client-side encryption or device transfer.
+
+Android's 25 MB cloud quota can skip a large store entirely; it does not promise
+a partial selection of the newest rides. Device-transfer availability and limits
+depend on the provider/device. Session exports remain the independent backup
+route. XML selection and Release packaging checks do not establish a real
+provider restore or manufacturer transfer; retain that coverage limit. See
+[Android Auto Backup](https://developer.android.com/identity/data/autobackup).
