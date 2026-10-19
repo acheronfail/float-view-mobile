@@ -33,6 +33,7 @@ import fail.acheron.floatview.theme.AndroidThemeController
 
 class MainActivity : Activity() {
     private var webView: WebView? = null
+    private var externalLinks: ExternalLinkRouter? = null
     private var themeSubscription: AutoCloseable? = null
     private val frontendContainer by lazy { FrameLayout(this) }
     private val loadingPresentation by lazy { LoadingPresentation(this) }
@@ -103,6 +104,8 @@ class MainActivity : Activity() {
         }
     }
 
+    // API 33+ registers OnBackInvokedCallback; retain this path only for older OS versions.
+    @SuppressLint("GestureBackNavigation")
     @Deprecated("Used by Android versions before API 33")
     override fun onBackPressed() = navigateBack()
 
@@ -175,16 +178,29 @@ class MainActivity : Activity() {
         try {
             val created = WebView(this)
             webView = created
+            val links = ExternalLinkRouter(this, origin)
+            externalLinks = links
             created.also {
                 it.visibility = View.INVISIBLE
                 // The native container owns the canvas while the document is loading.
                 it.setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 it.settings.javaScriptEnabled = true
                 it.settings.domStorageEnabled = true
+                it.settings.setSupportMultipleWindows(true)
+                val appVersion = packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
+                it.settings.userAgentString = "${it.settings.userAgentString} FloatView/$appVersion"
                 it.settings.setSupportZoom(false)
                 it.settings.builtInZoomControls = false
                 it.settings.displayZoomControls = false
                 it.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                        if (!request.isForMainFrame) return true
+                        return when (webNavigation(request.url.toString(), origin)) {
+                            WebNavigation.BACKEND -> false
+                            WebNavigation.EXTERNAL -> { links.open(request.url.toString()); true }
+                            WebNavigation.BLOCK -> true
+                        }
+                    }
                     private var failed = false
                     private fun fail(view: WebView) {
                         if (view !== webView) return
@@ -214,6 +230,10 @@ class MainActivity : Activity() {
                     }
                 }
                 it.webChromeClient = object : WebChromeClient() {
+                    override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message): Boolean {
+                        if (view !== webView || !isUserGesture || webNavigation(view.url.orEmpty(), origin) != WebNavigation.BACKEND) return false
+                        return links.createPopup(resultMsg)
+                    }
                     override fun onShowFileChooser(
                         view: WebView?,
                         filePathCallback: ValueCallback<Array<Uri>>?,
@@ -248,6 +268,8 @@ class MainActivity : Activity() {
     }
 
     private fun destroyFrontend(rendererGone: Boolean = false) {
+        externalLinks?.close()
+        externalLinks = null
         val current = webView ?: return
         webView = null
         backPending = false
