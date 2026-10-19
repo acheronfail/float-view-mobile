@@ -234,7 +234,7 @@ describe('live board behavior', () => {
     expect(unavailable.every((item) => item.disabled)).toBe(true);
   });
 
-  it('only permits persistent Refloat writes from an idle, clear, ready board', () => {
+  it('only permits persistent Refloat writes from an idle, ready board regardless of footpad contact', () => {
     const ready = connection('ready');
     ready.refloatControls = { ...refloatControls };
     ready.refloatConfiguration = {
@@ -264,7 +264,11 @@ describe('live board behavior', () => {
       rideState: 'idle',
       footpadState: 'both',
     } as ActiveConnection['latestSample'];
-    expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration)).toContain('footpads');
+    for (const footpadState of ['none', 'left', 'right', 'both', 'unknown'] as const) {
+      ready.latestSample = { ...ready.latestSample!, footpadState };
+      expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration)).toBeNull();
+      expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration, 'applyTune')).toBeNull();
+    }
 
     ready.latestSample = {
       ...ready.latestSample,

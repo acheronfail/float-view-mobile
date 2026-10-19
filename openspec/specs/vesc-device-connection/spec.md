@@ -433,7 +433,7 @@ For audited controller firmware, native identity decoding SHALL retain a bounded
 
 ### Requirement: Centralized Refloat mutation authorization
 
-The connection service SHALL provide one native mutation coordinator and authorization boundary for semantic Refloat controls, complete custom-configuration writes, and Tune apply. It SHALL evaluate current access mode, exact package profile, route, generation, package/ride/footpad state, and pending work immediately before scheduler submission, and no owner may retain a parallel mutation lock or direct write path. Recognised VESC test-version firmware SHALL permit the same guarded mutations as release firmware. Unsupported VESC and package versions SHALL remain ineligible for Refloat mutations. While authoritative package mode is flywheel, the coordinator SHALL reject every device mutation except the exact eligible command 22 transition that disables flywheel.
+The connection service SHALL provide one native mutation coordinator and authorization boundary for semantic Refloat controls, complete custom-configuration writes, and Tune apply. It SHALL evaluate current access mode, exact package profile, route, generation, package/ride state, and pending work immediately before scheduler submission, and no owner may retain a parallel mutation lock or direct write path. Recognised VESC test-version firmware SHALL permit the same guarded mutations as release firmware. Unsupported VESC and package versions SHALL remain ineligible for Refloat mutations. While authoritative package mode is flywheel, the coordinator SHALL reject every device mutation except the exact eligible command 22 transition that disables flywheel.
 
 #### Scenario: Competing semantic control
 

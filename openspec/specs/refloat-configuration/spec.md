@@ -76,7 +76,7 @@ The native backends and simulator SHALL decode current command 93 and default co
 
 ### Requirement: Safe persistent write with mandatory readback
 
-A Refloat configuration write SHALL require the active ready read/write connection generation, selected route, exact supported package version, matching schema signature, latest normal-mode current-value base revision, authoritatively normal package mode, exactly idle ride state, no engaged footpad, and no competing Refloat mutation. While flywheel mode is active the centralized mutation authority MUST reject command 95 and Tune apply before scheduler submission; the only permitted device mutation is an eligible semantic command 22 that disables flywheel. The backend SHALL validate and serialize the complete draft, submit command 95 through the connection-wide request scheduler, treat its acknowledgement as non-authoritative, then reread command 93 and compare every canonical value after documented firmware normalization. Success SHALL be returned only after a complete match. Timeout, rejection, disconnect, route or generation replacement, malformed readback, or mismatch MUST NOT return success.
+A Refloat configuration write SHALL require the active ready read/write connection generation, selected route, exact supported package version, matching schema signature, latest normal-mode current-value base revision, authoritatively normal package mode, exactly idle ride state, and no competing Refloat mutation. While flywheel mode is active the centralized mutation authority MUST reject command 95 and Tune apply before scheduler submission; the only permitted device mutation is an eligible semantic command 22 that disables flywheel. The backend SHALL validate and serialize the complete draft, submit command 95 through the connection-wide request scheduler, treat its acknowledgement as non-authoritative, then reread command 93 and compare every canonical value after documented firmware normalization. Success SHALL be returned only after a complete match. Timeout, rejection, disconnect, route or generation replacement, malformed readback, or mismatch MUST NOT return success.
 
 #### Scenario: Verified direct write
 
@@ -93,9 +93,14 @@ A Refloat configuration write SHALL require the active ready read/write connecti
 - **WHEN** command 95 is acknowledged but Refloat rejects or ignores the configuration
 - **THEN** the required readback mismatch returns a bounded failure and Float View replaces any stale current values with the newly observed device state
 
+#### Scenario: Idle write with footpad contact
+
+- **WHEN** a configuration write is requested with idle ride state, ready package state, normal mode, and all other write conditions satisfied
+- **THEN** the backend permits the write regardless of pressed, unknown, or missing footpad readings and reports success only after verified readback
+
 #### Scenario: Unsafe board state
 
-- **WHEN** a write is requested while riding, a footpad is engaged, package mode is flywheel or otherwise not normal, firmware is read-only, or another Refloat mutation is pending
+- **WHEN** a write is requested while riding, package mode is flywheel or otherwise not normal, firmware is read-only, or another Refloat mutation is pending
 - **THEN** the backend returns `invalid_state`, sends no command 95, and preserves current values
 
 #### Scenario: Indeterminate interruption
@@ -107,7 +112,7 @@ A Refloat configuration write SHALL require the active ready read/write connecti
 
 Native persistence SHALL store bounded application-wide named complete Refloat configurations with opaque ID, revision, name, optional description, package name, exact package version, full-schema fingerprint, wire signature, complete typed values, and timestamps. List and apply workflows SHALL match the active exact package version, fingerprint, and signature; configurations MUST NOT be automatically migrated, merged, or offered as applicable across versions. Create or update from device current values SHALL require a fresh authoritative normal-mode current revision and MUST reject stale or flywheel-temporary values. Create, update, and delete SHALL otherwise use bounded values and revision conflict semantics. Applying a saved configuration SHALL pass through the same fresh-base, safety, serialization, scheduler, and readback lifecycle as an edited draft.
 
-Portable Tune application on an explicitly supported Refloat release at or above 1.1.0 SHALL permit a known idle or riding state and an authoritatively ready or running package in normal mode, without requiring released footpads. This exception SHALL apply only to Tune application; general configuration writes and Refloat 1.0.0/1.0.1 Tune application SHALL retain the idle, ready, released-footpad requirements. Exact identity, fresh base revision, read/write access, exclusive mutation ownership, and mandatory verified readback SHALL remain required.
+Portable Tune application on an explicitly supported Refloat release at or above 1.1.0 SHALL permit a known idle or riding state and an authoritatively ready or running package in normal mode, without requiring released footpads. This exception SHALL apply only to Tune application; general configuration writes and Refloat 1.0.0/1.0.1 Tune application SHALL retain the idle and ready requirements. Footpad contact, including missing or unknown footpad evidence, SHALL NOT restrict configuration writes or Tune application. Exact identity, fresh base revision, read/write access, exclusive mutation ownership, and mandatory verified readback SHALL remain required.
 
 #### Scenario: Apply Tune while riding
 
@@ -116,7 +121,7 @@ Portable Tune application on an explicitly supported Refloat release at or above
 
 #### Scenario: Older Refloat retains disengaged application
 
-- **WHEN** Tune application is requested on Refloat 1.0.0 or 1.0.1 while riding or with an engaged footpad
+- **WHEN** Tune application is requested on Refloat 1.0.0 or 1.0.1 while riding
 - **THEN** the shared service rejects the request before scheduler submission
 
 #### Scenario: Save current configuration

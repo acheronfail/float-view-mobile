@@ -84,7 +84,6 @@ export function refloatConfigurationWriteUnavailableReason(
     return null;
   }
   if (sample.rideState !== 'idle') return 'Disengage the board before applying a Tune.';
-  if (sample.footpadState !== 'none') return 'Step off both footpads before applying a Tune.';
   if (sample.packageState !== 'ready' || sample.packageMode !== 'normal') {
     return 'Wait until Refloat is ready in normal mode before applying a Tune.';
   }

@@ -1,7 +1,9 @@
 ## Purpose
 
 Define the source-faithful Refloat telemetry protocol, normalization, bounded extensions, polling, and durable lifecycle shared by native backends and the conformance simulator.
+
 ## Requirements
+
 ### Requirement: Supported detailed Refloat read protocol
 
 The backends and conformance simulator SHALL implement source-faithful telemetry plus only the Refloat product-control allowlist defined by `refloat-live-controls` for audited stable Refloat source packages 1.0.0–1.0.1, 1.1.0–1.1.2, 1.2.0–1.2.3, and 1.3.0. The independently allowlisted VESC-core shutdown command MUST NOT broaden the Refloat package-command allowlist. The simulator SHALL encode the fixed-layout Refloat 1.0.x command 1 realtime response for retained legacy compatibility; native polling SHALL use command 10 for 1.0.x. Compact command 10 SHALL expose every supported detail level through level 4 for releases through 1.2.3, including controller state, footpad values, control setpoints, field-weakening current when available, distance, temperatures, odometer, energy totals, battery level, charging values, and active firmware faults. Dynamic commands 31/32 SHALL remain selected only for audited Refloat 1.1.0–1.2.3 and SHALL negotiate and decode their complete field lists and applicable tails. Exact Refloat 1.3.0 SHALL use documented selectable command 33 for primary telemetry and slow values plus a bounded command-10 mode-0 probe only for its special active firmware-fault response. Commands 31/32 SHALL NOT be requested for Refloat 1.3.0. Command 35 history and data-recorder commands 41–43 SHALL NOT be requested or simulated by this change.
@@ -193,11 +195,11 @@ The product SHALL expose source-available raw actual, requested, directional, fi
 
 ### Requirement: Configuration safety evidence
 
-The native application SHALL use authoritative normalized Refloat telemetry as safety evidence for every device mutation and for current-configuration authority. Persistent configuration eligibility SHALL require exactly idle ride state, normal package mode, no engaged footpad, and a fresh sample belonging to the current connection generation. While flywheel mode is active, every mutation except eligible flywheel disable SHALL be unavailable, loaded current configuration SHALL be invalidated, and command 93 SHALL be withheld so temporary in-memory calibration cannot become an authoritative base. Missing, unknown, stale, or contradictory evidence MUST make the write unavailable. Configuration reads SHALL remain independent of ride-session persistence and SHALL NOT create samples, events, aggregates, extensions, or exports.
+The native application SHALL use authoritative normalized Refloat telemetry as safety evidence for every device mutation and for current-configuration authority. Persistent configuration eligibility SHALL require exactly idle ride state, normal package mode, and a fresh sample belonging to the current connection generation. While flywheel mode is active, every mutation except eligible flywheel disable SHALL be unavailable, loaded current configuration SHALL be invalidated, and command 93 SHALL be withheld so temporary in-memory calibration cannot become an authoritative base. Missing, unknown, stale, or contradictory required safety evidence MUST make the write unavailable. Footpad readings SHALL NOT be required safety evidence for configuration writes. Configuration reads SHALL remain independent of ride-session persistence and SHALL NOT create samples, events, aggregates, extensions, or exports.
 
 #### Scenario: Fresh idle evidence
 
-- **WHEN** current-generation telemetry reports idle, normal mode, and no footpad engagement
+- **WHEN** current-generation telemetry reports idle and normal mode, regardless of footpad contact
 - **THEN** the safety evidence may permit a write if every other access and mutation condition also passes
 
 #### Scenario: Missing legacy evidence

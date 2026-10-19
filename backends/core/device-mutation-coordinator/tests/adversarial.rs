@@ -129,15 +129,6 @@ fn configuration_requires_the_complete_current_safety_state() {
             Some(false),
             None,
         ),
-        sample_with(
-            2,
-            RideState::Idle,
-            PackageState::Ready,
-            PackageMode::Normal,
-            FootpadState::Left,
-            Some(false),
-            None,
-        ),
     ];
     for sample in invalid {
         let mut coordinator = DeviceMutationCoordinator::new();
@@ -707,9 +698,7 @@ fn tune_apply_preserves_version_gate_and_other_configuration_guards() {
                         mutation,
                     });
                     let expected = mode == PackageMode::Normal
-                        && ((ride == RideState::Idle
-                            && state == PackageState::Ready
-                            && footpad == FootpadState::None)
+                        && ((ride == RideState::Idle && state == PackageState::Ready)
                             || (modern
                                 && mutation == ConfigurationMutation::TuneApply
                                 && matches!(ride, RideState::Idle | RideState::Riding)
@@ -723,6 +712,55 @@ fn tune_apply_preserves_version_gate_and_other_configuration_guards() {
                     if !expected {
                         assert_eq!(coordinator.snapshot().pending, None);
                     }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn idle_ready_configuration_does_not_require_footpad_evidence() {
+    use float_view_refloat_compatibility::{COMPATIBILITY_ENTRIES, compatibility};
+
+    for entry in COMPATIBILITY_ENTRIES {
+        for route in [Route::Direct, Route::Can(42)] {
+            for footpad in [
+                None,
+                Some(FootpadState::None),
+                Some(FootpadState::Left),
+                Some(FootpadState::Right),
+                Some(FootpadState::Both),
+                Some(FootpadState::Unknown),
+            ] {
+                for mutation in [
+                    ConfigurationMutation::Write,
+                    ConfigurationMutation::TuneApply,
+                ] {
+                    let mut coordinator = DeviceMutationCoordinator::new();
+                    configure(
+                        &mut coordinator,
+                        route,
+                        firmware(0),
+                        compatibility(entry.wire).unwrap(),
+                    );
+                    let mut sample = sample_with(
+                        1,
+                        RideState::Idle,
+                        PackageState::Ready,
+                        PackageMode::Normal,
+                        FootpadState::None,
+                        Some(false),
+                        None,
+                    );
+                    sample.footpad_state = footpad;
+                    observe(&mut coordinator, sample);
+                    let effects = coordinator
+                        .apply(Command::BeginConfiguration {
+                            generation: Generation(7),
+                            mutation,
+                        })
+                        .expect("idle ready writes ignore footpad contact");
+                    assert_eq!(lease(&effects).generation, Generation(7));
                 }
             }
         }

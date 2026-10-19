@@ -258,7 +258,6 @@ pub struct DeviceMutationCoordinator {
     ride_state: telemetry::RideState,
     package_state: Option<telemetry::PackageState>,
     package_mode: Option<telemetry::PackageMode>,
-    footpad_state: Option<telemetry::FootpadState>,
     last_telemetry_sequence: Option<u64>,
     last_lighting_sequence: Option<u64>,
     lighting_probe_started: bool,
@@ -297,7 +296,6 @@ impl DeviceMutationCoordinator {
             ride_state: telemetry::RideState::Unknown,
             package_state: None,
             package_mode: None,
-            footpad_state: None,
             last_telemetry_sequence: None,
             last_lighting_sequence: None,
             lighting_probe_started: false,
@@ -387,7 +385,6 @@ impl DeviceMutationCoordinator {
         self.ride_state = telemetry::RideState::Unknown;
         self.package_state = None;
         self.package_mode = None;
-        self.footpad_state = None;
         self.last_telemetry_sequence = None;
         self.last_lighting_sequence = None;
         self.lighting_probe_started = false;
@@ -450,9 +447,6 @@ impl DeviceMutationCoordinator {
         if let Some(mode) = sample.package_mode {
             self.package_mode = Some(mode);
             controls.flywheel_enabled = Some(mode == telemetry::PackageMode::Flywheel);
-        }
-        if let Some(footpad) = sample.footpad_state {
-            self.footpad_state = Some(footpad);
         }
         if let Some(latched) = sample.fatal_error_latched {
             controls.fatal_error_latched = Some(latched);
@@ -746,7 +740,6 @@ impl DeviceMutationCoordinator {
             )
         } else {
             self.ride_state == telemetry::RideState::Idle
-                && self.footpad_state == Some(telemetry::FootpadState::None)
                 && self.package_state == Some(telemetry::PackageState::Ready)
         };
         if !state_allowed || self.package_mode != Some(telemetry::PackageMode::Normal) {
@@ -846,7 +839,6 @@ impl DeviceMutationCoordinator {
         self.ride_state = telemetry::RideState::Unknown;
         self.package_state = None;
         self.package_mode = None;
-        self.footpad_state = None;
         self.last_telemetry_sequence = None;
         self.last_lighting_sequence = None;
         self.lighting_probe_started = false;
