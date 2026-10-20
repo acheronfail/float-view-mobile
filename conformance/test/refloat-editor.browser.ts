@@ -44,6 +44,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
       const number = () => page.getByRole('spinbutton', { name: 'Duty Tiltback', exact: true });
       await number().fill('0.85');
+      await page.getByRole('heading', { name: 'Duty Pushback', level: 4, exact: true }).waitFor();
       const controls = () => page.getByRole('button', { name: 'Section and search controls', exact: true });
       const section = () => page.locator('select[aria-label="Section"]');
       assert.equal(await controls().getAttribute('aria-expanded'), 'false');
@@ -53,18 +54,27 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         .filter({ hasText: 'Startup defaults' })
         .getAttribute('value');
       assert.ok(startupKey);
-      // WebKit's native popup is outside Playwright's controllable page surface.
-      if (name === 'chromium') {
-        await section().tap();
-        assert.equal(await controls().getAttribute('aria-expanded'), 'false');
-        await page.keyboard.press('Escape');
-      }
+      // Native select popups are outside Playwright's page surface; use its selection API.
       await section().selectOption(startupKey);
       await page.getByRole('heading', { name: 'Lighting · Startup defaults', exact: true }).waitFor();
+      const lightsHeading = page.getByRole('heading', { name: 'Lights', level: 4, exact: true });
+      const headlightsHeading = page.getByRole('heading', { name: 'Headlights', level: 4, exact: true });
+      await lightsHeading.waitFor();
+      await headlightsHeading.waitFor();
+      for (const width of [390, 1024]) {
+        await page.setViewportSize({ width, height: 600 });
+        const lights = await lightsHeading.boundingBox();
+        const headlights = await headlightsHeading.boundingBox();
+        assert.ok(lights && headlights);
+        assert.ok(Math.abs(lights.x - headlights.x) < 1);
+        assert.ok(Math.abs(lights.width - headlights.width) < 1);
+        const grid = await lightsHeading.locator('..').boundingBox();
+        assert.ok(grid);
+        assert.ok(Math.abs(lights.width - grid.width) < 1, 'subsection headings must span the control grid');
+      }
+      await page.setViewportSize({ width: 390, height: 600 });
       assert.equal(await controls().getAttribute('aria-expanded'), 'false');
-      await section().focus();
-      await page.keyboard.press('Home');
-      await page.keyboard.press('Tab');
+      await section().selectOption(balanceKey);
       await number().waitFor();
       assert.equal(await section().inputValue(), balanceKey);
       assert.equal(await controls().getAttribute('aria-expanded'), 'false');
@@ -78,7 +88,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         .getByRole('group', { name: 'LEDs On (persistent startup default)', exact: true })
         .getByRole('button', { name: 'Off', exact: true })
         .tap();
+      await page.getByRole('searchbox').fill('Headlights');
+      await headlightsHeading.waitFor();
+      assert.equal(await lightsHeading.count(), 0);
       await page.getByRole('searchbox').fill('on');
+      await lightsHeading.waitFor();
+      await headlightsHeading.waitFor();
       await page.getByRole('button', { name: 'Section and search controls', exact: true }).tap();
       await page.setViewportSize({ width: 390, height: 320 });
       const scroller = () =>

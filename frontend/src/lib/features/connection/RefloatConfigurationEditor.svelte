@@ -229,7 +229,14 @@
           </h3>
           {#if visibleFields.length}
             <div class="grid gap-2 md:grid-cols-2">
-              {#each visibleFields as field (field.name)}
+              {#each visibleFields as field, index (field.name)}
+                {#if field.heading && (index === 0 || field.heading !== visibleFields[index - 1]?.heading)}
+                  <h4
+                    class="mt-3 border-b border-outline pb-1 text-sm font-semibold text-muted first:mt-0 md:col-span-2"
+                  >
+                    {field.heading}
+                  </h4>
+                {/if}
                 <RefloatConfigurationField
                   {field}
                   value={controller.draft[field.name]}

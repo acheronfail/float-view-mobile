@@ -425,6 +425,8 @@ export type RefloatConfigurationFieldType = 'double' | 'integer' | 'enum' | 'boo
 export interface RefloatConfigurationField {
   name: string;
   label: string;
+  /** Upstream subsection heading, repeated on every field so paging/search retain context. */
+  heading: string | null;
   type: RefloatConfigurationFieldType;
   defaultValue: RefloatConfigurationValue;
   minimum: number | null;

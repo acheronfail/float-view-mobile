@@ -1228,12 +1228,30 @@ export async function exerciseRefloatConfiguration(
     assert.deepEqual(page.identity, identity);
     for (const field of page.fields) {
       assert.equal(typeof field.tunable, 'boolean', 'schema field is missing its Tune eligibility');
+      assert.ok(
+        field.heading === null || (typeof field.heading === 'string' && field.heading.trim().length > 0),
+        'schema field is missing valid subsection context'
+      );
     }
     fields.push(...page.fields);
     cursor = page.nextCursor;
     assert.ok(fields.length <= 512, 'configuration schema exceeded field bound');
   } while (cursor);
   assert.ok(fields.length > 0);
+  assert.ok(
+    fields.some((field) => field.heading !== null),
+    'upstream subsection headers were discarded'
+  );
+  // Real firmware schemas include both booster groups with identically named controls.
+  if (fields.some((field) => field.name === 'kp')) {
+    for (const [name, heading] of [
+      ['kp', 'PID'],
+      ['booster_current', 'Booster (Acceleration)'],
+      ['brkbooster_current', 'Booster (Braking)'],
+    ]) {
+      assert.equal(fields.find((field) => field.name === name)?.heading, heading);
+    }
+  }
 
   const current = await client.request('refloat.configuration.read', { source: 'current' });
   const defaults = await client.request('refloat.configuration.read', { source: 'default', refresh: false });

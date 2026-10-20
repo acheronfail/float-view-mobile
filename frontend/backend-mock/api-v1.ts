@@ -73,6 +73,7 @@ const refloatFields: RefloatConfigurationField[] = [
     suffix: '',
     choices: [],
     description: 'Duty-cycle threshold.',
+    heading: 'Duty Pushback',
     tunable: false,
   },
   {
@@ -87,6 +88,7 @@ const refloatFields: RefloatConfigurationField[] = [
     suffix: '',
     choices: [],
     description: 'Persistent startup default.',
+    heading: 'Lights',
     tunable: true,
   },
   {
@@ -101,6 +103,7 @@ const refloatFields: RefloatConfigurationField[] = [
     suffix: '',
     choices: [],
     description: 'Persistent startup default.',
+    heading: 'Headlights',
     tunable: true,
   },
   {
@@ -115,6 +118,7 @@ const refloatFields: RefloatConfigurationField[] = [
     suffix: '',
     choices: [],
     description: '',
+    heading: null,
     tunable: false,
   },
 ];

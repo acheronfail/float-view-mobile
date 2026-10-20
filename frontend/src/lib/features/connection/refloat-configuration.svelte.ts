@@ -127,7 +127,7 @@ export class RefloatConfigurationController {
     const query = this.search.trim().toLocaleLowerCase();
     if (!query) return section.fields;
     return section.fields.filter((field) =>
-      [section.group, section.subgroup, field.name, field.label, field.description].some((value) =>
+      [section.group, section.subgroup, field.heading ?? '', field.name, field.label, field.description].some((value) =>
         value.toLocaleLowerCase().includes(query)
       )
     );

@@ -822,10 +822,19 @@ impl Backend {
         let mut pages = Vec::new();
         for group in &schema.groups {
             for subgroup in &group.subgroups {
+                // Attach context before chunking so every page retains its heading.
+                let mut heading = None;
                 let fields: Vec<_> = subgroup
                     .fields
                     .iter()
-                    .filter_map(|name| by_name.get(name).copied())
+                    .filter_map(|name| {
+                        if let Some(label) = name.strip_prefix("::sep::") {
+                            heading = Some(label.trim());
+                            None
+                        } else {
+                            by_name.get(name).map(|field| (*field, heading))
+                        }
+                    })
                     .collect();
                 for chunk in fields.chunks(32) {
                     pages.push((&group.name, &subgroup.name, chunk.to_vec()));
@@ -833,7 +842,7 @@ impl Backend {
             }
         }
         let (group, subgroup, fields) = pages.get(index).ok_or(Failure::InvalidRequest)?;
-        let fields:Vec<_>=fields.iter().map(|f|json!({"name":f.name,"label":f.long_name,"type":match f.field_type{1=>"double",2=>"integer",3=>"string",4=>"enum",5=>"boolean",_=>"bitfield"},"defaultValue":f.default_value,"minimum":f.minimum,"maximum":f.maximum,"step":f.step,"precision":f.precision,"suffix":f.suffix,"choices":f.choices,"description":f.description,"tunable":f.tunable})).collect();
+        let fields:Vec<_>=fields.iter().map(|(f, heading)|json!({"heading":heading,"name":f.name,"label":f.long_name,"type":match f.field_type{1=>"double",2=>"integer",3=>"string",4=>"enum",5=>"boolean",_=>"bitfield"},"defaultValue":f.default_value,"minimum":f.minimum,"maximum":f.maximum,"step":f.step,"precision":f.precision,"suffix":f.suffix,"choices":f.choices,"description":f.description,"tunable":f.tunable})).collect();
         let identity = self
             .publisher
             .lock()

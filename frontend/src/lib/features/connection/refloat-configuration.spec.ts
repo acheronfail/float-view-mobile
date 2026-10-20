@@ -45,6 +45,7 @@ const field = (
   suffix: '',
   choices: [],
   description: `${name} help`,
+  heading: null,
   tunable: true,
   ...overrides,
 });
@@ -223,6 +224,38 @@ describe('generated Refloat configuration', () => {
     expect(body).toContain('Show help for gain');
     expect(body).toContain('Show help for enabled');
     expect(body).not.toContain('Show help for label');
+  });
+
+  it('keeps subsection headers with searched fields across transport chunks', async () => {
+    const backend = new FakeBackend();
+    const grouped = fields.slice(0, 4).map((item, index) => ({
+      ...item,
+      heading: index < 2 ? 'Acceleration' : 'Braking',
+    }));
+    backend.pages = [
+      { identity, group: 'General', subgroup: 'Ride', fields: grouped.slice(0, 1), nextCursor: 'next' },
+      { identity, group: 'General', subgroup: 'Ride', fields: grouped.slice(1), nextCursor: null },
+    ];
+    const controller = new RefloatConfigurationController(backend);
+    await controller.open();
+    const markup = () => render(RefloatConfigurationEditor, { props: { controller } }).body;
+    expect(markup().match(/<h4 /g)).toHaveLength(2);
+    expect(markup().indexOf('Acceleration')).toBeLessThan(markup().indexOf('Show help for gain'));
+    expect(markup().indexOf('Braking')).toBeLessThan(markup().indexOf('Show help for mode'));
+
+    controller.search = 'count';
+    expect(markup().match(/<h4 /g)).toHaveLength(1);
+    expect(markup()).toContain('Acceleration');
+    expect(markup()).not.toContain('Braking');
+    controller.search = 'braking';
+    expect(controller.filteredSectionFields(controller.sections[0]!).map((item) => item.name)).toEqual([
+      'mode',
+      'enabled',
+    ]);
+    expect(markup().match(/<h4 /g)).toHaveLength(1);
+    expect(markup()).toContain('Braking');
+    controller.search = 'no matches';
+    expect(markup()).not.toContain('<h4 ');
   });
 
   it('validates every generated field family and formats enum/suffix values', () => {
