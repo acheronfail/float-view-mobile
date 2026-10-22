@@ -65,6 +65,7 @@
   let loading = $state(false);
   let switchError = $state<{ tuneId: string; message: string } | null>(null);
   let switchingTuneId = $state<string | null>(null);
+  let pendingApply = $state<{ summary: RefloatTuneSummary; trigger: HTMLElement } | null>(null);
   let saveConfirmation = $state(false);
   let saving = $state(false);
   let overwriteConfirmation = $state(false);
@@ -164,7 +165,7 @@
     }
   }
 
-  async function selectTune(summary: RefloatTuneSummary, trigger: HTMLElement) {
+  async function selectTune(summary: RefloatTuneSummary, trigger: HTMLElement, confirmed = false) {
     if (switchingTuneId || managing || loading || listLoading || backendState.busy) return;
     const reason = incompatibility(summary.identity) ?? applyUnavailableReason;
     if (reason) {
@@ -183,6 +184,10 @@
       }
       selected = tune;
       if (!current || selectedIsActive) return;
+      if (!confirmed && connection.latestSample?.rideState !== 'idle') {
+        pendingApply = { summary, trigger };
+        return;
+      }
       const result = await backendState.applyRefloatTune(tune.tuneId, tune.revision, current.revision);
       if (result) {
         current = result;
@@ -362,7 +367,9 @@
             class="min-w-0 flex-1 touch-pan-y rounded-l-xl p-4 text-left disabled:opacity-50"
             class:text-muted={!!reason}
             class:opacity-60={!!reason}
-            aria-haspopup={reason || applyUnavailableReason ? 'dialog' : undefined}
+            aria-haspopup={reason || applyUnavailableReason || connection.latestSample?.rideState !== 'idle'
+              ? 'dialog'
+              : undefined}
             onpointerdown={(event) => {
               const trigger = event.currentTarget;
               activateFromPointer(event, () => selectTune(tune, trigger), { scrollable: true });
@@ -445,6 +452,26 @@
   returnFocus={informationTrigger}
   onclose={() => {
     information = null;
+  }}
+/>
+
+<ConfirmDialog
+  open={pendingApply !== null}
+  titleId="refloat-tune-apply-title"
+  title="Apply {pendingApply?.summary.name ?? 'tune'}?"
+  description="The board is not idle. Applying a tune can cause the board to cut out momentarily. Continue?"
+  confirmLabel="Apply tune"
+  appearance="warning"
+  confirmDisabled={!!applyUnavailableReason}
+  error={applyUnavailableReason}
+  onconfirm={() => {
+    const pending = pendingApply;
+    if (!pending) return;
+    pendingApply = null;
+    return selectTune(pending.summary, pending.trigger, true);
+  }}
+  oncancel={() => {
+    pendingApply = null;
   }}
 />
 

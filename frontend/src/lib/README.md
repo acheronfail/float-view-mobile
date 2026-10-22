@@ -176,8 +176,8 @@ Supported Refloat 1.1.0+ boards can apply Tunes while riding in normal mode.
 Refloat 1.0.x still requires idle, ready state with both footpads released.
 Unknown board state, special modes, read-only connections and competing board
 operations keep application unavailable. Tapping a saved preset applies it
-immediately, with progress and verified success feedback and no additional Apply
-button or confirmation. Pointer activation waits for release and cancels on scroll;
+immediately when idle, with progress and verified success feedback. When the board
+is not idle, confirmation warns that applying a tune can cause a momentary cutout. Pointer activation waits for release and cancels on scroll;
 keyboard activation follows the same path. Preset details remain available for
 renaming and deletion when switching is unavailable.
 

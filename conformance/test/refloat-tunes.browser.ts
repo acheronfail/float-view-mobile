@@ -9,7 +9,7 @@ import { ConformanceClient } from '../src/client.ts';
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(
-    `${name}: Tune presets save reliably and switch immediately by touch or keyboard`,
+    `${name}: Tune presets save reliably and confirm non-idle switches by touch or keyboard`,
     { timeout: 60000 },
     async () => {
       const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
@@ -28,6 +28,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const context = await browser.newContext({ viewport: { width: 390, height: 700 }, hasTouch: true });
         if (name === 'chromium') await context.grantPermissions(['local-network-access'], { origin: endpoint.origin });
         await context.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+        let rideState: 'idle' | 'riding' | 'unknown' = 'riding';
         let failMethod: string | null = null;
         let creates = 0;
         let applies = 0;
@@ -35,7 +36,15 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const reads: Array<{ source: string; refresh?: boolean }> = [];
         await context.routeWebSocket('**/api/ws?*', (socket) => {
           const server = socket.connectToServer();
-          server.onMessage((raw) => socket.send(raw));
+          server.onMessage((raw) => {
+            const message = JSON.parse(String(raw));
+            const state = message.event === 'state.changed' ? message.data : message.result;
+            if (state?.activeConnection?.latestSample) {
+              state.activeConnection.latestSample.rideState = rideState;
+              state.activeConnection.latestSample.packageState = rideState === 'riding' ? 'running' : 'ready';
+            }
+            socket.send(JSON.stringify(message));
+          });
           socket.onMessage((raw) => {
             const request = JSON.parse(String(raw));
             if (request.method === 'refloat.configuration.read') reads.push(request.params);
@@ -142,6 +151,34 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(applies, 0, 'scrolling must not apply a Tune');
         await cruise.focus();
         await page.keyboard.press('Enter');
+        const applyDialog = page.getByRole('alertdialog', { name: 'Apply Cruise?', exact: true });
+        await applyDialog.getByText(/cut out momentarily/).waitFor();
+        await page.screenshot({
+          animations: 'disabled',
+          path: fileURLToPath(new URL(`${name}-apply-confirmation.png`, screenshots)),
+        });
+        assert.equal(applies, 0, 'opening confirmation must not write to the board');
+        await applyDialog.getByRole('button', { name: 'Cancel', exact: true }).tap();
+        await applyDialog.waitFor({ state: 'hidden' });
+        assert.equal(applies, 0, 'cancelling must not write to the board');
+        await cruise.tap();
+        const confirmApply = applyDialog.getByRole('button', { name: 'Apply tune', exact: true });
+        await confirmApply.waitFor();
+        await confirmApply.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
+        await confirmApply.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
+        assert.equal(applies, 0, 'non-primary pointers must not confirm');
+        rideState = 'unknown';
+        await applyDialog.getByRole('alert').waitFor();
+        assert.equal(await confirmApply.isDisabled(), true, 'unsafe state changes must block confirmation');
+        rideState = 'riding';
+        await page.waitForFunction(() =>
+          Array.from(document.querySelectorAll('[role="alertdialog"] button')).some(
+            (button) => button.textContent === 'Apply tune' && !button.hasAttribute('disabled')
+          )
+        );
+        await confirmApply.focus();
+        await page.keyboard.press('Enter');
+        await applyDialog.waitFor({ state: 'hidden' });
         await page.getByRole('status').filter({ hasText: 'Cruise applied.' }).waitFor();
         assert.equal(applies, 1, 'keyboard activation must apply a Tune once while riding');
         assert.equal(await page.getByRole('alertdialog').count(), 0);
@@ -152,12 +189,22 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.getByRole('button', { name: /^Cruise.*Active/ }).waitFor();
         assert.equal(applies, 1, 'tapping the active Tune must not rewrite it');
         await page.getByRole('button', { name: /^Base/ }).tap();
+        const baseApply = page.getByRole('alertdialog', { name: 'Apply Base?', exact: true });
+        await baseApply.getByRole('button', { name: 'Apply tune', exact: true }).tap();
+        await baseApply.waitFor({ state: 'hidden' });
         await page.getByRole('status').filter({ hasText: 'Base applied.' }).waitFor();
+        rideState = 'idle';
+        await page.waitForFunction(() =>
+          Array.from(document.querySelectorAll('[data-tune-id] > button')).every(
+            (button) => !button.hasAttribute('aria-haspopup')
+          )
+        );
         assert.equal(applies, 2, 'one touch must switch back to the saved Tune');
         failMethod = 'refloat.tune.apply';
         await cruise.tap();
         await page.getByRole('dialog', { name: 'Tunes', exact: true }).getByRole('alert').waitFor();
         assert.equal(applies, 3);
+        assert.equal(await page.getByRole('alertdialog').count(), 0, 'idle switches need no confirmation');
         assert.equal(await page.getByRole('button', { name: /^Cruise.*Active/ }).count(), 0);
         failMethod = null;
         await cruise.tap();
