@@ -58,7 +58,10 @@ import pathlib
 import sys
 
 source = pathlib.Path(sys.argv[1]).read_text()
-source = source.replace("#121418", "#f1f5f9").replace("#a2d4d8", "#0f766e").replace("#000000", "#0f766e")
+# Swap the dark palette simultaneously so replacements cannot overwrite each other.
+import re
+palette = {"#121418": "#a2d4d8", "#a2d4d8": "#121418", "#000000": "#121418"}
+source = re.sub("|".join(palette), lambda match: palette[match.group()], source)
 pathlib.Path(sys.argv[2]).write_text(source)
 PYTHON
 rsvg-convert -w 1024 -h 1024 "$temporary_dir/icon-light.svg" -o "$temporary_dir/light.png"
@@ -83,7 +86,7 @@ for element in rider.iter():
     for attribute in ("stroke", "fill", "style"):
         element.attrib.pop(attribute, None)
 svg = ET.Element(f"{{{namespace}}}svg", {
-    "viewBox": "-37.5 0 125 125", "width": "1024", "height": "1024", "fill": "#0f766e",
+    "viewBox": "-37.5 0 125 125", "width": "1024", "height": "1024", "fill": "#121418",
 })
 svg.append(rider)
 destination = pathlib.Path(sys.argv[2])
