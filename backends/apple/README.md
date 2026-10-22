@@ -383,77 +383,45 @@ Stable/nightly GitHub releases retain the universal ZIP alongside the IPA/APK.
 Master pushes and manual master runs publish the rolling Nightly after all three
 sideload builds succeed.
 
-The app keeps bundle identifier `fail.acheron.float-view.macos`. Release packages
-use a **Developer ID Application** identity, hardened runtime and a secure timestamp.
-Apple's notarization service must accept the upload before the ticket is stapled
-to the app. CI validates the ticket, signature, selected Apple team and Gatekeeper
-assessment, then creates the final ZIP from the stapled app. A rejection, timeout,
-credential failure or failed validation prevents artifact/release publication;
-there is no self-signed fallback. Notarization waits at most 20 minutes and logs
-the submission ID for tracing a timed-out request.
-
-CI imports the certificate only into a temporary keychain on a disposable
-GitHub-hosted macOS runner. It neither installs a custom trust root nor modifies
-a developer's keychain. The temporary keychain and private files are removed
-before artifact upload. Local `just run macos` builds retain ad-hoc development
-signing and do not require notarization credentials.
+The workflow builds and checks the universal app, then uses
+`acheronfail/dist-tools/actions/apple-release@v1` for Developer ID signing,
+notarization, stapling and ZIP packaging. The bundle ID remains
+`fail.acheron.float-view.macos` and the output is
+`FloatView-<version>-macos-universal.zip`. Failed signing or verification blocks
+artifact upload. Local `just run macos` retains ad-hoc development signing.
 
 ### Release credentials
 
-Configure the repository's Actions variable and secrets before enabling the
-updated workflow. Account details and personal team identifiers stay out of source:
+Sync credentials using the [dist-tools CLI](https://github.com/acheronfail/dist-tools/blob/v1/docs/credentials.md).
+For team API-key authentication, the workflow reads:
 
-| Setting                        | Type             | Value                                                                                        |
-| ------------------------------ | ---------------- | -------------------------------------------------------------------------------------------- |
-| `APPLE_TEAM_ID`                | Actions variable | Publishing Apple Developer team ID                                                           |
-| `MACOS_CODE_SIGN_P12_BASE64`   | Actions secret   | Base64 PKCS12 containing only the selected Developer ID Application identity and private key |
-| `MACOS_CODE_SIGN_P12_PASSWORD` | Actions secret   | Password protecting that PKCS12                                                              |
-| `APPLE_NOTARY_APPLE_ID`        | Actions secret   | Apple Account email belonging to the selected team                                           |
-| `APPLE_NOTARY_PASSWORD`        | Actions secret   | Apple app-specific password, not the account password                                        |
+| Setting | Type |
+| --- | --- |
+| `MACOS_CODE_SIGN_P12_BASE64` | Secret |
+| `MACOS_CODE_SIGN_P12_PASSWORD` | Secret |
+| `APPLE_TEAM_ID` | Secret |
+| `APPLE_NOTARY_API_KEY` | Secret |
+| `APPLE_NOTARY_KEY_ID` | Secret |
+| `APPLE_NOTARY_ISSUER_ID` | Secret |
+| `APPLE_NOTARY_AUTH_MODE` = `api-team` | Variable |
 
-Replace the earlier self-signed PKCS12; do not retain its custom trust policy.
-Back up the selected identity and its password securely. The local provisioning
-backup is ignored under `.local/macos-signing/`; GitHub secret values cannot be
-read back. Export only the intended identity, never all identities in a keychain.
-Certificate renewal can use Apple's normal team-based signing requirement rather
-than anchoring app identity to one certificate fingerprint.
+With no auth-mode variable, the workflow uses the existing
+`APPLE_NOTARY_APPLE_ID` and `APPLE_NOTARY_PASSWORD` secrets instead. Store signing
+uses its separate certificates and protected environment.
 
-Create app-specific passwords at [Apple Account](https://account.apple.com/).
-After membership or account-security changes, validate credentials again rather
-than bypassing a failed notarization. Never paste credentials into issues/chat or
-commit them. Use the Actions settings UI or interactive `gh secret set NAME`.
+### Local build
 
-### Local release verification
-
-Store notarization credentials interactively (the command prompts for the app-specific
-password); keep email/team values local:
+Build the frontend and embedded resources with `just build`, then assemble the
+release app with both pinned macOS Rust targets installed:
 
 ```sh
-xcrun notarytool store-credentials float-view-notary --apple-id YOUR_APPLE_ACCOUNT_EMAIL --team-id YOUR_TEAM_ID
-```
-
-Build the frontend and copy its embedded artifact with `just build`, then run:
-
-```sh
-APPLE_TEAM_ID=YOUR_TEAM_ID CODE_SIGN_IDENTITY=YOUR_DEVELOPER_ID_FINGERPRINT \
-  FLOAT_VIEW_VERSION=YOUR_VERSION FLOAT_VIEW_BUILD_NUMBER=YOUR_BUILD_NUMBER \
+FLOAT_VIEW_VERSION=YOUR_VERSION FLOAT_VIEW_BUILD_NUMBER=YOUR_BUILD_NUMBER \
   bash backends/apple/build-macos-release.sh
 ```
 
-The selected identity must already be in your local keychain; no certificate is
-imported by this command. Set `APPLE_NOTARY_KEYCHAIN_PROFILE` to use another profile.
-The build needs both pinned macOS Rust targets. The final output is
-`FloatView-<version>-macos-universal.zip`. To notarize an already assembled and
-correctly Developer ID-signed Release bundle, use `notarize-macos-release.sh APP ZIP`
-with `APPLE_TEAM_ID` and the same profile. That command does not make an ad-hoc or
-self-signed binary eligible: its Apple identity is verified before submission.
-
-After successful signed-artifact verification, install a quarantined download on
-a supported Mac and check normal launch, Bluetooth/location permission presentation,
-recording and export. Switching from the old self-signed identity may require
-permission regrants; software signature tests do not prove permission retention
-across the change. Old downloaded ZIPs remain unnotarized; notarization applies to
-newly generated packages, without replacing immutable stable release assets.
+This produces an ad-hoc signed `FloatView.app` under
+`${FLOAT_VIEW_MACOS_BUILD_ROOT:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/float-view-macos-build}`.
+Distribution signing and ZIP creation run in CI through the shared Action.
 
 ## AltStore installation
 

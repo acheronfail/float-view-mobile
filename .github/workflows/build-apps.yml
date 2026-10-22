@@ -765,26 +765,26 @@ jobs:
         working-directory: backends/core
         run: cargo fetch --locked --target aarch64-apple-darwin --target x86_64-apple-darwin
 
-      # Temporary workaround: force TCP instead of unreliable HTTP/3 ticket lookups.
-      # https://github.com/actions/runner-images/issues/14924
-      # Only change networking on the disposable GitHub-hosted runner.
-      - name: Work around Apple ticket delivery networking
-        run: |
-          echo "block return out quick proto udp from any to any port 443" | sudo pfctl -f -
-          sudo pfctl -E
+      - name: Build universal macOS app
+        id: macos
+        run: bash backends/apple/build-macos-release.sh
 
-      - name: Build, sign and notarize universal macOS app
-        env:
-          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-          APPLE_CODE_SIGN_P12_BASE64: ${{ secrets.MACOS_CODE_SIGN_P12_BASE64 }}
-          APPLE_CODE_SIGN_P12_PASSWORD: ${{ secrets.MACOS_CODE_SIGN_P12_PASSWORD }}
-          APPLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
-          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
-        run: |
-          : "${APPLE_TEAM_ID:?Missing Apple Team ID variable}"
-          : "${APPLE_NOTARY_APPLE_ID:?Missing notarization Apple Account secret}"
-          : "${APPLE_NOTARY_PASSWORD:?Missing notarization app-specific password secret}"
-          bash backends/apple/with-apple-signing-identity.sh bash backends/apple/build-macos-release.sh
+      - name: Sign, notarize and package macOS app
+        uses: acheronfail/dist-tools/actions/apple-release@v1
+        with:
+          app-path: ${{ steps.macos.outputs.app-path }}
+          bundle-id: fail.acheron.float-view.macos
+          output-archive: ${{ steps.macos.outputs.output-archive }}
+          team-id: ${{ secrets.APPLE_TEAM_ID }}
+          p12-base64: ${{ secrets.MACOS_CODE_SIGN_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_CODE_SIGN_P12_PASSWORD }}
+          notary-auth-mode: ${{ vars.APPLE_NOTARY_AUTH_MODE || 'apple-id' }}
+          notary-api-key: ${{ (vars.APPLE_NOTARY_AUTH_MODE == 'api-team' || vars.APPLE_NOTARY_AUTH_MODE == 'api-individual') && secrets.APPLE_NOTARY_API_KEY || '' }}
+          notary-key-id: ${{ (vars.APPLE_NOTARY_AUTH_MODE == 'api-team' || vars.APPLE_NOTARY_AUTH_MODE == 'api-individual') && secrets.APPLE_NOTARY_KEY_ID || '' }}
+          notary-issuer-id: ${{ vars.APPLE_NOTARY_AUTH_MODE == 'api-team' && secrets.APPLE_NOTARY_ISSUER_ID || '' }}
+          notary-apple-id: ${{ (vars.APPLE_NOTARY_AUTH_MODE == 'apple-id' || vars.APPLE_NOTARY_AUTH_MODE == '') && secrets.APPLE_NOTARY_APPLE_ID || '' }}
+          notary-password: ${{ (vars.APPLE_NOTARY_AUTH_MODE == 'apple-id' || vars.APPLE_NOTARY_AUTH_MODE == '') && secrets.APPLE_NOTARY_PASSWORD || '' }}
+          ticket-network-workaround: 'true'
 
       - name: Upload macOS app
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
