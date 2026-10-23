@@ -409,6 +409,8 @@ function encodeInfoV2(version: DynamicRefloatVersion): Uint8Array {
   payload.set(new TextEncoder().encode('Refloat').slice(0, 20), 5);
   const [major, minor, patch] = version.split('.').map(Number) as [number, number, number];
   payload.set([major, minor, patch], 25);
+  // Upstream stable builds pass the undelimited patch through `cut -d- -f2-`.
+  payload.set(new TextEncoder().encode(String(patch)), 28);
   return payload;
 }
 

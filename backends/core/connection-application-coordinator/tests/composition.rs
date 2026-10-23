@@ -18,39 +18,45 @@ const VECTORS: &str =
 
 #[test]
 fn refloat_1_3_0_skips_layout_and_starts_selectable_float32_telemetry() {
-    let mut coordinator = ConnectionApplicationCoordinator::default();
-    coordinator.apply(Command::Begin(begin_facts(10))).unwrap();
-    receive(&mut coordinator, motor_configuration_payload(42), 20);
-    let ready = receive(&mut coordinator, selectable_info_payload(), 30);
-    assert!(ready.iter().all(|effect| match effect {
-        Effect::Write(request) => request.payload != [36, 101, 32],
-        _ => true,
-    }));
-    let activation = coordinator
-        .snapshot()
-        .awaiting_activation
-        .expect("1.3 activation");
-    assert_eq!(activation.refloat_version.to_string(), "1.3.0");
+    // Both earlier packages and packages carrying the upstream suffix artifact
+    // must complete the same configuration and telemetry activation path.
+    for suffix in [b'\0', b'0'] {
+        let mut coordinator = ConnectionApplicationCoordinator::default();
+        coordinator.apply(Command::Begin(begin_facts(10))).unwrap();
+        receive(&mut coordinator, motor_configuration_payload(42), 20);
+        let mut info = selectable_info_payload();
+        info[28] = suffix;
+        let ready = receive(&mut coordinator, info, 30);
+        assert!(ready.iter().all(|effect| match effect {
+            Effect::Write(request) => request.payload != [36, 101, 32],
+            _ => true,
+        }));
+        let activation = coordinator
+            .snapshot()
+            .awaiting_activation
+            .expect("1.3 activation");
+        assert_eq!(activation.refloat_version.to_string(), "1.3.0");
 
-    let effects = activate_with_cache(&mut coordinator, 40, Some(configuration_schema_1_3_0()));
-    assert_eq!(write(&effects).payload, [93, 0]);
-    let effects = receive(&mut coordinator, configuration_current_response_1_3_0(), 50);
-    assert_eq!(write(&effects).payload, [14]);
-    let effects = receive(
-        &mut coordinator,
-        current_limits_payload(0x2EFD_0142, Some(15)),
-        60,
-    );
-    assert_eq!(
-        write(&effects).payload,
-        [36, 101, 33, 1, 0x7f, 0xff, 0xbf, 0xc3, 0, 0, 0, 0]
-    );
-    let effects = receive(&mut coordinator, selectable_fast_payload(), 70);
-    assert!(
-        effects
-            .iter()
-            .any(|effect| matches!(effect, Effect::PublishTelemetry(_)))
-    );
+        let effects = activate_with_cache(&mut coordinator, 40, Some(configuration_schema_1_3_0()));
+        assert_eq!(write(&effects).payload, [93, 0]);
+        let effects = receive(&mut coordinator, configuration_current_response_1_3_0(), 50);
+        assert_eq!(write(&effects).payload, [14]);
+        let effects = receive(
+            &mut coordinator,
+            current_limits_payload(0x2EFD_0142, Some(15)),
+            60,
+        );
+        assert_eq!(
+            write(&effects).payload,
+            [36, 101, 33, 1, 0x7f, 0xff, 0xbf, 0xc3, 0, 0, 0, 0]
+        );
+        let effects = receive(&mut coordinator, selectable_fast_payload(), 70);
+        assert!(
+            effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::PublishTelemetry(_)))
+        );
+    }
 }
 
 #[test]

@@ -5,6 +5,42 @@ use float_view_connection_application_coordinator::{
 use support::*;
 
 #[test]
+fn stable_suffix_artifact_uses_canonical_activation_but_prereleases_stay_blocked() {
+    for suffix in ["", "0", "beta1", "0-beta1", "00", "1"] {
+        let mut c = ConnectionApplicationCoordinator::default();
+        c.apply(Command::Begin(begin_facts(10))).unwrap();
+        receive(&mut c, motor_payload(7), 20);
+        let mut info = selectable_info_payload();
+        info[28..48].fill(0);
+        info[28..28 + suffix.len()].copy_from_slice(suffix.as_bytes());
+        let effects = receive(&mut c, info, 30);
+        let snapshot = c.snapshot();
+        if suffix.is_empty() || suffix == "0" {
+            assert_eq!(snapshot.phase, Phase::AwaitingActivation);
+            assert_eq!(
+                snapshot
+                    .awaiting_activation
+                    .unwrap()
+                    .refloat_version
+                    .to_string(),
+                "1.3.0"
+            );
+        } else {
+            assert_eq!(snapshot.phase, Phase::Failed);
+            assert_eq!(
+                snapshot.discovery.issue.unwrap().code,
+                IssueCode::UnsupportedRefloat
+            );
+            assert!(
+                effects
+                    .iter()
+                    .all(|e| !matches!(e, Effect::Write(_) | Effect::PrepareActivation(_)))
+            );
+        }
+    }
+}
+
+#[test]
 fn rejected_identity_is_display_only_and_reset_discards_it() {
     let mut c = ConnectionApplicationCoordinator::default();
     c.apply(Command::Begin(begin_facts(10))).unwrap();

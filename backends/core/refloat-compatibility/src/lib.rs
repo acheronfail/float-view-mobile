@@ -486,7 +486,14 @@ pub fn decode_info_identity(payload: &[u8]) -> Result<InfoIdentity, Compatibilit
 /// Decode an INFO identity eligible for exact stable-release lookup.
 pub fn decode_info(payload: &[u8]) -> Result<WireVersion, CompatibilityError> {
     let identity = decode_info_identity(payload)?;
-    if !identity.suffix.is_empty() {
+    // Audited 1.1.x–1.3.0 src/Makefile uses `cut -d- -f2-` without `-s`.
+    // For stable versions the undelimited patch passes through as the suffix.
+    // Admit only that exact artifact on known releases, never arbitrary suffixes
+    // or future versions. Preserve the original identity for failure reporting.
+    let upstream_stable_suffix = identity.version.patch.is_some_and(|patch| {
+        identity.suffix == patch.to_string() && compatibility(identity.version).is_some()
+    });
+    if !identity.suffix.is_empty() && !upstream_stable_suffix {
         return Err(CompatibilityError::UnsupportedRelease);
     }
     Ok(identity.version)
@@ -546,6 +553,9 @@ pub fn decode_info_record(payload: &[u8]) -> CompatibilityRecordOutcome {
         }
         Err(CompatibilityError::UnsupportedInfoProtocol) => {
             return CompatibilityRecordOutcome::UnsupportedInfoProtocol;
+        }
+        Err(CompatibilityError::UnsupportedRelease) => {
+            return CompatibilityRecordOutcome::UnsupportedRelease;
         }
         Err(_) => return CompatibilityRecordOutcome::InternalFailure,
     };
@@ -715,6 +725,53 @@ pub fn admit_dynamic_layout(
 mod tests {
     use super::*;
     use float_view_refloat_dynamic_telemetry::{LayoutRecordOutcome, decode_layout_to_record};
+
+    #[test]
+    fn audited_stable_patch_suffixes_match_empty_suffix_admission() {
+        for entry in COMPATIBILITY_ENTRIES {
+            let Some(patch) = entry.wire.patch else {
+                continue;
+            };
+            let mut payload = info_v2(entry.wire.major, entry.wire.minor, patch);
+            payload[59] = 4;
+            let canonical = decode_info_record(&payload);
+            assert_eq!(decode_info(&payload), Ok(entry.wire));
+            assert!(matches!(canonical, CompatibilityRecordOutcome::Record(_)));
+            assert_eq!(decode_info_capabilities(&payload), Ok(INFO_CAPABILITY_GNSS));
+            let suffix = patch.to_string();
+            payload[28..28 + suffix.len()].copy_from_slice(suffix.as_bytes());
+            assert_eq!(decode_info(&payload), Ok(entry.wire));
+            assert_eq!(decode_info_record(&payload), canonical);
+            assert_eq!(decode_info_capabilities(&payload), Ok(INFO_CAPABILITY_GNSS));
+            assert_eq!(decode_info_identity(&payload).unwrap().suffix, suffix);
+        }
+    }
+
+    #[test]
+    fn stable_suffix_exception_rejects_prereleases_mismatches_and_unknown_versions() {
+        for (version, suffix) in [
+            ((1, 3, 0), "beta"),
+            ((1, 3, 0), "beta1"),
+            ((1, 3, 0), "rc.1"),
+            ((1, 3, 0), "0-beta1"),
+            ((1, 3, 0), "00"),
+            ((1, 3, 0), "1"),
+            ((1, 2, 3), "0"),
+            ((1, 3, 1), "1"),
+            ((2, 0, 0), "0"),
+        ] {
+            let mut payload = info_v2(version.0, version.1, version.2);
+            payload[28..28 + suffix.len()].copy_from_slice(suffix.as_bytes());
+            assert_eq!(
+                decode_info(&payload),
+                Err(CompatibilityError::UnsupportedRelease)
+            );
+            assert_eq!(
+                decode_info_record(&payload),
+                CompatibilityRecordOutcome::UnsupportedRelease
+            );
+        }
+    }
 
     #[test]
     fn display_identity_preserves_bounded_suffix_without_admitting_prereleases() {

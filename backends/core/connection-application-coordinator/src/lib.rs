@@ -1822,11 +1822,9 @@ impl ConnectionApplicationCoordinator {
                 };
                 let version = identity.version;
                 self.reported_refloat_version = Some(identity.to_string());
-                let admitted = identity
-                    .suffix
-                    .is_empty()
-                    .then(|| compatibility::compatibility(version))
-                    .flatten()
+                let admitted = compatibility::decode_info(&payload)
+                    .ok()
+                    .and_then(compatibility::compatibility)
                     .map(|profile| (version, profile));
                 match admitted {
                     Some((version, profile)) => {

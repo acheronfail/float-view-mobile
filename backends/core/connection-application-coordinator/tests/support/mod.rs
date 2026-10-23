@@ -145,6 +145,7 @@ pub fn dynamic_info_payload() -> Vec<u8> {
     payload[..5].copy_from_slice(&[36, 101, 0, 2, 0]);
     payload[5..12].copy_from_slice(b"refloat");
     payload[25..28].copy_from_slice(&[1, 2, 3]);
+    payload[28] = b'3'; // Stable upstream Makefile suffix artifact.
     payload
 }
 
@@ -153,6 +154,7 @@ pub fn selectable_info_payload() -> Vec<u8> {
     payload[..5].copy_from_slice(&[36, 101, 0, 2, 0]);
     payload[5..12].copy_from_slice(b"refloat");
     payload[25..28].copy_from_slice(&[1, 3, 0]);
+    payload[28] = b'0'; // Matches the physical stable 1.3.0 INFO response.
     payload[59] = 4;
     payload
 }

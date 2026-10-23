@@ -59,6 +59,13 @@ the request result and published state change only after matching telemetry or
 lighting confirms it. Disconnect, reconnect, and generation changes cancel the
 owner and its waiter.
 
+Audited stable Refloat INFO-v2 versions also accept the upstream build artifact
+whose suffix exactly repeats the patch number (for example, `1.3.0-0` or
+`1.2.3-3`). The upstream `src/Makefile` suffix extraction passes an undelimited
+stable patch through `cut`. Admission uses the canonical stable version; other
+suffixes, including betas and release candidates, remain unsupported, as do
+versions outside the audited catalog.
+
 Package disable and flywheel enable retain the authoritative idle gate. Exact
 flywheel disable is the sole motion-state exception: active flywheel state is
 normalized as riding, and upstream command 22 performs its ordered stop before

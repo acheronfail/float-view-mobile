@@ -12,6 +12,14 @@ const firmwareVersions = Object.keys(firmwareVariants) as FirmwareVersion[];
 const refloatVersions = Object.keys(refloatCodecs) as RefloatVersion[];
 const topologies: FixtureTopology[] = ['direct', 'express'];
 
+test('stable INFO reproduces the upstream patch-as-suffix build artifact', () => {
+  for (const version of refloatVersions.filter((version) => !version.startsWith('1.0.'))) {
+    const payload = refloatCodecs[version].infoPayload;
+    const suffix = Buffer.from(payload.slice(28, 48)).toString('ascii').replace(/\0+$/, '');
+    assert.equal(suffix, version.split('.')[2], version);
+  }
+});
+
 test('firmware variants retain THOR300 identity and version-specific tail shape', () => {
   assert.equal(firmwareVariants['6.05'].payload.length, firmwareVariants['6.02'].payload.length + 4);
   assert.equal(firmwareVariants['6.06'].payload.length, firmwareVariants['6.05'].payload.length);
