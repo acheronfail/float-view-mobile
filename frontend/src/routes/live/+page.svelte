@@ -9,6 +9,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import type { RefloatControl } from '$lib/backend/contract';
   import BoardEditor from '$lib/features/boards/BoardEditor.svelte';
+  import RefloatCompatibilityDialog from '$lib/features/connection/RefloatCompatibilityDialog.svelte';
   import ControllerSelection from '$lib/features/connection/ControllerSelection.svelte';
   import DetailedView from '$lib/features/connection/DetailedView.svelte';
   import FlywheelModeOverlay from '$lib/features/connection/FlywheelModeOverlay.svelte';
@@ -145,8 +146,15 @@
     return viewOptions[(currentIndex + 1) % viewOptions.length] ?? viewOptions[0];
   });
 
+  const refloatCompatibility = $derived(
+    connection?.connectionIssue?.code === 'unsupported_refloat'
+      ? connection.connectionIssue.refloatCompatibility
+      : undefined
+  );
   const connectionIssueKey = $derived(
-    connection?.connectionIssue ? `${connection.deviceId}:${connection.connectionIssue.code}` : null
+    connection?.connectionIssue
+      ? `${connection.deviceId}:${connection.connectionIssue.code}:${refloatCompatibility?.reportedVersion ?? ''}`
+      : null
   );
   const unsupportedFirmwareKey = $derived(
     connection?.firmware?.supported === false
@@ -204,7 +212,7 @@
       titleClass: 'truncate text-3xl font-semibold',
       accessory: connection.trackingMode === 'saved' ? locationAccessory : undefined,
       bottomBorder: view === 'detailed',
-      subtitle: deviceState.display,
+      subtitle: refloatCompatibility ? 'Unsupported Refloat' : deviceState.display,
       subtitleClass: deviceState.safetyStateActive
         ? 'text-sm text-danger'
         : live
@@ -505,9 +513,12 @@
     const deviceId = connection?.deviceId;
     if (!deviceId) return;
     confirmationError = null;
-    if (await backendState.connectDevice(deviceId, connection?.trackingMode ?? 'saved')) {
-      connectionIssueConfirmationOpen = false;
-    } else confirmationError = backendState.error ?? 'The board could not be connected. Please try again.';
+    connectionIssueConfirmationOpen = false;
+    lastConnectionIssueKey = null;
+    if (!(await backendState.connectDevice(deviceId, connection?.trackingMode ?? 'saved'))) {
+      confirmationError = backendState.error ?? 'The board could not be connected. Please try again.';
+      connectionIssueConfirmationOpen = true;
+    }
   }
 
   function continueWithUnsupportedFirmware() {
@@ -646,18 +657,30 @@
 </section>
 
 {#if connection}
-  <ConfirmDialog
-    open={connectionIssueConfirmationOpen}
-    titleId="connection-issue-confirmation-title"
-    title="Connection issue"
-    description={connection?.connectionIssue?.message ?? 'An unknown connection issue occurred.'}
-    confirmLabel="Retry"
-    appearance="warning"
-    busy={backendState.busy}
-    error={confirmationError}
-    onconfirm={retryConnection}
-    oncancel={cancelConnectionIssue}
-  />
+  {#if refloatCompatibility}
+    <RefloatCompatibilityDialog
+      open={connectionIssueConfirmationOpen}
+      boardName={connection.displayName}
+      compatibility={refloatCompatibility}
+      busy={backendState.busy}
+      error={confirmationError}
+      onretry={retryConnection}
+      onexit={cancelConnectionIssue}
+    />
+  {:else}
+    <ConfirmDialog
+      open={connectionIssueConfirmationOpen}
+      titleId="connection-issue-confirmation-title"
+      title="Connection issue"
+      description={connection?.connectionIssue?.message ?? 'An unknown connection issue occurred.'}
+      confirmLabel="Retry"
+      appearance="warning"
+      busy={backendState.busy}
+      error={confirmationError}
+      onconfirm={retryConnection}
+      oncancel={cancelConnectionIssue}
+    />
+  {/if}
 
   <ConfirmDialog
     open={firmwareUnsupportedConfirmationOpen}

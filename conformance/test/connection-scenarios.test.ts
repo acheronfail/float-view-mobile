@@ -248,6 +248,7 @@ test('failed retry, replacement interruption, and frontend recovery remain autho
     'controller_changed',
     'unsupported_controller',
     'unsupported_refloat',
+    'refloat_info_invalid',
   ];
   for (const code of issueCodes) {
     const backend = connectedBackend();
@@ -374,4 +375,20 @@ test('possible CAN conflicts are nonfatal authoritative warnings and clear on re
   const reconnected = state(backend);
   assertState(reconnected);
   assert.equal(reconnected.activeConnection?.connectionWarning, null);
+});
+
+test('unsupported Refloat recovery preserves display metadata without granting capabilities', () => {
+  const backend = connectedBackend();
+  const compatibility = { reportedVersion: '1.3.1-beta', supportedVersions: ['1.0.0', '1.0.1', '1.3.0'] };
+  backend.simulateConnectionFailure('unsupported_refloat', 'Unsupported package', compatibility);
+  compatibility.reportedVersion = 'changed';
+  const failed = state(backend);
+  assertState(failed);
+  assert.equal(failed.activeConnection?.connectionIssue?.refloatCompatibility?.reportedVersion, '1.3.1-beta');
+  assert.deepEqual(state(backend).activeConnection?.connectionIssue, failed.activeConnection?.connectionIssue);
+  assert.equal(failed.activeConnection?.state, 'failed');
+  assert.equal(failed.activeConnection?.activeSession, null);
+  handle(backend, 3_100, 'device.connect', { deviceId: 'mock-board', trackingMode: 'saved' });
+  assert.equal(state(backend).activeConnection?.connectionIssue, null);
+  assert.equal(state(backend).activeConnection?.trackingMode, 'saved');
 });

@@ -409,8 +409,27 @@ pub const fn info_request() -> [u8; 5] {
     INFO_REQUEST
 }
 
-/// Decode one complete bounded unframed Refloat INFO response identity.
-pub fn decode_info(payload: &[u8]) -> Result<WireVersion, CompatibilityError> {
+/// Bounded public INFO identity, independent from compatibility admission.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InfoIdentity {
+    /// Numeric wire version.
+    pub version: WireVersion,
+    /// Source-defined suffix, at most 20 ASCII bytes.
+    pub suffix: String,
+}
+
+impl fmt::Display for InfoIdentity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.version)?;
+        if !self.suffix.is_empty() {
+            write!(formatter, "-{}", self.suffix)?;
+        }
+        Ok(())
+    }
+}
+
+/// Decode one complete bounded INFO identity without admitting the release.
+pub fn decode_info_identity(payload: &[u8]) -> Result<InfoIdentity, CompatibilityError> {
     if payload.len() > MAX_PAYLOAD_BYTES {
         return Err(CompatibilityError::InputTooLarge);
     }
@@ -423,13 +442,16 @@ pub fn decode_info(payload: &[u8]) -> Result<WireVersion, CompatibilityError> {
 
     let response_version = payload[3];
     if response_version == 10 {
-        return Ok(WireVersion::legacy(1, 0));
+        return Ok(InfoIdentity {
+            version: WireVersion::legacy(1, 0),
+            suffix: String::new(),
+        });
     }
     if response_version > 10 {
-        return Ok(WireVersion::legacy(
-            response_version / 10,
-            response_version % 10,
-        ));
+        return Ok(InfoIdentity {
+            version: WireVersion::legacy(response_version / 10, response_version % 10),
+            suffix: String::new(),
+        });
     }
     if response_version != INFO_PROTOCOL_VERSION {
         return Err(CompatibilityError::UnsupportedInfoProtocol);
@@ -438,11 +460,36 @@ pub fn decode_info(payload: &[u8]) -> Result<WireVersion, CompatibilityError> {
         return Err(CompatibilityError::TruncatedInfo);
     }
 
-    Ok(WireVersion::patched(
-        payload[INFO_V2_MAJOR_OFFSET],
-        payload[INFO_V2_MINOR_OFFSET],
-        payload[INFO_V2_PATCH_OFFSET],
-    ))
+    let suffix_bytes = &payload[28..48];
+    let end = suffix_bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(suffix_bytes.len());
+    if suffix_bytes[..end]
+        .iter()
+        .any(|byte| !byte.is_ascii_alphanumeric() && !b".-+".contains(byte))
+        || suffix_bytes[end..].iter().any(|byte| *byte != 0)
+    {
+        return Err(CompatibilityError::InvalidIdentifier);
+    }
+    Ok(InfoIdentity {
+        version: WireVersion::patched(
+            payload[INFO_V2_MAJOR_OFFSET],
+            payload[INFO_V2_MINOR_OFFSET],
+            payload[INFO_V2_PATCH_OFFSET],
+        ),
+        suffix: String::from_utf8(suffix_bytes[..end].to_vec())
+            .map_err(|_| CompatibilityError::InvalidIdentifier)?,
+    })
+}
+
+/// Decode an INFO identity eligible for exact stable-release lookup.
+pub fn decode_info(payload: &[u8]) -> Result<WireVersion, CompatibilityError> {
+    let identity = decode_info_identity(payload)?;
+    if !identity.suffix.is_empty() {
+        return Err(CompatibilityError::UnsupportedRelease);
+    }
+    Ok(identity.version)
 }
 
 /// Decode the INFO-v2 capability word without interpreting device identity.
@@ -668,6 +715,39 @@ pub fn admit_dynamic_layout(
 mod tests {
     use super::*;
     use float_view_refloat_dynamic_telemetry::{LayoutRecordOutcome, decode_layout_to_record};
+
+    #[test]
+    fn display_identity_preserves_bounded_suffix_without_admitting_prereleases() {
+        let mut payload = info_v2(1, 3, 1);
+        payload[28..32].copy_from_slice(b"beta");
+        let identity = decode_info_identity(&payload).unwrap();
+        assert_eq!(identity.to_string(), "1.3.1-beta");
+        assert_eq!(
+            decode_info(&payload),
+            Err(CompatibilityError::UnsupportedRelease)
+        );
+        payload[27] = 0; // A beta of an otherwise supported version must also fail closed.
+        assert_eq!(
+            decode_info(&payload),
+            Err(CompatibilityError::UnsupportedRelease)
+        );
+        for byte in [b'\n', b' ', 0xff, b'<'] {
+            payload[28] = byte;
+            assert!(decode_info_identity(&payload).is_err());
+        }
+        payload[28..48].fill(b'a');
+        payload[25..28].fill(255);
+        assert_eq!(
+            decode_info_identity(&payload).unwrap().to_string().len(),
+            32
+        );
+        payload[29] = 0;
+        assert!(decode_info_identity(&payload).is_err());
+        assert_eq!(
+            decode_info_identity(&[36, 101, 0, 10]).unwrap().to_string(),
+            "1.0"
+        );
+    }
 
     fn required_fields() -> Vec<&'static [u8]> {
         REQUIRED_FIELDS

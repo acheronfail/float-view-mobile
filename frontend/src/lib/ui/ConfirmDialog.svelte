@@ -23,6 +23,8 @@
     error = null,
     onconfirm,
     oncancel,
+    ondismiss = oncancel,
+    dismissLabel = cancelLabel,
     children,
   }: {
     open: boolean;
@@ -37,6 +39,9 @@
     error?: string | null;
     onconfirm: Activation;
     oncancel: Activation;
+    /** Optional dismissal action when the secondary button has another purpose. */
+    ondismiss?: Activation;
+    dismissLabel?: string;
     children?: Snippet;
   } = $props();
 
@@ -52,6 +57,10 @@
 
   function cancel() {
     if (!busy) void oncancel();
+  }
+
+  function dismiss() {
+    if (!busy) void ondismiss();
   }
 
   function confirm() {
@@ -87,14 +96,14 @@
     <button
       type="button"
       class="absolute inset-0 h-full w-full cursor-default touch-none bg-black/60"
-      aria-label={cancelLabel}
-      onpointerdown={(event) => activateFromPointer(event, cancel)}
-      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, cancel)}
+      aria-label={dismissLabel}
+      onpointerdown={(event) => activateFromPointer(event, dismiss)}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, dismiss)}
     ></button>
     <div
       use:enterSurface={'dialog'}
       bind:this={dialog}
-      use:backDismissal={{ close: cancel }}
+      use:backDismissal={{ close: dismiss }}
       role="alertdialog"
       aria-modal="true"
       aria-labelledby={titleId}
@@ -111,7 +120,7 @@
         {/if}
       </div>
       {#if error}<p role="alert" class="mt-3 shrink-0 text-sm text-warning">{error}</p>{/if}
-      <div class="mt-6 flex shrink-0 justify-end gap-3">
+      <div class="mt-6 flex shrink-0 flex-wrap justify-end gap-3">
         <button
           bind:this={cancelButton}
           type="button"

@@ -370,7 +370,7 @@
           operation={backendState.snapshot?.sessionOperation}
           oncancel={(operationId) => backendState.cancelSessionPrune(operationId)}
         />
-        {#if page.route.id !== '/settings' && (backendState.error || backendState.snapshot?.activeConnection?.connectionIssue)}
+        {#if page.route.id !== '/settings' && (backendState.error || (backendState.snapshot?.activeConnection?.connectionIssue && !backendState.snapshot.activeConnection.connectionIssue.refloatCompatibility))}
           <p class="px-4 py-2 text-sm text-muted">
             If this problem persists, <a
               class="touch-manipulation text-accent underline"

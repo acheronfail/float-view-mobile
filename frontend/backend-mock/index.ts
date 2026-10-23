@@ -532,3 +532,12 @@ const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(path.resol
 if (isMain) {
   startMockServer().then((port) => console.log(`Mock server started on ${port}`));
 }
+
+/** Canonical connection-recovery browser fixture; no HTTP test endpoint. */
+export function simulateConnectionFailure(
+  code: import('../src/lib/backend/contract.ts').ConnectionIssueCode,
+  message: string,
+  compatibility?: import('../src/lib/backend/contract.ts').RefloatCompatibility
+) {
+  activeMockBackend?.simulateConnectionFailure(code, message, compatibility);
+}

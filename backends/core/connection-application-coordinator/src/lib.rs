@@ -85,6 +85,7 @@ pub struct ActivationFacts {
 
 #[derive(Clone, PartialEq)]
 pub struct Snapshot {
+    pub reported_refloat_version: Option<String>,
     pub possible_can_id_conflict: bool,
     pub generation: Generation,
     pub phase: Phase,
@@ -407,6 +408,7 @@ pub struct ConnectionApplicationCoordinator {
     awaiting_activation: Option<ActivationFacts>,
     direct_firmware_attempt: u8,
     unverified_controller: Option<discovery::RoutedIdentity>,
+    reported_refloat_version: Option<String>,
     refloat_version: Option<compatibility::WireVersion>,
     refloat_gnss: bool,
     dynamic_layout: Option<dynamic::DynamicLayout>,
@@ -439,6 +441,7 @@ impl Default for ConnectionApplicationCoordinator {
             awaiting_activation: None,
             direct_firmware_attempt: 0,
             unverified_controller: None,
+            reported_refloat_version: None,
             refloat_version: None,
             refloat_gnss: false,
             dynamic_layout: None,
@@ -541,6 +544,7 @@ impl ConnectionApplicationCoordinator {
     #[must_use]
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
+            reported_refloat_version: self.reported_refloat_version.clone(),
             possible_can_id_conflict: self.reply_health.warned,
             generation: self.generation,
             phase: self.phase,
@@ -1185,6 +1189,7 @@ impl ConnectionApplicationCoordinator {
         self.awaiting_activation = None;
         self.direct_firmware_attempt = 0;
         self.unverified_controller = None;
+        self.reported_refloat_version = None;
         self.refloat_version = None;
         self.refloat_gnss = false;
         self.dynamic_layout = None;
@@ -1804,11 +1809,25 @@ impl ConnectionApplicationCoordinator {
     ) -> Result<(), CoordinatorError> {
         match outcome {
             scheduler::Completion::Response(payload) => {
-                let admitted = compatibility::decode_info(&payload)
-                    .ok()
-                    .and_then(|version| {
-                        compatibility::compatibility(version).map(|profile| (version, profile))
-                    });
+                let identity = match compatibility::decode_info_identity(&payload) {
+                    Ok(identity) => identity,
+                    Err(_) => {
+                        return self.fail_discovery_response(
+                            discovery::IssueCode::RefloatInfoInvalid,
+                            MalformedResponse::RefloatInfo,
+                            now_ms,
+                            effects,
+                        );
+                    }
+                };
+                let version = identity.version;
+                self.reported_refloat_version = Some(identity.to_string());
+                let admitted = identity
+                    .suffix
+                    .is_empty()
+                    .then(|| compatibility::compatibility(version))
+                    .flatten()
+                    .map(|profile| (version, profile));
                 match admitted {
                     Some((version, profile)) => {
                         self.refloat_version = Some(version);
@@ -1819,18 +1838,18 @@ impl ConnectionApplicationCoordinator {
                         let transition = self.discovery.accept_refloat_profile(profile);
                         self.process_discovery(transition, now_ms, effects)
                     }
-                    None => self.fail_discovery_response(
-                        discovery::IssueCode::UnsupportedRefloat,
-                        MalformedResponse::RefloatInfo,
-                        now_ms,
-                        effects,
-                    ),
+                    None => {
+                        let transition = self
+                            .discovery
+                            .mark_failure(discovery::IssueCode::UnsupportedRefloat);
+                        self.process_discovery(transition, now_ms, effects)
+                    }
                 }
             }
             scheduler::Completion::TimedOut | scheduler::Completion::QueueFull => {
                 let transition = self
                     .discovery
-                    .mark_failure(discovery::IssueCode::UnsupportedRefloat);
+                    .mark_failure(discovery::IssueCode::IdentificationTimeout);
                 self.process_discovery(transition, now_ms, effects)
             }
             scheduler::Completion::Cancelled | scheduler::Completion::StaleGeneration => Ok(()),

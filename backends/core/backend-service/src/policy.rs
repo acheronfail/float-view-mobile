@@ -985,6 +985,14 @@ impl BackendService {
         self.changed()
     }
     fn reconnect(&mut self) -> Result<(), Failure> {
+        // A discovery rejection needs an explicit new attempt, even if BLE drops later.
+        if self.runtime.snapshot().application.phase == c::Phase::Failed {
+            if let Some(active) = self.policy.active.as_mut() {
+                active.reconnect_started = None;
+                active.state = LinkState::Failed;
+            }
+            return self.changed();
+        }
         if !self.policy.foreground {
             self.clear_connection_editor_state()?;
         }
@@ -1395,6 +1403,18 @@ impl BackendService {
                             .map_err(crate::store_failure)?,
                     },
                     c::Effect::Failure(c::Failure::Discovery(issue)) => {
+                        if let Some(active) = self.policy.active.as_mut() {
+                            active.reconnect_started = None;
+                        }
+                        self.policy.timers.retain(|_, timer| {
+                            !matches!(
+                                timer.kind,
+                                Timer::Reconnect
+                                    | Timer::ReconnectLimit
+                                    | Timer::ConnectionAttempt
+                                    | Timer::BleWrite
+                            )
+                        });
                         self.diagnostics.event(
                             self.policy.exchange.now,
                             self.policy.exchange.epoch,
@@ -2020,6 +2040,99 @@ mod tests {
             self.drain();
         }
     }
+    #[test]
+    fn unsupported_refloat_snapshot_survives_link_loss_without_recovery_or_session() {
+        for saved in [false, true] {
+            let mut t = Test::new();
+            t.discover();
+            t.service.connect("test-device", saved).unwrap();
+            let link_generation = t.service.policy.active.as_ref().unwrap().generation;
+            t.fact(
+                Fact::Link {
+                    generation: link_generation,
+                    state: LinkState::Ready,
+                },
+                4,
+            )
+            .unwrap();
+            let mut firmware = vec![0, 6, 6];
+            firmware.extend_from_slice(b"THOR300\0");
+            firmware.extend_from_slice(&[7; 12]);
+            firmware.extend_from_slice(&[1, 0, 0, 0, 1, 0, 1, 0]);
+            firmware.extend_from_slice(b"Float\0");
+            let mut info = vec![0; 61];
+            info[..5].copy_from_slice(&[36, 101, 0, 2, 0]);
+            info[5..12].copy_from_slice(b"refloat");
+            info[25..28].copy_from_slice(&[1, 3, 1]);
+            info[28..32].copy_from_slice(b"beta");
+            let generation = t.service.runtime.snapshot().application.generation;
+            // A rejection during an existing recovery must supersede its presentation and timers.
+            t.service.policy.active.as_mut().unwrap().reconnect_started = Some(4);
+            t.service
+                .arm_timer(Timer::ReconnectLimit, 1_000, None)
+                .unwrap();
+            for payload in [firmware, info] {
+                t.service
+                    .runtime_command(Command::Application(c::Command::Receive {
+                        generation,
+                        payload,
+                        now_ms: 5,
+                        observed_at_epoch_ms: 1_700_000_000_005,
+                    }))
+                    .unwrap();
+            }
+            let snapshot = t.service.published_snapshot();
+            let active = snapshot.active.unwrap();
+            assert_eq!(active.state, "failed");
+            assert!(active.active_session.is_none());
+            let issue = active.connection_issue.unwrap();
+            assert_eq!(issue.code, "unsupported_refloat");
+            let compatibility = issue.refloat_compatibility.unwrap();
+            assert_eq!(compatibility.reported_version, "1.3.1-beta");
+            assert_eq!(
+                compatibility.supported_versions.len(),
+                c::compatibility::COMPATIBILITY_ENTRIES.len()
+            );
+            assert!(
+                compatibility
+                    .supported_versions
+                    .contains(&"1.3.0".to_string())
+            );
+            t.fact(
+                Fact::Link {
+                    generation: link_generation,
+                    state: LinkState::Disconnected,
+                },
+                6,
+            )
+            .unwrap();
+            assert_eq!(
+                t.service.published_snapshot().active.unwrap().state,
+                "failed"
+            );
+            assert!(
+                !t.service
+                    .policy
+                    .timers
+                    .values()
+                    .any(|timer| matches!(timer.kind, Timer::Reconnect | Timer::ReconnectLimit))
+            );
+            assert_eq!(
+                t.service.runtime.snapshot().application.generation,
+                generation
+            );
+            t.service.connect("test-device", saved).unwrap();
+            assert!(
+                t.service
+                    .published_snapshot()
+                    .active
+                    .unwrap()
+                    .connection_issue
+                    .is_none()
+            );
+        }
+    }
+
     #[test]
     fn refloat_poll_timer_keeps_repeating_without_a_response() {
         let mut t = Test::new();

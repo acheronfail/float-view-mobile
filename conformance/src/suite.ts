@@ -1466,6 +1466,7 @@ const stableConnectionIssueCodes = new Set<ConnectionIssueCode>([
   'controller_changed',
   'unsupported_controller',
   'unsupported_refloat',
+  'refloat_info_invalid',
 ]);
 
 export function assertState(state: AppState) {
@@ -1744,6 +1745,16 @@ export function assertState(state: AppState) {
     assert.ok(stableConnectionIssueCodes.has(active.connectionIssue.code));
     assert.ok(active.connectionIssue.message.length > 0);
     assert.ok(active.connectionIssue.message.length <= 1_024);
+    const compatibility = active.connectionIssue.refloatCompatibility;
+    if (compatibility) {
+      assert.equal(active.connectionIssue.code, 'unsupported_refloat');
+      assert.equal(active.state, 'failed');
+      assert.match(compatibility.reportedVersion, /^[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[A-Za-z0-9.+-]+)?$/);
+      assert.ok(compatibility.reportedVersion.length <= 32);
+      assert.ok(compatibility.supportedVersions.length > 0 && compatibility.supportedVersions.length <= 32);
+      for (const version of compatibility.supportedVersions) assert.match(version, /^\d+\.\d+\.\d+$/);
+      assert.equal(active.activeSession, null);
+    }
   }
   if (active.state === 'ready') {
     assert.ok(active.controllerConnection, 'ready connection has no controller route');

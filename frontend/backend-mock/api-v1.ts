@@ -1654,7 +1654,11 @@ export class MockBackend {
     });
   }
 
-  simulateConnectionFailure(code: ConnectionIssueCode, message: string): void {
+  simulateConnectionFailure(
+    code: ConnectionIssueCode,
+    message: string,
+    refloatCompatibility?: import('../src/lib/backend/contract.ts').RefloatCompatibility
+  ): void {
     const active = this.state.activeConnection;
     if (!active) return;
     const activeSessionId = active.activeSession?.sessionId;
@@ -1674,7 +1678,13 @@ export class MockBackend {
         activeConnection: {
           ...active,
           state: 'failed',
-          connectionIssue: { code, message: message.slice(0, 1_024) },
+          connectionIssue: {
+            code,
+            message: message.slice(0, 1_024),
+            ...(code === 'unsupported_refloat' && refloatCompatibility
+              ? { refloatCompatibility: structuredClone(refloatCompatibility) }
+              : {}),
+          },
           controllerCandidates: [],
           activeSession: null,
         },

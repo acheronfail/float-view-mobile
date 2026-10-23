@@ -127,10 +127,15 @@ record!(CurrentLimits {
 record!(LiveLocation { latitude: f64, longitude: f64, accuracy_m: Option<f64>, observed_at: String });
 record!(TransportFirmware { vesc_version: String, hardware_name: Option<String>, firmware_name: Option<String>, test_version: u8 });
 record!(ControllerCandidate { can_id: u8, hardware_name: Option<String>, firmware_name: Option<String>, vesc_version: String, vesc_supported: bool });
-record!(ConnectionIssue {
-    code: String,
-    message: String
-});
+record!(RefloatCompatibility { reported_version: String, supported_versions: Vec<String> });
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConnectionIssue {
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub refloat_compatibility: Option<RefloatCompatibility>,
+}
 record!(ControllerActions { shutdown_available: bool, pending_action: Option<String> });
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]

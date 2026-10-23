@@ -170,6 +170,7 @@ pub enum IssueCode {
     ControllerChanged,
     UnsupportedController,
     UnsupportedRefloat,
+    RefloatInfoInvalid,
 }
 
 impl IssueCode {
@@ -184,6 +185,7 @@ impl IssueCode {
             Self::ControllerChanged => "controller_changed",
             Self::UnsupportedController => "unsupported_controller",
             Self::UnsupportedRefloat => "unsupported_refloat",
+            Self::RefloatInfoInvalid => "refloat_info_invalid",
         }
     }
 }
@@ -862,6 +864,9 @@ const fn default_message(code: IssueCode) -> &'static str {
         IssueCode::ControllerChanged => "The controller from the active session was not found.",
         IssueCode::UnsupportedController => "Controller firmware is not supported.",
         IssueCode::UnsupportedRefloat => "This controller's Refloat package is not supported.",
+        IssueCode::RefloatInfoInvalid => {
+            "The controller returned an unreadable Refloat package response. Please try again."
+        }
     }
 }
 

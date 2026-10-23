@@ -128,7 +128,7 @@ vocabulary!(Code {
     App => "app", Connection => "connection", Configuration => "configuration", Sessions => "sessions",
     Storage => "storage", Schema => "UnauditedSchema", Malformed => "MalformedResponse",
     Limit => "StructuralLimit", IdentificationTimeout => "identification_timeout",
-    UnsupportedController => "unsupported_controller", UnsupportedRefloat => "unsupported_refloat",
+    UnsupportedController => "unsupported_controller", UnsupportedRefloat => "unsupported_refloat", RefloatInfoInvalid => "refloat_info_invalid",
     NoController => "no_controller_found", Transport => "TransportSetupFailed"
 });
 #[derive(Clone, Debug, Deserialize, Serialize)]

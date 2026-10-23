@@ -117,11 +117,22 @@ export type ConnectionIssueCode =
   | 'preferred_controller_unavailable'
   | 'controller_changed'
   | 'unsupported_controller'
-  | 'unsupported_refloat';
+  | 'unsupported_refloat'
+  | 'refloat_info_invalid';
+
+/** Display-only rejected INFO identity; never grants firmware capabilities. */
+export interface RefloatCompatibility {
+  /** At most 32 ASCII bytes, including the source-defined suffix. */
+  reportedVersion: string;
+  /** At most 32 exact audited source releases for this backend build. */
+  supportedVersions: string[];
+}
 
 export interface ConnectionIssue {
   code: ConnectionIssueCode;
   message: string;
+  /** Present only for a confirmed unsupported Refloat version. */
+  refloatCompatibility?: RefloatCompatibility;
 }
 
 export type RideState = 'idle' | 'riding' | 'unknown';

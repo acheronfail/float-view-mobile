@@ -486,3 +486,12 @@ The default accent is teal; saved accent choices remain authoritative. In
 not suitable for small text. Soft selected surfaces use `bg-accent-soft` with
 `text-on-accent-soft`. The accent settings browser test checks text at 4.5:1 and
 meaningful graphics/focus indicators at 3:1 across all presets and both themes.
+
+Confirmed unsupported Refloat versions use `RefloatCompatibilityDialog.svelte`.
+The optional `ConnectionIssue.refloatCompatibility` snapshot record contains only
+bounded public reported version text (including the INFO suffix) and exact audited
+source releases from the shared compatibility catalog. It does not grant firmware
+capabilities. The dialog offers offline supported-version guidance, explicit Check
+again and primary Back to boards. Escape/backdrop/native Back disconnect; transient
+or unreadable INFO failures retain generic retry guidance. Both native hosts use
+the shared projection, without adapter-specific interpretation.

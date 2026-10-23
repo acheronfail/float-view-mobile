@@ -148,7 +148,9 @@ impl BackendService {
         let p = &self.policy;
         let runtime = self.runtime.snapshot().application;
         let active = p.active.as_ref().map(|a| {
-            let state = if a.reconnect_started.is_some() {
+            let state = if runtime.phase == c::Phase::Failed {
+                "failed"
+            } else if a.reconnect_started.is_some() {
                 "reconnecting"
             } else {
                 match a.state {
@@ -223,12 +225,27 @@ impl BackendService {
                 connection_warning: runtime
                     .possible_can_id_conflict
                     .then(|| f::ConnectionIssue {
+                        refloat_compatibility: None,
                         code: "possible_can_id_conflict".into(),
                         message: c::CAN_REPLY_WARNING.into(),
                     }),
                 connection_issue: runtime.discovery.issue.map(|i| f::ConnectionIssue {
                     code: i.code.as_str().into(),
                     message: i.message.into(),
+                    refloat_compatibility: (i.code == c::discovery::IssueCode::UnsupportedRefloat)
+                        .then_some(runtime.reported_refloat_version.as_ref())
+                        .flatten()
+                        .filter(|_| runtime.discovery.refloat_profile.is_none())
+                        .map(|version| f::RefloatCompatibility {
+                            reported_version: version.clone(),
+                            supported_versions: c::compatibility::COMPATIBILITY_ENTRIES
+                                .iter()
+                                .map(|entry| {
+                                    let source = entry.source;
+                                    format!("{}.{}.{}", source.major, source.minor, source.patch)
+                                })
+                                .collect(),
+                        }),
                 }),
                 bms: f::Bms {
                     status: camel(runtime.bms.status),
