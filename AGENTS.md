@@ -4,6 +4,24 @@ Float View contains one SvelteKit frontend and native backends for Apple
 (iOS/macOS) and Android. Keep the repository small and delete superseded paths;
 there is no generated API layer or platform-specific frontend code.
 
+## When to use OpenSpec
+
+Use OpenSpec for new core app capabilities and material or risky changes to core
+functionality, public contracts, persistence compatibility, architecture, or
+cross-platform policy. Judge the observable impact and risk, not the size of the
+diff. Reuse a relevant active change where appropriate.
+
+Low-risk changes that do not materially affect core app functionality may proceed
+directly without an OpenSpec change. Examples include routine documentation and
+test maintenance, formatting, minor UI polish, behavior-preserving refactors, and
+small fixes that restore existing specified behavior. These examples are not
+exemptions when the actual change carries material risk. Follow the normal
+impact-based verification policy either way.
+
+Explicit user requests to use OpenSpec take precedence. If work initially scoped
+as low risk reveals a material change to core behavior or risk, create or update
+an OpenSpec change before proceeding with that expanded scope.
+
 ## Supported data compatibility policy
 
 The v1.0.0 candidate establishes owned-storage baseline 100 before external
