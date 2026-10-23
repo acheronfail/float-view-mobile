@@ -79,7 +79,7 @@ struct ContentView: View {
 private extension UIColor {
   static let loadingSymbol = UIColor { traits in
     traits.userInterfaceStyle == .dark
-      ? UIColor(red: 162 / 255, green: 212 / 255, blue: 216 / 255, alpha: 1)
-      : UIColor(red: 15 / 255, green: 118 / 255, blue: 110 / 255, alpha: 1)
+      ? UIColor(red: 45 / 255, green: 212 / 255, blue: 191 / 255, alpha: 1)
+      : UIColor(red: 20 / 255, green: 184 / 255, blue: 166 / 255, alpha: 1)
   }
 }

@@ -5,7 +5,7 @@
 <span
   aria-hidden="true"
   class="motion-feedback relative h-6 w-10 shrink-0 rounded-full border transition-colors motion-reduce:transition-none"
-  class:bg-accent={checked}
+  class:bg-accent-fill={checked}
   class:border-accent={checked}
   class:bg-surface={!checked}
   class:border-muted={!checked}

@@ -127,7 +127,7 @@
           class:text-on-danger={appearance === 'destructive'}
           class:bg-warning={appearance === 'warning'}
           class:text-on-warning={appearance === 'warning'}
-          class:bg-accent={appearance === 'normal'}
+          class:bg-accent-fill={appearance === 'normal'}
           class:text-on-accent={appearance === 'normal'}
           disabled={busy || confirmDisabled}
           onpointerdown={(event) => activateFromPointer(event, confirm)}

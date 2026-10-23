@@ -176,7 +176,7 @@
               type="button"
               class={`motion-feedback flex min-h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 motion-reduce:transition-none ${
                 row.action === 'requestPermission'
-                  ? 'bg-accent text-on-accent enabled:hover:brightness-110'
+                  ? 'bg-accent-fill text-on-accent enabled:hover:brightness-110'
                   : 'border border-outline bg-surface text-foreground enabled:hover:bg-elevated'
               }`}
               disabled={backendState.status !== 'connected' ||
@@ -200,7 +200,7 @@
       <p class="text-sm text-muted">Reconnect to update permissions.</p>
       <button
         type="button"
-        class="min-h-11 touch-manipulation rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent disabled:opacity-50"
+        class="min-h-11 touch-manipulation rounded-lg bg-accent-fill px-4 py-2 text-sm font-medium text-on-accent disabled:opacity-50"
         onpointerdown={(event) => activateFromPointer(event, () => backendState.connect(), { scrollable: true })}
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => backendState.connect())}>Reconnect</button
       >

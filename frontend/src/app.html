@@ -33,7 +33,7 @@
         justify-content: center;
         gap: 20px;
         background: #f8fafc;
-        color: #0f766e;
+        color: #14b8a6;
         font:
           15px system-ui,
           sans-serif;
@@ -47,7 +47,7 @@
       }
       :root[data-theme='dark'] #app-loading {
         background: #020617;
-        color: #a2d4d8;
+        color: #2dd4bf;
       }
       :root[data-theme='dark'] #app-loading p {
         color: #94a3b8;
@@ -73,7 +73,7 @@
             : preference;
         document.documentElement.dataset.accent = ['purple', 'blue', 'teal', 'amber', 'rose'].includes(accent)
           ? accent
-          : 'purple';
+          : 'teal';
         document.documentElement.dataset.theme = effective;
         document.documentElement.style.colorScheme = effective;
         document

@@ -176,7 +176,7 @@
         {#if recoveryPermission?.action && !permissionPending}
           <button
             type="button"
-            class="mt-3 touch-manipulation rounded-lg bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
+            class="mt-3 touch-manipulation rounded-lg bg-accent-fill px-4 py-2 text-on-accent disabled:opacity-50"
             disabled={backendState.busy || backendState.permissionBusy}
             onpointerdown={(event) =>
               activateFromPointer(event, () => backendState.recoverPermission(recoveryPermission!))}
@@ -201,7 +201,7 @@
         <p class="mt-3 text-warning">{backendState.scanError}</p>
         <button
           type="button"
-          class="mt-3 touch-manipulation rounded-lg bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
+          class="mt-3 touch-manipulation rounded-lg bg-accent-fill px-4 py-2 text-on-accent disabled:opacity-50"
           disabled={backendState.busy}
           onpointerdown={(event) => activateFromPointer(event, () => backendState.scan())}
           onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => backendState.scan())}

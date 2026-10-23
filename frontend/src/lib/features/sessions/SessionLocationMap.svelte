@@ -604,7 +604,7 @@
         {:else}
           <button
             type="button"
-            class="touch-manipulation rounded bg-accent px-2 text-sm text-on-accent"
+            class="touch-manipulation rounded bg-accent-fill px-2 text-sm text-on-accent"
             aria-label="Re-center route map"
             onpointerdown={(event) => activateFromPointer(event, recenterMap)}
             onclick={(event) => activateFromKeyboardOrAssistiveClick(event, recenterMap)}
@@ -614,7 +614,7 @@
         {/if}
         <button
           type="button"
-          class="touch-manipulation rounded bg-accent px-2 text-sm text-on-accent"
+          class="touch-manipulation rounded bg-accent-fill px-2 text-sm text-on-accent"
           aria-label="Show/hide the map"
           onpointerdown={(event) => activateFromPointer(event, toggleMap)}
           onclick={(event) => activateFromKeyboardOrAssistiveClick(event, toggleMap)}

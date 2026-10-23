@@ -477,3 +477,12 @@ retaining at most 1,000 unique rows.
 Metadata-only updates preserve the stored identity and values even when the
 connected board uses another schema; changed values still require validation.
 Apple and Android use the same shared Rust dispatch and store implementation.
+
+The default accent is teal; saved accent choices remain authoritative. In
+`src/app.css`, accent swatches and `bg-accent-fill` use the approved icon palette
+(Fresh teal and Bright gold in light appearance). Pair solid fills with
+`text-on-accent`. Use `text-accent`, `stroke-accent`, `border-accent` and
+`outline-accent` for contrast-safe ink on ordinary surfaces; bright fills are
+not suitable for small text. Soft selected surfaces use `bg-accent-soft` with
+`text-on-accent-soft`. The accent settings browser test checks text at 4.5:1 and
+meaningful graphics/focus indicators at 3:1 across all presets and both themes.

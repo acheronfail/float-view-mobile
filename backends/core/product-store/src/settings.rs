@@ -86,7 +86,7 @@ impl Default for Settings {
             ride_resume_window_minutes: default_resume_window(),
             minimum_session_distance: 100.,
             theme_preference: "system".into(),
-            accent_preference: "purple".into(),
+            accent_preference: "teal".into(),
             unit_preference: "metric".into(),
             live_widget_slots: ["empty", "powerW", "elapsedMs", "odometerM", "distanceM"]
                 .map(str::to_owned),

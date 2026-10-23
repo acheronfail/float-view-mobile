@@ -14,7 +14,7 @@ const theme = ts.transpileModule(
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }
 ).outputText;
 const colors = { light: 'rgb(248, 250, 252)', dark: 'rgb(2, 6, 23)' };
-const symbolColors = { light: 'rgb(15, 118, 110)', dark: 'rgb(162, 212, 216)' };
+const symbolColors = { light: 'rgb(20, 184, 166)', dark: 'rgb(45, 212, 191)' };
 
 async function loadingColor(page: Page) {
   return page

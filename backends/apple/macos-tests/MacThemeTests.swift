@@ -58,9 +58,9 @@ struct MacThemeTests {
 
     var captures: [Data] = []
     for (preference, expected) in [
-      (ThemePreference.light, [15.0, 118.0, 110.0]),
-      (.dark, [162.0, 212.0, 216.0]),
-      (.light, [15.0, 118.0, 110.0]),
+      (ThemePreference.light, [20.0, 184.0, 166.0]),
+      (.dark, [45.0, 212.0, 191.0]),
+      (.light, [20.0, 184.0, 166.0]),
     ] {
       MacTheme.apply(preference, to: app)
       loading.layoutSubtreeIfNeeded()

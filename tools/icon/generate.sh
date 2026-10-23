@@ -58,9 +58,9 @@ import pathlib
 import sys
 
 source = pathlib.Path(sys.argv[1]).read_text()
-# Swap the dark palette simultaneously so replacements cannot overwrite each other.
+# Derive the approved light teal palette from the dark source artwork.
 import re
-palette = {"#121418": "#a2d4d8", "#a2d4d8": "#121418", "#000000": "#121418"}
+palette = {"#121418": "#f1f5f9", "#2dd4bf": "#14b8a6"}
 source = re.sub("|".join(palette), lambda match: palette[match.group()], source)
 pathlib.Path(sys.argv[2]).write_text(source)
 PYTHON
@@ -86,7 +86,7 @@ for element in rider.iter():
     for attribute in ("stroke", "fill", "style"):
         element.attrib.pop(attribute, None)
 svg = ET.Element(f"{{{namespace}}}svg", {
-    "viewBox": "-37.5 0 125 125", "width": "1024", "height": "1024", "fill": "#121418",
+    "viewBox": "-37.5 0 125 125", "width": "1024", "height": "1024", "fill": "#14b8a6",
 })
 svg.append(rider)
 destination = pathlib.Path(sys.argv[2])

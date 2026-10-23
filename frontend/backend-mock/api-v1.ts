@@ -390,7 +390,7 @@ export class MockBackend {
       rideResumeWindowMinutes: 60,
       minimumSessionDistance: 100,
       themePreference: 'system',
-      accentPreference: 'purple',
+      accentPreference: 'teal',
       unitPreference: 'metric',
       sessionDisplayOptions: { bothFootpadsOff: false, oneFootpadOff: false },
       liveWidgetSlots: [...defaultLiveWidgetSlots],

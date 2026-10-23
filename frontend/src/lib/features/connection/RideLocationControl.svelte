@@ -134,7 +134,7 @@
     {#if presentation.action !== 'none'}
       <button
         type="button"
-        class="min-h-11 touch-manipulation rounded-lg bg-accent px-4 py-2 font-medium text-on-accent disabled:opacity-50"
+        class="min-h-11 touch-manipulation rounded-lg bg-accent-fill px-4 py-2 font-medium text-on-accent disabled:opacity-50"
         disabled={pending || backendState.busy}
         onpointerdown={(event) => activateFromPointer(event, activate)}
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, activate)}

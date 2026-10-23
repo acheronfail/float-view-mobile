@@ -33,7 +33,7 @@ export interface ThemeEnvironment {
 
 export class ThemeController {
   private preference: ThemePreference = 'system';
-  private accent: AccentPreference = 'purple';
+  private accent: AccentPreference = 'teal';
   private systemDark = false;
   private unsubscribe: (() => void) | null = null;
 
@@ -43,7 +43,7 @@ export class ThemeController {
     const hint = this.environment.readHint();
     this.preference = isThemePreference(hint) ? hint : 'system';
     const accentHint = this.environment.readAccentHint();
-    this.accent = isAccentPreference(accentHint) ? accentHint : 'purple';
+    this.accent = isAccentPreference(accentHint) ? accentHint : 'teal';
     this.systemDark = this.environment.systemDark();
     this.apply();
     this.unsubscribe = this.environment.subscribe((systemDark) => {
@@ -56,7 +56,7 @@ export class ThemeController {
     };
   }
 
-  reconcile(preference: ThemePreference, accent: AccentPreference = 'purple') {
+  reconcile(preference: ThemePreference, accent: AccentPreference = 'teal') {
     this.preference = preference;
     this.accent = accent;
     this.environment.writeHint(preference, accent);

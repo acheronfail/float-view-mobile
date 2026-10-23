@@ -97,9 +97,19 @@ describe('accent preferences', () => {
     expect(test.applied.at(-1)).toBe('dark');
   });
 
-  it('uses purple for an invalid startup hint', () => {
-    const test = environment('dark', false, 'orange');
-    new ThemeController(test.value).start();
-    expect(test.accents).toEqual(['purple']);
+  it.each([null, 'orange'])('uses teal for missing or invalid startup hint %s', (hint) => {
+    const test = environment('dark', false, hint);
+    const controller = new ThemeController(test.value);
+    controller.start();
+    controller.reconcile('system');
+    expect(test.accents).toEqual(['teal', 'teal']);
+  });
+
+  it('preserves a saved purple choice after the default changes', () => {
+    const test = environment('system', false, 'purple');
+    const controller = new ThemeController(test.value);
+    controller.start();
+    controller.reconcile('system', 'purple');
+    expect(test.accents).toEqual(['purple', 'purple']);
   });
 });

@@ -59,9 +59,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
         await page.goto(`${endpoint.origin}/#/settings`);
         const group = page.getByRole('group', { name: 'Accent color', exact: true });
-        const purple = group.getByRole('button', { name: 'Purple', exact: true });
-        await purple.waitFor();
-        assert.equal(await purple.getAttribute('aria-pressed'), 'true');
+        const initialTeal = group.getByRole('button', { name: 'Teal', exact: true });
+        await initialTeal.waitFor();
+        assert.equal(await initialTeal.getAttribute('aria-pressed'), 'true');
         for (const width of [320, 390, 768]) {
           await page.setViewportSize({ width, height: 844 });
           const bounds = await group.getByRole('button').evaluateAll((buttons) =>
@@ -127,6 +127,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                   'foreground',
                   'muted',
                   'accent',
+                  'accent-fill',
                   'on-accent',
                   'accent-soft',
                   'on-accent-soft',
@@ -152,7 +153,15 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               // Also used for chart lines, gauge strokes, borders and focus outlines.
               assertContrast('accent', background, 3, 'graphics / focus / selection border');
             }
-            assertContrast('on-accent', 'accent', 4.5, 'solid button / segmented control / toggle');
+            const approvedLightFills: Record<string, string> = { Teal: '#14b8a6', Amber: '#e9a008' };
+            if (themePreference === 'light' && approvedLightFills[accent]) {
+              assert.equal(
+                tokens['accent-fill'],
+                approvedLightFills[accent],
+                'approved icon colour is used for UI fills'
+              );
+            }
+            assertContrast('on-accent', 'accent-fill', 4.5, 'solid button / segmented control / toggle');
             assertContrast('on-accent-soft', 'accent-soft', 4.5, 'selected navigation / status / preset');
             assertContrast('on-warning', 'warning', 4.5, 'warning confirmation / flywheel disable');
             assertContrast('on-danger', 'danger', 4.5, 'destructive confirmation');
@@ -192,10 +201,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 swatch: getComputedStyle(swatch).backgroundColor,
                 ring: getComputedStyle(button).borderColor,
                 background: getComputedStyle(document.body).backgroundColor,
-                accent: getComputedStyle(document.querySelector('section[aria-label="Settings"] .text-accent')!).color,
+                accentFill: getComputedStyle(document.documentElement).getPropertyValue('--app-accent-fill').trim(),
               };
             });
-            assert.equal(selection.swatch, selection.accent, 'swatch matches the applied accent in each theme');
+            assert.equal(
+              contrast(selection.swatch, selection.accentFill),
+              1,
+              'swatch matches the applied solid fill in each theme'
+            );
             assert.ok(contrast(selection.check, selection.swatch) >= 3, 'checkmark contrasts with swatch');
             assert.ok(contrast(selection.ring, selection.background) >= 3, 'selection ring contrasts with canvas');
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);

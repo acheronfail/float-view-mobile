@@ -71,7 +71,7 @@
       <button
         bind:this={acceptButton}
         type="button"
-        class="touch-manipulation rounded-lg bg-accent px-4 py-2 font-medium text-on-accent"
+        class="touch-manipulation rounded-lg bg-accent-fill px-4 py-2 font-medium text-on-accent"
         disabled={busy}
         onpointerdown={(event) => activateFromPointer(event, onaccept)}
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, onaccept)}

@@ -342,7 +342,7 @@
 <section class="grid content-start gap-3">
   <button
     type="button"
-    class="touch-manipulation rounded-md bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
+    class="touch-manipulation rounded-md bg-accent-fill px-4 py-2 text-on-accent disabled:opacity-50"
     disabled={!current || loading || listLoading || !!switchingTuneId || managing || backendState.busy}
     onpointerdown={(event) => activateFromPointer(event, openSave)}
     onclick={(event) => activateFromKeyboardOrAssistiveClick(event, openSave)}>Save tune</button

@@ -59,8 +59,8 @@ final class MacLoadingView: NSView {
     // Resolve the template tint for this view and refresh it after window or
     // system appearance changes, including while startup is still pending.
     symbol.contentTintColor = dark
-      ? NSColor(srgbRed: 162 / 255, green: 212 / 255, blue: 216 / 255, alpha: 1)
-      : NSColor(srgbRed: 15 / 255, green: 118 / 255, blue: 110 / 255, alpha: 1)
+      ? NSColor(srgbRed: 45 / 255, green: 212 / 255, blue: 191 / 255, alpha: 1)
+      : NSColor(srgbRed: 20 / 255, green: 184 / 255, blue: 166 / 255, alpha: 1)
   }
 
   func showFailure(_ failure: StartupFailure, onRetry: @escaping () -> Void) {

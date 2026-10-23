@@ -428,7 +428,7 @@ fn symlinks_and_hardlinks_never_authorize_reset_or_catalog_access() {
 fn accent_presets_validate_and_survive_reopening() {
     let root = Root::new();
     let mut store = root.open();
-    assert_eq!(store.settings().unwrap().accent_preference, "purple");
+    assert_eq!(store.settings().unwrap().accent_preference, "teal");
     for (revision, accent) in ["purple", "blue", "teal", "amber", "rose"]
         .iter()
         .enumerate()
@@ -441,13 +441,23 @@ fn accent_presets_validate_and_survive_reopening() {
             .unwrap();
         assert_eq!(updated.accent_preference, *accent);
     }
+    // Changing the default must not rewrite an explicitly saved purple choice.
+    store
+        .update_settings(5, r#"{"accentPreference":"purple"}"#)
+        .unwrap();
+    drop(store);
+    let mut store = root.open();
+    assert_eq!(store.settings().unwrap().accent_preference, "purple");
+    store
+        .update_settings(6, r#"{"accentPreference":"rose"}"#)
+        .unwrap();
     for invalid in [
         r#"{"accentPreference":"orange"}"#,
         r#"{"accentPreference":null}"#,
         r#"{"accentPreference":1}"#,
     ] {
-        assert_eq!(store.update_settings(5, invalid), Err(Error::InvalidInput));
-        assert_eq!(store.settings().unwrap().revision, 5);
+        assert_eq!(store.update_settings(7, invalid), Err(Error::InvalidInput));
+        assert_eq!(store.settings().unwrap().revision, 7);
     }
     drop(store);
     assert_eq!(root.open().settings().unwrap().accent_preference, "rose");

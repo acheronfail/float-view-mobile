@@ -263,7 +263,7 @@
     >
       <button
         type="button"
-        class="min-h-11 touch-manipulation rounded-md bg-accent px-3 py-2 text-sm leading-tight text-on-accent disabled:opacity-50"
+        class="min-h-11 touch-manipulation rounded-md bg-accent-fill px-3 py-2 text-sm leading-tight text-on-accent disabled:opacity-50"
         disabled={!controller.canWrite || controller.loading || backendState.busy}
         onpointerdown={(event) => activateFromPointer(event, confirmWrite)}
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, confirmWrite)}>Write configuration</button

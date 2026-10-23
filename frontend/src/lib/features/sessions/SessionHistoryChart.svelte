@@ -1191,7 +1191,7 @@
     {#if isZoomed}
       <button
         type="button"
-        class="flex size-14 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-full border border-outline bg-accent text-[10px] font-bold tracking-[0.12em] text-on-accent uppercase shadow-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
+        class="flex size-14 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-full border border-outline bg-accent-fill text-[10px] font-bold tracking-[0.12em] text-on-accent uppercase shadow-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
         aria-label="Reset chart zoom"
         disabled={filterByMap}
         title={filterByMap ? 'Map controls the chart range' : 'Reset chart zoom'}
@@ -1223,8 +1223,8 @@
 
 <style>
   .chart-mode[data-mode='info'] {
-    color: var(--app-accent-purple);
-    background: color-mix(in srgb, var(--app-accent-purple) 8%, var(--app-surface));
+    color: var(--app-accent);
+    background: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface));
   }
 
   .chart-mode[data-mode='zoom'] {
