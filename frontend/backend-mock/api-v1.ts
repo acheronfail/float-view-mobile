@@ -197,13 +197,15 @@ const secondSession: SessionSummary = {
   endedAt: '2026-01-01T00:03:00Z',
 };
 
-const sessionFields = Object.keys(detailedSeriesValues({})).map((name) => ({
-  name,
-  source:
-    name === 'motorLoad' || name === 'batteryLoad' || name === 'estimatedBatteryLevel'
-      ? ('extension' as const)
-      : ('stable' as const),
-}));
+const sessionFields = Object.entries(detailedSeriesValues({}))
+  .filter(([, value]) => value !== null && Number.isFinite(value))
+  .map(([name]) => ({
+    name,
+    source:
+      name === 'motorLoad' || name === 'batteryLoad' || name === 'estimatedBatteryLevel'
+        ? ('extension' as const)
+        : ('stable' as const),
+  }));
 
 function sessionMetadata(summary: SessionSummary): SessionMetadata {
   const hasLocation = summary.sessionId === 'session-1';
@@ -211,7 +213,7 @@ function sessionMetadata(summary: SessionSummary): SessionMetadata {
     summary,
     connectionContextCount: 0,
     markerCount: 0,
-    fields: sessionFields,
+    fields: summary.sampleCount > 0 ? sessionFields : [],
     eventCount: summary.eventCount,
     recordedSampleCount: summary.sampleCount,
     storedSampleCount: summary.sampleCount,

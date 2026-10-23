@@ -32,14 +32,19 @@ async fn run<T: Send + 'static>(
         let mut reader = SessionReader::open_cancellable(&source.path, cancelled)
             .map_err(|_| Failure::Unavailable)?;
         let metadata = reader.metadata().map_err(|_| Failure::Unavailable)?;
-        let extension_fields = reader
+        let recorded_fields: Vec<_> = reader
             .fields()
             .map_err(|_| Failure::Unavailable)?
             .into_iter()
-            .filter(|field| {
-                field.source == session::FieldSource::Extension
-                    && field.first_sequence <= source.boundary.committed_sample_sequence
-            })
+            .filter(|field| field.first_sequence <= source.boundary.committed_sample_sequence)
+            .collect();
+        let extension_fields = recorded_fields
+            .iter()
+            .filter(|field| field.source == session::FieldSource::Extension)
+            .map(|field| field.name.clone())
+            .collect();
+        let recorded_fields = recorded_fields
+            .into_iter()
             .map(|field| field.name)
             .collect();
         let prune = PruneMetadata {
@@ -71,6 +76,7 @@ async fn run<T: Send + 'static>(
             connection_context_count,
             marker_count,
             summary: source.summary,
+            recorded_fields,
             extension_fields,
             boundary: source.boundary,
             prune,

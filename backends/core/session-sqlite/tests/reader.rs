@@ -584,3 +584,27 @@ fn continued_location_pages_preserve_ties_ranges_and_reject_backwards_time() {
         .unwrap();
     assert_eq!(page.rows[0].location_sequence, 3);
 }
+
+#[test]
+fn recorded_fields_include_zero_and_track_first_value_without_registering_nulls() {
+    let directory = TestDirectory::new();
+    let path = directory.file("recorded-fields.sqlite3");
+    let mut writer = SessionWriter::create(&path, metadata()).expect("create");
+    let mut first = sample(1, 0);
+    first.atr_acceleration_difference_erpm_per_second = Some(0.0);
+    first.atr_speed_boost = None;
+    writer.append_samples(&[first]).expect("first sample");
+    let mut second = sample(2, 100);
+    second.atr_acceleration_difference_erpm_per_second = None;
+    second.atr_speed_boost = Some(0.0);
+    writer.append_samples(&[second]).expect("second sample");
+    writer.close().expect("close");
+
+    let mut reader = SessionReader::open(&path).expect("reader");
+    let fields = reader.fields().expect("fields");
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].name, "atrAccelerationDifferenceErpmPerSecond");
+    assert_eq!(fields[0].first_sequence, 1);
+    assert_eq!(fields[1].name, "atrSpeedBoost");
+    assert_eq!(fields[1].first_sequence, 2);
+}

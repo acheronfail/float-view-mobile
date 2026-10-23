@@ -842,6 +842,8 @@ export interface SessionMetadata {
   connectionContextCount: number;
   markerCount: number;
   summary: SessionSummary;
+  /** Fields with at least one recorded value at or before snapshot; zero counts as a value.
+   * Availability covers the session, independently of the selected time or map range. */
   fields: SessionFieldDescriptor[];
   eventCount: number;
   recordedSampleCount: number;

@@ -220,6 +220,18 @@ A ready saved-mode connection SHALL automatically resume an eligible paused ride
 
 The contract SHALL support revision-checked saved-device custom-name updates, persisted settings including nullable `historyGapThresholdSeconds`, local versioned Board Profiles, bounded cursor-paginated standalone session summaries, small session metadata retrieval, authenticated bounded historical-data queries, native export presentation, irreversible ride pruning, and deletion with platform-neutral semantics. Session grouping, automatic linking, linked-ride state, and group mutation operations SHALL NOT be part of the contract. A configured history-gap threshold SHALL be finite and from 0.1 through 3,600 seconds; null or absence SHALL select the derived default. `session.get` SHALL return the requested summary, ordered available numeric-field descriptors, event count, recorded/stored sample counts, prune metadata, and one published snapshot containing history revision, committed sample sequence, committed event sequence, and committed elapsed boundary, but SHALL NOT contain historical numeric points or transition collections. Historical overview series, exact or retained sample pages, and event pages SHALL use the session-data endpoint and a snapshot returned by `session.get`.
 
+Available numeric-field descriptors SHALL include only fields with at least one non-null saved value at or before the returned committed sample sequence. Zero SHALL count as a recorded value. Availability SHALL describe the whole published session independently of map or time filters, and SHALL NOT be inferred from firmware version or current settings. Fields absent throughout the session SHALL be omitted; an available field without readings in a selected range SHALL retain the range-specific empty state.
+
+#### Scenario: Firmware does not publish a metric
+
+- **WHEN** a session contains no saved ATR acceleration difference or ATR speed boost values
+- **THEN** session metadata omits those descriptors and session review does not offer their charts
+
+#### Scenario: Recorded zero and filtered range
+
+- **WHEN** a field has a saved zero value within the published boundary but no readings in the selected map or time range
+- **THEN** metadata retains the field and its chart reports no readings in that range
+
 #### Scenario: Saved board rename
 
 - **WHEN** the frontend supplies a valid custom display name or clears the override at the current saved-device revision

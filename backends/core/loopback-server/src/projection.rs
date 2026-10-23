@@ -158,9 +158,7 @@ pub fn boundary(facts: &Boundary) -> Value {
         "committedLocationSequence":facts.committed_location_sequence,"committedLocationElapsedMs":facts.committed_location_elapsed_ms})
 }
 pub fn metadata(facts: &SessionMetadata) -> Value {
-    let mut fields: Vec<_> = NUMERIC_FIELDS.iter().map(|s| s.to_string()).collect();
-    fields.extend(facts.extension_fields.clone());
-    json!({"summary":facts.summary,"fields":descriptors(&fields,&facts.extension_fields),"eventCount":facts.summary.event_count,
+    json!({"summary":facts.summary,"fields":descriptors(&facts.recorded_fields,&facts.extension_fields),"eventCount":facts.summary.event_count,
         "recordedSampleCount":facts.boundary.recorded_sample_count,"storedSampleCount":facts.boundary.stored_sample_count,
         "connectionContextCount":facts.connection_context_count,"markerCount":facts.marker_count,"prune":facts.prune,"snapshot":boundary(&facts.boundary),"location":{"available":facts.boundary.recorded_location_count > 0,
         "count":facts.boundary.recorded_location_count,"lastSequence":facts.boundary.committed_location_sequence,
