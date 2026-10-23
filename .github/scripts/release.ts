@@ -1,3 +1,4 @@
+import { readSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { releaseNotes, releaseNotesBase } from './notes.ts';
 import { bumpVersion, git, latestStable, parseVersion, type Bump } from './version.ts';
@@ -10,7 +11,26 @@ export function preview(ref = 'HEAD', cwd = process.cwd()) {
   return { commit, previousTag, version, notes };
 }
 
-export function release(bump: string, cwd = process.cwd(), candidateBump?: string): string {
+function confirmRelease(version: string, commit: string): boolean {
+  process.stderr.write(
+    `Create tag ${version} at ${commit} and push it to origin? This starts the release workflow. [y/N] `
+  );
+  const byte = Buffer.alloc(1);
+  let answer = '';
+  while (answer.length < 1024) {
+    if (readSync(0, byte, 0, 1, null) === 0) return false;
+    if (byte[0] === 10) return /^(y|yes)$/i.test(answer.trim());
+    answer += byte.toString();
+  }
+  return false;
+}
+
+export function release(
+  bump: string,
+  cwd = process.cwd(),
+  candidateBump?: string,
+  confirm: (version: string, commit: string) => boolean = confirmRelease
+): string {
   if (!['patch', 'minor', 'major', 'candidate'].includes(bump))
     throw new Error('Usage: just release patch|minor|major|candidate');
   if (candidateBump !== undefined && (bump !== 'candidate' || !['patch', 'minor', 'major'].includes(candidateBump)))
@@ -43,6 +63,7 @@ export function release(bump: string, cwd = process.cwd(), candidateBump?: strin
     parseVersion(version);
   } else version = bumpVersion(base, bump as Bump);
   if (git(['tag', '--list', version], cwd)) throw new Error(`Tag ${version} is already reserved`);
+  if (!confirm(version, commit)) throw new Error('Release cancelled; no tag created or pushed');
   git(['tag', '-a', version, '-m', `Float View ${version}`, commit], cwd);
   // Keep the local tag on a failed push so a retry cannot accidentally select another commit.
   git(['push', 'origin', `refs/tags/${version}:refs/tags/${version}`], cwd);

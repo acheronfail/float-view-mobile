@@ -119,6 +119,11 @@ is retained, not which acceptance checks must pass.
 
 ## App releases
 
+Stable and candidate commands show the proposed tag and source commit, then ask
+for confirmation before creating or pushing the tag. Enter `y` or `yes` to
+continue; empty input, any other answer, or end of input cancels the release.
+Fetching and validation happen before the prompt. Preview commands do not prompt.
+
 `just release preview` prints the next patch release's Markdown notes from the latest
 local stable ancestor tag through `HEAD`, including changes already published in RCs. Pass a ref, such as `just release preview master`,
 to inspect another commit. It uses the same note generator as publication, works offline

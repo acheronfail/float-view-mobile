@@ -5,8 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { buildNumber, bumpVersion, git, latestRelease, latestStable, parseVersion, resolveVersion } from './version.ts';
-import { preview, release } from './release.ts';
+import { preview, release as confirmedRelease } from './release.ts';
 import { releaseNotes } from './notes.ts';
+
+function release(bump: string, cwd: string, candidateBump?: string) {
+  return confirmedRelease(bump, cwd, candidateBump, () => true);
+}
 
 const directories: string[] = [];
 let commitNumber = 0;
@@ -104,6 +108,61 @@ test('release helper pushes an annotated semantic tag without modifying source',
   assert.equal(git(['status', '--porcelain'], dir), '');
 });
 
+for (const [args, version] of [
+  [['patch'], 'v0.1.50'],
+  [['minor'], 'v0.2.0'],
+  [['major'], 'v1.0.0'],
+  [['candidate'], 'v1.0.0-rc.1'],
+  [['candidate', 'minor'], 'v0.2.0-rc.1'],
+] as const) {
+  test(`release ${args.join(' ')} CLI requires confirmation before tagging and pushing`, () => {
+    const dir = repository();
+    git(['tag', 'v0.1.49'], dir);
+    const origin = remote(dir);
+    const sha = git(['rev-parse', 'HEAD'], dir);
+    const script = new URL('./release.ts', import.meta.url).pathname;
+    for (const input of ['n\n', '\n', '', 'maybe\n', 'yes']) {
+      const result = spawnSync(process.execPath, ['--strip-types', script, ...args], {
+        cwd: dir,
+        encoding: 'utf8',
+        input,
+      });
+      assert.notEqual(result.status, 0, `Unexpected confirmation for ${JSON.stringify(input)}`);
+      assert.ok(result.stderr.includes(`Create tag ${version} at ${sha} and push it to origin?`));
+      assert.match(result.stderr, /Release cancelled/);
+      assert.doesNotMatch(result.stdout, /Pushed/);
+      assert.equal(git(['tag', '--list'], dir), 'v0.1.49');
+      assert.equal(git(['tag', '--list'], origin), 'v0.1.49');
+    }
+    const result = spawnSync(process.execPath, ['--strip-types', script, ...args], {
+      cwd: dir,
+      encoding: 'utf8',
+      input: args[0] === 'candidate' ? 'YES\n' : 'y\n',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes(`Pushed ${version}`));
+    assert.equal(git(['cat-file', '-t', `refs/tags/${version}`], dir), 'tag');
+    assert.equal(git(['rev-parse', `${version}^{commit}`], origin), sha);
+  });
+}
+
+test('release confirmation runs before the local tag exists', () => {
+  const dir = repository();
+  const origin = remote(dir);
+  assert.throws(
+    () =>
+      confirmedRelease('patch', dir, undefined, (version, sha) => {
+        assert.equal(version, 'v0.0.1');
+        assert.equal(sha, git(['rev-parse', 'HEAD'], dir));
+        assert.equal(git(['tag', '--list'], dir), '');
+        return false;
+      }),
+    /Release cancelled/
+  );
+  assert.equal(git(['tag', '--list'], dir), '');
+  assert.equal(git(['tag', '--list'], origin), '');
+});
+
 test('release helper rejects dirty, non-master and unpushed commits', () => {
   const dir = repository();
   remote(dir);
@@ -187,6 +246,7 @@ test('release preview CLI prints Markdown and supports the first release', () =>
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stderr, /Previewing v0\.0\.1: start of history\.\.HEAD/);
+  assert.doesNotMatch(result.stderr, /\[y\/N\]/);
   assert.match(result.stdout, /^## Other changes/);
   assert.match(result.stdout, /https:\/\/github.com\/test\/repo\/commits\/v0.0.1/);
   assert.equal(git(['tag', '--list'], dir), '');
@@ -237,7 +297,7 @@ test('candidate bumps reserve separate immutable sequences and CLI supports mino
   const result = spawnSync(
     process.execPath,
     ['--strip-types', new URL('./release.ts', import.meta.url).pathname, 'candidate', 'minor'],
-    { cwd: dir, encoding: 'utf8' }
+    { cwd: dir, encoding: 'utf8', input: 'yes\n' }
   );
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Pushed v1\.1\.0-rc\.2/);
