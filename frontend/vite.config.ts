@@ -44,7 +44,7 @@ export function backendProxy(target: string): ProxyOptions {
     target,
     ws: true,
     changeOrigin: true,
-    rewriteWsOrigin: true,
+    rewriteWsOrigin: target !== MOCK_BACKEND_ORIGIN,
     timeout: 5_000,
     proxyTimeout: 5_000,
     configure(proxy) {

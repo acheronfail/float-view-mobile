@@ -139,11 +139,16 @@
             <h3 id={`${titleId}-${index}`} class="mb-2 text-xs font-semibold tracking-widest text-muted uppercase">
               {group}
             </h3>
-            <div class="grid grid-cols-2 gap-2">
+            <div
+              class="grid gap-2"
+              class:grid-cols-3={actions.some((action) => action.group === group && action.selected !== undefined)}
+              class:grid-cols-2={!actions.some((action) => action.group === group && action.selected !== undefined)}
+            >
               {#each actions.filter((action) => (action.group ?? 'Actions') === group) as action (action.label)}
                 <button
                   type="button"
                   aria-label={action.label}
+                  aria-current={action.selected ? 'page' : undefined}
                   role={typeof action.checked === 'boolean' ? 'switch' : undefined}
                   aria-checked={typeof action.checked === 'boolean' ? action.checked : undefined}
                   aria-describedby={action.checked === null ? `${titleId}-unknown-${action.label}` : undefined}
@@ -152,6 +157,8 @@
                   class="flex min-h-14 min-w-0 touch-pan-y items-center gap-2 rounded-lg border border-outline bg-surface px-3 py-2 text-left hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
                   class:text-danger={action.appearance === 'destructive' || action.appearance === 'danger'}
                   class:text-warning={action.appearance === 'warning'}
+                  class:ring-2={action.selected}
+                  class:ring-accent={action.selected}
                   onpointerdown={(event) =>
                     activateFromPointer(event, () => activate(action, false), { scrollable: true })}
                   onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => activate(action, true))}

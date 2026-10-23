@@ -1,7 +1,8 @@
 <script lang="ts">
+  import './widget-title.css';
   import { prefersReducedMotion, Tween } from 'svelte/motion';
   import type { BmsState, LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
-  import { liveValue, liveValueColor, liveValueText, liveValueStatus } from './live-values';
+  import { liveValue, liveValueColor, liveValueText, liveValueStatus, liveValueCatalog } from './live-values';
 
   let {
     field,
@@ -11,6 +12,9 @@
 
     bms,
     nowMs,
+    prominent = false,
+    compact = false,
+    inheritColor = false,
   }: {
     field: LiveWidgetField;
     sample: LiveSample | null | undefined;
@@ -19,6 +23,9 @@
 
     bms?: BmsState | null;
     nowMs?: number;
+    prominent?: boolean;
+    compact?: boolean;
+    inheritColor?: boolean;
   } = $props();
   const reading = $derived(liveValue(field, sample, units, estimatedLevel, bms, Math.max(nowMs ?? 0, Date.now())));
   const animated = new Tween(0);
@@ -47,11 +54,13 @@
   );
 </script>
 
-<div class="[container-type:inline-size]">
-  <div class="truncate text-[10px] font-semibold tracking-wide text-muted uppercase">{label}</div>
+<div class="[container-type:inline-size] w-full text-center">
+  <div class="live-widget-title" title={liveValueCatalog[field].name}>
+    {label}
+  </div>
   <div
-    class={`font-mono font-semibold whitespace-nowrap tabular-nums ${liveValueColor(field, value, sample, units)}`}
-    style:font-size={`min(0.875rem, ${fontWidth}cqi)`}
+    class={`font-mono font-semibold whitespace-nowrap tabular-nums ${prominent || compact ? 'leading-tight' : ''} ${inheritColor ? '' : liveValueColor(field, value, sample, units)}`}
+    style:font-size={`min(${prominent ? (compact ? '1.125rem' : inheritColor ? 'var(--reading-font-cap, 4rem)' : '4rem') : '0.875rem'}, ${fontWidth}cqi)`}
   >
     <span class="sr-only">{liveValueStatus(field, sample)} </span>{text}<span class="ml-0.5 text-[0.7em] font-normal"
       >{reading.unit}</span

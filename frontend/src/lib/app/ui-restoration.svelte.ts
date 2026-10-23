@@ -73,6 +73,13 @@ export function resolveUiCheckpoint(checkpoint: UiCheckpoint, state: AppState): 
     }
   }
   const connection = state.activeConnection;
+  if (
+    result.live?.mode === 'custom' &&
+    (connection?.trackingMode !== 'saved' || result.live.savedDeviceId !== connection.savedDeviceId)
+  ) {
+    result.live = null;
+    result.surface = null;
+  }
   if (result.route.kind === 'live' && result.surface) {
     const surface = result.surface;
     const blocked =

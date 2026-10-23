@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 describe.sequential('mock transport authentication', () => {
-  it('rejects an invalid launch token through the Vite proxy', async () => {
+  it('preserves valid mock authentication and rejects an invalid launch token through the Vite proxy', async () => {
     const port = await startMockServer(MOCK_BACKEND_PORT);
     running = true;
     vite = await createServer({
@@ -37,6 +37,15 @@ describe.sequential('mock transport authentication', () => {
     if (!address || typeof address === 'string') throw new Error('Vite test server did not bind TCP');
     const endpoint = new URL(getMockBootstrap(port).webSocketUrl);
     endpoint.port = String(address.port);
+    const authenticated = await new Promise<boolean>((resolve, reject) => {
+      const socket = new WebSocket(endpoint, { origin: DEVELOPMENT_ORIGIN });
+      socket.once('open', () => {
+        socket.close();
+        resolve(true);
+      });
+      socket.once('error', reject);
+    });
+    expect(authenticated).toBe(true);
     endpoint.searchParams.set('token', 'invalid');
     const result = await new Promise<number>((resolve, reject) => {
       const socket = new WebSocket(endpoint, { origin: DEVELOPMENT_ORIGIN });

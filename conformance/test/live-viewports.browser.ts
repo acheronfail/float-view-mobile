@@ -84,6 +84,10 @@ for (const [engineName, engine] of Object.entries({ chromium, webkit })) {
             }
             // Fix visible values while preserving authoritative revision, sequence and freshness.
             Object.assign(active.latestSample, {
+              // This matrix measures ordinary dashboard fit. Parent warnings have
+              // separate responsive/scroll coverage in live-menu and custom-dashboard.
+              firmwareFault: null,
+              fatalErrorLatched: false,
               speedKph: 24.3,
               dutyCycle: 0.42,
               packVoltageV: 58.4,

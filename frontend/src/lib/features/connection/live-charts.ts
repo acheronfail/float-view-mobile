@@ -8,6 +8,9 @@ export type LiveChartField = LiveWidgetField | 'bmsCircuitryTempC' | 'motorLoad'
 export interface LiveChartPoint {
   time: number;
   sample: LiveSample;
+  estimatedLevel?: number | null;
+  bms?: BmsState | null;
+  capturedAtMs?: number;
   bmsTemperatures?: { circuitryC: number | null; cellsC: number | null };
 }
 export function liveChartGroups(showBmsTemperatures: boolean): { title: string; fields: LiveChartField[] }[] {
@@ -35,7 +38,8 @@ export function liveChartReading(
   sample: LiveSample | null | undefined,
   units: UnitPreference,
   bms?: BmsState | null,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  estimatedLevel?: number | null
 ) {
   if (field === 'dutyCycle' || field === 'motorLoad' || field === 'batteryLoad') {
     const source = field === 'dutyCycle' ? 'duty' : field === 'motorLoad' ? 'motor' : 'battery';
@@ -48,7 +52,7 @@ export function liveChartReading(
     };
   }
   if (field !== 'bmsCircuitryTempC') {
-    const reading = liveValue(field, sample, units, undefined, bms, nowMs);
+    const reading = liveValue(field, sample, units, estimatedLevel, bms, nowMs);
     return field === 'bmsHighestCellTempC' ? { ...reading, label: 'Cells' } : reading;
   }
   const celsius = freshBmsSnapshot(bms, nowMs)?.highestCircuitryTemperatureC;
@@ -64,25 +68,43 @@ export function liveChartGeometry(
   points: LiveChartPoint[],
   fields: LiveChartField[],
   units: UnitPreference,
-  now: number
+  now: number,
+  options: { rawReadings?: boolean } = {}
 ) {
   const visible = retainLivePoints(points, now);
   const series = fields.map((field) =>
     visible.map((point) => ({
       time: point.time,
-      value:
-        field === 'bmsCircuitryTempC'
+      value: options.rawReadings
+        ? liveValue(
+            field as LiveWidgetField,
+            point.sample,
+            units,
+            point.estimatedLevel,
+            point.bms,
+            point.capturedAtMs ?? Date.parse(point.sample.observedAt)
+          ).value
+        : field === 'bmsCircuitryTempC'
           ? displayTemperature(point.bmsTemperatures?.circuitryC, units)
           : field === 'bmsHighestCellTempC'
             ? displayTemperature(point.bmsTemperatures?.cellsC, units)
-            : liveChartReading(field, point.sample, units).value,
+            : liveChartReading(
+                field,
+                point.sample,
+                units,
+                point.bms,
+                point.capturedAtMs ?? Date.parse(point.sample.observedAt),
+                point.estimatedLevel
+              ).value,
     }))
   );
   const values = series.flatMap((line) => line.flatMap((point) => (point.value === null ? [] : [point.value])));
   const minimum = Math.min(0, ...values);
-  const maximum = Math.max(1, ...values);
+  const upper = Math.max(options.rawReadings ? 0 : 1, ...values);
+  const maximum = upper === minimum ? minimum + 1 : upper;
   const padding = (maximum - minimum) * 0.08;
-  const isLoad = fields.every((field) => ['dutyCycle', 'motorLoad', 'batteryLoad'].includes(field));
+  const isLoad =
+    !options.rawReadings && fields.every((field) => ['dutyCycle', 'motorLoad', 'batteryLoad'].includes(field));
   const low = isLoad ? 0 : minimum < 0 ? minimum - padding : 0;
   const high = isLoad ? 100 : maximum + padding;
   return {

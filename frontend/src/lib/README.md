@@ -4,6 +4,105 @@ Organize code by ownership first. Keep related components, reactive controllers,
 models, pure calculations, and tests together instead of separating them into
 catch-all technical directories.
 
+## Custom board dashboards
+
+`features/connection/CustomView.svelte` owns one draft editor for the active saved
+board. `backend/contract.ts` defines optional `customDashboard` profile data;
+`backend/custom-dashboard.ts` validates the closed shape and metric range domains,
+mirrored in the shared Rust product store. Existing authenticated Board Profile
+reads and revision-checked patches persist it. Dashboard reads do not replace an
+open board editor. Conflicts retain the draft and require an explicit reload;
+they never silently retry against a newer revision. Layouts are not browser data
+or telemetry snapshot collections. Live's five slots remain independent.
+
+`custom-dashboard.ts` derives initial widgets from nonempty Live slots and owns
+identity-based ordering. `CustomWidget.svelte` composes the shared reading,
+lighting, gauge, battery, temperature, footpad and plot renderers; it starts no
+history collector or profile writes. `WidgetPicker.svelte` offers searchable values, popular Number/1×1 choices,
+complete reading categories, and separate visual panels/controls from the closed
+`widget-catalog.ts` catalogue. Cards use primary-pointer and guarded keyboard
+activation, with inert presentation-only thumbnails. Selection stays outside the
+draft until Add widget; Cancel adds nothing.
+`WidgetConfiguration.svelte` configures one draft or staged widget. Compatible
+Number/Bar/Gauge/Chart choices are visible buttons. Illustrated size buttons
+replace Width/Height inputs and retain saved non-preset dimensions as a selected
+button. Gauge and chart presets include 3×3, 3×4 and 4×4. The preview uses actual dashboard
+cell geometry and the same footprint mapping as grid placement.
+Oversized previews scale down uniformly to fit the editor. The modal’s Save
+action updates the draft; widget × buttons are the only removal action. One typed switch and the existing reading catalogue define the
+supported widgets; there is no registration/plugin framework.
+
+The responsive grid saves order and bounded `{columns, rows}` intent, never pixel
+coordinates or breakpoint layouts. Existing named compact/medium/large values
+remain valid and unchanged; only explicit dimension changes replace them. Columns adapt to available container width,
+spans clamp to fit, and ordered row placement fits widgets beside larger neighbours
+without changing saved order or DOM/keyboard traversal order.
+From 20rem of available container width, four compact widgets fit across; narrow
+containers use two columns and the narrowest use one. Wider containers use eight
+columns from 40rem and twelve from 72rem. Rows use 55% of column width, bounded
+to 3.5–5rem. Existing compact widgets span 1×1 cells, medium 2×2 and large 4×2. Explicit dimensions independently support 1–4 columns and 1–4 rows; only
+width clamps to available columns, so a 1×4 tile stays four rows tall.
+Four compact widgets fit in the space beside a medium widget; they never stretch
+to its height. One-row cards use 6px padding and bounded numeric text; shared battery and temperature renderers
+condense their labels and scales while retaining the selected presentation.
+Trends use the remaining cell height, compact numeric renderers tighten line
+spacing, and four-temperature compact views use a two-column reading layout.
+Narrow and short screens scroll vertically. Widget identity survives reflow and
+size never changes the selected number/bar/gauge/trend presentation. Host viewport
+and safe areas are respected; unreported physical hinges are not detected.
+
+Editor controls float over the bottom of the dashboard with permanent scroll
+clearance in both modes. Add/Cancel/Save appear without shifting widgets or the
+scroll viewport, and hide during configuration, picking and discard confirmation.
+Instructions are assistive text rather than varying in-flow paragraphs. The
+existing motion primitives make outgoing controls inert during their fade.
+
+Reading gauges use a cell-filling dial with the label, actual value and units
+inside the arc, plus range endpoints and unavailable/out-of-range indications.
+They retain the same reading catalogue and semantic colours as number/bar views.
+
+Custom readings inherit one semantic colour through labels, values, ranges, bar
+fills, gauge strokes and single-series traces. Load follows the authoritative
+winning source. Shared Live number/chart defaults remain independent.
+
+Hold any widget to create a local draft with Save/Cancel; keep holding to drag
+the lifted preview. There is no Edit button. Keyboard/assistive users have a
+labelled Arrange action on each widget; empty dashboards offer Add. While editing,
+tap any widget to configure;
+hold and drag anywhere on touch to reorder, or drag with a mouse. Touch movement
+before the hold scrolls the dashboard. While editing, each widget has a circular ×
+button that removes it from the draft. Its independent activation cancels on
+movement and never opens configuration or starts a drag. Focus moves to the next
+widget (or Add when empty). Widget surfaces describe Alt+Left/Right shortcuts for
+keyboard ordering; configuration has no Move earlier/later buttons. `dashboard-gesture.ts` owns this
+bounded Pointer Events arbitration, cancellation and scroll-container autoscroll.
+The frame intercepts pointerdown before ordinary controls register activation; a
+short stationary release invokes the original button once, while holding never
+activates it. Widget surfaces forward early vertical movement to the scroll owner
+in both modes so the same pointer can continue dragging after a hold. An inert
+pointer-following preview marks the lift and neighbouring widgets animate into
+the proposed order. Cancelling restores the original draft ordering.
+Editing intercepts all ordinary widget controls. Static borders indicate edit
+mode and reduced-motion preferences suppress wiggle and placement animations. Only Save writes
+the complete dashboard; leaving a dirty draft asks whether to discard it.
+
+`live-history.svelte.ts` creates one route-scoped `LiveHistoryBuffer`, reused by
+the existing Live charts dialog and custom trends through `LiveChartPlot.svelte`.
+It retains at most 30 seconds/1,500 existing delivered samples total, deduplicates
+sequences, captures per-point BMS/estimate values and clears on incompatible
+connection boundaries. No chart requests extra telemetry, session backfill or
+recording changes. Leaving the live route or recreating the WebView releases
+history/timers. Hiding the frontend stops collection and its clock; foreground
+charts start from fresh samples. View changes and resizing preserve the surviving buffer.
+
+`LiveWarnings.svelte` belongs to the live route, above all three view compositions.
+`warning-layer.ts` keeps its single presenter attached to the dashboard. Menus,
+widget panels and confirmation dialogs conceal and disable it without reparenting
+or changing the dashboard clearance. Dismissal restores the dashboard warnings;
+ordinary editing still shows them. The authoritative flywheel overlay retains exclusive interaction.
+The UI checkpoint restores Custom in viewing mode only; drafts, widget dialogs,
+drag state and chart samples remain transient.
+
 ## Owners
 
 - `app/` owns the persistent application shell, primary navigation, and effective theme.
@@ -68,7 +167,7 @@ Event reads refresh only when the committed event boundary changes, and errors
 remain visible with retry. The sheet participates in the existing UI checkpoint.
 
 Live telemetry exposes the fatal error latch separately from an active VESC
-firmware fault. A danger overlay over the gauge names the active or most recently
+firmware fault. A parent-owned danger overlay above all live views names the active or most recently
 recovered fault while the latch remains set, including an unknown raw fault code.
 Clearing an active fault alone does not remove a latched warning. The retained
 last beep reason alone never creates this overlay. Detailed telemetry shows the
@@ -354,7 +453,7 @@ background. The typed contract bounds the encoded record to 4,096 UTF-8 bytes
 and each target to 512 bytes.
 
 The record contains the current route and session/board return context, Live
-normal/detailed mode and at most one allowlisted actions or feature surface.
+normal/detailed/custom mode and at most one allowlisted actions or feature surface.
 Live and board-history owners report their presentation explicitly. One save
 can be in flight with one latest queued replacement; identical records are
 ignored. A change interrupted before acknowledgement can be lost.
@@ -504,3 +603,5 @@ capabilities. The dialog offers offline supported-version guidance, explicit Che
 again and primary Back to boards. Escape/backdrop/native Back disconnect; transient
 or unreadable INFO failures retain generic retry guidance. Both native hosts use
 the shared projection, without adapter-specific interpretation.
+
+The live route restores `BoardProfileValues.lastLiveView` per saved board (Live by default), with an eligible process checkpoint taking precedence. Explicit selection saves only that field before mounting the destination so its dashboard editor reads the current revision. Preference conflicts retry once from a fresh profile; dashboard draft saves retain their explicit conflict handling. Guests do not persist a selection.

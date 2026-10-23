@@ -359,6 +359,14 @@ pub(crate) fn check_revision(actual: u64, expected: u64) -> Result<()> {
     }
 }
 pub(crate) fn validate_profile(values: &Map<String, Value>) -> Result<()> {
+    if let Some(value) = values.get("lastLiveView").filter(|v| !v.is_null())
+        && !matches!(value.as_str(), Some("normal" | "detailed" | "custom"))
+    {
+        return Err(Error::InvalidInput);
+    }
+    if let Some(value) = values.get("customDashboard") {
+        crate::dashboard::validate(value)?;
+    }
     if let Some(value) = values.get("appearance").filter(|v| !v.is_null()) {
         let appearance: crate::BoardAppearance =
             serde_json::from_value(value.clone()).map_err(|_| Error::InvalidInput)?;

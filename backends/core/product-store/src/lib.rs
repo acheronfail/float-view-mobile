@@ -11,6 +11,7 @@ pub mod battery_catalog;
 pub mod battery_presets;
 mod boards;
 mod csv;
+mod dashboard;
 mod files;
 pub use archive::{ArchiveExport, ArchiveImport, ExportFormat};
 pub use files::{FileCancellation, ImportSink, StagedFile};

@@ -502,6 +502,50 @@ export class BackendState {
     return opened && generation === this.boardProfileGeneration;
   }
 
+  /** Request-scoped dashboard reads do not replace an open Board Profile editor. */
+  async readDashboardProfile(savedDeviceId: string): Promise<BoardProfile> {
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    return this.client.request('boardProfile.get', { savedDeviceId });
+  }
+
+  async saveLastLiveView(savedDeviceId: string, lastLiveView: import('./contract').LiveViewMode): Promise<void> {
+    const client = this.client;
+    const checkTarget = () => {
+      if (!client?.isOpen) throw new Error('Backend is not connected');
+      const active = this.snapshot?.activeConnection;
+      if (active?.savedDeviceId !== savedDeviceId || active.trackingMode !== 'saved')
+        throw new Error('The connected board changed.');
+    };
+    checkTarget();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const profile = await client!.request('boardProfile.get', { savedDeviceId });
+      checkTarget();
+      if (profile.values.lastLiveView === lastLiveView) return;
+      try {
+        await client!.request('boardProfile.update', {
+          savedDeviceId,
+          expectedRevision: profile.revision,
+          patch: { lastLiveView },
+        });
+        return;
+      } catch (error) {
+        if (attempt || !(error instanceof ApiRequestError) || error.code !== 'conflict') throw error;
+      }
+    }
+  }
+
+  async saveDashboard(
+    savedDeviceId: string,
+    expectedRevision: number,
+    customDashboard: import('./contract').CustomDashboard
+  ): Promise<BoardProfile> {
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    if (this.snapshot?.activeConnection?.savedDeviceId !== savedDeviceId)
+      throw new Error('The connected board changed.');
+    // Conflicts are deliberately not retried against a newer revision.
+    return this.client.request('boardProfile.update', { savedDeviceId, expectedRevision, patch: { customDashboard } });
+  }
+
   async updateBoardProfile(savedDeviceId: string, patch: Record<string, unknown>): Promise<boolean> {
     const profile = this.selectedBoardProfile;
     const generation = this.boardProfileGeneration;

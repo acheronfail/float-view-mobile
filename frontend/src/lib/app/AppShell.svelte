@@ -189,6 +189,9 @@
     openMenu() {
       if (appHeader.menu?.length && !appHeader.menuUnavailable) menuOpen = true;
     },
+    closeMenu() {
+      menuOpen = false;
+    },
     focusMenu() {
       appHeaderButton?.focus();
     },
@@ -319,7 +322,7 @@
   style={`--app-floating-controls-visibility: ${menuOpen ? 'hidden' : 'visible'}`}
 >
   <div
-    class="app-safe-area mx-auto flex flex-col"
+    class="app-content app-safe-area mx-auto flex flex-col"
     class:min-h-screen={!liveRoute}
     class:h-full={liveRoute}
     class:min-h-0={liveRoute}
@@ -390,3 +393,9 @@
 {#if safetyGateOpen}
   <SafetyDisclaimer busy={safetyBusy} error={safetyError} onaccept={acceptSafety} />
 {/if}
+
+<style>
+  .app-content:has(:global(.custom-dashboard)) {
+    max-width: 100rem;
+  }
+</style>

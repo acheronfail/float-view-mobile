@@ -249,7 +249,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.waitForTimeout(100);
       assert.match(page.url(), /#\/sessions$/);
       assert.equal(await page.getByRole('dialog').count(), 0);
-      assert.equal(mutations.length, 0);
+      assert.deepEqual(mutations, ['boardProfile.update'], 'only the explicit Detailed View choice writes a profile');
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

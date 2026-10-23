@@ -11,11 +11,15 @@
     sample,
 
     units,
+    liveBox = true,
+    idPrefix = 'gauge',
   }: {
     sessionId?: string | null;
     sample: LiveSample | null | undefined;
 
     units: UnitPreference;
+    liveBox?: boolean;
+    idPrefix?: string;
   } = $props();
 
   const center = 160;
@@ -119,10 +123,10 @@
       viewBox="0 0 320 300"
       class="block h-full w-full overflow-visible text-foreground"
       role="group"
-      aria-labelledby="gauge-title gauge-description"
+      aria-labelledby={`${idPrefix}-title ${idPrefix}-description`}
     >
-      <title id="gauge-title">Live speed and drive load gauge</title>
-      <desc id="gauge-description">
+      <title id={`${idPrefix}-title`}>Live speed and drive load gauge</title>
+      <desc id={`${idPrefix}-description`}>
         Speed is {formatSpeedKph(sample?.speedKph, units)} and {loadLabel.toLowerCase()} is {load == null
           ? 'unavailable'
           : `${load.percentage.toFixed(0)} percent`}.
@@ -223,9 +227,9 @@
         {load == null ? '—' : `${animatedLoad.current.toFixed(0)}%`}
       </text>
     </svg>
-    <div class="gauge-centre absolute top-[77.333333%] left-[32.8125%] w-[34.375%]">
-      <LiveValueBox {sample} slot={4} />
-    </div>
+    {#if liveBox}<div class="gauge-centre absolute top-[77.333333%] left-[32.8125%] w-[34.375%]">
+        <LiveValueBox {sample} slot={4} />
+      </div>{/if}
   </div>
   <MarkerCapture {sessionId} />
 </div>

@@ -591,7 +591,13 @@ export interface SavedDevice {
   summary: BoardHistorySummary;
 }
 
+export type LiveViewMode = 'normal' | 'detailed' | 'custom';
+
 export interface BoardProfileValues extends Record<string, unknown> {
+  /** Last explicitly selected view for this saved board. Absent/null defaults to Live. */
+  lastLiveView?: LiveViewMode | null;
+  /** Optional additive dashboard. Null/absence uses defaults; an empty widget list is intentional. */
+  customDashboard?: CustomDashboard | null;
   /** Optional additive profile setting; null restores the default appearance. */
   appearance?: BoardAppearance | null;
   seriesCount?: number;
@@ -958,6 +964,33 @@ export const liveWidgetFields = [
   'chargingVoltageV',
 ] as const;
 export type LiveWidgetField = (typeof liveWidgetFields)[number];
+export type DashboardReading = Exclude<LiveWidgetField, 'empty' | 'headlights' | 'leds'>;
+export interface DashboardDimensions {
+  /** Integer cell spans, independently bounded to 1–4. */
+  columns: number;
+  rows: number;
+}
+/** Existing named footprints remain supported; new selections use explicit dimensions. */
+export type DashboardSize = 'compact' | 'medium' | 'large' | DashboardDimensions;
+export type DashboardPresentation = 'number' | 'bar' | 'gauge' | 'trend';
+/** Ranges use metric display units: km/h, km, °C, percent, ms, or the catalogue unit. */
+export interface DashboardRange {
+  min: number;
+  max: number;
+}
+export type DashboardWidget = { id: string; size: DashboardSize } & (
+  | { kind: 'reading'; field: DashboardReading; presentation: DashboardPresentation; range?: DashboardRange }
+  | { kind: 'visual'; visual: 'speedGauge' | 'battery' | 'temperatures' | 'footpads' }
+  | { kind: 'control'; control: 'headlights' | 'leds' }
+);
+/** Closed version-1 shape: <=24 widgets, unique 1–64 ASCII identifier IDs, <=8,192 UTF-8 bytes.
+ * The complete Board Profile remains bounded to 16,384 bytes. */
+export interface CustomDashboard {
+  version: 1;
+  widgets: DashboardWidget[];
+}
+export const MAX_DASHBOARD_WIDGETS = 24;
+export const MAX_DASHBOARD_BYTES = 8192;
 export type LiveWidgetSlots = [LiveWidgetField, LiveWidgetField, LiveWidgetField, LiveWidgetField, LiveWidgetField];
 export const defaultLiveWidgetSlots: LiveWidgetSlots = ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM'];
 
@@ -1067,7 +1100,7 @@ export type UiSurface =
 export interface UiCheckpoint {
   version: 1;
   route: UiRoute;
-  live: { deviceId: string; mode: 'normal' | 'detailed' } | null;
+  live: { deviceId: string; mode: 'normal' | 'detailed' | 'custom'; savedDeviceId?: string } | null;
   surface: UiSurface | null;
 }
 export const MAX_UI_CHECKPOINT_BYTES = 4096;

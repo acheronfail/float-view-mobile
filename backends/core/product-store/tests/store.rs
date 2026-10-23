@@ -1143,6 +1143,131 @@ fn live_widget_slots_are_validated_and_persisted() {
 }
 
 #[test]
+fn custom_dashboard_is_atomic_bounded_independent_and_survives_reopen() {
+    let root = Root::new();
+    let mut store = root.open();
+    let first = store
+        .ensure_board("dash-first", Some("First"), None, 0)
+        .unwrap();
+    let second = store
+        .ensure_board("dash-second", Some("Second"), None, 0)
+        .unwrap();
+    let id = &first.saved_device_id;
+    let dashboard = serde_json::json!({"version":1,"widgets":[{"id":"a","kind":"reading","field":"motorCurrentA","presentation":"gauge","size":"large","range":{"min":-100,"max":100}}]});
+    for invalid in [
+        serde_json::json!({"version":2,"widgets":[]}),
+        serde_json::json!({"version":1,"widgets":[],"extra":true}),
+        serde_json::json!({"version":1,"widgets":[dashboard["widgets"][0].clone(),dashboard["widgets"][0].clone()]}),
+        serde_json::json!({"version":1,"widgets":(0..25).map(|i|serde_json::json!({"id":format!("w{i}"),"kind":"visual","visual":"battery","size":"compact"})).collect::<Vec<_>>()}),
+        serde_json::json!({"version":1,"widgets":[{"id":"a","kind":"reading","field":"headlights","presentation":"gauge","size":"large"}]}),
+        serde_json::json!({"version":1,"widgets":[{"id":"a","kind":"reading","field":"motorCurrentA","presentation":"bar","size":"large","range":{"min":100,"max":-100}}]}),
+    ] {
+        assert_eq!(
+            store
+                .update_profile(
+                    id,
+                    0,
+                    &serde_json::json!({"customDashboard":invalid}).to_string(),
+                    1
+                )
+                .unwrap_err(),
+            Error::InvalidInput
+        );
+        assert_eq!(store.profile(id).unwrap().revision, 0);
+    }
+    let saved = store
+        .update_profile(
+            id,
+            0,
+            &serde_json::json!({"customDashboard":dashboard,"motor":"test"}).to_string(),
+            1,
+        )
+        .unwrap();
+    assert_eq!(saved.values["customDashboard"], dashboard);
+    assert!(
+        !store
+            .profile(&second.saved_device_id)
+            .unwrap()
+            .values
+            .contains_key("customDashboard")
+    );
+    assert!(matches!(
+        store.update_profile(id, 0, r#"{"customDashboard":null}"#, 2),
+        Err(Error::Conflict { .. })
+    ));
+    drop(store);
+    let mut store = root.open();
+    assert_eq!(
+        store.profile(id).unwrap().values["customDashboard"],
+        dashboard
+    );
+    let cleared = store
+        .update_profile(id, saved.revision, r#"{"customDashboard":null}"#, 2)
+        .unwrap();
+    assert_eq!(cleared.values["motor"], "test");
+    let empty = store
+        .update_profile(
+            id,
+            cleared.revision,
+            r#"{"customDashboard":{"version":1,"widgets":[]}}"#,
+            3,
+        )
+        .unwrap();
+    assert_eq!(
+        empty.values["customDashboard"]["widgets"],
+        serde_json::json!([])
+    );
+}
+
+#[test]
+fn dashboard_profile_limit_and_unreadable_data_preserve_accepted_storage() {
+    let root = Root::new();
+    let mut store = root.open();
+    let board = store
+        .ensure_board("dash", Some("Dashboard"), None, 0)
+        .unwrap();
+    let id = &board.saved_device_id;
+    let padding = serde_json::json!({"extension": "x".repeat(16300)});
+    let accepted = store
+        .update_profile(id, 0, &padding.to_string(), 1)
+        .unwrap();
+    let widgets = (0..24).map(|i| serde_json::json!({"id":format!("w{i}"),"kind":"visual","visual":"battery","size":"compact"})).collect::<Vec<_>>();
+    assert_eq!(
+        store
+            .update_profile(
+                id,
+                accepted.revision,
+                &serde_json::json!({"customDashboard":{"version":1,"widgets":widgets}}).to_string(),
+                2
+            )
+            .unwrap_err(),
+        Error::InvalidInput
+    );
+    assert_eq!(store.profile(id).unwrap().values, accepted.values);
+    drop(store);
+    let db = Connection::open(root.0.join("catalog.sqlite")).unwrap();
+    let corrupt = r#"{"customDashboard":{"version":999,"widgets":[]}}"#;
+    db.execute(
+        "UPDATE board_profile SET json=? WHERE saved_device_id=?",
+        [corrupt, id],
+    )
+    .unwrap();
+    drop(db);
+    let store = root.open();
+    assert_eq!(store.profile(id).unwrap_err(), Error::Corrupt);
+    drop(store);
+    let db = Connection::open(root.0.join("catalog.sqlite")).unwrap();
+    let retained: String = db
+        .query_row(
+            "SELECT json FROM board_profile WHERE saved_device_id=?",
+            [id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(retained, corrupt);
+}
+
+#[test]
 fn session_display_options_are_validated_and_persisted() {
     let root = Root::new();
     let mut store = root.open();
@@ -1455,4 +1580,115 @@ fn tune_library_pages_all_versions_and_preserves_incompatible_values_on_rename()
     );
     store.delete_tune(&old.configuration_id, 2).unwrap();
     assert_eq!(store.tune(&old.configuration_id), Err(Error::NotFound));
+}
+
+#[test]
+fn last_live_view_is_validated_independent_and_survives_reopen() {
+    let root = Root::new();
+    let mut store = root.open();
+    let a = store.ensure_board("view-a", Some("A"), None, 0).unwrap();
+    let b = store.ensure_board("view-b", Some("B"), None, 0).unwrap();
+    let id = &a.saved_device_id;
+    for value in [
+        serde_json::json!("unknown"),
+        serde_json::json!(1),
+        serde_json::json!({}),
+        serde_json::json!(["normal"]),
+    ] {
+        assert_eq!(
+            store
+                .update_profile(
+                    id,
+                    0,
+                    &serde_json::json!({"lastLiveView": value}).to_string(),
+                    1
+                )
+                .unwrap_err(),
+            Error::InvalidInput
+        );
+        assert_eq!(store.profile(id).unwrap().revision, 0);
+    }
+    let saved = store
+        .update_profile(
+            id,
+            0,
+            r#"{"lastLiveView":"custom","customDashboard":{"version":1,"widgets":[]}}"#,
+            1,
+        )
+        .unwrap();
+    assert!(
+        !store
+            .profile(&b.saved_device_id)
+            .unwrap()
+            .values
+            .contains_key("lastLiveView")
+    );
+    drop(store);
+    let mut store = root.open();
+    assert_eq!(store.profile(id).unwrap(), saved);
+    let detailed = store
+        .update_profile(id, saved.revision, r#"{"lastLiveView":"detailed"}"#, 2)
+        .unwrap();
+    assert_eq!(
+        detailed.values["customDashboard"],
+        saved.values["customDashboard"]
+    );
+    let normal = store
+        .update_profile(id, detailed.revision, r#"{"lastLiveView":"normal"}"#, 3)
+        .unwrap();
+    assert_eq!(normal.values["lastLiveView"], "normal");
+    assert!(
+        store
+            .update_profile(id, normal.revision, r#"{"lastLiveView":null}"#, 4)
+            .unwrap()
+            .values["lastLiveView"]
+            .is_null()
+    );
+}
+
+#[test]
+fn dashboard_explicit_spans_are_bounded_and_preserve_existing_named_sizes() {
+    let root = Root::new();
+    let mut store = root.open();
+    let board = store.ensure_board("spans", Some("Spans"), None, 0).unwrap();
+    let id = &board.saved_device_id;
+    for size in [
+        serde_json::json!({}),
+        serde_json::json!({"columns":1}),
+        serde_json::json!({"columns":0,"rows":1}),
+        serde_json::json!({"columns":5,"rows":1}),
+        serde_json::json!({"columns":1,"rows":0}),
+        serde_json::json!({"columns":1,"rows":5}),
+        serde_json::json!({"columns":1.5,"rows":1}),
+        serde_json::json!({"columns":"1","rows":1}),
+        serde_json::json!({"columns":1,"rows":1,"extra":true}),
+    ] {
+        let patch = serde_json::json!({"customDashboard":{"version":1,"widgets":[{"id":"bad","kind":"control","control":"leds","size":size}]}});
+        assert_eq!(
+            store
+                .update_profile(id, 0, &patch.to_string(), 0)
+                .unwrap_err(),
+            Error::InvalidInput
+        );
+        assert_eq!(store.profile(id).unwrap().revision, 0);
+    }
+    let mut widgets = Vec::new();
+    for columns in 1..=4 {
+        for rows in 1..=4 {
+            widgets.push(serde_json::json!({"id":format!("w{columns}-{rows}"),"kind":"control","control":"leds","size":{"columns":columns,"rows":rows}}));
+        }
+    }
+    for size in ["compact", "medium", "large"] {
+        widgets.push(serde_json::json!({"id":size,"kind":"visual","visual":"battery","size":size}));
+    }
+    let patch =
+        serde_json::json!({"customDashboard":{"version":1,"widgets":widgets},"motor":"preserved"});
+    let saved = store.update_profile(id, 0, &patch.to_string(), 0).unwrap();
+    drop(store);
+    let reopened = root.open().profile(id).unwrap();
+    assert_eq!(reopened.values, saved.values);
+    assert_eq!(
+        reopened.values["customDashboard"]["widgets"][16]["size"],
+        "compact"
+    );
 }

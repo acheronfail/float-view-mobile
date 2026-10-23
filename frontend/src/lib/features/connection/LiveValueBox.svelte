@@ -8,7 +8,7 @@
   import { liveValueCatalog } from './live-values';
   import { holdToConfigure } from './hold-to-configure';
   import { isLighting, lightingBox } from './lighting';
-  import ToggleIndicator from '$lib/ui/ToggleIndicator.svelte';
+  import LightingDisplay from './LightingDisplay.svelte';
 
   let { sample, slot }: { sample: LiveSample | null | undefined; slot: number } = $props();
   const connection = $derived(backendState.snapshot?.activeConnection);
@@ -116,17 +116,7 @@
       {#if field === 'empty'}
         <span class="flex items-center justify-center text-xs text-muted">Hold to set</span>
       {:else if lighting}
-        <div
-          class="flex flex-col items-center justify-center gap-1"
-          class:opacity-50={lighting.disabled && !lighting.pending}
-        >
-          <span class="text-[10px] text-muted uppercase">
-            {lighting.pending || toggling ? 'Pending…' : liveValueCatalog[field].label}
-          </span>
-          {#if lighting.checked != null}
-            <ToggleIndicator checked={lighting.checked} />
-          {:else}<span class="text-xs text-muted">{lighting.status}</span>{/if}
-        </div>
+        <LightingDisplay field={field === 'headlights' ? 'headlights' : 'leds'} {lighting} {toggling} />
       {:else}
         <LiveNumber {field} {sample} {units} {estimatedLevel} {bms} {nowMs} />
       {/if}

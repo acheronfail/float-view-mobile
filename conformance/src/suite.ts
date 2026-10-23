@@ -236,6 +236,16 @@ export async function runConformance(target: Target) {
     }
     await client.request('uiState.set', { checkpoint });
     const afterCheckpoint = await client.request('state.get', {});
+    for (const mode of ['normal', 'detailed', 'custom'] as const) {
+      const liveCheckpoint = {
+        ...checkpoint,
+        route: { kind: 'live' as const },
+        live: { deviceId: 'board', mode, ...(mode === 'custom' ? { savedDeviceId: 'saved-board' } : {}) },
+      };
+      await client.request('uiState.set', { checkpoint: liveCheckpoint });
+      assert.deepEqual(await client.request('uiState.get', {}), liveCheckpoint);
+    }
+    await client.request('uiState.set', { checkpoint });
     // Native TTS initialization can complete during these requests and publish
     // its own revision. Rust's checkpoint unit test checks the no-event invariant
     // without concurrent OS facts; here all other product state must stay equal.
@@ -624,7 +634,23 @@ async function exerciseProductMethods(
     savedDeviceId: profile.savedDeviceId,
     expectedRevision: clearedPreference.revision,
     patch: {
+      lastLiveView: 'custom',
       appearance: { ...defaultBoardAppearance, rail: 5, hooks: 3, leftTop: '#ed5555' },
+      customDashboard: {
+        version: 1,
+        widgets: [
+          {
+            id: 'current',
+            kind: 'reading',
+            field: 'motorCurrentA',
+            presentation: 'gauge',
+            size: 'large',
+            range: { min: -100, max: 100 },
+          },
+          { id: 'battery', kind: 'visual', visual: 'battery', size: { columns: 4, rows: 1 } },
+          { id: 'lights', kind: 'control', control: 'leds', size: { columns: 1, rows: 4 } },
+        ],
+      },
       liveWidgetSlots: [
         'highestTempC',
         'bmsStateOfCharge',
@@ -665,6 +691,81 @@ async function exerciseProductMethods(
         savedDeviceId: profile.savedDeviceId,
         expectedRevision: layoutProfile.revision,
         patch: { liveWidgetSlots: invalid } as Record<string, unknown>,
+      }),
+      'invalid_request'
+    );
+  }
+  assert.deepEqual(await client.request('boardProfile.get', { savedDeviceId: profile.savedDeviceId }), layoutProfile);
+
+  assert.equal(layoutProfile.values.lastLiveView, 'custom');
+  for (const lastLiveView of ['unknown', 1, {}, ['normal']]) {
+    await expectError(
+      client.request('boardProfile.update', {
+        savedDeviceId: profile.savedDeviceId,
+        expectedRevision: layoutProfile.revision,
+        patch: { lastLiveView },
+      }),
+      'invalid_request'
+    );
+  }
+  assert.deepEqual(await client.request('boardProfile.get', { savedDeviceId: profile.savedDeviceId }), layoutProfile);
+  assert.equal(layoutProfile.values.customDashboard?.widgets.length, 3);
+  assert.deepEqual(layoutProfile.values.customDashboard?.widgets[1]?.size, { columns: 4, rows: 1 });
+  for (const customDashboard of [
+    ...[
+      {},
+      { columns: 1 },
+      { columns: 0, rows: 1 },
+      { columns: 5, rows: 1 },
+      { columns: 1, rows: 5 },
+      { columns: 1.5, rows: 1 },
+      { columns: '1', rows: 1 },
+      { columns: 1, rows: 1, extra: true },
+    ].map((size) => ({ version: 1, widgets: [{ id: 'invalid-size', kind: 'control', control: 'leds', size }] })),
+    { version: 2, widgets: [] },
+    { version: 1, widgets: [], extra: true },
+    { version: 1, widgets: [{ id: 'x', kind: 'control', control: 'leds', size: 'giant' }] },
+    {
+      version: 1,
+      widgets: [{ id: 'x', kind: 'reading', field: 'headlights', presentation: 'gauge', size: 'compact' }],
+    },
+    {
+      version: 1,
+      widgets: [
+        {
+          id: 'x',
+          kind: 'reading',
+          field: 'speedKph',
+          presentation: 'bar',
+          size: 'compact',
+          range: { min: 70, max: 60 },
+        },
+      ],
+    },
+    {
+      version: 1,
+      widgets: Array.from({ length: 25 }, (_, i) => ({
+        id: `w${i}`,
+        kind: 'visual',
+        visual: 'battery',
+        size: 'compact',
+      })),
+    },
+    {
+      version: 1,
+      widgets: Array.from({ length: 2 }, () => ({
+        id: 'duplicate',
+        kind: 'visual',
+        visual: 'battery',
+        size: 'compact',
+      })),
+    },
+  ]) {
+    await expectError(
+      client.request('boardProfile.update', {
+        savedDeviceId: profile.savedDeviceId,
+        expectedRevision: layoutProfile.revision,
+        patch: { customDashboard },
       }),
       'invalid_request'
     );

@@ -57,7 +57,7 @@
 </script>
 
 <div
-  class={`grid min-h-0 ${label ? 'grid-cols-[2.5rem_minmax(0,1fr)_4.5rem]' : 'grid-cols-[minmax(0,1fr)_auto]'} ${
+  class={`grid min-h-0 ${label ? 'grid-cols-[2.5rem_minmax(0,1fr)_4.5rem]' : detail != null ? 'grid-cols-[minmax(0,1fr)_auto]' : 'grid-cols-1'} ${
     showLabels ? 'grid-rows-[minmax(0,1fr)_auto]' : ''
   } items-center gap-x-3`}
 >

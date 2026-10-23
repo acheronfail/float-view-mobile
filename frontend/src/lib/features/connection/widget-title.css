@@ -1,0 +1,13 @@
+.live-widget-title {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.025em;
+  text-align: center;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.custom-widget-content .live-widget-title {
+  line-height: 12px;
+}

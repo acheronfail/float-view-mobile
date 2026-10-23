@@ -10,6 +10,30 @@ const checkpoint = (kind: 'settings' | 'sessions'): UiCheckpoint => ({
   surface: null,
 });
 describe('UI restoration', () => {
+  it('restores Custom only for the same saved identity, while retaining existing normal checkpoints', () => {
+    const backend = new MockBackend(() => {}, { safetyDisclaimerAccepted: true });
+    backend.handle({ id: 1, method: 'bluetooth.requestPermission', params: {} });
+    backend.handle({ id: 2, method: 'bluetooth.scan', params: { timeoutMs: 100 } });
+    backend.handle({ id: 3, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
+    const state = (backend.handle({ id: 4, method: 'state.get', params: {} }) as { result: AppState }).result;
+    state.activeConnection!.deviceId = 'board';
+    state.activeConnection!.savedDeviceId = 'first';
+    const custom: UiCheckpoint = {
+      version: 1,
+      route: { kind: 'live' },
+      live: { deviceId: 'board', savedDeviceId: 'first', mode: 'custom' },
+      surface: null,
+    };
+    expect(resolveUiCheckpoint(custom, state).live).toEqual(custom.live);
+    state.activeConnection!.savedDeviceId = 'second';
+    expect(resolveUiCheckpoint(custom, state).live).toBeNull();
+    expect(resolveUiCheckpoint({ ...custom, live: { deviceId: 'board', mode: 'normal' } }, state).live?.mode).toBe(
+      'normal'
+    );
+    state.activeConnection!.trackingMode = 'guest';
+    state.activeConnection!.savedDeviceId = null;
+    expect(resolveUiCheckpoint(custom, state).live).toBeNull();
+  });
   it('restores read-only licences to Settings without extending the wire route', () => {
     expect(uiRoute('/settings/licences', {}, new URL('https://example.test/#/settings/licences'))).toEqual({
       kind: 'settings',

@@ -8,7 +8,7 @@ import { ConformanceClient } from '../src/client.ts';
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(`${name}: live battery temperatures and BMS shortcut`, { timeout: 60_000 }, async () => {
-    const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
+    const port = await startMockServer(0, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
     const browser = await engine.launch();
@@ -34,6 +34,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       let cellTemperature = 26.1;
       let mode: 'absent' | 'discovering' | 'unavailable' | 'offline' | 'detected' | 'fresh' | 'stale' = 'discovering';
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      await page.route(`${endpoint.origin}/api/bootstrap`, (route) =>
+        route.fulfill({ json: { webSocketUrl: endpoint.webSocketUrl, platform: 'web' } })
+      );
       await page.routeWebSocket('**/api/ws?*', (socket) => {
         const server = socket.connectToServer();
         server.onMessage((raw) => {

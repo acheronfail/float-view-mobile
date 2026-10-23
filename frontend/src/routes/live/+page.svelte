@@ -2,7 +2,7 @@
   import { createMotion } from '$lib/ui/motion';
   import { getContext, onDestroy, onMount, tick } from 'svelte';
   import { UI_RESTORATION, type UiRestoration, uiDiagnostic } from '$lib/app/ui-restoration.svelte';
-  import type { UiSurface } from '$lib/backend/contract';
+  import type { LiveViewMode, UiSurface } from '$lib/backend/contract';
   import { goto } from '$app/navigation';
   import { connectionReturnHref } from '$lib/app/connection-navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
@@ -22,6 +22,9 @@
   import FaultHistory from '$lib/features/connection/FaultHistory.svelte';
   import LiveCharts from '$lib/features/connection/LiveCharts.svelte';
   import { hasFirmwareFaults } from '$lib/features/connection/live-status';
+  import CustomView from '$lib/features/connection/CustomView.svelte';
+  import LiveWarnings from '$lib/features/connection/LiveWarnings.svelte';
+  import { createLiveHistory } from '$lib/features/connection/live-history.svelte';
   import LiveView from '$lib/features/connection/LiveView.svelte';
   import BmsView from '$lib/features/connection/BmsView.svelte';
   import { bmsMenuVisible } from '$lib/features/connection/bms';
@@ -42,14 +45,22 @@
   const motion = createMotion();
 
   const viewOptions = [
-    { type: 'normal', displayName: 'Normal View' },
+    { type: 'normal', displayName: 'Live View' },
     { type: 'detailed', displayName: 'Detailed View' },
+    { type: 'custom', displayName: 'Custom View' },
   ] as const;
-  type View = (typeof viewOptions)[number]['type'];
+  type View = LiveViewMode;
 
   const restoration = getContext<UiRestoration>(UI_RESTORATION);
   let presentationReady = $state(false);
   let view = $state<View>('normal');
+  let viewReady = $state(false);
+  let viewPending = $state(false);
+  let viewError = $state<string | null>(null);
+  let viewGeneration = 0;
+  let checkpointView: { identity: string; mode: View } | undefined;
+  let customView = $state<CustomView>();
+  const history = createLiveHistory();
   let configuration = $state<{ savedDeviceId: string; batteryOnly: boolean; trigger?: HTMLButtonElement } | null>(null);
   let liveChartsOpen = $state(false);
   let faultHistoryOpen = $state(false);
@@ -70,12 +81,73 @@
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   const headerOwner = '/live';
   const connection = $derived(backendState.snapshot?.activeConnection);
+  const savedViewTarget = $derived(connection?.trackingMode === 'saved' ? connection.savedDeviceId : null);
+  const viewIdentity = $derived(connection ? `${connection.deviceId}:${savedViewTarget ?? 'guest'}` : null);
+  $effect(() => {
+    if (!presentationReady) return;
+    const identity = viewIdentity;
+    const target = savedViewTarget;
+    const generation = ++viewGeneration;
+    viewPending = false;
+    viewError = null;
+    view = 'normal';
+    viewReady = !target;
+    if (checkpointView?.identity === identity) {
+      view = checkpointView.mode;
+      checkpointView = undefined;
+      viewReady = true;
+    } else if (target) {
+      void backendState
+        .readDashboardProfile(target)
+        .then((profile) => {
+          if (generation !== viewGeneration) return;
+          view = profile.values.lastLiveView ?? 'normal';
+        })
+        .catch(() => {
+          if (generation === viewGeneration)
+            viewError = 'Could not restore this board’s view. Select a view to try again.';
+        })
+        .finally(() => {
+          if (generation === viewGeneration) viewReady = true;
+        });
+    }
+    return () => {
+      viewGeneration++;
+    };
+  });
+
+  async function selectView(next: View) {
+    if (!viewReady || viewPending || (view === next && !viewError)) return;
+    const generation = viewGeneration;
+    const target = savedViewTarget;
+    viewPending = true;
+    try {
+      if (customView && !(await customView.requestLeave())) return;
+      if (generation !== viewGeneration) return;
+      if (target) await backendState.saveLastLiveView(target, next);
+      if (generation !== viewGeneration) return;
+      view = next;
+      viewError = null;
+    } catch {
+      if (generation === viewGeneration)
+        viewError = 'Could not save this board’s view. Select the view again to retry.';
+    } finally {
+      if (generation === viewGeneration) viewPending = false;
+    }
+  }
   const refloatDeviceId = $derived(connection?.deviceId ?? '');
   const refloatConfiguration = $derived(new RefloatConfigurationController(backendState, refloatDeviceId));
   onMount(() => {
     const checkpoint = restoration.take('live');
     if (checkpoint?.live && checkpoint.live.deviceId === connection?.deviceId) {
-      view = checkpoint.live.mode;
+      view =
+        checkpoint.live.mode === 'custom' &&
+        (!connection?.savedDeviceId ||
+          connection.trackingMode !== 'saved' ||
+          checkpoint.live.savedDeviceId !== connection.savedDeviceId)
+          ? 'normal'
+          : checkpoint.live.mode;
+      checkpointView = { identity: viewIdentity!, mode: view };
       const surface = checkpoint.surface;
       const blocked =
         flywheelOverlayVisible(connection) ||
@@ -115,7 +187,7 @@
     presentationReady = true;
   });
   $effect(() => {
-    if (!presentationReady) return;
+    if (!presentationReady || !viewReady) return;
     let surface: UiSurface | null = configuration
       ? {
           kind: 'boardConfiguration',
@@ -134,17 +206,23 @@
                 ? { kind: 'refloatTunes' }
                 : null;
     if (flywheelOverlayVisible(connection)) surface = null;
-    restoration.present('#/live', connection ? { deviceId: connection.deviceId, mode: view } : null, surface);
+    restoration.present(
+      '#/live',
+      connection
+        ? {
+            deviceId: connection.deviceId,
+            mode: view,
+            ...(view === 'custom' && connection.savedDeviceId ? { savedDeviceId: connection.savedDeviceId } : {}),
+          }
+        : null,
+      surface
+    );
   });
   const sample = $derived(connection?.latestSample);
   const live = $derived(connection?.state === 'ready');
   const savedDevice = $derived(
     backendState.savedDevices.find((device) => device.savedDeviceId === connection?.savedDeviceId)
   );
-  const nextView = $derived.by(() => {
-    const currentIndex = viewOptions.findIndex((option) => option.type === view);
-    return viewOptions[(currentIndex + 1) % viewOptions.length] ?? viewOptions[0];
-  });
 
   const refloatCompatibility = $derived(
     connection?.connectionIssue?.code === 'unsupported_refloat'
@@ -233,12 +311,21 @@
             void goto(connectionReturnHref);
           },
         },
-        {
-          label: nextView.displayName,
-          icon: nextView.type === 'detailed' ? 'list' : 'layout-dashboard',
-          group: 'View',
-          onactivate: (closeMenu: () => void) => cycleView(closeMenu),
-        },
+        ...viewOptions
+          .filter(
+            (option) => option.type !== 'custom' || (connection.trackingMode === 'saved' && connection.savedDeviceId)
+          )
+          .map((option) => ({
+            label: option.displayName,
+            icon: option.type === 'detailed' ? ('list' as const) : ('layout-dashboard' as const),
+            group: 'View',
+            selected: view === option.type,
+            disabled: !viewReady || viewPending,
+            onactivate: async (closeMenu: () => void) => {
+              closeMenu();
+              await selectView(option.type);
+            },
+          })),
         {
           label: 'Live charts…',
           icon: 'chart-no-axes-combined',
@@ -400,11 +487,6 @@
     });
   });
   onDestroy(() => appHeader.clear(headerOwner));
-
-  function cycleView(closeMenu: () => void) {
-    closeMenu();
-    view = nextView.type;
-  }
 
   let endRideRequested = $state(false);
   function requestDisconnect(closeMenu: () => void) {
@@ -606,7 +688,26 @@
   />
 {/snippet}
 
-<section aria-labelledby="app-title" class="flex h-full min-h-0 flex-1 flex-col gap-2">
+<section
+  aria-labelledby="app-title"
+  class="relative flex h-full min-h-0 flex-1 flex-col gap-2"
+  style="padding-top: var(--live-warning-clearance, 0px)"
+>
+  {#if connection && !flywheelOverlayVisible(connection)}
+    <LiveWarnings
+      {connection}
+      onfaulthistory={() => {
+        appHeader.closeMenu();
+        faultHistoryOpen = true;
+      }}
+      onenablerefloat={() => {
+        const action = refloatMenuActions(connection).find(
+          (action) => action.kind === 'control' && action.control === 'package' && action.enabled
+        );
+        if (action && !action.disabled) activateRefloatAction(action, () => {});
+      }}
+    />
+  {/if}
   {#if connection}
     {#if connection.connectionWarning}
       <aside
@@ -618,20 +719,13 @@
         <p>{connection.connectionWarning.message}</p>
       </aside>
     {/if}
-    {#if view === 'normal'}
+    {#if !viewReady}
+      <p role="status" class="text-muted">Loading board view…</p>
+    {:else if view === 'normal'}
       <div use:motion.surface={'content'} class="h-full min-h-0 flex-1 overflow-hidden">
         <LiveView
-          onfaulthistory={() => {
-            faultHistoryOpen = true;
-          }}
           {charging}
           {nowMs}
-          onenablerefloat={() => {
-            const action = refloatMenuActions(connection).find(
-              (action) => action.kind === 'control' && action.control === 'package' && action.enabled
-            );
-            if (action && !action.disabled) activateRefloatAction(action, () => {});
-          }}
           onconfigure={openBatteryConfigure}
           onbms={bmsMenuVisible(connection.bms)
             ? (trigger) => {
@@ -641,6 +735,8 @@
             : undefined}
         />
       </div>
+    {:else if view === 'custom' && connection.savedDeviceId && connection.trackingMode === 'saved'}
+      {#key connection.savedDeviceId}<CustomView bind:this={customView} {connection} {history} {nowMs} />{/key}
     {:else}
       <div
         use:motion.surface={'content'}
@@ -653,6 +749,7 @@
   {:else}
     <p class="text-muted">Recovering active connection…</p>
   {/if}
+  {#if viewError}<p role="alert" class="shrink-0 text-warning">{viewError}</p>{/if}
   {#if backendState.error}<p role="alert" class="shrink-0 text-warning">{backendState.error}</p>{/if}
 </section>
 
@@ -797,7 +894,7 @@
 {/if}
 
 {#if liveChartsOpen && !flywheelOverlayVisible(connection)}
-  <LiveCharts onclose={closeLiveCharts} />
+  <LiveCharts {history} onclose={closeLiveCharts} />
 {/if}
 
 {#if faultHistoryOpen && !flywheelOverlayVisible(connection)}

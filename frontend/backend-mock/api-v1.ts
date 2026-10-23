@@ -9,6 +9,7 @@ import type { UiCheckpoint } from '../src/lib/backend/contract.ts';
 import { permissionInventory, locationSummary } from './permissions.ts';
 import { batteryPresets, batteryPresetCatalogVersion, applyBatteryPatch } from './battery-presets.ts';
 import { batteryCellProfiles, emptyEstimate, MockBattery } from './battery.ts';
+import { validCustomDashboard } from '../src/lib/backend/custom-dashboard.ts';
 import {
   defaultAnnouncements,
   defaultBoardAppearance,
@@ -1137,12 +1138,17 @@ export class MockBackend {
         const expectedRevision = number(params.expectedRevision);
         const patch = asObject(params.patch);
         const current = savedDeviceId ? this.profiles.get(savedDeviceId) : undefined;
+        if (savedDeviceId && !current) return failure(id, 'not_found', 'Board Profile was not found');
         if (!savedDeviceId || !current || expectedRevision === null || !patch) {
           return failure(id, 'invalid_request', 'Valid profile update parameters are required');
         }
         if (expectedRevision !== current.revision) {
           return failure(id, 'conflict', 'Board Profile revision changed');
         }
+        if (patch.lastLiveView != null && !['normal', 'detailed', 'custom'].includes(patch.lastLiveView as string))
+          return failure(id, 'invalid_request', 'Invalid last live view');
+        if (patch.customDashboard != null && !validCustomDashboard(patch.customDashboard))
+          return failure(id, 'invalid_request', 'Invalid custom dashboard');
         if (patch.appearance != null && !validBoardAppearance(patch.appearance))
           return failure(id, 'invalid_request', 'Invalid board appearance');
         if (
@@ -1192,6 +1198,8 @@ export class MockBackend {
           values,
           missingFields: ['seriesCount', 'parallelCount', 'motor'].filter((field) => values[field] == null),
         };
+        if (new TextEncoder().encode(JSON.stringify(values)).length > 16384)
+          return failure(id, 'invalid_request', 'Board Profile is too large');
         this.profiles.set(savedDeviceId, updated);
         this.change({
           ...this.state,

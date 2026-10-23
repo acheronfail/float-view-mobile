@@ -4,6 +4,15 @@ This is the only executable acceptance suite for the frontend/backend contract.
 It imports the hand-written contract from `frontend/`, drives every backend as a
 black box, and owns both deterministic and physical VESC simulation.
 
+Custom dashboards have canonical Board Profile validation/atomicity coverage in
+`src/suite.ts` for mock, direct and native targets. After building the frontend,
+run `node --strip-types --test test/custom-dashboard.browser.ts` from this directory
+(outside the macOS Codex sandbox). It checks Chromium/WebKit at narrow portrait,
+short landscape, tablet/unfolded-width and wide desktop sizes, plus edit/control
+isolation, compatible ranges, save conflicts, warning modal layering and restoration.
+Screenshots go to ignored `conformance/generated/custom-dashboard/`. Viewport emulation does not
+establish physical hinge or fold-device gesture integration.
+
 ```sh
 npm ci
 npm test
@@ -227,3 +236,5 @@ rejects configuration/control/shutdown mutations. The fixture is readvertised
 before foreground return and before the post-disconnect suppression scan. macOS
 window/activation behavior and first-use OS permission presentation remain
 separate physical observations; headless software targets do not establish them.
+
+`test/last-live-view.browser.ts` covers saved view restoration without a process checkpoint, reconnects, failed preference writes and dashboard editor revision consistency in Chromium and WebKit. Board independence and durable reopen are also covered by product-store tests.

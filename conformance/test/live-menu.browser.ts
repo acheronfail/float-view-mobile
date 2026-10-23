@@ -10,7 +10,7 @@ const html = await readFile(new URL('../../frontend/build/index.html', import.me
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(`${name}: live lighting boxes, holds, menu confirmations and pending state`, { timeout: 60_000 }, async () => {
     const browser = await engine.launch();
-    const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
+    const port = await startMockServer(0, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
     try {
@@ -58,6 +58,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const requests: { control: string; enabled: boolean }[] = [];
       let complete: ((fail?: boolean) => void) | undefined;
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      await page.route(`${endpoint.origin}/api/bootstrap`, (route) =>
+        route.fulfill({ json: { webSocketUrl: endpoint.webSocketUrl, platform: 'web' } })
+      );
       await page.routeWebSocket('**/api/ws?*', (socket) => {
         const server = socket.connectToServer();
         socket.onMessage((raw) => {
@@ -133,20 +136,17 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           .evaluate((el) => el === document.activeElement),
         true
       );
+      assert.equal(await actionOverlay.locator('.live-warning-layer').count(), 0);
+      assert.equal(await page.getByRole('button', { name: /^Open fault history:/ }).count(), 0);
+      // Wrap across the menu's own controls without bringing dashboard warnings into it.
+      const firstControl = actionOverlay.locator('button:not(:disabled)').first();
+      const lastControl = actionOverlay.locator('button:not(:disabled)').last();
+      await firstControl.focus();
       await page.keyboard.press('Shift+Tab');
-      assert.equal(
-        await actionOverlay
-          .getByRole('button', { name: 'Disconnect', exact: true })
-          .evaluate((el) => el === document.activeElement),
-        true
-      );
+      assert.equal(await lastControl.evaluate((el) => el === document.activeElement), true);
       await page.keyboard.press('Tab');
-      assert.equal(
-        await actionOverlay
-          .getByRole('button', { name: 'Done', exact: true })
-          .evaluate((el) => el === document.activeElement),
-        true
-      );
+      assert.equal(await firstControl.evaluate((el) => el === document.activeElement), true);
+      await actionOverlay.getByRole('button', { name: 'Done', exact: true }).focus();
       await detailed.click({ button: 'right' });
       await detailed.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
       await detailed.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
@@ -178,7 +178,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await actionOverlay.waitFor({ state: 'hidden' });
       assert.equal(await menu.evaluate((el) => el === document.activeElement), true);
       await menu.tap();
-      await actionOverlay.getByRole('button', { name: 'Normal View', exact: true }).tap();
+      await actionOverlay.getByRole('button', { name: 'Live View', exact: true }).tap();
       await actionOverlay.waitFor({ state: 'hidden' });
       await menu.tap();
       assert.equal(await page.getByRole('button', { name: 'LEDs', exact: true }).count(), 0);
@@ -399,6 +399,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           await working.dispatchEvent('click', { detail: 0 });
           assert.equal(requests.length, expected);
           complete!(fail);
+          if (fail) {
+            await dialog.getByRole('alert').filter({ hasText: 'Control confirmation timed out' }).waitFor();
+            await cancel.tap();
+          }
           await dialog.waitFor({ state: 'hidden' });
           if (fail) {
             await page.getByRole('alert').filter({ hasText: 'Control confirmation timed out' }).waitFor();
@@ -406,7 +410,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             assert.equal(controls.flywheelEnabled, false);
           } else if (control === 'package') {
             await menu.tap();
-            await actionOverlay.getByRole('button', { name: 'Enable Refloat', exact: true }).waitFor();
+            await actionOverlay
+              .getByRole('region', { name: 'Refloat', exact: true })
+              .getByRole('button', { name: 'Enable Refloat', exact: true })
+              .waitFor();
             await page.keyboard.press('Escape');
             const notice = page.getByRole('status').filter({ hasText: 'Refloat is disabled' });
             const enable = page.getByRole('button', { name: 'Enable Refloat', exact: true });
@@ -418,12 +425,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               { width: 390, height: 844 },
             ]) {
               await page.setViewportSize(viewport);
-              const gauge = (await page.locator('.live-gauge').boundingBox())!;
+              const viewBounds = (await page.locator('section[aria-labelledby="app-title"]').boundingBox())!;
               const button = (await enable.boundingBox())!;
               assert.ok(button.height >= 44, 'enable retains a touch target');
-              assert.ok(button.x >= gauge.x && button.y >= gauge.y);
-              assert.ok(button.x + button.width <= gauge.x + gauge.width);
-              assert.ok(button.y + button.height <= gauge.y + gauge.height);
+              assert.ok(button.x >= viewBounds.x && button.y >= viewBounds.y);
+              assert.ok(button.x + button.width <= viewBounds.x + viewBounds.width);
+              assert.ok(button.y + button.height <= viewBounds.y + viewBounds.height);
               if (output && name === 'chromium') {
                 await page.screenshot({ path: `${output}/refloat-disabled-${viewport.width}.png` });
               }
@@ -448,12 +455,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             assert.equal(requests.length, beforeEnable);
             controls.writable = false;
             await page.waitForFunction(() =>
-              document.querySelector('.live-gauge button[aria-label="Enable Refloat"]')?.matches(':disabled')
+              document.querySelector('.live-warning-layer button[aria-label="Enable Refloat"]')?.matches(':disabled')
             );
             await notice.waitFor();
             controls.writable = true;
             await page.waitForFunction(() =>
-              document.querySelector('.live-gauge button[aria-label="Enable Refloat"]')?.matches(':enabled')
+              document.querySelector('.live-warning-layer button[aria-label="Enable Refloat"]')?.matches(':enabled')
             );
             await enable.tap();
             await enable.and(page.locator('[aria-busy="true"]')).waitFor();
@@ -463,7 +470,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             await notice.waitFor();
             complete!(true);
             await page.waitForFunction(() =>
-              document.querySelector('.live-gauge button[aria-label="Enable Refloat"]')?.matches(':enabled')
+              document.querySelector('.live-warning-layer button[aria-label="Enable Refloat"]')?.matches(':enabled')
             );
             await notice.waitFor();
             await enable.focus();

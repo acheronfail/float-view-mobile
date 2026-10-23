@@ -9,6 +9,30 @@ listener are disposable and borrow the existing application owner.
 See [`core/README.md`](core/README.md), [`apple/README.md`](apple/README.md) and
 [`android/README.md`](android/README.md) for the ownership and build boundaries.
 
+## Custom dashboard metadata
+
+The shared product store validates optional Board Profile `customDashboard` through
+the existing get/update operations on every host. Version 1 accepts at most 24
+ordered widgets, unique 1–64 ASCII identifier IDs, closed content/presentation/size
+choices and valid metric display ranges. Sizes accept a closed `{columns, rows}`
+object with both integer spans bounded to 1–4. Existing named compact/medium/large
+values remain supported and round-trip unchanged; reads do not rewrite them. Dashboard JSON is bounded to 8,192 UTF-8
+bytes within the existing complete-profile 16,384-byte limit. Null/absence uses a
+derived default; an empty widget list is intentional. Malformed or unknown versions
+fail without replacing stored data. Profile revision checks and atomic writes
+apply unchanged; native adapters do not interpret widget layouts.
+
+This is additive profile JSON, with no SQL schema, storage marker or archive-format
+change. Supported baseline stores and format-4 archives remain valid. Historical
+profile snapshots stay immutable; normal archive import initializes a new board's
+profile and preserves an existing board's current profile. UI checkpoints additionally
+accept `custom` viewing mode but never contain dashboard data or editor drafts.
+No native Bluetooth, collection cadence or background-work changes are involved.
+
+Saved boards also retain optional nullable `lastLiveView` (`normal`, `detailed`,
+`custom`) in the same validated profile JSON. Absence/null defaults to Live. This
+uses existing revisioned updates and archive policy; guest sessions never write it.
+
 ## Startup presentation
 
 The launch surface, native window/container, WebView and early HTML canvas use

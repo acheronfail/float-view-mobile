@@ -35,9 +35,11 @@ export function validUiCheckpoint(value: unknown): value is UiCheckpoint {
     live !== null &&
     (route.kind !== 'live' ||
       !record(live) ||
-      !keys(live, ['deviceId', 'mode']) ||
+      !keys(live, ['deviceId', 'mode', 'savedDeviceId']) ||
       !id(live.deviceId) ||
-      !['normal', 'detailed'].includes(String(live.mode)))
+      (live.mode === 'custom' && !id(live.savedDeviceId)) ||
+      ('savedDeviceId' in live && !id(live.savedDeviceId)) ||
+      !['normal', 'detailed', 'custom'].includes(String(live.mode)))
   )
     return false;
   if (surface === null) return true;

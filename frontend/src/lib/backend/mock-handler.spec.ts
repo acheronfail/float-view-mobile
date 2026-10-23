@@ -31,6 +31,43 @@ const bmsSnapshot: BmsSnapshot = {
   status: 'OK',
 };
 
+describe('custom dashboard profiles', () => {
+  it('persists atomically, preserves unrelated values and rejects conflicts and invalid shapes', () => {
+    const backend = new MockBackend(() => {}, { safetyDisclaimerAccepted: true });
+    const request = (method: string, params: object) => backend.handle({ id: 1, method, params });
+    const savedDeviceId = 'saved-board';
+    const profile = request('boardProfile.get', { savedDeviceId }) as { result: { revision: number; values: object } };
+    const customDashboard = { version: 1, widgets: [{ id: 'a', kind: 'control', control: 'leds', size: 'compact' }] };
+    expect(
+      request('boardProfile.update', {
+        savedDeviceId,
+        expectedRevision: profile.result.revision,
+        patch: { customDashboard },
+      })
+    ).toMatchObject({ result: { values: { ...profile.result.values, customDashboard } } });
+    expect(
+      request('boardProfile.update', {
+        savedDeviceId,
+        expectedRevision: profile.result.revision,
+        patch: { customDashboard: null },
+      })
+    ).toMatchObject({ error: { code: 'conflict' } });
+    expect(
+      request('boardProfile.update', {
+        savedDeviceId,
+        expectedRevision: profile.result.revision + 1,
+        patch: { customDashboard: { ...customDashboard, version: 2 } },
+      })
+    ).toMatchObject({ error: { code: 'invalid_request' } });
+    expect(request('boardProfile.get', { savedDeviceId })).toMatchObject({
+      result: { revision: profile.result.revision + 1, values: { customDashboard } },
+    });
+    expect(
+      request('boardProfile.update', { savedDeviceId: 'missing', expectedRevision: 0, patch: { customDashboard } })
+    ).toMatchObject({ error: { code: 'not_found' } });
+  });
+});
+
 describe('deterministic mock backend', () => {
   it('distinguishes automatic recovery from deliberate pause and preserves pause precedence', () => {
     for (const deliberate of [false, true]) {

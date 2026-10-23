@@ -43,12 +43,15 @@ enum SessionReturn {
 struct Live {
     device_id: String,
     mode: Mode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    saved_device_id: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 enum Mode {
     Normal,
     Detailed,
+    Custom,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
@@ -90,7 +93,11 @@ impl Checkpoint {
             _ => true,
         };
         let live_valid = match (&self.route, &self.live) {
-            (Route::Live, Some(live)) => id(&live.device_id),
+            (Route::Live, Some(live)) => {
+                id(&live.device_id)
+                    && live.saved_device_id.as_ref().is_none_or(|value| id(value))
+                    && (!matches!(live.mode, Mode::Custom) || live.saved_device_id.is_some())
+            }
             (Route::Live, None) => true,
             (_, None) => true,
             _ => false,
@@ -205,6 +212,14 @@ mod tests {
         let good = json!({"version":1,"route":{"kind":"live"},"live":{"deviceId":"board","mode":"detailed"},"surface":{"kind":"liveCharts"}});
         let parse = |v| serde_json::from_value::<Checkpoint>(v).is_ok_and(|c| c.validate());
         assert!(parse(good.clone()));
+        for mode in ["normal", "detailed", "custom"] {
+            let mut checkpoint = good.clone();
+            checkpoint["live"]["mode"] = json!(mode);
+            if mode == "custom" {
+                checkpoint["live"]["savedDeviceId"] = json!("saved-board");
+            }
+            assert!(parse(checkpoint));
+        }
         let mut bad = good.clone();
         bad["version"] = json!(2);
         assert!(!parse(bad));

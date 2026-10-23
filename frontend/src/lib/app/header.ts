@@ -10,6 +10,7 @@ export type AppHeaderAction = {
   appearance?: MenuItemAppearance;
   disabled?: boolean;
   checked?: boolean | null;
+  selected?: boolean;
   pending?: boolean;
   onactivate: (closeMenu: () => void) => void | Promise<void>;
 };
@@ -39,6 +40,7 @@ export type AppHeaderContext = {
   set(owner: string, patch: AppHeaderPatch): void;
   clear(owner: string): void;
   openMenu(): void;
+  closeMenu(): void;
   focusMenu(): void;
 };
 

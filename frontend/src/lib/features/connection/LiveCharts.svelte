@@ -2,73 +2,23 @@
   import { backDismissal } from '$lib/ui/back-dismissal';
   import '$lib/ui/telemetry-chart.css';
   import { createMotion } from '$lib/ui/motion';
-  import { onMount, untrack } from 'svelte';
+  import { onMount } from 'svelte';
+  import LiveChartPlot from './LiveChartPlot.svelte';
+  import type { LiveHistory } from './live-history';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
-  import { bmsMenuVisible, freshBmsSnapshot } from './bms';
-  import {
-    liveChartColor,
-    liveChartGeometry,
-    liveChartGroups,
-    liveChartReading,
-    retainLivePoints,
-    type LiveChartPoint,
-  } from './live-charts';
+  import { bmsMenuVisible } from './bms';
+  import { liveChartColor, liveChartGroups, liveChartReading } from './live-charts';
 
   const motion = createMotion();
-  let { onclose }: { onclose: (keyboard: boolean) => void } = $props();
+  let { onclose, history }: { onclose: (keyboard: boolean) => void; history: LiveHistory } = $props();
   let dialog: HTMLDialogElement;
-  let now = $state(performance.now());
-  let points = $state<LiveChartPoint[]>([]);
-  let lastSequence: number | null = null;
-  let lastDevice: string | null = null;
   const connection = $derived(backendState.snapshot?.activeConnection);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
   const chartGroups = $derived(liveChartGroups(bmsMenuVisible(connection?.bms)));
-  const stale = $derived(
-    connection?.state !== 'ready' || !points.length || now - points[points.length - 1].time > 1_500
-  );
-  $effect(() => {
-    const sample = connection?.latestSample;
-    const device = connection?.deviceId ?? null;
-    const ready = connection?.state === 'ready';
-    untrack(() => {
-      if (device !== lastDevice || (sample && lastSequence !== null && sample.sequence < lastSequence)) {
-        points = [];
-        lastSequence = null;
-        lastDevice = device;
-      }
-      if (!ready || !sample || sample.sequence === lastSequence || Date.now() - Date.parse(sample.observedAt) > 1_500)
-        return;
-      lastSequence = sample.sequence;
-      now = performance.now();
-      const observedAtMs = Date.now();
-      const bmsSnapshot = freshBmsSnapshot(connection?.bms, observedAtMs);
-      points = retainLivePoints(
-        [
-          ...points,
-          {
-            time: now,
-            sample,
-            bmsTemperatures: bmsSnapshot
-              ? {
-                  circuitryC: bmsSnapshot.highestCircuitryTemperatureC,
-                  cellsC: bmsSnapshot.highestCellTemperatureC,
-                }
-              : undefined,
-          },
-        ],
-        now
-      );
-    });
-  });
+  const stale = $derived(history.stale);
   onMount(() => {
     dialog.showModal();
-    const timer = setInterval(() => {
-      now = performance.now();
-      points = retainLivePoints(points, now);
-    }, 100);
-    return () => clearInterval(timer);
   });
 </script>
 
@@ -110,7 +60,6 @@
     </div>
     <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       {#each chartGroups as group (group.title)}
-        {@const geometry = liveChartGeometry(points, group.fields, units, now)}
         <section
           aria-label={group.title}
           class="nonselectable-surface mb-4 border-t border-outline bg-surface pt-3 pb-2"
@@ -137,51 +86,7 @@
               </div>
             {/each}
           </div>
-          <div class="telemetry-chart-frame relative">
-            <div
-              class="pointer-events-none absolute inset-y-0 left-3 z-10 flex flex-col items-start justify-between font-mono text-[10px] text-muted"
-            >
-              <span class="bg-surface/80 px-1">{geometry.high.toFixed(0)}</span><span class="bg-surface/80 px-1"
-                >{((geometry.high + geometry.low) / 2).toFixed(0)}</span
-              ><span class="bg-surface/80 px-1">{geometry.low.toFixed(0)}</span>
-            </div>
-            <svg
-              class="block h-full w-full overflow-hidden"
-              viewBox="0 0 1000 100"
-              preserveAspectRatio="none"
-              role="img"
-              aria-label={`${group.title}, rolling 30-second chart`}
-            >
-              {#each [0, 50, 100] as y (y)}<line
-                  x1="0"
-                  x2="1000"
-                  y1={y}
-                  y2={y}
-                  stroke="var(--color-outline)"
-                  vector-effect="non-scaling-stroke"
-                />{/each}
-              {#each [0, 250, 500, 750, 1000] as x (x)}<line
-                  x1={x}
-                  x2={x}
-                  y1="0"
-                  y2="100"
-                  stroke="var(--color-outline)"
-                  stroke-dasharray="2 5"
-                  vector-effect="non-scaling-stroke"
-                />{/each}
-              {#each geometry.paths as path, index (group.fields[index])}<path
-                  class="telemetry-chart-trace"
-                  d={path}
-                  fill="none"
-                  stroke={liveChartColor(group.fields[index], index)}
-                  stroke-linejoin="round"
-                  vector-effect="non-scaling-stroke"
-                />{/each}
-            </svg>
-          </div>
-          <div class="mt-1 flex justify-between px-4 font-mono text-[10px] text-muted">
-            <span>−30s</span><span>−15s</span><span>Now</span>
-          </div>
+          <LiveChartPlot {history} fields={group.fields} {units} title={group.title} />
         </section>
       {/each}
     </div>

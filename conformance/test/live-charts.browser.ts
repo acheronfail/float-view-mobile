@@ -7,7 +7,7 @@ import { ConformanceClient } from '../src/client.ts';
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(`${name}: live charts open, follow telemetry, show gaps and dismiss`, { timeout: 60000 }, async () => {
-    const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
+    const port = await startMockServer(0, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
     const browser = await engine.launch();
@@ -29,6 +29,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       let frozen = false;
       let lastSample: unknown;
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      await page.route(`${endpoint.origin}/api/bootstrap`, (route) =>
+        route.fulfill({ json: { webSocketUrl: endpoint.webSocketUrl, platform: 'web' } })
+      );
       await page.routeWebSocket('**/api/ws?*', (socket) => {
         const server = socket.connectToServer();
         server.onMessage((raw) => {
@@ -71,7 +74,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const charts = page.getByRole('dialog', { name: 'Live charts', exact: true });
       await charts.waitFor();
       assert.equal(await charts.getByRole('img').count(), 6);
-      assert.equal(await charts.getByRole('button').count(), 1);
+      assert.equal(await charts.getByRole('button', { name: 'Done', exact: true }).count(), 1);
+      assert.equal(await charts.getByRole('button', { name: /^Open fault history:/ }).count(), 0);
+      assert.equal(await charts.locator('.live-warning-layer').count(), 0);
       const load = charts.getByRole('region', { name: 'Load', exact: true });
       assert.equal(await load.locator('path').count(), 3);
       assert.deepEqual(

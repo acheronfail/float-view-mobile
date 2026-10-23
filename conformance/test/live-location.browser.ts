@@ -10,7 +10,7 @@ const html = await readFile(new URL('../../frontend/build/index.html', import.me
 const longName = 'The Extremely Long Named Trail Board — Weekend Adventure Edition';
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(`${name}: ride location preserves the live layout with long board names`, { timeout: 90_000 }, async () => {
-    const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
+    const port = await startMockServer(0, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
     const browser = await engine.launch();
@@ -37,6 +37,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       let boardName = 'Trail Board';
       let override: LocationState | null = null;
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      await page.route(`${endpoint.origin}/api/bootstrap`, (route) =>
+        route.fulfill({ json: { webSocketUrl: endpoint.webSocketUrl, platform: 'web' } })
+      );
       await page.routeWebSocket('**/api/ws?*', (socket) => {
         const server = socket.connectToServer();
         socket.onMessage((raw) => {
@@ -132,6 +135,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await panel.isVisible(), false);
       await location.tap();
       await panel.waitFor();
+      assert.equal(await panel.locator('.live-warning-layer').count(), 0);
+      assert.equal(await page.getByRole('button', { name: /^Open fault history:/ }).count(), 0);
       assert.deepEqual(await gauge.boundingBox(), originalGauge, 'opening a panel cannot reflow the gauge');
       await panel.getByText('Recording off', { exact: true }).waitFor();
       if (name === 'chromium') await page.screenshot({ path: '/tmp/float-view-location-panel.png' });

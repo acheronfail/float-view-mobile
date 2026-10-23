@@ -2,6 +2,19 @@ import { expect, it } from 'vitest';
 import { MockBackend } from '../../../backend-mock/api-v1';
 import { validUiCheckpoint } from './ui-checkpoint';
 
+it('accepts custom viewing mode without accepting dashboard drafts in checkpoints', () => {
+  const checkpoint = {
+    version: 1,
+    route: { kind: 'live' },
+    live: { deviceId: 'board', mode: 'custom', savedDeviceId: 'saved-board' },
+    surface: null,
+  };
+  expect(validUiCheckpoint(checkpoint)).toBe(true);
+  expect(validUiCheckpoint({ ...checkpoint, live: { deviceId: 'board', mode: 'custom' } })).toBe(false);
+  expect(validUiCheckpoint({ ...checkpoint, draft: { widgets: [] } })).toBe(false);
+  expect(validUiCheckpoint({ ...checkpoint, surface: { kind: 'dashboardEditor' } })).toBe(false);
+});
+
 it('validates an explicit, closed session return destination', () => {
   for (const returnTo of ['sessions', 'live', 'boardHistory']) {
     expect(

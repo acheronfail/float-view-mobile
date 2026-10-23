@@ -42,7 +42,7 @@ fn setup() -> (TestDirectory, ProductStore, String) {
         .update_profile(
             &b.saved_device_id,
             2,
-            &serde_json::json!({"appearance":appearance}).to_string(),
+            &serde_json::json!({"appearance":appearance,"customDashboard":{"version":1,"widgets":[{"id":"volts","kind":"reading","field":"packVoltageV","presentation":"number","size":"medium"},{"id":"strip","kind":"visual","visual":"battery","size":{"columns":4,"rows":1}}]}}).to_string(),
             1,
         )
         .unwrap();
@@ -207,6 +207,18 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     drop(db);
     let board = imported.boards().unwrap().remove(0);
     let profile = imported.profile(&board.saved_device_id).unwrap();
+    assert_eq!(
+        profile.values["customDashboard"]["widgets"][0]["field"],
+        "packVoltageV"
+    );
+    assert_eq!(
+        profile.values["customDashboard"]["widgets"][0]["size"],
+        "medium"
+    );
+    assert_eq!(
+        profile.values["customDashboard"]["widgets"][1]["size"],
+        serde_json::json!({"columns":4,"rows":1})
+    );
     assert_eq!(profile.values["batteryCellProfileId"], "molicel-p45b");
     assert_eq!(profile.values["batteryMinimumCellVoltageV"], 3.23);
     assert_eq!(profile.values["batteryCapacityAh"], 8.7);
@@ -243,11 +255,24 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     assert_eq!(fault["occurredElapsedMs"], 29813);
     assert_eq!(fault["value"], "absoluteOverCurrent");
     drop(reader);
+    let current = imported.profile(&board.saved_device_id).unwrap();
+    imported
+        .update_profile(
+            &board.saved_device_id,
+            current.revision,
+            r#"{"customDashboard":{"version":1,"widgets":[]}}"#,
+            100_001,
+        )
+        .unwrap();
     let second = imported
         .attach_import(sink(&imported, export.path()).validate(&cancel).unwrap())
         .unwrap();
     assert_ne!(second.session_id, session.session_id);
     assert_eq!(imported.boards().unwrap().len(), 1);
+    assert_eq!(
+        imported.profile(&board.saved_device_id).unwrap().values["customDashboard"]["widgets"],
+        serde_json::json!([])
+    );
 }
 #[test]
 fn csv_columns_gps_privacy_ties_and_tolerance_match_native_encoding() {
