@@ -10,6 +10,7 @@ import type {
   RefloatConfigurationField,
   RefloatEditorDraft,
   RefloatConfigurationIdentity,
+  RefloatConfigurationSummary,
   RefloatConfigurationSchemaPage,
 } from '../../frontend/src/lib/backend/contract.ts';
 import { ConformanceClient, ConformanceError } from './client.ts';
@@ -34,6 +35,68 @@ export interface PhysicalTarget extends Target {
   prepareLocation?(report: (message: string) => void): Promise<void>;
   finishSuite?(report: (message: string) => void): Promise<void>;
   verifyFilePresentation?(): Promise<void>;
+}
+
+/** Exact beta admission, schema, recovered timeout and saved/guest lifecycle. */
+export async function runRefloatBetaConformance(target: Target) {
+  let client: ConformanceClient | undefined;
+  try {
+    const endpoint = await target.start();
+    client = await ConformanceClient.open(endpoint.url, endpoint.origin);
+    const initial = await client.request('state.get', {});
+    await client.request('settings.update', {
+      expectedRevision: initial.settings.revision,
+      patch: { safetyDisclaimerAccepted: true, minimumSessionDistance: 0 },
+    });
+    await client.request('bluetooth.requestPermission', {});
+    await client.request('bluetooth.scan', { timeoutMs: 10000 });
+    const scanned = await client.waitForState((s) => s.discoveredDevices.length > 0);
+    const deviceId = scanned.discoveredDevices[0]!.deviceId;
+    for (const trackingMode of ['saved', 'guest'] as const) {
+      await client.request('device.connect', { deviceId, trackingMode });
+      const ready = await client.waitForState(
+        (s) =>
+          s.activeConnection?.state === 'ready' &&
+          s.activeConnection.latestSample?.imuTimeoutActive === false &&
+          s.activeConnection.refloatConfiguration?.availability === 'ready',
+        { timeoutMs: 30000 }
+      );
+
+      assert.equal(ready.activeConnection!.firmware!.packageVersion, '1.3.1-beta1');
+      assert.equal(ready.activeConnection!.latestSample!.firmwareFault, null);
+      assert.deepEqual(
+        ready.activeConnection!.latestSample!.imuTimeoutHistory.map((entry) => entry.active),
+        [true, false]
+      );
+      assert.deepEqual(ready.activeConnection!.latestSample!.faultHistory, []);
+      const opened: RefloatConfigurationSummary = await client.request('refloat.configuration.open', {});
+      assert.equal(opened.packageVersion, '1.3.1-beta1');
+      if (trackingMode === 'saved') {
+        const sessionId = required(ready.activeConnection!.activeSession, 'saved beta session').sessionId;
+        const metadata = await client.request('session.get', { sessionId });
+        const history = await client.sessionData({
+          kind: 'events',
+          sessionId,
+          snapshot: metadata.snapshot,
+          range: { startElapsedMs: 0, endElapsedMs: metadata.snapshot.committedElapsedMs },
+          limit: 500,
+        });
+        assert.equal(history.kind, 'events');
+        if (history.kind !== 'events') throw new Error('Wrong history kind');
+        assert.equal(history.page.kinds.filter((k) => k === 'imuTimeoutHistory').length, 2);
+        assert.deepEqual(
+          history.page.timeouts?.filter(Boolean).map((v) => v!.active),
+          [true, false]
+        );
+        assert.equal(history.page.kinds.filter((k) => k === 'firmwareFaultHistory').length, 0);
+      } else assert.equal(ready.activeConnection!.activeSession, null);
+      await client.request('device.disconnect', {});
+    }
+    return { target: target.name, revision: (await client.request('state.get', {})).revision };
+  } finally {
+    client?.close();
+    await target.stop();
+  }
 }
 
 /** Firmware provenance without unrelated permission or location scenarios. */
@@ -998,6 +1061,8 @@ async function createCompletedSession(
       'footpadAdc1V',
       'footpadAdc2V',
       'footpadState',
+      'imuTimeoutActive',
+      'imuTimeoutHistory',
       'lastFirmwareFault',
       'load',
       'motorCurrentA',

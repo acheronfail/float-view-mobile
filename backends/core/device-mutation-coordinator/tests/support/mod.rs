@@ -117,6 +117,7 @@ pub fn sample_with(
     firmware_fault: Option<FirmwareFault>,
 ) -> NormalizedSample {
     NormalizedSample {
+        imu_timeout_active: None,
         sequence,
         observed_at_epoch_ms: 1_700_000_000_000 + i64::try_from(sequence).unwrap(),
         slow_observed_at_epoch_ms: None,
@@ -136,6 +137,7 @@ pub fn sample_with(
         fatal_error_latched,
         last_firmware_fault: None,
         fault_history: Vec::new(),
+        imu_timeout_history: Vec::new(),
         pack_voltage_v: None,
         duty_cycle: None,
         controller_temp_c: None,

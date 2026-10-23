@@ -440,7 +440,7 @@ impl SessionReader {
             ""
         };
         let sql = format!(
-            "SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json FROM session_event WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2 AND sequence <= ?3 {cursor_filter} AND kind IN ('packageState','packageMode','footpadState','stopCondition','setpointAdjustment','wheelslip','darkride','charging','alertReason','firmwareFault','fatalErrorLatched','firmwareFaultHistory') ORDER BY monotonic_elapsed_ms, sequence LIMIT ?7"
+            "SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json FROM session_event WHERE monotonic_elapsed_ms BETWEEN ?1 AND ?2 AND sequence <= ?3 {cursor_filter} AND kind IN ('packageState','packageMode','footpadState','stopCondition','setpointAdjustment','wheelslip','darkride','charging','alertReason','firmwareFault','fatalErrorLatched','firmwareFaultHistory','imuTimeoutHistory','imuTimeoutActive') ORDER BY monotonic_elapsed_ms, sequence LIMIT ?7"
         );
         let mut statement = transaction.prepare_cached(&sql).map_err(map_sqlite)?;
         let mapped = statement
@@ -472,6 +472,11 @@ impl SessionReader {
                 serde_json::from_str(&details_json).map_err(|_| ReaderError::Incompatible)?;
             let valid_details = if kind == "firmwareFaultHistory" {
                 super::faults::valid_fault_details(&details)
+                    && details["occurredElapsedMs"]
+                        .as_u64()
+                        .is_none_or(|t| t <= elapsed as u64)
+            } else if kind == "imuTimeoutHistory" {
+                super::faults::valid_timeout_details(&details)
                     && details["occurredElapsedMs"]
                         .as_u64()
                         .is_none_or(|t| t <= elapsed as u64)

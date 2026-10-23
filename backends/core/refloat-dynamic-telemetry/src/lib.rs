@@ -215,6 +215,7 @@ pub enum StopCondition {
     SwitchFull,
     ReverseStop,
     QuickStop,
+    ImuTimeout,
     Unknown,
 }
 
@@ -1792,6 +1793,7 @@ const fn stop_condition(code: u8) -> StopCondition {
         4 => StopCondition::SwitchFull,
         5 => StopCondition::ReverseStop,
         6 => StopCondition::QuickStop,
+        7 => StopCondition::ImuTimeout,
         _ => StopCondition::Unknown,
     }
 }
@@ -1937,6 +1939,7 @@ const fn stop_condition_record_code(value: StopCondition) -> u8 {
         StopCondition::ReverseStop => 6,
         StopCondition::QuickStop => 7,
         StopCondition::Unknown => 8,
+        StopCondition::ImuTimeout => 9,
     }
 }
 
@@ -1950,6 +1953,7 @@ const fn record_stop_condition(code: u8) -> Result<StopCondition, DynamicTelemet
         6 => Ok(StopCondition::ReverseStop),
         7 => Ok(StopCondition::QuickStop),
         8 => Ok(StopCondition::Unknown),
+        9 => Ok(StopCondition::ImuTimeout),
         _ => Err(DynamicTelemetryError::InvalidTelemetry),
     }
 }

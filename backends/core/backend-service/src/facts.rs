@@ -163,6 +163,7 @@ record!(ReportedFirmwareFault {
     code: u8,
     reason: String
 });
+record!(RecoveredImuTimeout { active: bool, elapsed_ms: Option<u64>, observed_elapsed_ms: u64 });
 record!(RecoveredFirmwareFault { code: u8, reason: String, elapsed_ms: Option<u64>, observed_elapsed_ms: u64 });
 record!(LiveSample {
     load: float_view_application_runtime::load::Load,
@@ -170,7 +171,7 @@ record!(LiveSample {
     ride_state: String, package_state: Option<String>, package_mode: Option<String>, footpad_state: Option<String>,
     stop_condition: Option<String>, setpoint_adjustment: Option<String>, wheelslip: Option<bool>, darkride: Option<bool>,
     charging: Option<bool>, alert_reason: Option<String>, firmware_fault: Option<String>,
-    fatal_error_latched: Option<bool>, last_firmware_fault: Option<ReportedFirmwareFault>, fault_history: Vec<RecoveredFirmwareFault>,
+    imu_timeout_active: Option<bool>, fatal_error_latched: Option<bool>, last_firmware_fault: Option<ReportedFirmwareFault>, fault_history: Vec<RecoveredFirmwareFault>, imu_timeout_history: Vec<RecoveredImuTimeout>,
     pack_voltage_v: Option<f64>, duty_cycle: Option<f64>, controller_temp_c: Option<f64>, motor_temp_c: Option<f64>,
     motor_current_a: Option<f64>, battery_current_a: Option<f64>, erpm: Option<f64>, speed_kph: Option<f64>,
     pitch_deg: Option<f64>, balance_pitch_deg: Option<f64>, roll_deg: Option<f64>, directional_motor_current_a: Option<f64>,

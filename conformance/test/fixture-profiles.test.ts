@@ -55,19 +55,19 @@ for (const firmware of firmwareVersions) {
         const legacy = refloat.startsWith('1.0.');
         assert.equal(info[3], legacy ? 10 : 2);
         if (!legacy) {
-          assert.deepEqual([...info.slice(25, 28)], refloat.split('.').map(Number));
-          if (refloat !== '1.3.0') {
+          assert.deepEqual([...info.slice(25, 28)], refloat.split('-')[0]!.split('.').map(Number));
+          if (refloat !== '1.3.0' && refloat !== '1.3.1-beta1') {
             assert.equal(single(simulator, [...prefix, 36, 101, 32]).request.kind, 'refloat-layout');
           }
         }
         const request = legacy
           ? [...prefix, 36, 101, 10]
-          : refloat === '1.3.0'
+          : refloat === '1.3.0' || refloat === '1.3.1-beta1'
             ? [...prefix, 36, 101, 33, 1, 0x7f, 0xff, 0xbf, 0xc3, 0, 0, 0, 0]
             : [...prefix, 36, 101, 31];
         const telemetryResponse = single(simulator, request);
         assert.equal(telemetryResponse.request.telemetryPhase, 'riding');
-        if (refloat === '1.3.0') {
+        if (refloat === '1.3.0' || refloat === '1.3.1-beta1') {
           assert.equal(decode(telemetryResponse.frame)[17]! & 3, 3, 'command 33 must encode the running source state');
         }
         assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.of(6))), []);
@@ -182,7 +182,7 @@ test('all Refloat encoders retain equivalent normalized core state', () => {
     const legacy = version.startsWith('1.0.');
     assert.equal(payload[0], 36);
     assert.equal(payload[1], 101);
-    const selectable = version === '1.3.0';
+    const selectable = version === '1.3.0' || version === '1.3.1-beta1';
     assert.equal(legacy ? payload[10]! & 0x0f : selectable ? payload[17]! & 3 : payload[9], legacy ? 1 : 3);
     assert.equal(legacy ? payload[11] : selectable ? payload[18]! >> 6 : payload[10]! >> 6, legacy ? 2 : 3);
   }

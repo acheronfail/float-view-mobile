@@ -73,8 +73,14 @@
           {sample}
           {units}
         />
-        {#if faultWarning || connection.refloatControls?.packageEnabled === false}
+        {#if sample?.imuTimeoutActive || faultWarning || connection.refloatControls?.packageEnabled === false}
           <div class="absolute inset-x-2 top-2 z-10 flex flex-col gap-2">
+            {#if sample?.imuTimeoutActive}
+              <div role="alert" class="rounded-lg border border-danger bg-surface p-3 text-danger">
+                <span class="block text-sm font-semibold">IMU timeout</span>
+                <span class="block text-xs">The board stopped receiving IMU data. Step off the board.</span>
+              </div>
+            {/if}
             {#if faultWarning}
               <div role="alert">
                 <button

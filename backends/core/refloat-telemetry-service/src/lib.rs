@@ -8,7 +8,7 @@
 
 use std::fmt::{self, Debug, Formatter};
 
-pub use dynamic::alerts::FaultRecord;
+pub use dynamic::alerts::{AlertKind, FaultRecord};
 use float_view_refloat_dynamic_telemetry as dynamic;
 use float_view_refloat_legacy_telemetry as legacy;
 use float_view_vesc_request_scheduler::{
@@ -76,6 +76,7 @@ pub struct Configuration {
     pub family: TelemetryFamily,
     pub selectable_gnss: bool,
     pub alerts_available: bool,
+    pub imu_timeout_available: bool,
     pub settings: Settings,
 }
 
@@ -172,6 +173,7 @@ pub enum StopCondition {
     SwitchFull,
     ReverseStop,
     QuickStop,
+    ImuTimeout,
     Unknown,
 }
 
@@ -291,17 +293,26 @@ pub struct RecoveredFirmwareFault {
     pub observed_elapsed_ms: u64,
 }
 
+/// Bounded timeout occurrences, separate from firmware faults.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecoveredImuTimeout {
+    pub active: bool,
+    pub elapsed_ms: Option<u64>,
+    pub observed_elapsed_ms: u64,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct FaultHistoryObservation {
     pub source_clock: Option<FaultClock>,
     /// When history was retrieved on the ride timeline. Source ticks remain in each record.
     pub elapsed_ms: u64,
     pub observed_at_epoch_ms: i64,
-    pub records: Vec<dynamic::alerts::FaultRecord>,
+    pub records: Vec<FaultRecord>,
 }
 
 pub fn reported_firmware_fault(code: u8) -> Option<ReportedFirmwareFault> {
-    dynamic::alerts::FaultRecord {
+    FaultRecord {
+        kind: AlertKind::FirmwareFault,
         source_ticks: 0,
         active: code != 0,
         raw_code: code,
@@ -331,9 +342,11 @@ pub struct NormalizedSample {
     pub charging: Option<bool>,
     pub alert_reason: Option<AlertReason>,
     pub firmware_fault: Option<FirmwareFault>,
+    pub imu_timeout_active: Option<bool>,
     pub fatal_error_latched: Option<bool>,
     pub last_firmware_fault: Option<ReportedFirmwareFault>,
     pub fault_history: Vec<RecoveredFirmwareFault>,
+    pub imu_timeout_history: Vec<RecoveredImuTimeout>,
     pub pack_voltage_v: Option<f64>,
     pub duty_cycle: Option<f64>,
     pub controller_temp_c: Option<f64>,
@@ -609,15 +622,20 @@ pub struct RefloatTelemetryService {
     latest_compact: Option<SlowCache>,
     selectable_gnss: bool,
     latest_firmware_fault: Option<FirmwareFault>,
+    imu_timeout_active: Option<bool>,
+    imu_timeout_available: bool,
+    alerts_observed_at_ms: Option<u64>,
     alerts_available: bool,
     next_alerts_due_ms: Option<u64>,
-    seen_faults: Vec<dynamic::alerts::FaultRecord>,
+    seen_faults: Vec<FaultRecord>,
     alerts_since_ticks: u32,
     last_source_ticks: Option<u32>,
     last_firmware_fault: Option<ReportedFirmwareFault>,
     recovered_fault_since_sample: bool,
     previous_fault_code: u8,
     fault_history: Vec<RecoveredFirmwareFault>,
+    imu_timeout_history: Vec<RecoveredImuTimeout>,
+    timeout_stop_fallback: bool,
     source_clock: Option<FaultClock>,
     previous_fatal_error_latched: Option<bool>,
     active: bool,
@@ -661,6 +679,9 @@ impl Default for RefloatTelemetryService {
             latest_compact: None,
             selectable_gnss: false,
             latest_firmware_fault: None,
+            imu_timeout_active: None,
+            imu_timeout_available: false,
+            alerts_observed_at_ms: None,
             alerts_available: false,
             next_alerts_due_ms: None,
             seen_faults: Vec::new(),
@@ -670,6 +691,8 @@ impl Default for RefloatTelemetryService {
             recovered_fault_since_sample: false,
             previous_fault_code: 0,
             fault_history: Vec::new(),
+            imu_timeout_history: Vec::new(),
+            timeout_stop_fallback: false,
             source_clock: None,
             previous_fatal_error_latched: None,
             active: false,
@@ -693,6 +716,28 @@ impl RefloatTelemetryService {
         self.last_sample_at_ms = None;
         self.previous_ride_state = RideState::Unknown;
     }
+    /// Active warnings persist; inactive mutation authority has an independent clock.
+    #[must_use]
+    pub fn imu_timeout_state(&self, now_ms: u64) -> Option<bool> {
+        match self.imu_timeout_active {
+            Some(true) => Some(true),
+            Some(false)
+                if self.alerts_observed_at_ms.is_some_and(|at| {
+                    now_ms >= at
+                        && now_ms - at
+                            <= self
+                                .settings
+                                .idle_interval_ms
+                                .max(FAULT_PROBE_INTERVAL_MS)
+                                .saturating_add(2 * REQUEST_TIMEOUT_MS)
+                }) =>
+            {
+                Some(false)
+            }
+            _ => None,
+        }
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             service_generation: self.service_generation,
@@ -830,6 +875,9 @@ impl RefloatTelemetryService {
         self.next_fault_due_ms = next_fault_due;
         self.selectable_gnss = configuration.selectable_gnss;
         self.alerts_available = configuration.alerts_available;
+        self.imu_timeout_available = configuration.imu_timeout_available;
+        self.imu_timeout_active = None;
+        self.alerts_observed_at_ms = None;
         self.next_alerts_due_ms = configuration.alerts_available.then_some(now_ms);
         self.latest_firmware_fault = None;
         self.active = true;
@@ -914,6 +962,12 @@ impl RefloatTelemetryService {
         if self.service_generation != Some(service_generation) {
             return Vec::new();
         }
+        if kind == RequestKind::Alerts
+            && self.pending_request == Some(kind)
+            && !matches!(outcome, RequestOutcome::Response | RequestOutcome::Sent)
+        {
+            self.alerts_observed_at_ms = None;
+        }
         if outcome == RequestOutcome::TimedOut {
             if kind == RequestKind::Layout {
                 return vec![Effect::Diagnostic(Diagnostic::LayoutRequestTimeout)];
@@ -937,6 +991,9 @@ impl RefloatTelemetryService {
             return vec![Effect::Diagnostic(Diagnostic::UnexpectedTelemetryResponse)];
         }
         self.pending_request = None;
+        if kind == RequestKind::Alerts {
+            self.alerts_observed_at_ms = None;
+        }
         vec![Effect::Diagnostic(Diagnostic::MalformedTelemetry)]
     }
 
@@ -958,13 +1015,19 @@ impl RefloatTelemetryService {
                 )]);
             }
             if alerts.records.len() > dynamic::alerts::MAX_FAULT_RECORDS
-                || alerts
-                    .records
-                    .iter()
-                    .any(|record| record.active != (record.raw_code != 0))
+                || alerts.records.iter().any(|record| {
+                    !record.valid()
+                        || (record.kind == AlertKind::ImuTimeout && !self.imu_timeout_available)
+                })
             {
                 return Err(ServiceError::InvalidTelemetry);
             }
+            if alerts.imu_timeout_active.is_some() != self.imu_timeout_available {
+                return Err(ServiceError::InvalidTelemetry);
+            }
+            let previous_timeout = self.imu_timeout_active;
+            self.imu_timeout_active = alerts.imu_timeout_active;
+            self.alerts_observed_at_ms = Some(now_ms);
             self.pending_request = None;
             self.latest_firmware_fault =
                 reported_firmware_fault(alerts.active_fault_code).map(|v| v.reason);
@@ -981,7 +1044,9 @@ impl RefloatTelemetryService {
                     self.seen_faults.remove(0);
                 }
                 self.seen_faults.push(*record);
-                if let Some(fault) = reported_firmware_fault(record.raw_code) {
+                if record.kind == AlertKind::FirmwareFault
+                    && let Some(fault) = reported_firmware_fault(record.raw_code)
+                {
                     self.last_firmware_fault = Some(fault);
                     self.recovered_fault_since_sample = true;
                     if self.fault_history.len() == 20 {
@@ -998,7 +1063,28 @@ impl RefloatTelemetryService {
                         observed_elapsed_ms: elapsed_ms,
                     });
                 }
+                if record.kind == AlertKind::ImuTimeout {
+                    if self.timeout_stop_fallback {
+                        self.imu_timeout_history.remove(0);
+                        self.timeout_stop_fallback = false;
+                    }
+                    self.push_timeout(
+                        record.active,
+                        fault_elapsed_ms(record.source_ticks, self.source_clock, elapsed_ms),
+                        elapsed_ms,
+                    );
+                }
                 records.push(*record);
+            }
+            // An initial healthy reading is a baseline, not a cleared fault.
+            if let Some(active) = self.imu_timeout_active
+                && previous_timeout != Some(active)
+                && (active || previous_timeout == Some(true))
+                && !records
+                    .iter()
+                    .any(|record| record.kind == AlertKind::ImuTimeout && record.active == active)
+            {
+                self.push_timeout(active, Some(elapsed_ms), elapsed_ms);
             }
             if let Some(fault) = reported_firmware_fault(alerts.active_fault_code) {
                 self.last_firmware_fault = Some(fault);
@@ -1079,6 +1165,8 @@ impl RefloatTelemetryService {
                     self.recovered_fault_since_sample = false;
                     self.latest_firmware_fault = None;
                     self.previous_fatal_error_latched = None;
+                    self.imu_timeout_active = None;
+                    self.alerts_observed_at_ms = None;
                 }
                 self.next_alerts_due_ms = self.alerts_available.then_some(now_ms);
             }
@@ -1126,6 +1214,19 @@ impl RefloatTelemetryService {
         }
         self.previous_fatal_error_latched = record.fatal_error_latched;
         self.recovered_fault_since_sample = false;
+        if !self.imu_timeout_available && record.stop_condition == Some(StopCondition::ImuTimeout) {
+            record.stop_condition = Some(StopCondition::Unknown);
+        }
+        if record.stop_condition == Some(StopCondition::ImuTimeout)
+            && self.imu_timeout_history.is_empty()
+        {
+            let elapsed_ms = self
+                .elapsed_offset_ms
+                .saturating_add(now_ms.saturating_sub(self.started_at_ms.unwrap_or(now_ms)));
+            // A retained stop establishes an occurrence, but cannot date it or establish active state.
+            self.push_timeout(true, None, elapsed_ms);
+            self.timeout_stop_fallback = true;
+        }
         if self.family == TelemetryFamily::Selectable {
             record.firmware_fault = self.latest_firmware_fault;
             if record.firmware_fault.is_some() {
@@ -1180,6 +1281,7 @@ impl RefloatTelemetryService {
             observed_at_epoch_ms,
             self.elapsed_offset_ms
                 .saturating_add(now_ms.saturating_sub(started_at_ms)),
+            now_ms,
         );
 
         sample.riding_elapsed_ms = next_riding_elapsed_ms;
@@ -1205,6 +1307,18 @@ impl RefloatTelemetryService {
         self.stop_active()
     }
 
+    fn push_timeout(&mut self, active: bool, elapsed_ms: Option<u64>, observed_elapsed_ms: u64) {
+        if self.imu_timeout_history.len() == 20 {
+            self.imu_timeout_history.remove(0);
+            self.timeout_stop_fallback = false;
+        }
+        self.imu_timeout_history.push(RecoveredImuTimeout {
+            active,
+            elapsed_ms,
+            observed_elapsed_ms,
+        });
+    }
+
     fn reset(&mut self) -> Vec<Effect> {
         self.started_at_ms = None;
         self.elapsed_offset_ms = 0;
@@ -1212,6 +1326,8 @@ impl RefloatTelemetryService {
         self.sequence = 0;
         self.previous_fault_code = 0;
         self.fault_history.clear();
+        self.imu_timeout_history.clear();
+        self.timeout_stop_fallback = false;
         self.seen_faults.clear();
         self.alerts_since_ticks = 0;
         self.last_source_ticks = None;
@@ -1250,6 +1366,9 @@ impl RefloatTelemetryService {
         self.latest_compact = None;
         self.selectable_gnss = false;
         self.alerts_available = false;
+        self.imu_timeout_available = false;
+        self.imu_timeout_active = None;
+        self.alerts_observed_at_ms = None;
         self.next_alerts_due_ms = None;
         self.latest_firmware_fault = None;
         effects
@@ -1483,6 +1602,7 @@ impl RefloatTelemetryService {
         sequence: u64,
         observed_at_epoch_ms: i64,
         elapsed_ms: u64,
+        now_ms: u64,
     ) -> NormalizedSample {
         let slow = match self.family {
             TelemetryFamily::Dynamic | TelemetryFamily::Selectable => self.latest_compact.clone(),
@@ -1507,9 +1627,11 @@ impl RefloatTelemetryService {
             charging: value.charging,
             alert_reason: value.alert_reason,
             firmware_fault: value.firmware_fault,
+            imu_timeout_active: self.imu_timeout_state(now_ms),
             fatal_error_latched: value.fatal_error_latched,
             last_firmware_fault: self.last_firmware_fault,
             fault_history: self.fault_history.clone(),
+            imu_timeout_history: self.imu_timeout_history.clone(),
             pack_voltage_v: value.pack_voltage_v,
             duty_cycle: value.duty_cycle,
             controller_temp_c: value.controller_temp_c,
@@ -1987,6 +2109,7 @@ mod tests {
             family,
             selectable_gnss: false,
             alerts_available: false,
+            imu_timeout_available: false,
             settings: settings(),
         }
     }
@@ -2195,6 +2318,274 @@ mod tests {
     }
 
     #[test]
+    fn inactive_timeout_authority_expires_independently_of_fast_samples() {
+        for route in [Route::Direct, Route::Can(42)] {
+            for idle_ms in [MIN_IDLE_INTERVAL_MS, MAX_IDLE_INTERVAL_MS] {
+                let mut service = RefloatTelemetryService::default();
+                let mut config = configuration(TelemetryFamily::Selectable, route);
+                config.alerts_available = true;
+                config.imu_timeout_available = true;
+                config.settings.idle_interval_ms = idle_ms;
+                service
+                    .apply(Command::Start {
+                        configuration: config,
+                        now_ms: 0,
+                    })
+                    .unwrap();
+                service.pending_request = Some(RequestKind::Alerts);
+                receive(
+                    &mut service,
+                    DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                        imu_timeout_active: Some(false),
+                        active_fault_code: 0,
+                        records: vec![],
+                    }),
+                    100,
+                    1_000_100,
+                );
+                let deadline = 100 + idle_ms.max(FAULT_PROBE_INTERVAL_MS) + 2 * REQUEST_TIMEOUT_MS;
+                assert_eq!(service.imu_timeout_state(deadline), Some(false));
+                assert_eq!(service.imu_timeout_state(deadline + 1), None);
+                service.pending_request = Some(RequestKind::SelectableFast);
+                let effects = receive(
+                    &mut service,
+                    DecodedTelemetry::Selectable(selectable_sample(
+                        Some(dynamic::PackageState::Ready),
+                        0.0,
+                    )),
+                    deadline + 1,
+                    1_060_000,
+                );
+                assert_eq!(published(&effects).imu_timeout_active, None);
+                assert!(published(&effects).imu_timeout_history.is_empty());
+                // A valid read restores authority without inventing a clear transition.
+                service.pending_request = Some(RequestKind::Alerts);
+                receive(
+                    &mut service,
+                    DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                        imu_timeout_active: Some(false),
+                        active_fault_code: 0,
+                        records: vec![],
+                    }),
+                    deadline + 2,
+                    1_060_001,
+                );
+                assert_eq!(service.imu_timeout_state(deadline + 2), Some(false));
+                assert!(service.imu_timeout_history.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn failed_alert_reads_invalidate_inactive_authority_but_keep_active_warnings() {
+        for active in [false, true] {
+            for malformed in [false, true] {
+                let mut service = RefloatTelemetryService::default();
+                let mut config = configuration(TelemetryFamily::Selectable, Route::Direct);
+                config.alerts_available = true;
+                config.imu_timeout_available = true;
+                service
+                    .apply(Command::Start {
+                        configuration: config,
+                        now_ms: 0,
+                    })
+                    .unwrap();
+                service.pending_request = Some(RequestKind::Alerts);
+                receive(
+                    &mut service,
+                    DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                        imu_timeout_active: Some(active),
+                        active_fault_code: 0,
+                        records: vec![],
+                    }),
+                    100,
+                    1_000_100,
+                );
+                service.pending_request = Some(RequestKind::Alerts);
+                // Stale failures cannot revoke current evidence.
+                service.decode_failed(6, RequestKind::Alerts);
+                assert_eq!(service.imu_timeout_state(101), Some(active));
+                if malformed {
+                    service.decode_failed(7, RequestKind::Alerts);
+                } else {
+                    service.request_completed(7, RequestKind::Alerts, RequestOutcome::TimedOut);
+                }
+                assert_eq!(service.imu_timeout_state(101), active.then_some(true));
+                service.pending_request = Some(RequestKind::SelectableFast);
+                let effects = receive(
+                    &mut service,
+                    DecodedTelemetry::Selectable(selectable_sample(
+                        Some(dynamic::PackageState::Ready),
+                        0.0,
+                    )),
+                    60_000,
+                    1_060_000,
+                );
+                assert_eq!(
+                    published(&effects).imu_timeout_active,
+                    active.then_some(true)
+                );
+                service.pending_request = Some(RequestKind::Alerts);
+                receive(
+                    &mut service,
+                    DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                        imu_timeout_active: Some(false),
+                        active_fault_code: 0,
+                        records: vec![],
+                    }),
+                    60_001,
+                    1_060_001,
+                );
+                assert_eq!(service.imu_timeout_state(60_001), Some(false));
+                assert_eq!(
+                    service.imu_timeout_history.len(),
+                    if active { 2 } else { 0 }
+                );
+                service.apply(Command::Reset).unwrap();
+                assert_eq!(service.imu_timeout_state(60_002), None);
+            }
+        }
+    }
+
+    #[test]
+    fn beta_timeout_history_deduplicates_and_preserves_independent_state() {
+        for route in [Route::Direct, Route::Can(42)] {
+            let mut service = RefloatTelemetryService::default();
+            let mut config = configuration(TelemetryFamily::Selectable, route);
+            config.alerts_available = true;
+            config.imu_timeout_available = true;
+            service
+                .apply(Command::Start {
+                    configuration: config,
+                    now_ms: 0,
+                })
+                .unwrap();
+            let mut state = selectable_sample(Some(dynamic::PackageState::Ready), 0.0);
+            state.stop_condition = Some(dynamic::StopCondition::ImuTimeout);
+            let effects = receive(
+                &mut service,
+                DecodedTelemetry::Selectable(state.clone()),
+                100,
+                1_000_100,
+            );
+            assert_eq!(published(&effects).imu_timeout_active, None);
+            assert_eq!(published(&effects).imu_timeout_history.len(), 1);
+            assert_eq!(published(&effects).imu_timeout_history[0].elapsed_ms, None);
+            assert_eq!(enqueue(&effects).0, RequestKind::Alerts);
+            let timeout = FaultRecord {
+                kind: AlertKind::ImuTimeout,
+                source_ticks: 100,
+                active: true,
+                raw_code: 0,
+            };
+            let fault = FaultRecord {
+                kind: AlertKind::FirmwareFault,
+                source_ticks: 100,
+                active: true,
+                raw_code: 4,
+            };
+            let alerts = dynamic::alerts::Alerts {
+                imu_timeout_active: Some(true),
+                active_fault_code: 4,
+                records: vec![timeout, fault],
+            };
+            let effects = receive(
+                &mut service,
+                DecodedTelemetry::Alerts(alerts.clone()),
+                110,
+                1_000_110,
+            );
+            assert!(
+                effects
+                    .iter()
+                    .any(|e| matches!(e, Effect::PublishFaultHistory(v) if v.records.len()==2))
+            );
+            let effects = receive(
+                &mut service,
+                DecodedTelemetry::Selectable(state.clone()),
+                120,
+                1_000_120,
+            );
+            assert_eq!(published(&effects).imu_timeout_active, Some(true));
+            assert_eq!(published(&effects).fault_history.len(), 1);
+            assert_eq!(published(&effects).imu_timeout_history.len(), 1);
+            service.pending_request = Some(RequestKind::Alerts);
+            let effects = receive(
+                &mut service,
+                DecodedTelemetry::Alerts(alerts),
+                130,
+                1_000_130,
+            );
+            assert!(
+                !effects
+                    .iter()
+                    .any(|e| matches!(e, Effect::PublishFaultHistory(_)))
+            );
+            service.pending_request = Some(RequestKind::Alerts);
+            let clear = FaultRecord {
+                active: false,
+                source_ticks: 101,
+                ..timeout
+            };
+            receive(
+                &mut service,
+                DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                    imu_timeout_active: Some(false),
+                    active_fault_code: 0,
+                    records: vec![clear],
+                }),
+                140,
+                1_000_140,
+            );
+            let effects = receive(
+                &mut service,
+                DecodedTelemetry::Selectable(state),
+                150,
+                1_000_150,
+            );
+            assert_eq!(published(&effects).imu_timeout_active, Some(false));
+            assert_eq!(published(&effects).imu_timeout_history.len(), 2);
+            assert!(!published(&effects).imu_timeout_history[1].active);
+            assert_eq!(published(&effects).firmware_fault, None);
+            service.apply(Command::Reset).unwrap();
+            assert_eq!(service.imu_timeout_active, None);
+        }
+    }
+
+    #[test]
+    fn timeout_baseline_observed_transitions_bounds_and_reset() {
+        let mut service = RefloatTelemetryService::default();
+        let mut config = configuration(TelemetryFamily::Selectable, Route::Direct);
+        config.alerts_available = true;
+        config.imu_timeout_available = true;
+        service
+            .apply(Command::Start {
+                configuration: config,
+                now_ms: 0,
+            })
+            .unwrap();
+        for index in 0..26 {
+            let active = index % 2 == 1;
+            service.pending_request = Some(RequestKind::Alerts);
+            receive(
+                &mut service,
+                DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                    imu_timeout_active: Some(active),
+                    active_fault_code: 0,
+                    records: vec![],
+                }),
+                index * 100,
+                1_000_000 + index as i64 * 100,
+            );
+            assert_eq!(service.imu_timeout_history.len(), (index as usize).min(20));
+        }
+        assert!(service.imu_timeout_history.last().unwrap().active);
+        assert!(service.fault_history.is_empty());
+        service.apply(Command::Reset).unwrap();
+        assert!(service.imu_timeout_history.is_empty());
+    }
+
+    #[test]
     fn fault_times_use_controller_ticks_without_placing_old_or_future_faults_in_a_ride() {
         let clock = Some(FaultClock {
             ticks: 1000,
@@ -2254,14 +2645,17 @@ mod tests {
         let effects = receive(
             &mut service,
             DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                imu_timeout_active: None,
                 active_fault_code: 0,
                 records: vec![
                     FaultRecord {
+                        kind: AlertKind::FirmwareFault,
                         source_ticks: 1,
                         active: true,
                         raw_code: 255,
                     },
                     FaultRecord {
+                        kind: AlertKind::FirmwareFault,
                         source_ticks: 2,
                         active: false,
                         raw_code: 0,
@@ -2309,14 +2703,17 @@ mod tests {
         let effects = receive(
             &mut service,
             DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                imu_timeout_active: None,
                 active_fault_code: 0,
                 records: vec![
                     FaultRecord {
+                        kind: AlertKind::FirmwareFault,
                         source_ticks: 1,
                         active: true,
                         raw_code: 4,
                     },
                     FaultRecord {
+                        kind: AlertKind::FirmwareFault,
                         source_ticks: 2,
                         active: false,
                         raw_code: 0,
@@ -2387,18 +2784,21 @@ mod tests {
         assert_eq!(kind, RequestKind::Alerts);
         assert_eq!(facts.payload, [34, 23, 36, 101, 35, 0, 0, 0, 0]);
         let records = vec![
-            dynamic::alerts::FaultRecord {
+            FaultRecord {
+                kind: AlertKind::FirmwareFault,
                 source_ticks: 900,
                 active: true,
                 raw_code: 4,
             },
-            dynamic::alerts::FaultRecord {
+            FaultRecord {
+                kind: AlertKind::FirmwareFault,
                 source_ticks: 900,
                 active: false,
                 raw_code: 0,
             },
         ];
         let alerts = dynamic::alerts::Alerts {
+            imu_timeout_active: None,
             active_fault_code: 0,
             records: records.clone(),
         };
@@ -2463,6 +2863,7 @@ mod tests {
         let effects = receive(
             &mut service,
             DecodedTelemetry::Alerts(dynamic::alerts::Alerts {
+                imu_timeout_active: None,
                 active_fault_code: 0,
                 records: records.clone(),
             }),
@@ -3412,7 +3813,7 @@ mod tests {
         assert!(!format!("{record:?}").contains("123456"));
         let common = common_dynamic_sample(record).unwrap();
         let service = RefloatTelemetryService::default();
-        let sample = service.normalized_sample(common, 1, 1, 1);
+        let sample = service.normalized_sample(common, 1, 1, 1, 1);
         assert!(!format!("{sample:?}").contains("123456"));
     }
 
@@ -3456,6 +3857,7 @@ map_same_variants!(
         SwitchFull,
         ReverseStop,
         QuickStop,
+        ImuTimeout,
         Unknown
     ]
 );

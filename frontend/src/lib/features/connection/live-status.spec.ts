@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beepReasonLabel, firmwareFaultWarning, hasFirmwareFaults, liveStatus, stopReasonLabel } from './live-status';
+import { beepReasonLabel, firmwareFaultWarning, hasFaultHistory, liveStatus, stopReasonLabel } from './live-status';
 
 const sample = {
   packageState: 'ready' as const,
@@ -9,6 +9,8 @@ const sample = {
   wheelslip: false,
   charging: false,
   firmwareFault: null,
+  imuTimeoutActive: null,
+  imuTimeoutHistory: [],
   fatalErrorLatched: false,
   lastFirmwareFault: null,
 };
@@ -32,12 +34,22 @@ describe('live status presentation', () => {
   });
 
   it('offers history for current warnings and retained occurrences only', () => {
-    expect(hasFirmwareFaults(null)).toBe(false);
-    expect(hasFirmwareFaults({ ...sample, faultHistory: [] })).toBe(false);
-    expect(hasFirmwareFaults({ ...sample, fatalErrorLatched: true, faultHistory: [] })).toBe(true);
-    expect(hasFirmwareFaults({ ...sample, firmwareFault: 'driver', faultHistory: [] })).toBe(true);
+    expect(hasFaultHistory(null)).toBe(false);
+    expect(hasFaultHistory({ ...sample, imuTimeoutActive: false, faultHistory: [] })).toBe(false);
+    expect(hasFaultHistory({ ...sample, imuTimeoutActive: true, faultHistory: [] })).toBe(true);
     expect(
-      hasFirmwareFaults({
+      hasFaultHistory({
+        ...sample,
+        imuTimeoutActive: false,
+        faultHistory: [],
+        imuTimeoutHistory: [{ active: false, elapsedMs: 10, observedElapsedMs: 20 }],
+      })
+    ).toBe(true);
+    expect(hasFaultHistory({ ...sample, faultHistory: [] })).toBe(false);
+    expect(hasFaultHistory({ ...sample, fatalErrorLatched: true, faultHistory: [] })).toBe(true);
+    expect(hasFaultHistory({ ...sample, firmwareFault: 'driver', faultHistory: [] })).toBe(true);
+    expect(
+      hasFaultHistory({
         ...sample,
         faultHistory: [{ code: 3, reason: 'driver', elapsedMs: 0, observedElapsedMs: 0 }],
       })
@@ -94,4 +106,14 @@ describe('live status presentation', () => {
     expect(stopReasonLabel('switchHalf')).toBe('One footpad');
     expect(stopReasonLabel('switchFull')).toBe('Both footpads');
   });
+});
+
+it('distinguishes active IMU timeout from retained stop and simultaneous firmware faults', () => {
+  expect(liveStatus('ready', { ...sample, imuTimeoutActive: true }).display).toBe('IMU timeout');
+  const stopped = { ...sample, imuTimeoutActive: false, stopCondition: 'imuTimeout' as const };
+  expect(liveStatus('ready', stopped)).toEqual({ display: 'Stopped · IMU timeout', safetyStateActive: false });
+  expect(liveStatus('ready', { ...stopped, imuTimeoutActive: true, firmwareFault: 'driver' }).display).toMatch(
+    /Firmware fault.*IMU timeout/
+  );
+  expect(firmwareFaultWarning(stopped)).toBeNull();
 });

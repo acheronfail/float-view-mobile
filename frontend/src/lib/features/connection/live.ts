@@ -73,6 +73,9 @@ export function refloatConfigurationWriteUnavailableReason(
 
   const sample = connection.latestSample;
   if (!sample) return 'Wait for live board status before applying a Tune.';
+  if (sample.imuTimeoutActive === true) return 'Wait for the IMU timeout to clear before applying a Tune.';
+  if (summary.packageVersion === '1.3.1-beta1' && sample.imuTimeoutActive !== false)
+    return 'Wait for the board to confirm IMU timeout status before applying a Tune.';
   if (operation === 'applyTune' && supportsRidingTuneApply(summary.packageVersion)) {
     if (
       (sample.rideState !== 'idle' && sample.rideState !== 'riding') ||
@@ -145,7 +148,9 @@ export function refloatMenuActions(connection: ActiveConnection): RefloatMenuAct
     connection.state === 'ready' &&
     controls.flywheelEnabled !== null &&
     controls.writable &&
-    controls.pendingAction === null;
+    controls.pendingAction === null &&
+    connection.latestSample?.imuTimeoutActive !== true &&
+    (connection.firmware?.packageVersion !== '1.3.1-beta1' || connection.latestSample?.imuTimeoutActive === false);
   const idle = connection.latestSample?.rideState === 'idle';
   const flywheel = controls.flywheelEnabled === true;
 

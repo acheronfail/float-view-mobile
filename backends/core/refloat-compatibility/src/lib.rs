@@ -30,11 +30,13 @@ pub const MAX_IDENTIFIER_BYTES: usize = 64;
 /// Maximum aggregate encoded bytes across dynamic identifiers.
 pub const MAX_AGGREGATE_IDENTIFIER_BYTES: usize = 4_096;
 /// Version of the canonical compatibility bridge record.
-pub const RECORD_VERSION: u8 = 1;
+pub const RECORD_VERSION: u8 = 2;
 /// Record kind for one accepted INFO compatibility decision.
 pub const COMPATIBILITY_RECORD_KIND: u8 = 1;
 /// Exact extent of the canonical compatibility record.
-pub const COMPATIBILITY_RECORD_BYTES: usize = 12;
+pub const COMPATIBILITY_RECORD_BYTES: usize = 12 + VERSION_SUFFIX_BYTES;
+/// Source-defined width of the zero-padded INFO-v2 version suffix.
+pub const VERSION_SUFFIX_BYTES: usize = 20;
 
 const INFO_V2_RESPONSE_BYTES: usize = 61;
 const INFO_V2_MAJOR_OFFSET: usize = 25;
@@ -87,9 +89,64 @@ pub const REQUIRED_RUNTIME_FIELDS: [&str; 10] = [
     "booster.current",
 ];
 
+/// Validated ASCII version suffix, stored exactly as the fixed-width wire field.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct VersionSuffix([u8; VERSION_SUFFIX_BYTES]);
+
+impl VersionSuffix {
+    pub const EMPTY: Self = Self([0; VERSION_SUFFIX_BYTES]);
+
+    /// Construct a suffix without padding; an empty suffix denotes a stable release.
+    pub const fn new(text: &str) -> Option<Self> {
+        let bytes = text.as_bytes();
+        if bytes.len() > VERSION_SUFFIX_BYTES {
+            return None;
+        }
+        let mut value = [0; VERSION_SUFFIX_BYTES];
+        let mut index = 0;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if !byte.is_ascii_alphanumeric() && !matches!(byte, b'.' | b'-' | b'+') {
+                return None;
+            }
+            value[index] = byte;
+            index += 1;
+        }
+        Some(Self(value))
+    }
+
+    fn from_wire(bytes: &[u8]) -> Result<Self, CompatibilityError> {
+        if bytes.len() != VERSION_SUFFIX_BYTES {
+            return Err(CompatibilityError::InvalidIdentifier);
+        }
+        let end = bytes
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(bytes.len());
+        if bytes[end..].iter().any(|byte| *byte != 0) {
+            return Err(CompatibilityError::InvalidIdentifier);
+        }
+        let text = std::str::from_utf8(&bytes[..end])
+            .map_err(|_| CompatibilityError::InvalidIdentifier)?;
+        Self::new(text).ok_or(CompatibilityError::InvalidIdentifier)
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        let end = self
+            .0
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(VERSION_SUFFIX_BYTES);
+        std::str::from_utf8(&self.0[..end]).expect("validated ASCII suffix")
+    }
+}
+
 /// A source package release represented independently from its wire identity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SourceVersion {
+    /// Fixed-width source suffix; empty for a stable release.
+    pub suffix: VersionSuffix,
     /// Source major version.
     pub major: u8,
     /// Source minor version.
@@ -99,10 +156,18 @@ pub struct SourceVersion {
 }
 
 impl SourceVersion {
+    /// Preserve the complete source-defined suffix in this identity.
+    #[must_use]
+    pub const fn with_suffix(mut self, suffix: VersionSuffix) -> Self {
+        self.suffix = suffix;
+        self
+    }
+
     /// Construct one exact source release.
     #[must_use]
     pub const fn new(major: u8, minor: u8, patch: u8) -> Self {
         Self {
+            suffix: VersionSuffix::EMPTY,
             major,
             minor,
             patch,
@@ -113,6 +178,8 @@ impl SourceVersion {
 /// A reported Refloat wire identity.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct WireVersion {
+    /// Fixed-width source suffix; empty for a stable release.
+    pub suffix: VersionSuffix,
     /// Reported major version.
     pub major: u8,
     /// Reported minor version.
@@ -122,10 +189,18 @@ pub struct WireVersion {
 }
 
 impl WireVersion {
+    /// Preserve the complete source-defined suffix in this identity.
+    #[must_use]
+    pub const fn with_suffix(mut self, suffix: VersionSuffix) -> Self {
+        self.suffix = suffix;
+        self
+    }
+
     /// Construct a legacy compact major/minor identity without a patch.
     #[must_use]
     pub const fn legacy(major: u8, minor: u8) -> Self {
         Self {
+            suffix: VersionSuffix::EMPTY,
             major,
             minor,
             patch: None,
@@ -136,6 +211,7 @@ impl WireVersion {
     #[must_use]
     pub const fn patched(major: u8, minor: u8, patch: u8) -> Self {
         Self {
+            suffix: VersionSuffix::EMPTY,
             major,
             minor,
             patch: Some(patch),
@@ -143,12 +219,26 @@ impl WireVersion {
     }
 }
 
+impl fmt::Display for SourceVersion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}.{}.{}", self.major, self.minor, self.patch)?;
+        if self.suffix != VersionSuffix::EMPTY {
+            write!(formatter, "-{}", self.suffix.as_str())?;
+        }
+        Ok(())
+    }
+}
+
 impl fmt::Display for WireVersion {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.patch {
-            Some(patch) => write!(formatter, "{}.{}.{}", self.major, self.minor, patch),
-            None => write!(formatter, "{}.{}", self.major, self.minor),
+        write!(formatter, "{}.{}", self.major, self.minor)?;
+        if let Some(patch) = self.patch {
+            write!(formatter, ".{patch}")?;
         }
+        if self.suffix != VersionSuffix::EMPTY {
+            write!(formatter, "-{}", self.suffix.as_str())?;
+        }
+        Ok(())
     }
 }
 
@@ -209,6 +299,8 @@ pub struct ControlProfile {
 /// One exact source release and its reported wire/profile mapping.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CompatibilityEntry {
+    /// Whether this audited release reports IMU timeouts.
+    pub imu_timeout_available: bool,
     /// Audited source package release.
     pub source: SourceVersion,
     /// Identity reported by that source release.
@@ -229,64 +321,83 @@ const STABLE_CONTROL: ControlProfile = ControlProfile {
 };
 
 /// Exact audited source-release compatibility catalogue.
-pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 10] = [
+pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 11] = [
     CompatibilityEntry {
+        imu_timeout_available: false,
         source: SourceVersion::new(1, 0, 0),
         wire: WireVersion::legacy(1, 0),
         telemetry: TelemetryProfile::LegacyFixed,
         control: LEGACY_CONTROL,
     },
     CompatibilityEntry {
+        imu_timeout_available: false,
         source: SourceVersion::new(1, 0, 1),
         wire: WireVersion::legacy(1, 0),
         telemetry: TelemetryProfile::LegacyFixed,
         control: LEGACY_CONTROL,
     },
     CompatibilityEntry {
+        imu_timeout_available: false,
         source: SourceVersion::new(1, 1, 0),
         wire: WireVersion::patched(1, 1, 0),
         telemetry: TelemetryProfile::Dynamic,
         control: LEGACY_CONTROL,
     },
     CompatibilityEntry {
+        imu_timeout_available: false,
         source: SourceVersion::new(1, 1, 1),
         wire: WireVersion::patched(1, 1, 1),
         telemetry: TelemetryProfile::Dynamic,
         control: LEGACY_CONTROL,
     },
     CompatibilityEntry {
+        imu_timeout_available: false,
         source: SourceVersion::new(1, 1, 2),
         wire: WireVersion::patched(1, 1, 2),
         telemetry: TelemetryProfile::Dynamic,
         control: LEGACY_CONTROL,
     },
     CompatibilityEntry {
+        imu_timeout_available: false,
         source: SourceVersion::new(1, 2, 0),
         wire: WireVersion::patched(1, 2, 0),
         telemetry: TelemetryProfile::DynamicAlerts,
         control: STABLE_CONTROL,
     },
     CompatibilityEntry {
+        imu_timeout_available: false,
         source: SourceVersion::new(1, 2, 1),
         wire: WireVersion::patched(1, 2, 1),
         telemetry: TelemetryProfile::DynamicAlerts,
         control: STABLE_CONTROL,
     },
     CompatibilityEntry {
+        imu_timeout_available: false,
         source: SourceVersion::new(1, 2, 2),
         wire: WireVersion::patched(1, 2, 2),
         telemetry: TelemetryProfile::DynamicAlerts,
         control: STABLE_CONTROL,
     },
     CompatibilityEntry {
+        imu_timeout_available: false,
         source: SourceVersion::new(1, 2, 3),
         wire: WireVersion::patched(1, 2, 3),
         telemetry: TelemetryProfile::DynamicAlerts,
         control: STABLE_CONTROL,
     },
     CompatibilityEntry {
+        imu_timeout_available: false,
         source: SourceVersion::new(1, 3, 0),
         wire: WireVersion::patched(1, 3, 0),
+        telemetry: TelemetryProfile::Selectable,
+        control: STABLE_CONTROL,
+    },
+    CompatibilityEntry {
+        imu_timeout_available: true,
+        source: SourceVersion::new(1, 3, 1)
+            .with_suffix(VersionSuffix::new("beta1").expect("valid catalogue suffix")),
+        wire: WireVersion::patched(1, 3, 1)
+            .with_suffix(VersionSuffix::new("beta1").expect("valid catalogue suffix")),
         telemetry: TelemetryProfile::Selectable,
         control: STABLE_CONTROL,
     },
@@ -295,6 +406,8 @@ pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 10] = [
 /// Closed compatibility result for one reported wire identity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CompatibilityProfile {
+    /// Whether guarded writes require confirmed inactive IMU timeout state.
+    pub imu_timeout_available: bool,
     /// Telemetry wire generation.
     pub telemetry: TelemetryProfile,
     /// Refloat control capabilities.
@@ -409,27 +522,8 @@ pub const fn info_request() -> [u8; 5] {
     INFO_REQUEST
 }
 
-/// Bounded public INFO identity, independent from compatibility admission.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InfoIdentity {
-    /// Numeric wire version.
-    pub version: WireVersion,
-    /// Source-defined suffix, at most 20 ASCII bytes.
-    pub suffix: String,
-}
-
-impl fmt::Display for InfoIdentity {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}", self.version)?;
-        if !self.suffix.is_empty() {
-            write!(formatter, "-{}", self.suffix)?;
-        }
-        Ok(())
-    }
-}
-
 /// Decode one complete bounded INFO identity without admitting the release.
-pub fn decode_info_identity(payload: &[u8]) -> Result<InfoIdentity, CompatibilityError> {
+pub fn decode_info_identity(payload: &[u8]) -> Result<WireVersion, CompatibilityError> {
     if payload.len() > MAX_PAYLOAD_BYTES {
         return Err(CompatibilityError::InputTooLarge);
     }
@@ -442,16 +536,13 @@ pub fn decode_info_identity(payload: &[u8]) -> Result<InfoIdentity, Compatibilit
 
     let response_version = payload[3];
     if response_version == 10 {
-        return Ok(InfoIdentity {
-            version: WireVersion::legacy(1, 0),
-            suffix: String::new(),
-        });
+        return Ok(WireVersion::legacy(1, 0));
     }
     if response_version > 10 {
-        return Ok(InfoIdentity {
-            version: WireVersion::legacy(response_version / 10, response_version % 10),
-            suffix: String::new(),
-        });
+        return Ok(WireVersion::legacy(
+            response_version / 10,
+            response_version % 10,
+        ));
     }
     if response_version != INFO_PROTOCOL_VERSION {
         return Err(CompatibilityError::UnsupportedInfoProtocol);
@@ -460,36 +551,21 @@ pub fn decode_info_identity(payload: &[u8]) -> Result<InfoIdentity, Compatibilit
         return Err(CompatibilityError::TruncatedInfo);
     }
 
-    let suffix_bytes = &payload[28..48];
-    let end = suffix_bytes
-        .iter()
-        .position(|byte| *byte == 0)
-        .unwrap_or(suffix_bytes.len());
-    if suffix_bytes[..end]
-        .iter()
-        .any(|byte| !byte.is_ascii_alphanumeric() && !b".-+".contains(byte))
-        || suffix_bytes[end..].iter().any(|byte| *byte != 0)
-    {
-        return Err(CompatibilityError::InvalidIdentifier);
-    }
-    Ok(InfoIdentity {
-        version: WireVersion::patched(
-            payload[INFO_V2_MAJOR_OFFSET],
-            payload[INFO_V2_MINOR_OFFSET],
-            payload[INFO_V2_PATCH_OFFSET],
-        ),
-        suffix: String::from_utf8(suffix_bytes[..end].to_vec())
-            .map_err(|_| CompatibilityError::InvalidIdentifier)?,
-    })
+    Ok(WireVersion::patched(
+        payload[INFO_V2_MAJOR_OFFSET],
+        payload[INFO_V2_MINOR_OFFSET],
+        payload[INFO_V2_PATCH_OFFSET],
+    )
+    .with_suffix(VersionSuffix::from_wire(&payload[28..48])?))
 }
 
-/// Decode an INFO identity eligible for exact stable-release lookup.
+/// Decode an INFO identity eligible for exact audited-release lookup.
 pub fn decode_info(payload: &[u8]) -> Result<WireVersion, CompatibilityError> {
-    let identity = decode_info_identity(payload)?;
-    if !identity.suffix.is_empty() {
+    let version = decode_info_identity(payload)?;
+    if version.suffix != VersionSuffix::EMPTY && compatibility(version).is_none() {
         return Err(CompatibilityError::UnsupportedRelease);
     }
-    Ok(identity.version)
+    Ok(version)
 }
 
 /// Decode the INFO-v2 capability word without interpreting device identity.
@@ -508,18 +584,10 @@ pub fn decode_info_capabilities(payload: &[u8]) -> Result<u32, CompatibilityErro
 /// Parse only exact canonical wire-identity text, without semantic-version ranges.
 #[must_use]
 pub fn parse_wire_version(text: &str) -> Option<WireVersion> {
-    match text {
-        "1.0" => Some(WireVersion::legacy(1, 0)),
-        "1.1.0" => Some(WireVersion::patched(1, 1, 0)),
-        "1.1.1" => Some(WireVersion::patched(1, 1, 1)),
-        "1.1.2" => Some(WireVersion::patched(1, 1, 2)),
-        "1.2.0" => Some(WireVersion::patched(1, 2, 0)),
-        "1.2.1" => Some(WireVersion::patched(1, 2, 1)),
-        "1.2.2" => Some(WireVersion::patched(1, 2, 2)),
-        "1.2.3" => Some(WireVersion::patched(1, 2, 3)),
-        "1.3.0" => Some(WireVersion::patched(1, 3, 0)),
-        _ => None,
-    }
+    COMPATIBILITY_ENTRIES
+        .iter()
+        .find(|entry| entry.wire.to_string() == text)
+        .map(|entry| entry.wire)
 }
 
 /// Look up the exact supported profile for one structural wire identity.
@@ -529,6 +597,7 @@ pub fn compatibility(version: WireVersion) -> Option<CompatibilityProfile> {
         .iter()
         .find(|entry| entry.wire == version)
         .map(|entry| CompatibilityProfile {
+            imu_timeout_available: entry.imu_timeout_available,
             telemetry: entry.telemetry,
             control: entry.control,
         })
@@ -547,6 +616,9 @@ pub fn decode_info_record(payload: &[u8]) -> CompatibilityRecordOutcome {
         Err(CompatibilityError::UnsupportedInfoProtocol) => {
             return CompatibilityRecordOutcome::UnsupportedInfoProtocol;
         }
+        Err(CompatibilityError::UnsupportedRelease) => {
+            return CompatibilityRecordOutcome::UnsupportedRelease;
+        }
         Err(_) => return CompatibilityRecordOutcome::InternalFailure,
     };
     let Some(profile) = compatibility(version) else {
@@ -564,12 +636,15 @@ pub fn parse_compatibility_record(
         || record[1] != COMPATIBILITY_RECORD_KIND
         || record[4] > 1
         || record[9] > 1
-        || record[10..12] != [0, 0]
+        || record[10] > 1
+        || record[11] != 0
         || (record[4] == 0 && record[5] != 0)
     {
         return Err(CompatibilityError::InvalidCompatibilityRecord);
     }
     let version = WireVersion {
+        suffix: VersionSuffix::from_wire(&record[12..])
+            .map_err(|_| CompatibilityError::InvalidCompatibilityRecord)?,
         major: record[2],
         minor: record[3],
         patch: (record[4] == 1).then_some(record[5]),
@@ -593,6 +668,7 @@ pub fn parse_compatibility_record(
         _ => return Err(CompatibilityError::InvalidCompatibilityRecord),
     };
     let profile = CompatibilityProfile {
+        imu_timeout_available: record[10] == 1,
         telemetry,
         control: ControlProfile {
             lighting,
@@ -642,7 +718,8 @@ fn serialize_compatibility(
         LightingProfile::LegacyCommand202 => 1,
         LightingProfile::StableCommand20 => 2,
     };
-    CompatibilityRecord([
+    let mut record = [0; COMPATIBILITY_RECORD_BYTES];
+    record[..12].copy_from_slice(&[
         RECORD_VERSION,
         COMPATIBILITY_RECORD_KIND,
         version.major,
@@ -653,9 +730,11 @@ fn serialize_compatibility(
         family,
         lighting,
         u8::from(profile.control.fatal_clear_available),
+        u8::from(profile.imu_timeout_available),
         0,
-        0,
-    ])
+    ]);
+    record[12..].copy_from_slice(&version.suffix.0);
+    CompatibilityRecord(record)
 }
 
 /// Validate whether bounded identifier groups satisfy dynamic admission policy.
@@ -713,8 +792,162 @@ pub fn admit_dynamic_layout(
 
 #[cfg(test)]
 mod tests {
+    const BETA_VERSION: WireVersion = WireVersion::patched(1, 3, 1)
+        .with_suffix(VersionSuffix::new("beta1").expect("valid test suffix"));
+
     use super::*;
     use float_view_refloat_dynamic_telemetry::{LayoutRecordOutcome, decode_layout_to_record};
+
+    #[test]
+    fn suffix_bounds_and_wire_padding_are_validated() {
+        assert_eq!(VersionSuffix::new(""), Some(VersionSuffix::EMPTY));
+        for text in [
+            "beta1",
+            "beta2",
+            "rc1",
+            "dev.1+abc-2",
+            "abcdefghijklmnopqrst",
+        ] {
+            let suffix = VersionSuffix::new(text).unwrap();
+            assert_eq!(suffix.as_str(), text);
+            assert_eq!(VersionSuffix::from_wire(&suffix.0), Ok(suffix));
+            let version = WireVersion::patched(1, 3, 1).with_suffix(suffix);
+            assert_eq!(version.to_string(), format!("1.3.1-{text}"));
+            assert_eq!(
+                SourceVersion::new(1, 3, 1).with_suffix(suffix).to_string(),
+                version.to_string()
+            );
+        }
+        for text in [
+            "abcdefghijklmnopqrstu",
+            "beta\0x",
+            "beta 1",
+            "beta\n",
+            "béta1",
+            "<beta>",
+        ] {
+            assert_eq!(VersionSuffix::new(text), None, "{text:?}");
+        }
+        let mut invalid = [0; VERSION_SUFFIX_BYTES];
+        invalid[..7].copy_from_slice(b"beta\0\0x");
+        assert!(VersionSuffix::from_wire(&invalid).is_err());
+        invalid.fill(0xff);
+        assert!(VersionSuffix::from_wire(&invalid).is_err());
+        assert!(VersionSuffix::from_wire(&invalid[..19]).is_err());
+    }
+
+    #[test]
+    fn generic_suffix_identity_does_not_broaden_release_admission() {
+        for (major, minor, patch, suffix) in [
+            (1, 3, 1, "beta2"),
+            (1, 3, 1, "rc1"),
+            (1, 3, 1, "beta1-extra"),
+            (1, 3, 1, "abcdefghijklmnopqrst"),
+            (1, 3, 0, "beta1"),
+            (2, 0, 0, "beta1"),
+        ] {
+            let mut payload = info_v2(major, minor, patch);
+            payload[28..28 + suffix.len()].copy_from_slice(suffix.as_bytes());
+            let identity = decode_info_identity(&payload).unwrap();
+            assert_eq!(identity.suffix.as_str(), suffix);
+            assert_eq!(compatibility(identity), None);
+            assert_eq!(parse_wire_version(&identity.to_string()), None);
+            assert_eq!(
+                decode_info(&payload),
+                Err(CompatibilityError::UnsupportedRelease)
+            );
+            assert_eq!(
+                decode_info_record(&payload),
+                CompatibilityRecordOutcome::UnsupportedRelease
+            );
+        }
+        let legacy_with_suffix =
+            WireVersion::legacy(1, 0).with_suffix(VersionSuffix::new("beta1").unwrap());
+        assert_eq!(compatibility(legacy_with_suffix), None);
+        assert_eq!(legacy_with_suffix.to_string(), "1.0-beta1");
+    }
+
+    #[test]
+    fn catalogue_capabilities_and_complete_identities_round_trip() {
+        for entry in COMPATIBILITY_ENTRIES {
+            let profile = compatibility(entry.wire).unwrap();
+            assert_eq!(profile.imu_timeout_available, entry.imu_timeout_available);
+            assert_eq!(
+                parse_wire_version(&entry.wire.to_string()),
+                Some(entry.wire)
+            );
+            let record = serialize_compatibility(entry.wire, profile);
+            assert_eq!(record.as_bytes()[10], u8::from(entry.imu_timeout_available));
+            assert_eq!(record.as_bytes()[12..], entry.wire.suffix.0);
+            assert_eq!(
+                parse_compatibility_record(record.as_bytes()),
+                Ok((entry.wire, profile))
+            );
+        }
+        assert!(compatibility(BETA_VERSION).unwrap().imu_timeout_available);
+        assert!(
+            !compatibility(WireVersion::patched(1, 3, 0))
+                .unwrap()
+                .imu_timeout_available
+        );
+    }
+
+    #[test]
+    fn canonical_beta_record_validates_suffix_capability_and_extent_together() {
+        let record = serialize_compatibility(BETA_VERSION, compatibility(BETA_VERSION).unwrap());
+        let bytes = record.as_bytes();
+        assert_eq!(&bytes[12..17], b"beta1");
+        assert!(bytes[17..].iter().all(|b| *b == 0));
+        for (index, value) in [(0, 1), (10, 0), (12, 0), (16, b'2'), (18, b'x')] {
+            let mut invalid = *bytes;
+            invalid[index] = value;
+            assert_eq!(
+                parse_compatibility_record(&invalid),
+                Err(CompatibilityError::InvalidCompatibilityRecord)
+            );
+        }
+        for end in 0..COMPATIBILITY_RECORD_BYTES {
+            assert!(parse_compatibility_record(&bytes[..end]).is_err());
+        }
+        let mut trailing = bytes.to_vec();
+        trailing.push(0);
+        assert!(parse_compatibility_record(&trailing).is_err());
+        assert!(parse_compatibility_record(&[1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn beta_admission_preserves_suffix_and_canonical_identity() {
+        for suffix in ["", "beta", "beta2", "beta1-extra"] {
+            let mut payload = info_v2(1, 3, 1);
+            payload[28..28 + suffix.len()].copy_from_slice(suffix.as_bytes());
+            assert!(matches!(
+                decode_info_record(&payload),
+                CompatibilityRecordOutcome::UnsupportedRelease
+            ));
+        }
+        let mut payload = info_v2(1, 3, 1);
+        payload[28..33].copy_from_slice(b"beta1");
+        assert_eq!(decode_info(&payload), Ok(BETA_VERSION));
+        assert_eq!(
+            decode_info_identity(&payload).unwrap().to_string(),
+            "1.3.1-beta1"
+        );
+        assert_eq!(BETA_VERSION.to_string(), "1.3.1-beta1");
+        assert_eq!(parse_wire_version("1.3.1-beta1"), Some(BETA_VERSION));
+        let CompatibilityRecordOutcome::Record(record) = decode_info_record(&payload) else {
+            panic!("beta admitted");
+        };
+        assert_eq!(
+            parse_compatibility_record(record.as_bytes()).unwrap().0,
+            BETA_VERSION
+        );
+        assert_eq!(decode_info_capabilities(&payload), Ok(0));
+        payload[27] = 0;
+        assert_eq!(
+            decode_info(&payload),
+            Err(CompatibilityError::UnsupportedRelease)
+        );
+    }
 
     #[test]
     fn display_identity_preserves_bounded_suffix_without_admitting_prereleases() {
@@ -867,6 +1100,7 @@ mod tests {
             SourceVersion::new(1, 2, 2),
             SourceVersion::new(1, 2, 3),
             SourceVersion::new(1, 3, 0),
+            SourceVersion::new(1, 3, 1).with_suffix(VersionSuffix::new("beta1").unwrap()),
         ];
         assert_eq!(
             COMPATIBILITY_ENTRIES.map(|entry| entry.source),
@@ -1055,7 +1289,9 @@ mod tests {
         else {
             panic!("legacy identity must be accepted");
         };
-        assert_eq!(legacy.as_bytes(), &[1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0]);
+        let mut expected = [0; COMPATIBILITY_RECORD_BYTES];
+        expected[..12].copy_from_slice(&[2, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0]);
+        assert_eq!(legacy.as_bytes(), &expected);
         assert_eq!(
             parse_compatibility_record(legacy.as_bytes()),
             Ok((
@@ -1068,7 +1304,8 @@ mod tests {
         else {
             panic!("stable identity must be accepted");
         };
-        assert_eq!(stable.as_bytes(), &[1, 1, 1, 2, 1, 3, 3, 2, 2, 1, 0, 0]);
+        expected[..12].copy_from_slice(&[2, 1, 1, 2, 1, 3, 3, 2, 2, 1, 0, 0]);
+        assert_eq!(stable.as_bytes(), &expected);
         assert_eq!(
             parse_compatibility_record(stable.as_bytes()),
             Ok((

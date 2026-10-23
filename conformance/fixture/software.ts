@@ -1,9 +1,20 @@
 // Independent software-host protocol fixture. No production codec imports.
 import { FrameAssembler, encodeFrame } from './frame.ts';
+import { refloatCodecs } from './refloat.ts';
+import { RefloatControlModel } from './refloat-controls.ts';
+import { idleTelemetry } from './telemetry.ts';
 import { RefloatConfigurationModel } from './refloat-configuration.ts';
 export class SoftwarePeripheral {
   private frames = new FrameAssembler();
-  private configuration = new RefloatConfigurationModel('1.0.0');
+  private beta = process.env.FLOAT_VIEW_FIXTURE_REFLOAT === '1.3.1-beta1';
+  private configuration = new RefloatConfigurationModel(this.beta ? '1.3.1-beta1' : '1.0.0');
+  private controls = new RefloatControlModel('1.3.1-beta1', { fatalErrorLatched: false });
+  constructor() {
+    if (this.beta) {
+      this.controls.recordImuTimeout(true);
+      this.controls.recordImuTimeout(false);
+    }
+  }
   reset() {
     this.frames = new FrameAssembler();
     this.configuration.reset();
@@ -15,6 +26,8 @@ export class SoftwarePeripheral {
     const copy = Object.create(SoftwarePeripheral.prototype) as SoftwarePeripheral;
     copy.frames = this.frames.fork();
     copy.configuration = this.configuration.fork();
+    copy.beta = this.beta;
+    copy.controls = this.controls.fork();
     return copy;
   }
   receive(bytes: Uint8Array, consume?: (frame: Uint8Array) => void): Uint8Array[] {
@@ -55,6 +68,17 @@ export class SoftwarePeripheral {
       return hex(
         '6003010b0003412140ff43a158ff445120000004e20000f424031068105e10540100010209f60a410abe09ab14820b6d036b03b62a428000004480000042000000440000002794014f4b00'
       );
+    if (this.beta) {
+      if (same(36, 101, 0, 2, 0)) return refloatCodecs['1.3.1-beta1'].infoPayload;
+      if (request[0] === 36 && request[1] === 101) {
+        if (request[2] === 35) return this.controls.alertsResponse(request);
+        const telemetry = refloatCodecs['1.3.1-beta1'].respond(request, this.controls.applyToSample(idleTelemetry));
+        if (telemetry) return this.controls.decorateTelemetry(telemetry.payload);
+        const control = this.controls.apply(request, { rideState: 'idle' });
+        return control.accepted ? control.response : undefined;
+      }
+      return this.configuration.respond(request, true);
+    }
     if (same(36, 101, 0, 2, 0)) return Uint8Array.of(36, 101, 0, 10);
     if (same(36, 101, 10) || same(36, 101, 10, 4)) {
       const payload = new Uint8Array(55);

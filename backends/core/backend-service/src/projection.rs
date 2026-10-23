@@ -242,7 +242,7 @@ impl BackendService {
                                 .iter()
                                 .map(|entry| {
                                     let source = entry.source;
-                                    format!("{}.{}.{}", source.major, source.minor, source.patch)
+                                    source.to_string()
                                 })
                                 .collect(),
                         }),
@@ -449,11 +449,21 @@ pub(crate) fn sample(
         charging: v.charging,
         alert_reason: v.alert_reason.map(camel),
         firmware_fault: v.firmware_fault.map(camel),
+        imu_timeout_active: v.imu_timeout_active,
         fatal_error_latched: v.fatal_error_latched,
         last_firmware_fault: v.last_firmware_fault.map(|fault| f::ReportedFirmwareFault {
             code: fault.code,
             reason: camel(fault.reason),
         }),
+        imu_timeout_history: v
+            .imu_timeout_history
+            .iter()
+            .map(|entry| f::RecoveredImuTimeout {
+                active: entry.active,
+                elapsed_ms: entry.elapsed_ms,
+                observed_elapsed_ms: entry.observed_elapsed_ms,
+            })
+            .collect(),
         fault_history: v
             .fault_history
             .iter()

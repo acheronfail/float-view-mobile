@@ -1,6 +1,7 @@
 import { directTarget } from '../targets/direct.ts';
 import {
   runConformance,
+  runRefloatBetaConformance,
   runConnectionContextConformance,
   runAutoConnectConformance,
   runDiagnosticsConformance,
@@ -49,15 +50,17 @@ const target =
             ? androidTarget
             : externalTarget(name, `FLOAT_VIEW_${name.toUpperCase()}_WS_URL`);
 const result = await (
-  process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'connection-context'
-    ? runConnectionContextConformance
-    : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'ride-continuity'
-      ? runRideContinuityConformance
-      : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'diagnostics'
-        ? runDiagnosticsConformance
-        : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'auto-connect'
-          ? runAutoConnectConformance
-          : runConformance
+  process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'refloat-beta1'
+    ? runRefloatBetaConformance
+    : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'connection-context'
+      ? runConnectionContextConformance
+      : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'ride-continuity'
+        ? runRideContinuityConformance
+        : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'diagnostics'
+          ? runDiagnosticsConformance
+          : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'auto-connect'
+            ? runAutoConnectConformance
+            : runConformance
 )(target);
 console.log(`Conformance passed: ${result.target} revision=${result.revision}`);
 

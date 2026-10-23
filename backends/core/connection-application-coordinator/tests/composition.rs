@@ -54,6 +54,53 @@ fn refloat_1_3_0_skips_layout_and_starts_selectable_float32_telemetry() {
 }
 
 #[test]
+fn refloat_beta1_skips_layout_and_starts_selectable_float32_telemetry() {
+    let mut coordinator = ConnectionApplicationCoordinator::default();
+    coordinator.apply(Command::Begin(begin_facts(10))).unwrap();
+    receive(&mut coordinator, motor_configuration_payload(42), 20);
+    let mut beta_info = selectable_info_payload();
+    beta_info[27] = 1;
+    beta_info[28..33].copy_from_slice(b"beta1");
+    let ready = receive(&mut coordinator, beta_info, 30);
+    assert!(ready.iter().all(|effect| match effect {
+        Effect::Write(request) => request.payload != [36, 101, 32],
+        _ => true,
+    }));
+    let activation = coordinator
+        .snapshot()
+        .awaiting_activation
+        .expect("1.3 activation");
+    assert_eq!(activation.refloat_version.to_string(), "1.3.1-beta1");
+
+    let effects = activate_with_cache(
+        &mut coordinator,
+        40,
+        Some(
+            include_bytes!("../../../fixtures/refloat-configuration/schemas/1.3.1-beta1.qcompress")
+                .to_vec(),
+        ),
+    );
+    assert_eq!(write(&effects).payload, [93, 0]);
+    let effects = receive(&mut coordinator, configuration_current_response_1_3_0(), 50);
+    assert_eq!(write(&effects).payload, [14]);
+    let effects = receive(
+        &mut coordinator,
+        current_limits_payload(0x2EFD_0142, Some(15)),
+        60,
+    );
+    assert_eq!(
+        write(&effects).payload,
+        [36, 101, 33, 1, 0x7f, 0xff, 0xbf, 0xc3, 0, 0, 0, 0]
+    );
+    let effects = receive(&mut coordinator, selectable_fast_payload(), 70);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::PublishTelemetry(_)))
+    );
+}
+
+#[test]
 fn late_fast_reply_does_not_consume_pending_distance_request() {
     let mut coordinator = ConnectionApplicationCoordinator::default();
     coordinator.apply(Command::Begin(begin_facts(10))).unwrap();
@@ -663,4 +710,181 @@ fn scheduler_timeout_and_reconnect_leave_no_configuration_lease() {
     assert!(!reset.mutations.configured);
     assert_eq!(reset.configuration.availability, Availability::Unavailable);
     assert_eq!(reset.configuration.pending, None);
+}
+
+fn selectable_idle_payload() -> Vec<u8> {
+    let mut payload = selectable_fast_payload();
+    // Extra flags precede state flags; report ready, normal, no footpads,
+    // zero speed and zero eRPM through the production decoder.
+    payload[17..21].copy_from_slice(&0x0200_0000_u32.to_be_bytes());
+    payload[21..29].fill(0);
+    payload
+}
+
+fn ready_beta() -> ConnectionApplicationCoordinator {
+    let mut coordinator = ConnectionApplicationCoordinator::default();
+    coordinator.apply(Command::Begin(begin_facts(10))).unwrap();
+    receive(&mut coordinator, motor_configuration_payload(42), 20);
+    let mut info = selectable_info_payload();
+    info[27] = 1;
+    info[28..33].copy_from_slice(b"beta1");
+    receive(&mut coordinator, info, 30);
+    let activated = activate_with_cache(
+        &mut coordinator,
+        40,
+        Some(
+            include_bytes!("../../../fixtures/refloat-configuration/schemas/1.3.1-beta1.qcompress")
+                .to_vec(),
+        ),
+    );
+    let lighting_timer = activated
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::ReplaceTimer {
+                token: token @ TimerToken::Mutation(MutationTimerToken::LightingRefresh(_)),
+                ..
+            } => Some(*token),
+            _ => None,
+        })
+        .unwrap();
+    receive(&mut coordinator, configuration_current_response_1_3_0(), 50);
+    receive(
+        &mut coordinator,
+        current_limits_payload(0x2EFD_0142, Some(15)),
+        60,
+    );
+    receive(&mut coordinator, selectable_idle_payload(), 70);
+    receive(&mut coordinator, selectable_idle_payload(), 71);
+    receive(&mut coordinator, empty_alert_history(), 72);
+    receive(&mut coordinator, selectable_idle_payload(), 73);
+    receive(&mut coordinator, vec![62], 74);
+    let effects = coordinator
+        .apply(Command::TimerFired {
+            generation: coordinator.snapshot().generation,
+            token: lighting_timer,
+            now_ms: 1050,
+        })
+        .unwrap();
+    assert_eq!(write(&effects).payload, [36, 101, 20, 0, 0, 0, 0, 0]);
+    receive(&mut coordinator, vec![36, 101, 20, 3], 1060);
+    coordinator
+}
+
+#[test]
+fn beta_mutations_recheck_alert_authority_before_another_sample() {
+    use float_view_connection_application_coordinator::CoordinatorError;
+    use float_view_device_mutation_coordinator::CoordinatorError::InvalidState;
+    for failure in ["expired", "timeout", "malformed"] {
+        let mut coordinator = ready_beta();
+        let mut now_ms = 1070;
+        if failure != "expired" {
+            let effects = coordinator
+                .apply(Command::Refresh {
+                    generation: coordinator.snapshot().generation,
+                    now_ms,
+                })
+                .unwrap();
+            assert_eq!(write(&effects).payload[2], 33);
+            receive(&mut coordinator, selectable_idle_payload(), 1071);
+            let alerts = receive(
+                &mut coordinator,
+                selectable_fixture("1.3.0-command-33-slow-gnss-float32"),
+                1072,
+            );
+            assert_eq!(write(&alerts).payload[2], 35);
+            if failure == "timeout" {
+                coordinator
+                    .apply(Command::DeadlineFired {
+                        generation: coordinator.snapshot().generation,
+                        token: deadline(&alerts),
+                        now_ms: 1972,
+                    })
+                    .unwrap();
+                now_ms = 1973;
+            } else {
+                receive(&mut coordinator, vec![36, 101, 35], 1073);
+                now_ms = 1074;
+            }
+        } else {
+            now_ms = 60_000;
+        }
+        // Submission must query independent history authority, even while
+        // the mutation owner still has the previous healthy sample.
+        for control in [BooleanControl::Package, BooleanControl::Flywheel] {
+            assert_eq!(
+                coordinator.apply(Command::SetControl {
+                    generation: coordinator.snapshot().generation,
+                    control,
+                    enabled: control == BooleanControl::Flywheel,
+                    now_ms,
+                }),
+                Err(CoordinatorError::Mutation(InvalidState)),
+                "{failure}"
+            );
+        }
+        let snapshot = coordinator.snapshot();
+        let identity = snapshot.configuration.identity.unwrap();
+        let current = snapshot.configuration.current.unwrap();
+        for mutation in [
+            ConfigurationMutation::Write,
+            ConfigurationMutation::TuneApply,
+        ] {
+            assert_eq!(
+                coordinator.apply(Command::WriteConfiguration {
+                    generation: snapshot.generation,
+                    mutation,
+                    package_version: identity.package_version.to_owned(),
+                    fingerprint: identity.fingerprint.to_owned(),
+                    wire_signature: identity.wire_signature,
+                    base_revision: current.revision,
+                    values: current.values.clone(),
+                    now_ms,
+                }),
+                Err(CoordinatorError::Mutation(InvalidState)),
+                "{failure}"
+            );
+            assert_eq!(coordinator.snapshot().configuration.pending, None);
+            assert_eq!(coordinator.snapshot().mutations.pending, None);
+        }
+    }
+}
+
+#[test]
+fn beta_fresh_inactive_alert_authority_allows_guarded_submissions() {
+    for control in [BooleanControl::Package, BooleanControl::Flywheel] {
+        let mut coordinator = ready_beta();
+        assert!(
+            coordinator
+                .apply(Command::SetControl {
+                    generation: coordinator.snapshot().generation,
+                    control,
+                    enabled: control == BooleanControl::Flywheel,
+                    now_ms: 1070,
+                })
+                .is_ok()
+        );
+    }
+    for mutation in [
+        ConfigurationMutation::Write,
+        ConfigurationMutation::TuneApply,
+    ] {
+        let mut coordinator = ready_beta();
+        let snapshot = coordinator.snapshot();
+        let identity = snapshot.configuration.identity.unwrap();
+        let current = snapshot.configuration.current.unwrap();
+        assert!(
+            coordinator
+                .apply(Command::WriteConfiguration {
+                    generation: snapshot.generation,
+                    mutation,
+                    package_version: identity.package_version.to_owned(),
+                    fingerprint: identity.fingerprint.to_owned(),
+                    wire_signature: identity.wire_signature,
+                    base_revision: current.revision,
+                    values: current.values,
+                    now_ms: 1070,
+                })
+                .is_ok()
+        );
+    }
 }

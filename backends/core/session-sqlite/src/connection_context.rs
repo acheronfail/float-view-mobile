@@ -57,14 +57,15 @@ impl Debug for ConnectionContextEvent {
 impl ConnectionContext {
     pub fn valid(&self) -> bool {
         self.version == 1
-            && self.refloat_version.len() <= 11
-            && (2..=3).contains(&self.refloat_version.split('.').count())
-            && self.refloat_version.split('.').all(|p| {
-                !p.is_empty()
-                    && p.len() <= 3
-                    && p.parse::<u8>().is_ok()
-                    && p.bytes().all(|b| b.is_ascii_digit())
-            })
+            && (self.refloat_version == "1.3.1-beta1"
+                || (self.refloat_version.len() <= 11
+                    && (2..=3).contains(&self.refloat_version.split('.').count())
+                    && self.refloat_version.split('.').all(|p| {
+                        !p.is_empty()
+                            && p.len() <= 3
+                            && p.parse::<u8>().is_ok()
+                            && p.bytes().all(|b| b.is_ascii_digit())
+                    })))
             && [&self.controller, &self.transport].iter().all(|f| {
                 [&f.hardware_name, &f.firmware_name]
                     .iter()

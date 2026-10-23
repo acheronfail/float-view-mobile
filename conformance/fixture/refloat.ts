@@ -10,7 +10,17 @@ import type {
 } from './telemetry.ts';
 
 export type RefloatVersion =
-  '1.0.0' | '1.0.1' | '1.1.0' | '1.1.1' | '1.1.2' | '1.2.0' | '1.2.1' | '1.2.2' | '1.2.3' | '1.3.0';
+  | '1.0.0'
+  | '1.0.1'
+  | '1.1.0'
+  | '1.1.1'
+  | '1.1.2'
+  | '1.2.0'
+  | '1.2.1'
+  | '1.2.2'
+  | '1.2.3'
+  | '1.3.0'
+  | '1.3.1-beta1';
 type DynamicRefloatVersion = Exclude<RefloatVersion, '1.0.0' | '1.0.1'>;
 export type RefloatRequestKind = 'info' | 'layout' | 'telemetry' | 'compact';
 
@@ -65,7 +75,7 @@ export const runtimeRealtimeFields = [
 ] as const;
 
 const provenance =
-  'Immutable read-only wire profiles audited from stable https://github.com/lukash/refloat tags v1.0.0 through v1.3.0';
+  'Immutable read-only wire profiles audited from https://github.com/lukash/refloat stable tags v1.0.0 through v1.3.0 and exact v1.3.1-beta1';
 
 export const refloatCodecs: Readonly<Record<RefloatVersion, RefloatCodec>> = {
   '1.0.0': legacyCodec('1.0.0'),
@@ -78,10 +88,11 @@ export const refloatCodecs: Readonly<Record<RefloatVersion, RefloatCodec>> = {
   '1.2.2': dynamicCodec('1.2.2', true),
   '1.2.3': dynamicCodec('1.2.3', true),
   '1.3.0': selectableCodec(),
+  '1.3.1-beta1': selectableCodec('1.3.1-beta1'),
 };
 
 export function encodeRefloatTelemetry(version: RefloatVersion, sample: TelemetrySample): Uint8Array {
-  if (version === '1.3.0') {
+  if (version === '1.3.0' || version === '1.3.1-beta1') {
     return encodeSelectableTelemetry(Uint8Array.from([36, 101, 33, 1, 0x7f, 0xff, 0xbf, 0xc3, 0, 0, 0, 0]), sample);
   }
   return version.startsWith('1.0.')
@@ -304,8 +315,7 @@ function dynamicCodec(version: DynamicRefloatVersion, alertTail: boolean): Reflo
   };
 }
 
-function selectableCodec(): RefloatCodec {
-  const version = '1.3.0' as const;
+function selectableCodec(version: '1.3.0' | '1.3.1-beta1' = '1.3.0'): RefloatCodec {
   const infoPayload = encodeInfoV2(version);
   infoPayload[59] = 0x04;
   return {
@@ -407,8 +417,9 @@ function encodeInfoV2(version: DynamicRefloatVersion): Uint8Array {
   const payload = new Uint8Array(61);
   payload.set([36, 101, 0, 2]);
   payload.set(new TextEncoder().encode('Refloat').slice(0, 20), 5);
-  const [major, minor, patch] = version.split('.').map(Number) as [number, number, number];
+  const [major, minor, patch] = version.split('-')[0]!.split('.').map(Number) as [number, number, number];
   payload.set([major, minor, patch], 25);
+  payload.set(new TextEncoder().encode(version.split('-')[1] ?? ''), 28);
   return payload;
 }
 
@@ -453,7 +464,10 @@ function footpadStateCode(value: FootpadState): number {
 }
 
 function stopConditionCode(value: StopCondition): number {
-  return ['none', 'pitch', 'roll', 'switchHalf', 'switchFull', 'reverseStop', 'quickStop'].indexOf(value) & 0x0f;
+  return (
+    ['none', 'pitch', 'roll', 'switchHalf', 'switchFull', 'reverseStop', 'quickStop', 'imuTimeout'].indexOf(value) &
+    0x0f
+  );
 }
 
 function setpointAdjustmentCode(value: SetpointAdjustment): number {
@@ -499,6 +513,7 @@ function alertReasonCode(value: AlertReason): number {
         bmsConnection: 17,
         bmsOverTemperature: 18,
         firmwareFault: 19,
+
         unknown: 255,
       } satisfies Record<AlertReason, number>
     )[value] ?? 255
@@ -560,6 +575,7 @@ function legacyState(sample: TelemetrySample): number {
             switchFull: 9,
             reverseStop: 12,
             quickStop: 13,
+            imuTimeout: 11,
             unknown: 11,
           } satisfies Record<StopCondition, number>
         )[sample.stopCondition] ?? 11

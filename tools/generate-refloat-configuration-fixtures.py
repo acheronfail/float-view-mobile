@@ -30,6 +30,7 @@ VERSIONS = (
     "1.2.2",
     "1.2.3",
     "1.3.0",
+    "1.3.1-beta1",
 )
 SOURCE_PATH = "src/conf/settings.xml"
 MAX_COMPRESSED_BYTES = 32 * 1024
@@ -171,6 +172,8 @@ def encode_values(schema: dict, values: dict[str, object], wire_signature: int) 
 
 def generated_schema(xml: bytes) -> bytes:
     tool = shutil.which("vesc_tool")
+    if tool is None and Path("/Applications/VESC Tool.app/Contents/MacOS/VESC Tool").is_file():
+        tool = "/Applications/VESC Tool.app/Contents/MacOS/VESC Tool"
     if tool is None:
         raise RuntimeError("vesc_tool is required to reproduce Qt qCompress fixtures")
     with tempfile.TemporaryDirectory(prefix="refloat-config-") as directory:

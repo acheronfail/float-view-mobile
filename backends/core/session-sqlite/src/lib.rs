@@ -157,6 +157,7 @@ impl Debug for CommitMarker {
 pub struct SessionWriter {
     connection: Connection,
     fatal_latch_transition: Option<String>,
+    imu_timeout_transition: Option<String>,
     recording_gap: bool,
 }
 
@@ -259,9 +260,19 @@ impl SessionWriter {
         {
             return Err(WriterError::Incompatible);
         }
+        let imu_timeout_transition = connection.query_row(
+            "SELECT CASE WHEN length(details_json)<=64 AND json_valid(details_json) THEN json_extract(details_json,'$.value') ELSE '' END FROM session_event WHERE kind='imuTimeoutActive' ORDER BY sequence DESC LIMIT 1", [], |row| row.get::<_, String>(0)
+        ).optional().map_err(map_sqlite)?;
+        if imu_timeout_transition
+            .as_deref()
+            .is_some_and(|v| !matches!(v, "active" | "cleared"))
+        {
+            return Err(WriterError::Incompatible);
+        }
         Ok(Self {
             connection,
             fatal_latch_transition,
+            imu_timeout_transition,
             recording_gap: false,
         })
     }
@@ -306,6 +317,9 @@ impl SessionWriter {
         let mut transitions = latest_transition_values(&transaction)?;
         if let Some(latched) = &self.fatal_latch_transition {
             transitions.insert("fatalErrorLatched".to_owned(), latched.clone());
+        }
+        if let Some(active) = &self.imu_timeout_transition {
+            transitions.insert("imuTimeoutActive".to_owned(), active.clone());
         }
         let mut event_sequence: u64 = transaction
             .query_row(
@@ -495,6 +509,7 @@ impl SessionWriter {
         transaction.commit().map_err(map_sqlite)?;
         self.recording_gap = gap;
         self.fatal_latch_transition = transitions.remove("fatalErrorLatched");
+        self.imu_timeout_transition = transitions.remove("imuTimeoutActive");
         self.marker()
     }
 
@@ -1061,6 +1076,9 @@ fn transition_values(sample: &NormalizedSample) -> Vec<(&'static str, String)> {
             .unwrap_or("none")
             .to_owned(),
     ));
+    if let Some(active) = sample.imu_timeout_active {
+        values.push(("imuTimeoutActive", boolean_transition(active).to_owned()));
+    }
     if let Some(latched) = sample.fatal_error_latched {
         values.push(("fatalErrorLatched", boolean_transition(latched).to_owned()));
     }
@@ -1118,6 +1136,7 @@ fn stop_condition(value: StopCondition) -> &'static str {
         StopCondition::ReverseStop => "reverseStop",
         StopCondition::QuickStop => "quickStop",
         StopCondition::Unknown => "unknown",
+        StopCondition::ImuTimeout => "imuTimeout",
     }
 }
 

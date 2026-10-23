@@ -27,7 +27,8 @@ export interface DecodedRefloatControl {
 export type RefloatControlRejection = 'malformed' | 'wrong_route' | 'read_only' | 'unsupported_command';
 
 export type RefloatControlDecodeResult =
-  { accepted: true; value: DecodedRefloatControl } | { accepted: false; reason: RefloatControlRejection };
+  | { accepted: true; value: DecodedRefloatControl }
+  | { accepted: false; reason: RefloatControlRejection };
 
 const profiles = new Map<RefloatVersion, RefloatControlProfile>([
   ['1.0.0', { version: '1.0.0', family: 'legacy', fatalClearAvailable: false }],
@@ -40,6 +41,7 @@ const profiles = new Map<RefloatVersion, RefloatControlProfile>([
   ['1.2.2', { version: '1.2.2', family: 'stable', fatalClearAvailable: true }],
   ['1.2.3', { version: '1.2.3', family: 'stable', fatalClearAvailable: true }],
   ['1.3.0', { version: '1.3.0', family: 'stable', fatalClearAvailable: true }],
+  ['1.3.1-beta1', { version: '1.3.1-beta1', family: 'stable', fatalClearAvailable: true }],
 ]);
 
 export function refloatControlProfile(version: RefloatVersion): RefloatControlProfile {
@@ -157,24 +159,58 @@ export class RefloatControlModel {
   readonly version: RefloatVersion;
   readonly state: RefloatControlModelState;
   private faultCode = 0;
+  private imuTimeoutActive = false;
   private readonly clockTicks: () => number;
-  private faultHistory: { ticks: number; active: boolean; code: number }[] = [];
+  private faultHistory: { ticks: number; id: number; active: boolean; code: number }[] = [];
+
+  fork(): RefloatControlModel {
+    const copy = new RefloatControlModel(this.version, { ...this.state }, this.clockTicks);
+    copy.faultCode = this.faultCode;
+    copy.imuTimeoutActive = this.imuTimeoutActive;
+    copy.faultHistory = this.faultHistory.map((r) => ({ ...r }));
+    return copy;
+  }
 
   recordFirmwareFault(code: number) {
     if (!Number.isInteger(code) || code < 0 || code > 255) throw new Error('Invalid fault code');
     if (code === this.faultCode) return;
     this.faultCode = code;
     if (code) this.state.fatalErrorLatched = true;
-    this.faultHistory.push({ ticks: this.clockTicks(), active: code !== 0, code });
+    this.faultHistory.push({ ticks: this.clockTicks(), id: 1, active: code !== 0, code });
+    this.faultHistory = this.faultHistory.slice(-20);
+  }
+
+  recordImuTimeout(active: boolean) {
+    if (this.version !== '1.3.1-beta1') throw new Error('IMU timeout requires audited beta');
+    if (active === this.imuTimeoutActive) return;
+    this.imuTimeoutActive = active;
+    this.faultHistory.push({ ticks: this.clockTicks(), id: 2, active, code: 0 });
     this.faultHistory = this.faultHistory.slice(-20);
   }
 
   alertsResponse(payload: Uint8Array): Uint8Array | undefined {
-    if (!(this.version.startsWith('1.2.') || this.version === '1.3.0') || payload.length !== 7 || payload[2] !== 35)
+    if (
+      !(this.version.startsWith('1.2.') || this.version === '1.3.0' || this.version === '1.3.1-beta1') ||
+      payload.length !== 7 ||
+      payload[2] !== 35
+    )
       return;
     const since = new DataView(payload.buffer, payload.byteOffset, payload.byteLength).getUint32(3, false);
     const records = this.faultHistory.filter((r) => r.ticks > since);
-    const bytes = [36, 101, 35, 0, 0, 0, this.faultCode ? 1 : 0, 0, 0, 0, 0, this.faultCode];
+    const bytes = [
+      36,
+      101,
+      35,
+      0,
+      0,
+      0,
+      (this.faultCode ? 1 : 0) | (this.imuTimeoutActive ? 2 : 0),
+      0,
+      0,
+      0,
+      0,
+      this.faultCode,
+    ];
     if (this.faultCode) bytes.push(0); // Empty bounded name; app maps the raw code.
     bytes.push(records.length);
     for (const r of records) {
@@ -183,7 +219,7 @@ export class RefloatControlModel {
         (r.ticks >>> 16) & 255,
         (r.ticks >>> 8) & 255,
         r.ticks & 255,
-        1,
+        r.id,
         r.active ? 1 : 0,
         r.code
       );
@@ -205,7 +241,7 @@ export class RefloatControlModel {
       ledsEnabled: true,
       headlightsEnabled: true,
       fatalErrorActive: false,
-      fatalErrorLatched: version.startsWith('1.2.') || version === '1.3.0',
+      fatalErrorLatched: version.startsWith('1.2.') || version === '1.3.0' || version === '1.3.1-beta1',
       ...initial,
     };
   }
@@ -297,7 +333,12 @@ export class RefloatControlModel {
   }
 
   decorateTelemetry(payload: Uint8Array): Uint8Array {
-    if (this.version === '1.3.0' && payload[0] === 36 && payload[2] === 33 && payload.length >= 16) {
+    if (
+      (this.version === '1.3.0' || this.version === '1.3.1-beta1') &&
+      payload[0] === 36 &&
+      payload[2] === 33 &&
+      payload.length >= 16
+    ) {
       const result = payload.slice();
       const view = new DataView(result.buffer);
       view.setUint32(12, this.clockTicks(), false);

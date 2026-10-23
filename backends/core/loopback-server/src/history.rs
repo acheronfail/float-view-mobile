@@ -291,6 +291,17 @@ impl Backend {
                     let details = serde_json::from_str::<Value>(&e.details_json).unwrap_or(Value::Null);
                     json!({"rawCode": details["rawCode"], "occurredElapsedMs": details["occurredElapsedMs"]})
                 }).collect::<Vec<_>>());
+                response["page"]["timeouts"] = json!(
+                    events
+                        .iter()
+                        .map(|e| {
+                            if e.kind != "imuTimeoutHistory" {
+                                return Value::Null;
+                            }
+                            serde_json::from_str::<Value>(&e.details_json).unwrap_or(Value::Null)
+                        })
+                        .collect::<Vec<_>>()
+                );
                 response["nextCursor"] = if more {
                     let last = events.last().ok_or(Failure::Internal)?;
                     json!(make_cursor(last.elapsed_ms, sequence(last)?)?)

@@ -124,7 +124,13 @@ export interface SessionFaultDetails {
   rawCode: number;
   occurredElapsedMs: number | null;
 }
+export interface SessionTimeoutDetails {
+  active: boolean;
+  sourceTicks: number;
+  occurredElapsedMs: number | null;
+}
 export interface SessionEventPage {
+  timeouts?: (SessionTimeoutDetails | null)[];
   /** Present on current backends; old event fixtures remain readable. */
   faults?: (SessionFaultDetails | null)[];
   elapsedMs: number[];
@@ -566,6 +572,20 @@ function validateEventsResult(value: Partial<SessionEventsResult>): SessionEvent
     )
       throw new SessionDataProtocolError('Invalid fault time');
   });
+  if (page.timeouts !== undefined && (!Array.isArray(page.timeouts) || page.timeouts.length !== page.elapsedMs.length))
+    throw new SessionDataProtocolError('Invalid timeout details');
+  page.timeouts?.forEach((timeout, i) => {
+    if (
+      timeout !== null &&
+      (page.kinds[i] !== 'imuTimeoutHistory' ||
+        typeof timeout.active !== 'boolean' ||
+        !finiteInteger(timeout.sourceTicks) ||
+        timeout.sourceTicks > 0xffffffff ||
+        (timeout.occurredElapsedMs !== null &&
+          (!finiteInteger(timeout.occurredElapsedMs) || timeout.occurredElapsedMs > page.elapsedMs[i]!)))
+    )
+      throw new SessionDataProtocolError('Invalid timeout details');
+  });
   page.elapsedMs.forEach((elapsed, index) => {
     if (
       !finiteInteger(elapsed) ||
@@ -714,8 +734,9 @@ export function validateConnectionContextEvent(value: unknown): asserts value is
   if (
     context.version !== 1 ||
     typeof context.refloatVersion !== 'string' ||
-    !/^\d{1,3}\.\d{1,3}(?:\.\d{1,3})?$/.test(context.refloatVersion) ||
-    context.refloatVersion.split('.').some((p) => Number(p) > 255)
+    (context.refloatVersion !== '1.3.1-beta1' &&
+      (!/^\d{1,3}\.\d{1,3}(?:\.\d{1,3})?$/.test(context.refloatVersion) ||
+        context.refloatVersion.split('.').some((p) => Number(p) > 255)))
   )
     fail();
   for (const firmware of [context.controller, context.transport]) {

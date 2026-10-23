@@ -495,3 +495,16 @@ capabilities. The dialog offers offline supported-version guidance, explicit Che
 again and primary Back to boards. Escape/backdrop/native Back disconnect; transient
 or unreadable INFO failures retain generic retry guidance. Both native hosts use
 the shared projection, without adapter-specific interpretation.
+
+IMU timeout on exact Refloat 1.3.1-beta1 has its own nullable active state and
+stop-reason label. Recovered activation/clear events share the bounded history
+review without entering firmware-only live fault lists or enabling fatal clear.
+Unknown occurrence times retain an explicit observation-time label.
+
+The live `imuTimeoutHistory` collection keeps at most 20 actual timeout
+occurrences/transitions, separately from firmware history, so cleared guest
+timeouts survive frontend recreation. Fault history is offered only for an
+active fault/timeout, a fatal latch, or recorded firmware/IMU history. Initial
+inactive timeout state alone is not history. Saved review reads both sampled
+timeout transitions and recovered records, preferring recovered timing for the
+same observation.

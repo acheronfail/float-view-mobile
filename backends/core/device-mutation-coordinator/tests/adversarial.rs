@@ -689,10 +689,10 @@ fn tune_apply_preserves_version_gate_and_other_configuration_guards() {
                         firmware(0),
                         compatibility(entry.wire).unwrap(),
                     );
-                    observe(
-                        &mut coordinator,
-                        sample_with(1, ride, state, mode, footpad, Some(false), None),
-                    );
+                    let mut observation =
+                        sample_with(1, ride, state, mode, footpad, Some(false), None);
+                    observation.imu_timeout_active = entry.imu_timeout_available.then_some(false);
+                    observe(&mut coordinator, observation);
                     let result = coordinator.apply(Command::BeginConfiguration {
                         generation: Generation(7),
                         mutation,
@@ -753,6 +753,7 @@ fn idle_ready_configuration_does_not_require_footpad_evidence() {
                         None,
                     );
                     sample.footpad_state = footpad;
+                    sample.imu_timeout_active = entry.imu_timeout_available.then_some(false);
                     observe(&mut coordinator, sample);
                     let effects = coordinator
                         .apply(Command::BeginConfiguration {

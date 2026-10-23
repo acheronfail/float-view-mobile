@@ -50,7 +50,20 @@
       controller?.dispose();
     };
   });
-  const faults = $derived(recorded ?? (sessionId ? [] : (sample?.faultHistory ?? [])));
+  const faults = $derived(
+    recorded ??
+      (sessionId
+        ? []
+        : [
+            ...(sample?.faultHistory ?? []),
+            ...(sample?.imuTimeoutHistory ?? []).map((entry) => ({
+              reason: entry.active ? 'imuTimeout' : 'imuTimeoutCleared',
+              code: null,
+              elapsedMs: entry.elapsedMs,
+              observedElapsedMs: entry.observedElapsedMs,
+            })),
+          ].sort((a, b) => (a.elapsedMs ?? a.observedElapsedMs) - (b.elapsedMs ?? b.observedElapsedMs)))
+  );
   const warning = $derived(firmwareFaultWarning(sample));
   const reason = $derived(sample?.firmwareFault ?? sample?.lastFirmwareFault?.reason);
   const latched = $derived(
@@ -69,6 +82,9 @@
 
 <FullScreenOverlay title="Fault history" titleId="fault-history-title" {onclose}>
   <div class="mx-auto w-full max-w-2xl space-y-4 p-4">
+    {#if sample?.imuTimeoutActive}<div role="alert" class="rounded-lg border border-danger/40 bg-danger/5 p-3 text-sm">
+        IMU timeout active. Step off the board.
+      </div>{/if}
     {#if warning}
       <div role="status" class="rounded-lg border border-danger/40 bg-danger/5 p-3 text-sm">
         <p class="font-semibold text-danger">
@@ -113,7 +129,9 @@
       >{/if}
     {#if faults.length}
       <FaultList faults={[...faults].reverse()} />
-      {#if !sessionId}<p class="text-xs text-muted">Guest history keeps the 20 most recent faults.</p>{/if}
+      {#if !sessionId}<p class="text-xs text-muted">
+          Guest history keeps the 20 most recent firmware faults and IMU timeout transitions.
+        </p>{/if}
     {:else if sessionId && recorded === null && !error}
       <p class="py-6 text-center text-muted" role="status">Loading history…</p>
     {:else if !error}

@@ -21,7 +21,7 @@
   import { lightingMenuActions } from '$lib/features/connection/lighting';
   import FaultHistory from '$lib/features/connection/FaultHistory.svelte';
   import LiveCharts from '$lib/features/connection/LiveCharts.svelte';
-  import { hasFirmwareFaults } from '$lib/features/connection/live-status';
+  import { hasFaultHistory } from '$lib/features/connection/live-status';
   import LiveView from '$lib/features/connection/LiveView.svelte';
   import BmsView from '$lib/features/connection/BmsView.svelte';
   import { bmsMenuVisible } from '$lib/features/connection/bms';
@@ -275,7 +275,7 @@
               },
             ]
           : []),
-        ...(hasFirmwareFaults(sample)
+        ...(hasFaultHistory(sample) || connection.refloatControls?.fatalErrorLatched === true
           ? [
               {
                 label: 'Fault history…',

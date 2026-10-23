@@ -1,7 +1,10 @@
-//! Durable firmware fault history. Uses the existing extensible event storage.
+//! Durable firmware-fault and IMU-timeout history. Uses the existing extensible event storage.
 use super::*;
-use float_view_refloat_telemetry_service::{FaultHistoryObservation, reported_firmware_fault};
+use float_view_refloat_telemetry_service::{
+    AlertKind, FaultHistoryObservation, reported_firmware_fault,
+};
 
+/// Shared recovered-history budget across firmware faults and IMU timeouts.
 pub const MAX_FIRMWARE_FAULT_EVENTS: u64 = 10_000;
 
 impl SessionWriter {
@@ -12,10 +15,7 @@ impl SessionWriter {
         if observation.records.is_empty()
             || observation.records.len() > 20
             || observation.observed_at_epoch_ms < 0
-            || observation
-                .records
-                .iter()
-                .any(|r| r.active != (r.raw_code != 0))
+            || observation.records.iter().any(|r| !r.valid())
         {
             return Err(WriterError::InvalidInput);
         }
@@ -25,7 +25,7 @@ impl SessionWriter {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map_sqlite)?;
         let marker = read_marker(&tx)?;
-        let count: u64 = tx.query_row("SELECT COUNT(*) FROM (SELECT 1 FROM session_event WHERE kind='firmwareFaultHistory' LIMIT 10001)", [], |r| r.get(0)).map_err(map_sqlite)?;
+        let count: u64 = tx.query_row("SELECT COUNT(*) FROM (SELECT 1 FROM session_event WHERE kind IN ('firmwareFaultHistory','imuTimeoutHistory') LIMIT 10001)", [], |r| r.get(0)).map_err(map_sqlite)?;
         if count + observation.records.len() as u64 > MAX_FIRMWARE_FAULT_EVENTS {
             return Err(WriterError::Full);
         }
@@ -35,8 +35,17 @@ impl SessionWriter {
             let value = reported_firmware_fault(record.raw_code)
                 .map(|v| firmware_fault(v.reason))
                 .unwrap_or("none");
-            let details = serde_json::json!({"value": value, "active": record.active, "rawCode": record.raw_code, "sourceTicks": record.source_ticks, "occurredElapsedMs": float_view_refloat_telemetry_service::fault_elapsed_ms(record.source_ticks, observation.source_clock, observation.elapsed_ms)}).to_string();
-            tx.execute("INSERT INTO session_event(sequence,observed_at_ms,monotonic_elapsed_ms,kind,details_json) VALUES (?,?,?,'firmwareFaultHistory',?)", params![sqlite_integer(sequence)?,observation.observed_at_epoch_ms,sqlite_integer(observation.elapsed_ms)?,details]).map_err(map_sqlite)?;
+            let occurred = float_view_refloat_telemetry_service::fault_elapsed_ms(
+                record.source_ticks,
+                observation.source_clock,
+                observation.elapsed_ms,
+            );
+            let (kind, details) = if record.kind == AlertKind::ImuTimeout {
+                ("imuTimeoutHistory", serde_json::json!({"active":record.active,"sourceTicks":record.source_ticks,"occurredElapsedMs":occurred}).to_string())
+            } else {
+                ("firmwareFaultHistory", serde_json::json!({"value": value, "active": record.active, "rawCode": record.raw_code, "sourceTicks": record.source_ticks, "occurredElapsedMs": occurred}).to_string())
+            };
+            tx.execute("INSERT INTO session_event(sequence,observed_at_ms,monotonic_elapsed_ms,kind,details_json) VALUES (?,?,?,?,?)", params![sqlite_integer(sequence)?,observation.observed_at_epoch_ms,sqlite_integer(observation.elapsed_ms)?,kind,details]).map_err(map_sqlite)?;
         }
         tx.execute("UPDATE commit_marker SET committed_event_sequence=?,committed_event_count=committed_event_count+?,committed_elapsed_ms=MAX(committed_elapsed_ms,?),committed_at_ms=? WHERE singleton=1",params![sqlite_integer(sequence)?,observation.records.len() as u64,sqlite_integer(observation.elapsed_ms)?,observation.observed_at_epoch_ms]).map_err(map_sqlite)?;
         let committed = read_marker(&tx)?;
@@ -66,4 +75,15 @@ pub(crate) fn valid_fault_details(value: &serde_json::Value) -> bool {
                             .unwrap_or("none"),
                     )
         })
+}
+
+pub(crate) fn valid_timeout_details(value: &serde_json::Value) -> bool {
+    value.as_object().is_some_and(|o| o.len() == 3)
+        && value["active"].is_boolean()
+        && value["sourceTicks"]
+            .as_u64()
+            .is_some_and(|n| n <= u32::MAX as u64)
+        && value
+            .get("occurredElapsedMs")
+            .is_some_and(|v| v.is_null() || v.as_u64().is_some_and(|n| n <= 9_007_199_254_740_991))
 }

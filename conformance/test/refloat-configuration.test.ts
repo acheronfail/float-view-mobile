@@ -18,6 +18,7 @@ const versions: readonly StableRefloatConfigurationVersion[] = [
   '1.2.2',
   '1.2.3',
   '1.3.0',
+  '1.3.1-beta1',
 ];
 const fixtureRoot = new URL('../../backends/fixtures/refloat-configuration/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('manifest.json', fixtureRoot), 'utf8')) as {

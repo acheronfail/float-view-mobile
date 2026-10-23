@@ -29,47 +29,60 @@ fn record(store: &ProductStore, id: &str) {
 }
 #[test]
 fn fault_only_sessions_survive_distance_filter_and_restart() {
-    for restart in [false, true] {
-        let (dir, mut store, board) = setup();
-        store
-            .update_settings(
-                store.settings().unwrap().revision,
-                r#"{"minimumSessionDistance":1000}"#,
-            )
-            .unwrap();
-        let s = store.create_session(&board, 1, u64::MAX).unwrap();
-        let mut writer = SessionWriter::open(store.session_path(&s.session_id).unwrap()).unwrap();
-        writer
-            .append_fault_history(
-                &float_view_refloat_telemetry_service::FaultHistoryObservation {
-                    source_clock: None,
-                    elapsed_ms: 100,
-                    observed_at_epoch_ms: 1_000_100,
-                    records: vec![float_view_refloat_telemetry_service::FaultRecord {
-                        source_ticks: 100,
-                        active: true,
-                        raw_code: 4,
-                    }],
-                },
-            )
-            .unwrap();
-        writer.close().unwrap();
-        if restart {
-            drop(store);
-            store = ProductStore::open(dir.path()).unwrap();
-            assert_eq!(store.session(&s.session_id).unwrap().state, "interrupted");
-        } else {
-            assert!(
-                store
-                    .close_session(&s.session_id, 1_000_200, "disconnect")
-                    .unwrap()
-                    .is_some()
+    for kind in [
+        float_view_refloat_telemetry_service::AlertKind::FirmwareFault,
+        float_view_refloat_telemetry_service::AlertKind::ImuTimeout,
+    ] {
+        for restart in [false, true] {
+            let (dir, mut store, board) = setup();
+            store
+                .update_settings(
+                    store.settings().unwrap().revision,
+                    r#"{"minimumSessionDistance":1000}"#,
+                )
+                .unwrap();
+            let s = store.create_session(&board, 1, u64::MAX).unwrap();
+            let mut writer =
+                SessionWriter::open(store.session_path(&s.session_id).unwrap()).unwrap();
+            writer
+                .append_fault_history(
+                    &float_view_refloat_telemetry_service::FaultHistoryObservation {
+                        source_clock: None,
+                        elapsed_ms: 100,
+                        observed_at_epoch_ms: 1_000_100,
+                        records: vec![float_view_refloat_telemetry_service::FaultRecord {
+                            kind,
+                            source_ticks: 100,
+                            active: true,
+                            raw_code: if kind
+                                == float_view_refloat_telemetry_service::AlertKind::FirmwareFault
+                            {
+                                4
+                            } else {
+                                0
+                            },
+                        }],
+                    },
+                )
+                .unwrap();
+            writer.close().unwrap();
+            if restart {
+                drop(store);
+                store = ProductStore::open(dir.path()).unwrap();
+                assert_eq!(store.session(&s.session_id).unwrap().state, "interrupted");
+            } else {
+                assert!(
+                    store
+                        .close_session(&s.session_id, 1_000_200, "disconnect")
+                        .unwrap()
+                        .is_some()
+                );
+            }
+            assert_eq!(
+                store.session(&s.session_id).unwrap().recorded_sample_count,
+                0
             );
         }
-        assert_eq!(
-            store.session(&s.session_id).unwrap().recorded_sample_count,
-            0
-        );
     }
 }
 
@@ -460,4 +473,40 @@ fn process_loss_uses_last_commit_for_resume_deadline() {
     assert_eq!(checkpoint.paused_at_ms, Some(1_001_000));
     assert_eq!(checkpoint.resume_until_ms, Some(4_601_000));
     assert_eq!(store.session(&s.session_id).unwrap().committed_sequence, 2);
+}
+
+#[test]
+fn sampled_timeouts_survive_distance_filter_but_initial_clear_does_not() {
+    for active in [false, true] {
+        for restart in [false, true] {
+            let (dir, mut store, board) = setup();
+            store
+                .update_settings(
+                    store.settings().unwrap().revision,
+                    r#"{"minimumSessionDistance":1000}"#,
+                )
+                .unwrap();
+            let session = store.create_session(&board, 1_000_000, u64::MAX).unwrap();
+            let mut writer =
+                SessionWriter::open(store.session_path(&session.session_id).unwrap()).unwrap();
+            let mut observation = sample(1, 100);
+            observation.ride_state = RideState::Idle;
+            observation.imu_timeout_active = Some(active);
+            writer.append_samples(&[observation]).unwrap();
+            writer.close().unwrap();
+            if restart {
+                drop(store);
+                store = ProductStore::open(dir.path()).unwrap();
+                assert_eq!(store.session(&session.session_id).is_ok(), active);
+            } else {
+                assert_eq!(
+                    store
+                        .close_session(&session.session_id, 1_000_200, "disconnect")
+                        .unwrap()
+                        .is_some(),
+                    active
+                );
+            }
+        }
+    }
 }

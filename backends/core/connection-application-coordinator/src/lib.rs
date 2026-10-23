@@ -241,7 +241,7 @@ pub enum Effect {
     CancelTimer(TimerToken),
     ClearRoutingHint,
     StoreRoutingHint(discovery::RoutedIdentity),
-    PrepareActivation(ActivationFacts),
+    PrepareActivation(Box<ActivationFacts>),
     PublishState(Box<Snapshot>),
     PublishTelemetry(Box<telemetry::NormalizedSample>),
     PublishFaultHistory(telemetry::FaultHistoryObservation),
@@ -911,6 +911,7 @@ impl ConnectionApplicationCoordinator {
             family,
             selectable_gnss: self.refloat_gnss,
             alerts_available: activation.compatibility.control.fatal_clear_available,
+            imu_timeout_available: activation.compatibility.imu_timeout_available,
             settings: self.settings,
         };
         configuration.validate()?;
@@ -998,6 +999,11 @@ impl ConnectionApplicationCoordinator {
         now_ms: u64,
     ) -> Result<Vec<Effect>, CoordinatorError> {
         let scheduler_generation = self.ready_generation(generation, now_ms)?;
+        if control == mutation::BooleanControl::Package
+            || (control == mutation::BooleanControl::Flywheel && enabled)
+        {
+            self.require_inactive_imu_timeout(now_ms)?;
+        }
         let child = self.mutations.apply(mutation::Command::SetControl {
             generation: scheduler_generation,
             control,
@@ -1064,6 +1070,7 @@ impl ConnectionApplicationCoordinator {
         now_ms: u64,
     ) -> Result<Vec<Effect>, CoordinatorError> {
         let scheduler_generation = self.ready_generation(generation, now_ms)?;
+        self.require_inactive_imu_timeout(now_ms)?;
         let transition = self.configuration.request_write(
             package_version,
             fingerprint,
@@ -1086,6 +1093,19 @@ impl ConnectionApplicationCoordinator {
         self.process_mutation(lease, now_ms, &mut effects)?;
         self.process_configuration(transition, now_ms, &mut effects)?;
         Ok(effects)
+    }
+
+    fn imu_timeout_available(&self) -> bool {
+        self.refloat_version
+            .and_then(compatibility::compatibility)
+            .is_some_and(|profile| profile.imu_timeout_available)
+    }
+
+    fn require_inactive_imu_timeout(&self, now_ms: u64) -> Result<(), CoordinatorError> {
+        if self.imu_timeout_available() && self.telemetry.imu_timeout_state(now_ms) != Some(false) {
+            return Err(mutation::CoordinatorError::InvalidState.into());
+        }
+        Ok(())
     }
 
     fn ready_generation(
@@ -1306,7 +1326,7 @@ impl ConnectionApplicationCoordinator {
         };
         self.phase = Phase::AwaitingActivation;
         self.awaiting_activation = Some(facts.clone());
-        push_effect(effects, Effect::PrepareActivation(facts))?;
+        push_effect(effects, Effect::PrepareActivation(Box::new(facts)))?;
         self.publish_state(effects)
     }
 
@@ -1820,14 +1840,12 @@ impl ConnectionApplicationCoordinator {
                         );
                     }
                 };
-                let version = identity.version;
                 self.reported_refloat_version = Some(identity.to_string());
-                let admitted = identity
-                    .suffix
-                    .is_empty()
-                    .then(|| compatibility::compatibility(version))
-                    .flatten()
-                    .map(|profile| (version, profile));
+                let admitted = compatibility::decode_info(&payload)
+                    .ok()
+                    .and_then(|version| {
+                        compatibility::compatibility(version).map(|profile| (version, profile))
+                    });
                 match admitted {
                     Some((version, profile)) => {
                         self.refloat_version = Some(version);
@@ -1950,9 +1968,11 @@ impl ConnectionApplicationCoordinator {
             telemetry::RequestKind::SelectableFault => legacy::decode_fault_only(&payload)
                 .ok()
                 .map(telemetry::DecodedTelemetry::SelectableFault),
-            telemetry::RequestKind::Alerts => dynamic::alerts::decode_alerts(&payload)
-                .ok()
-                .map(telemetry::DecodedTelemetry::Alerts),
+            telemetry::RequestKind::Alerts => {
+                dynamic::alerts::decode_alerts_for_profile(&payload, self.imu_timeout_available())
+                    .ok()
+                    .map(telemetry::DecodedTelemetry::Alerts)
+            }
             telemetry::RequestKind::Layout => None,
         };
         let Some(decoded) = decoded else {

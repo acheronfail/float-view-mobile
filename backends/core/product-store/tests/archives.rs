@@ -76,13 +76,21 @@ fn setup() -> (TestDirectory, ProductStore, String) {
             observed_at_epoch_ms: 1_030_000,
             records: vec![
                 float_view_refloat_telemetry_service::FaultRecord {
+                    kind: float_view_refloat_telemetry_service::AlertKind::FirmwareFault,
                     source_ticks: 298123,
                     active: true,
                     raw_code: 4,
                 },
                 float_view_refloat_telemetry_service::FaultRecord {
+                    kind: float_view_refloat_telemetry_service::AlertKind::FirmwareFault,
                     source_ticks: 298124,
                     active: false,
+                    raw_code: 0,
+                },
+                float_view_refloat_telemetry_service::FaultRecord {
+                    kind: float_view_refloat_telemetry_service::AlertKind::ImuTimeout,
+                    source_ticks: 298125,
+                    active: true,
                     raw_code: 0,
                 },
             ],
@@ -236,6 +244,14 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
         .iter()
         .filter(|row| row.kind == "firmwareFaultHistory")
         .collect();
+    let timeout = events
+        .rows
+        .iter()
+        .find(|r| r.kind == "imuTimeoutHistory")
+        .expect("timeout survives archive import");
+    let timeout: serde_json::Value = serde_json::from_str(&timeout.details_json).unwrap();
+    assert_eq!(timeout["active"], true);
+    assert_eq!(timeout["sourceTicks"], 298125);
     assert_eq!(faults.len(), 2);
     let fault: serde_json::Value = serde_json::from_str(&faults[0].details_json).unwrap();
     assert_eq!(fault["rawCode"], 4);
