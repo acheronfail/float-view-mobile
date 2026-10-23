@@ -183,6 +183,14 @@ body {
   background: var(--app-canvas);
 }
 
+/* macOS WebKit can lose system UI font descriptors when creating a native
+ * select menu, falling back to Times. Use a named sans-serif family for both
+ * the field and its menu instead of the inherited system font aliases.
+ * https://github.com/tauri-apps/tauri/issues/13747 */
+select {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
 .app-safe-area {
   --app-header-height: 0px;
   --app-header-bottom: calc(max(1.5rem, env(safe-area-inset-top, 0px)) + var(--app-header-height));
