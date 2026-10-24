@@ -116,6 +116,8 @@ pub const NUMERIC_FIELDS: &[&str] = &[
     "dutyCycle",
     "controllerTempC",
     "motorTempC",
+    "bmsCircuitryTempC",
+    "bmsHighestCellTempC",
     "motorCurrentA",
     "batteryCurrentA",
     "erpm",

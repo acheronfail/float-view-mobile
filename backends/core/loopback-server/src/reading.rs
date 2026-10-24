@@ -298,3 +298,186 @@ pub async fn read(
     })
     .await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use float_view_application_runtime::{
+        session::{SessionMetadata as WriterMetadata, SessionWriter},
+        telemetry::{NormalizedSample, RideState},
+    };
+
+    fn sample(sequence: u64, elapsed_ms: u64) -> NormalizedSample {
+        NormalizedSample {
+            sequence,
+            observed_at_epoch_ms: 1_000_000 + elapsed_ms as i64,
+            slow_observed_at_epoch_ms: None,
+            elapsed_ms,
+            riding_elapsed_ms: 0,
+            ride_state: RideState::Idle,
+            package_state: None,
+            package_mode: None,
+            footpad_state: None,
+            stop_condition: None,
+            setpoint_adjustment: None,
+            wheelslip: None,
+            darkride: None,
+            charging: None,
+            alert_reason: None,
+            firmware_fault: None,
+            fatal_error_latched: None,
+            last_firmware_fault: None,
+            fault_history: Vec::new(),
+            pack_voltage_v: None,
+            duty_cycle: None,
+            controller_temp_c: None,
+            motor_temp_c: None,
+            bms_circuitry_temp_c: None,
+            bms_highest_cell_temp_c: None,
+            motor_current_a: None,
+            battery_current_a: None,
+            erpm: None,
+            speed_kph: None,
+            pitch_deg: None,
+            balance_pitch_deg: None,
+            roll_deg: None,
+            directional_motor_current_a: None,
+            filtered_motor_current_a: None,
+            requested_balance_current_a: None,
+            booster_current_a: None,
+            field_weakening_current_a: None,
+            footpad_adc1_v: None,
+            footpad_adc2_v: None,
+            remote_input: None,
+            setpoint_deg: None,
+            atr_setpoint_deg: None,
+            brake_tilt_setpoint_deg: None,
+            torque_tilt_setpoint_deg: None,
+            turn_tilt_setpoint_deg: None,
+            remote_setpoint_deg: None,
+            atr_acceleration_difference_erpm_per_second: None,
+            atr_speed_boost: None,
+            distance_m: None,
+            odometer_m: None,
+            amp_hours_drawn_ah: None,
+            amp_hours_charged_ah: None,
+            watt_hours_drawn_wh: None,
+            watt_hours_charged_wh: None,
+            battery_level: None,
+            charging_current_a: None,
+            charging_voltage_v: None,
+            extensions: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn recorded_bms_temperatures_work_in_grouped_charts_and_sample_inspection() {
+        let root = std::env::temp_dir().join(format!(
+            "float-view-bms-chart-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("session.sqlite");
+        let mut writer = SessionWriter::create(
+            &path,
+            WriterMetadata {
+                expected_riding_persistence_ms: 100,
+                expected_idle_persistence_ms: 1000,
+                committed_at_epoch_ms: 1_000_000,
+            },
+        )
+        .unwrap();
+        let mut row = sample(1, 0);
+        row.pack_voltage_v = Some(80.0);
+        row.bms_circuitry_temp_c = Some(31.0);
+        row.bms_highest_cell_temp_c = Some(32.0);
+        writer.append_samples(&[row]).unwrap();
+        let marker = writer.marker().unwrap();
+        writer.close().unwrap();
+        let source: SessionSource = serde_json::from_value(serde_json::json!({
+            "path": path.to_str().unwrap(),
+            "summary": {
+                "sessionId": "recorded", "deviceHistoryId": "board", "displayName": "Board",
+                "startedAt": "2026-10-25T00:00:00Z", "endedAt": null, "state": "active",
+                "integrity": "complete", "sampleCount": 1, "eventCount": marker.committed_event_sequence,
+                "ridingElapsedMs": 0, "totalElapsedMs": 0, "distanceM": null,
+                "maxSpeedMps": null, "maxDutyCycle": null
+            },
+            "boundary": {
+                "historyRevision": marker.history_revision, "committedSampleSequence": 1,
+                "committedEventSequence": marker.committed_event_sequence, "committedElapsedMs": 0,
+                "recordedSampleCount": 1, "storedSampleCount": 1,
+                "committedLocationSequence": 0, "committedLocationElapsedMs": 0,
+                "recordedLocationCount": 0, "storedLocationCount": 0, "locationStatus": "disabled"
+            }
+        })).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
+            for kind in ["series", "samples"] {
+                let permit = Arc::new(semaphore.clone().acquire_owned().await.unwrap());
+                let (metadata, result, _) = read(source.clone(), None, query(kind), permit)
+                    .await
+                    .unwrap();
+                for field in ["bmsCircuitryTempC", "bmsHighestCellTempC"] {
+                    assert!(metadata.recorded_fields.iter().any(|name| name == field));
+                    assert!(!metadata.extension_fields.iter().any(|name| name == field));
+                }
+                match result {
+                    HistoryResult::SeriesColumns(columns) => {
+                        assert_eq!(columns["packVoltageV"].values, vec![Some(80.0)]);
+                        assert_eq!(columns["bmsCircuitryTempC"].values, vec![Some(31.0)]);
+                        assert_eq!(columns["bmsHighestCellTempC"].values, vec![Some(32.0)]);
+                    }
+                    HistoryResult::HistoryPoints(points) => {
+                        assert_eq!(points.len(), 1);
+                        assert_eq!(points[0].values["bmsCircuitryTempC"], Some(31.0));
+                        assert_eq!(points[0].values["bmsHighestCellTempC"], Some(32.0));
+                    }
+                    _ => panic!("unexpected history result"),
+                }
+            }
+            let mut unknown = query("series");
+            unknown.fields.push("unrecordedExtension".into());
+            let permit = Arc::new(semaphore.acquire_owned().await.unwrap());
+            assert!(matches!(
+                read(source, None, unknown, permit).await,
+                Err(Failure::InvalidRequest)
+            ));
+        });
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn query(kind: &str) -> HistoryQuery {
+        HistoryQuery {
+            kind: kind.into(),
+            snapshot: crate::protocol::PublishedBoundary {
+                history_revision: 0,
+                committed_sample_sequence: 1,
+                committed_event_sequence: 0,
+                committed_elapsed_ms: 0,
+                committed_location_sequence: 0,
+                committed_location_elapsed_ms: 0,
+            },
+            range: crate::protocol::Range {
+                start_elapsed_ms: 0,
+                end_elapsed_ms: 0,
+            },
+            fields: ["packVoltageV", "bmsCircuitryTempC", "bmsHighestCellTempC"]
+                .map(String::from)
+                .to_vec(),
+            limit: 10,
+            buckets: 10,
+            gap_seconds: None,
+            after_elapsed_ms: None,
+            after_sequence: None,
+            location_cursor: None,
+        }
+    }
+}

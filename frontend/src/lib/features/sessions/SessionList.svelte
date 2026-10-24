@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import type { SessionListPage, SessionSummary } from '$lib/backend/contract';
+  import { ApiRequestError } from '$lib/backend/client';
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
   import ListItem from '$lib/ui/ListItem.svelte';
@@ -87,7 +88,7 @@
     }
   }
 
-  async function loadPage(reset = false): Promise<void> {
+  async function loadPage(reset = false, conflictRetries = 1): Promise<void> {
     if (loading) {
       if (reset) pendingReset = true;
       return;
@@ -118,14 +119,19 @@
       loadedCatalogRevision = page.catalogRevision;
     } catch (cause) {
       if (generation === requestGeneration) {
-        error = cause instanceof Error ? cause.message : String(cause);
+        if (cause instanceof ApiRequestError && cause.code === 'conflict' && conflictRetries > 0) {
+          // A close, import, or expired paused ride can invalidate even the
+          // first page. Restart once with a fresh cursor, then show the error.
+          conflictRetries -= 1;
+          pendingReset = true;
+        } else error = cause instanceof Error ? cause.message : String(cause);
       }
     } finally {
       loading = false;
       if (pendingReset) {
         pendingReset = false;
         clearLoadedSessions();
-        void loadPage(true);
+        void loadPage(true, conflictRetries);
       }
     }
   }

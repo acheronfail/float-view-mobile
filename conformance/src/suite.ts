@@ -1,7 +1,11 @@
 import { validatePermissions } from '../../frontend/src/lib/backend/permissions.ts';
 import { supportsRidingTuneApply } from '../../frontend/src/lib/backend/refloat-tune-policy.ts';
 import assert from 'node:assert/strict';
-import { liveWidgetFields, defaultBoardAppearance } from '../../frontend/src/lib/backend/contract.ts';
+import {
+  liveWidgetFields,
+  defaultBoardAppearance,
+  MAX_SESSION_DATA_FIELDS,
+} from '../../frontend/src/lib/backend/contract.ts';
 import { validBoardAppearance } from '../../frontend/src/lib/backend/board-appearance.ts';
 import type {
   AppState,
@@ -829,6 +833,27 @@ async function exerciseProductMethods(
     gapPolicy: { thresholdSeconds: null },
   });
   assert.equal(overview.kind, 'series');
+  // Every advertised numeric field must be readable alongside its neighbours.
+  // A missing transport allowlist entry (such as recorded BMS temperatures)
+  // otherwise rejects a whole chart batch, including voltage and speed.
+  for (let offset = 0; offset < detail.fields.length; offset += MAX_SESSION_DATA_FIELDS) {
+    const fields = detail.fields.slice(offset, offset + MAX_SESSION_DATA_FIELDS).map((descriptor) => descriptor.name);
+    const group = await client.sessionData({
+      kind: 'series',
+      sessionId: session.sessionId,
+      snapshot: detail.snapshot,
+      range: historyRange,
+      fields,
+      buckets: 16,
+      gapPolicy: { thresholdSeconds: null },
+    });
+    assert.equal(group.kind, 'series');
+    if (group.kind === 'series')
+      assert.deepEqual(
+        group.fields.map((descriptor) => descriptor.name),
+        fields
+      );
+  }
   const samples = await client.sessionData({
     kind: 'samples',
     sessionId: session.sessionId,
