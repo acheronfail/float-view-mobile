@@ -66,7 +66,7 @@ record!(SessionSource {
     boundary: Boundary,
     path: String
 });
-record!(SessionMetadata { connection_context_count: usize, marker_count: usize, summary: Session, recorded_fields: Vec<String>, extension_fields: Vec<String>, boundary: Boundary, prune: PruneMetadata });
+record!(SessionMetadata { recording_breaks: Vec<float_view_application_runtime::session::RecordingBreak>, connection_context_count: usize, marker_count: usize, summary: Session, recorded_fields: Vec<String>, extension_fields: Vec<String>, boundary: Boundary, prune: PruneMetadata });
 record!(SessionPage { items: Vec<Session>, next_cursor: Option<String> });
 record!(Maintenance {
     operation_id: String, kind: String, scope: String, state: String, session_id: Option<String>,

@@ -1,5 +1,11 @@
 # Android host
 
+Session metadata exposes recording-break endpoints and persisted interruption
+reasons through the shared Rust reader and loopback projection. The common
+frontend compacts only deliberate user pauses; connection losses and unknown
+historical reasons remain uncompressed. Android adapters add no timestamp or
+gap policy.
+
 Android is one Kotlin Gradle module. `SharedService` creates the process-owned
 Rust service and executes a closed, bounded OS fact/effect exchange through the
 existing `application-runtime-android-jni` family. The binding retains no JVM

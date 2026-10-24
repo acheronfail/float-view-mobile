@@ -51,9 +51,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.mouse.down();
       await page.mouse.up();
       await move(0.2);
-      await page.mouse.down({ button: 'middle' });
-      await move(0.6);
-      await page.mouse.up({ button: 'middle' });
+      // WebKit on Windows can omit the next native primary pointerdown after a
+      // middle-button drag. Test the ignored-button branch with explicit pointer
+      // events; zoom and right-button pan below still use native mouse input.
+      const secondaryPointer = { pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 1 };
+      await chart.dispatchEvent('pointerdown', { ...secondaryPointer, buttons: 4 });
+      await chart.dispatchEvent('pointermove', { ...secondaryPointer, buttons: 4, clientX: box.x + box.width * 0.6 });
+      await chart.dispatchEvent('pointerup', { ...secondaryPointer, buttons: 0 });
       const reset = page.getByRole('button', { name: 'Reset chart zoom', exact: true });
       assert.equal(await reset.count(), 0);
 

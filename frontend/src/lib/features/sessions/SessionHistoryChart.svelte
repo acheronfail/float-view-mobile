@@ -1,7 +1,7 @@
 <script lang="ts">
   import { faultLabel, type RideFault } from '$lib/features/faults/faults';
   import '$lib/ui/telemetry-chart.css';
-  import { timeline } from './map-filter';
+  import { compactElapsed, compactViewport, originalViewport, recordingTimeline } from './recording-time';
   import { MapSeriesLoader } from './map-series';
   import { chartMarkerGroups } from './marker-groups';
   import { onDestroy, onMount, untrack } from 'svelte';
@@ -124,9 +124,16 @@
   const fieldGroups = $derived(sessionSeriesGroups(fields));
   const chartGroups = $derived(sessionChartGroups(fields));
   const visibleViewport = $derived(previewViewport ?? viewport);
-  const axis = $derived(timeline(chartIntervals ?? [visibleViewport]));
-  const span = $derived(Math.max(1, visibleViewport.endElapsedMs - visibleViewport.startElapsedMs));
+  const axis = $derived(recordingTimeline(visibleViewport, metadata.recordingBreaks, chartIntervals));
+
   const duration = $derived(Math.max(1, metadata.summary.totalElapsedMs));
+  const compactDuration = $derived(Math.max(1, compactElapsed(duration, metadata.recordingBreaks)));
+  const inspectionBreak = $derived.by(() => {
+    const ratio = axis.ratioAt(inspectionMs);
+    return ratio === null
+      ? null
+      : (axis.recordingSeparators.find((gap) => Math.abs(gap.ratio - ratio) * width <= 5) ?? null);
+  });
   const isZoomed = $derived(viewport.endElapsedMs - viewport.startElapsedMs < duration);
   let pointers = new SvelteMap<number, { x: number; y: number }>();
   let gestureStart: {
@@ -144,8 +151,8 @@
   let panEdge = $state<'start' | 'end' | null>(null);
   const selectionRange = $derived.by(() => {
     if (selectionStartElapsedMs === null || selectionEndElapsedMs === null) return null;
-    const startX = ((selectionStartElapsedMs - visibleViewport.startElapsedMs) / span) * CHART_WIDTH;
-    const endX = ((selectionEndElapsedMs - visibleViewport.startElapsedMs) / span) * CHART_WIDTH;
+    const startX = (axis.ratioAt(selectionStartElapsedMs) ?? 0) * CHART_WIDTH;
+    const endX = (axis.ratioAt(selectionEndElapsedMs) ?? 0) * CHART_WIDTH;
     return {
       startX,
       endX,
@@ -239,6 +246,7 @@
       height: CHART_HEIGHT,
       viewport: visibleViewport,
       intervals: chartIntervals,
+      recordingBreaks: metadata.recordingBreaks,
     });
   }
 
@@ -272,6 +280,7 @@
                 height: CHART_HEIGHT,
                 viewport: visibleViewport,
                 intervals: chartIntervals,
+                recordingBreaks: metadata.recordingBreaks,
                 domain,
               },
               width,
@@ -624,9 +633,7 @@
       event.buttons === 0
     ) {
       const bounds = (event.currentTarget as SVGElement).getBoundingClientRect();
-      queueInspection(
-        visibleViewport.startElapsedMs + ((event.clientX - bounds.left) / Math.max(1, bounds.width)) * span
-      );
+      queueInspection(elapsedAtClientX(event.clientX, bounds));
       return;
     }
     if (!pointers.has(event.pointerId)) return;
@@ -641,12 +648,15 @@
     const values = [...pointers.values()];
     if (values.length >= 2 && (!isTouchPointer(event) || mode === 'zoom')) {
       const [first, second] = values;
-      previewViewport = pinchViewport(
-        gestureStart.viewport,
-        Math.max(1, gestureStart.distance),
-        Math.hypot(second!.x - first!.x, second!.y - first!.y),
-        gestureStart.ratio,
-        duration
+      previewViewport = originalViewport(
+        pinchViewport(
+          compactViewport(gestureStart.viewport, metadata.recordingBreaks),
+          Math.max(1, gestureStart.distance),
+          Math.hypot(second!.x - first!.x, second!.y - first!.y),
+          gestureStart.ratio,
+          compactDuration
+        ),
+        metadata.recordingBreaks
       );
       selectionStartElapsedMs = null;
       selectionEndElapsedMs = null;
@@ -658,8 +668,12 @@
       // with the pointer and must not feed back into the next delta.
       const requestedDelta =
         ((gestureStart.clientX - values[0]!.x) / Math.max(1, gestureStart.pixelWidth)) *
-        (gestureStart.viewport.endElapsedMs - gestureStart.viewport.startElapsedMs);
-      previewViewport = panViewport(gestureStart.viewport, requestedDelta, duration);
+        (compactElapsed(gestureStart.viewport.endElapsedMs, metadata.recordingBreaks) -
+          compactElapsed(gestureStart.viewport.startElapsedMs, metadata.recordingBreaks));
+      previewViewport = originalViewport(
+        panViewport(compactViewport(gestureStart.viewport, metadata.recordingBreaks), requestedDelta, compactDuration),
+        metadata.recordingBreaks
+      );
       panEdge =
         requestedDelta < 0 && previewViewport.startElapsedMs === 0
           ? 'start'
@@ -689,8 +703,11 @@
       } else if (mode === 'zoom' && selectionStartElapsedMs !== null && selectionEndElapsedMs !== null) {
         const start = Math.min(selectionStartElapsedMs, selectionEndElapsedMs);
         const end = Math.max(selectionStartElapsedMs, selectionEndElapsedMs);
-        const minimumSpan = (span / Math.max(1, gestureStart?.pixelWidth ?? width)) * MIN_SELECTION_PIXELS;
-        if (end - start >= minimumSpan) {
+        const minimumSpan = (axis.duration / Math.max(1, gestureStart?.pixelWidth ?? width)) * MIN_SELECTION_PIXELS;
+        if (
+          compactElapsed(end, metadata.recordingBreaks) - compactElapsed(start, metadata.recordingBreaks) >=
+          minimumSpan
+        ) {
           viewport = clampViewport({ startElapsedMs: start, endElapsedMs: end }, duration);
         } else if (!isTouchPointer(event)) {
           queueInspection(selectionEndElapsedMs);
@@ -713,6 +730,15 @@
     const percent = (Math.max(0, Math.min(CHART_WIDTH, pointX)) / CHART_WIDTH) * 100;
     // Match the anchor fraction on both boxes so even wide tooltips stay inside the plot.
     return `left: ${percent}%; transform: translateX(-${percent}%)`;
+  }
+
+  function elapsedLabel(elapsedMs: number): string {
+    const seconds = Math.floor(elapsedMs / 1000);
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  }
+
+  function recordingBreakLabel(start: number, end: number): string {
+    return `Recording break · ${elapsedLabel(end - start)} missing · ${elapsedLabel(start)}–${elapsedLabel(end)}`;
   }
 
   function formatTooltipValue(fieldName: string, value: number): string {
@@ -808,6 +834,9 @@
 </script>
 
 <div bind:this={plot} class="mt-3">
+  {#if axis.recordingSeparators.length}
+    <p class="text-xs text-muted">Dashed bars mark deliberate pauses.</p>
+  {/if}
   {#if filterByMap}
     <p class="text-xs text-muted">
       Map controls the chart range. GPS gaps use the last known location. Chart zoom and pan are disabled.
@@ -869,7 +898,9 @@
             {@const yTickLabels = chartModel?.yTickLabels ?? []}
             {@const zero = chartModel?.zero ?? null}
             {@const tooltipEntries = inspectionVisible && domain ? chartTooltipEntries(chartGroup, domain) : []}
-            {@const tooltipAnchor = tooltipEntries[0]?.point ?? null}
+            {@const tooltipAnchor = inspectionBreak
+              ? { x: inspectionBreak.ratio * CHART_WIDTH }
+              : (tooltipEntries[0]?.point ?? null)}
             {@const extrema = chartExtrema(chartGroup, result?.columns, hiddenFields, visibleViewport, chartIntervals)}
             <div class="nonselectable-surface">
               <SectionTitle title={chartGroup.title} detail={chartGroup.unit ?? 'value'} />
@@ -891,7 +922,7 @@
                     {/each}
                   </div>
                   <div class="relative isolate min-w-0 flex-1">
-                    {#each chartMarkerGroups(markers, visibleViewport, width, chartIntervals) as group (group.marker.sequence)}
+                    {#each chartMarkerGroups(markers, visibleViewport, width, chartIntervals, metadata.recordingBreaks) as group (group.marker.sequence)}
                       {@const marker = group.marker}
                       <button
                         type="button"
@@ -909,7 +940,7 @@
                         <span class="mx-auto block h-full w-0.5 bg-orange-500 shadow-[0_0_0_1px_#0008]"></span>
                       </button>
                     {/each}
-                    {#each chartMarkerGroups( firmwareFaults.flatMap( (fault) => (fault.elapsedMs === null ? [] : [{ ...fault, elapsedMs: fault.elapsedMs }]) ), visibleViewport, width, chartIntervals ) as group (group.marker.sequence)}
+                    {#each chartMarkerGroups( firmwareFaults.flatMap( (fault) => (fault.elapsedMs === null ? [] : [{ ...fault, elapsedMs: fault.elapsedMs }]) ), visibleViewport, width, chartIntervals, metadata.recordingBreaks ) as group (group.marker.sequence)}
                       {@const fault = group.marker}
                       <button
                         type="button"
@@ -946,6 +977,13 @@
                         dismissInspection();
                       }}
                     >
+                      {#if axis.recordingSeparators.length}
+                        <desc
+                          >{axis.recordingSeparators
+                            .map((gap) => recordingBreakLabel(gap.start, gap.end))
+                            .join('; ')}</desc
+                        >
+                      {/if}
                       {#each yTicks as tick (tick)}
                         {@const y =
                           CHART_HEIGHT -
@@ -1026,6 +1064,30 @@
                           />
                         {/each}
                       {/if}
+                      {#each axis.recordingSeparators as gap (gap.end)}
+                        <g data-recording-break data-start-elapsed-ms={gap.start} data-end-elapsed-ms={gap.end}>
+                          <title>{recordingBreakLabel(gap.start, gap.end)}</title>
+                          <line
+                            x1={gap.ratio * CHART_WIDTH}
+                            x2={gap.ratio * CHART_WIDTH}
+                            y1="0"
+                            y2={CHART_HEIGHT}
+                            stroke="var(--app-canvas)"
+                            stroke-width="5"
+                            vector-effect="non-scaling-stroke"
+                          />
+                          <line
+                            x1={gap.ratio * CHART_WIDTH}
+                            x2={gap.ratio * CHART_WIDTH}
+                            y1="0"
+                            y2={CHART_HEIGHT}
+                            stroke="var(--app-muted)"
+                            stroke-width="1.5"
+                            stroke-dasharray="4 3"
+                            vector-effect="non-scaling-stroke"
+                          />
+                        </g>
+                      {/each}
                       {#if selectionRange}
                         <rect
                           x="0"
@@ -1102,6 +1164,9 @@
                         role="status"
                       >
                         <p>{(inspectionMs / 1000).toFixed(1)}s into ride</p>
+                        {#if inspectionBreak}<p>
+                            {recordingBreakLabel(inspectionBreak.start, inspectionBreak.end)}
+                          </p>{/if}
                         <div class="grid grid-cols-[minmax(0,1fr)_max-content] gap-x-3 gap-y-0.5">
                           {#each tooltipEntries as entry (entry.field.name)}
                             <span class="contents">

@@ -568,51 +568,82 @@ fn idle_marker_only_session_survives_recovery_and_archive_roundtrip() {
 
 #[test]
 fn archive_roundtrip_preserves_recording_boundaries_and_gap_safe_summary() {
-    let (_dir, mut store, _) = setup();
-    let board = store.boards().unwrap().remove(0);
-    let ride = store
-        .create_session(&board.saved_device_id, 1, u64::MAX)
-        .unwrap();
-    let mut writer = SessionWriter::open(store.session_path(&ride.session_id).unwrap()).unwrap();
-    let moving = |seq, time| {
-        let mut s = sample(seq, time);
-        s.ride_state = RideState::Riding;
-        s.speed_kph = Some(36.);
-        s
-    };
-    writer
-        .append_samples(&[moving(1, 0), moving(2, 1000)])
-        .unwrap();
-    writer.mark_recording_gap();
-    writer
-        .append_samples(&[moving(3, 3_601_000), moving(4, 3_602_000)])
-        .unwrap();
-    writer.close().unwrap();
-    store
-        .close_session(&ride.session_id, 4_602_000, "end_ride")
-        .unwrap();
-    let cancel = FileCancellation::default();
-    let export = store
-        .prepare_export(&ride.session_id, ExportFormat::Archive)
-        .unwrap()
-        .run(&cancel)
-        .unwrap();
-    let target = TestDirectory::new();
-    let mut imported = ProductStore::open(target.path()).unwrap();
-    let checked = sink(&imported, export.path()).validate(&cancel).unwrap();
-    let session = imported.attach_import(checked).unwrap();
-    assert_eq!(session.riding_elapsed_ms, 2000);
-    assert_eq!(session.distance_m, Some(20.));
-    let db = Connection::open(imported.session_path(&session.session_id).unwrap()).unwrap();
-    assert_eq!(
-        db.query_row(
-            "SELECT COUNT(*) FROM session_event WHERE kind='recordingBoundary'",
-            [],
-            |r| r.get::<_, u64>(0)
-        )
-        .unwrap(),
-        1
-    );
+    use float_view_session_sqlite::InterruptionReason::{ConnectionLoss, Pause, Unknown};
+    for reason in [None, Some(Pause), Some(ConnectionLoss), Some(Unknown)] {
+        let (_dir, mut store, _) = setup();
+        let board = store.boards().unwrap().remove(0);
+        let ride = store
+            .create_session(&board.saved_device_id, 1, u64::MAX)
+            .unwrap();
+        let mut writer =
+            SessionWriter::open(store.session_path(&ride.session_id).unwrap()).unwrap();
+        let moving = |seq, time| {
+            let mut s = sample(seq, time);
+            s.ride_state = RideState::Riding;
+            s.speed_kph = Some(36.);
+            s
+        };
+        writer
+            .append_samples(&[moving(1, 0), moving(2, 1000)])
+            .unwrap();
+        if let Some(reason) = reason {
+            writer.interrupt_recording(reason, 1_001_001).unwrap();
+        } else {
+            writer.mark_recording_gap();
+        }
+        writer
+            .append_samples(&[moving(3, 3_601_000), moving(4, 3_602_000)])
+            .unwrap();
+        writer.close().unwrap();
+        if reason.is_none() {
+            let db = Connection::open(store.session_path(&ride.session_id).unwrap()).unwrap();
+            db.execute("UPDATE session_event SET details_json=json_remove(details_json,'$.reason') WHERE kind='recordingBoundary'", []).unwrap();
+        }
+        store
+            .close_session(&ride.session_id, 4_602_000, "end_ride")
+            .unwrap();
+        let cancel = FileCancellation::default();
+        let export = store
+            .prepare_export(&ride.session_id, ExportFormat::Archive)
+            .unwrap()
+            .run(&cancel)
+            .unwrap();
+        let target = TestDirectory::new();
+        let mut imported = ProductStore::open(target.path()).unwrap();
+        let checked = sink(&imported, export.path()).validate(&cancel).unwrap();
+        let session = imported.attach_import(checked).unwrap();
+        assert_eq!(session.riding_elapsed_ms, 2000);
+        assert_eq!(session.distance_m, Some(20.));
+        let db = Connection::open(imported.session_path(&session.session_id).unwrap()).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM session_event WHERE kind='recordingBoundary'",
+                [],
+                |r| r.get::<_, u64>(0)
+            )
+            .unwrap(),
+            1
+        );
+        drop(db);
+        let assert_reason = |store: &ProductStore, id: &str| {
+            let mut reader = SessionReader::open(store.session_path(id).unwrap()).unwrap();
+            let marker = reader.marker().unwrap();
+            let breaks = reader.recording_breaks((&marker).into()).unwrap();
+            assert_eq!(breaks.len(), 1);
+            assert_eq!(breaks[0].reason, reason.unwrap_or(Unknown));
+        };
+        assert_reason(&imported, &session.session_id);
+        let reexport = imported
+            .prepare_export(&session.session_id, ExportFormat::Archive)
+            .unwrap()
+            .run(&cancel)
+            .unwrap();
+        let again_dir = TestDirectory::new();
+        let mut again = ProductStore::open(again_dir.path()).unwrap();
+        let checked = sink(&again, reexport.path()).validate(&cancel).unwrap();
+        let session = again.attach_import(checked).unwrap();
+        assert_reason(&again, &session.session_id);
+    }
 }
 
 #[test]

@@ -27,7 +27,16 @@ pub const MAX_EVENT_PAGE: usize = 500;
 pub const MAX_LOCATION_PAGE: usize = 2_000;
 pub const MAX_SERIES_BUCKETS: usize = 1_024;
 pub const MAX_SERIES_SOURCE_ROWS: usize = 200_000;
+pub const MAX_RECORDING_BREAKS: usize = 1_000;
 const LOCATION_GAP_MS: u64 = 10_000;
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordingBreak {
+    pub start_elapsed_ms: u64,
+    pub end_elapsed_ms: u64,
+    pub reason: crate::InterruptionReason,
+}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ReaderError {
@@ -297,6 +306,77 @@ impl SessionReader {
         let value = read_marker(&transaction).map_err(map_writer)?;
         transaction.commit().map_err(map_sqlite)?;
         Ok(value)
+    }
+
+    /// Exact interruption endpoints, independent of reduced series and field nulls.
+    pub fn recording_breaks(
+        &mut self,
+        boundary: PublishedBoundary,
+    ) -> Result<Vec<RecordingBreak>, ReaderError> {
+        let tx = self.deferred()?;
+        validate_boundary(&tx, boundary)?;
+        let mut statement = tx
+            .prepare(
+                "SELECT e.monotonic_elapsed_ms, e.source_sample_sequence,
+                    CASE WHEN length(CAST(e.details_json AS BLOB))<=256 THEN e.details_json ELSE '' END,
+                    p.sequence, p.monotonic_elapsed_ms, n.monotonic_elapsed_ms
+             FROM session_event e
+             LEFT JOIN sample p ON p.sequence=json_extract(e.details_json,'$.previousSequence')
+             LEFT JOIN sample n ON n.sequence=e.source_sample_sequence
+             WHERE e.kind='recordingBoundary' AND e.sequence<=?
+             ORDER BY e.sequence LIMIT 1001",
+            )
+            .map_err(map_sqlite)?;
+        let mut rows = statement
+            .query([to_i64(boundary.event_sequence)?])
+            .map_err(map_sqlite)?;
+        let mut breaks: Vec<RecordingBreak> = Vec::new();
+        let mut count = 0;
+        while let Some(row) = rows.next().map_err(map_sqlite)? {
+            count += 1;
+            if count > MAX_RECORDING_BREAKS {
+                return Err(ReaderError::Incompatible);
+            }
+            let end: u64 = row.get(0).map_err(map_sqlite)?;
+            let source: Option<u64> = row.get(1).map_err(map_sqlite)?;
+            let details: String = row.get(2).map_err(map_sqlite)?;
+            let details: serde_json::Value =
+                serde_json::from_str(&details).map_err(|_| ReaderError::Incompatible)?;
+            let reason = match details.get("reason") {
+                None => crate::InterruptionReason::Unknown,
+                Some(value) => {
+                    serde_json::from_value(value.clone()).map_err(|_| ReaderError::Incompatible)?
+                }
+            };
+            let previous: Option<u64> = row.get(3).map_err(map_sqlite)?;
+            let start: Option<u64> = row.get(4).map_err(map_sqlite)?;
+            let resumed: Option<u64> = row.get(5).map_err(map_sqlite)?;
+            let (Some(start), Some(previous), Some(source)) = (start, previous, source) else {
+                return Err(ReaderError::Incompatible);
+            };
+            if details["value"] != "resumed"
+                || details["previousSequence"].as_u64() != Some(previous)
+                || previous >= source
+                || source > boundary.sample_sequence
+                || resumed != Some(end)
+                || start > end
+                || end > 9_007_199_254_740_991
+                || breaks.last().is_some_and(|b| start < b.end_elapsed_ms)
+            {
+                return Err(ReaderError::Incompatible);
+            }
+            if end > start {
+                breaks.push(RecordingBreak {
+                    start_elapsed_ms: start,
+                    end_elapsed_ms: end,
+                    reason,
+                });
+            }
+        }
+        drop(rows);
+        drop(statement);
+        tx.commit().map_err(map_sqlite)?;
+        Ok(breaks)
     }
 
     pub fn connection_contexts(

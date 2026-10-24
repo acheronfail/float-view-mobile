@@ -32,6 +32,28 @@ const bmsSnapshot: BmsSnapshot = {
 };
 
 describe('deterministic mock backend', () => {
+  it('distinguishes automatic recovery from deliberate pause and preserves pause precedence', () => {
+    for (const deliberate of [false, true]) {
+      const backend = new MockBackend();
+      const connect = () =>
+        backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
+      backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+      connect();
+      const state = backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState };
+      const sessionId = state.result.activeConnection!.activeSession!.sessionId;
+      backend.simulateConnectionState('reconnecting');
+      if (deliberate) {
+        backend.handle({ id: 4, method: 'device.disconnect', params: {} });
+        connect();
+      } else backend.simulateConnectionState('ready');
+      expect(backend.handle({ id: 5, method: 'session.get', params: { sessionId } })).toMatchObject({
+        result: {
+          recordingBreaks: [[expect.any(Number), expect.any(Number), deliberate ? 'pause' : 'connectionLoss']],
+        },
+      });
+    }
+  });
+
   it('authorizes confirmed controls independently of aggregate loading state', () => {
     for (const control of ['package', 'flywheel', 'leds', 'headlights'] as const) {
       const backend = new MockBackend();

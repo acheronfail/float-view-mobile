@@ -25,6 +25,8 @@ pub use connection_context::{
     MAX_CONNECTION_CONTEXTS, MAX_CONTEXT_PAGE,
 };
 mod diagnostics;
+mod interruptions;
+pub use interruptions::InterruptionReason;
 mod faults;
 pub use diagnostics::{DiagnosticWriter, MAX_DIAGNOSTIC_BYTES, MAX_DIAGNOSTIC_ROWS};
 pub use faults::MAX_FIRMWARE_FAULT_EVENTS;
@@ -39,8 +41,9 @@ pub use pruner::{
 };
 pub use reader::{
     EventPage, EventRecord, FieldDescriptor, FieldSource, LocationGap, LocationPage,
-    LocationRecord, PublishedBoundary, ReadInterrupter, ReaderError, ReaderMetadata, SampleKey,
-    SamplePage, SampleRecord, SeriesReduction, SessionReader,
+    LocationRecord, MAX_RECORDING_BREAKS, PublishedBoundary, ReadInterrupter, ReaderError,
+    ReaderMetadata, RecordingBreak, SampleKey, SamplePage, SampleRecord, SeriesReduction,
+    SessionReader,
 };
 
 pub const SESSION_SCHEMA: &str = include_str!("../../../sql/session.sql");
@@ -158,6 +161,7 @@ pub struct SessionWriter {
     connection: Connection,
     fatal_latch_transition: Option<String>,
     recording_gap: bool,
+    interruption_reason: InterruptionReason,
 }
 
 impl Debug for SessionWriter {
@@ -259,10 +263,12 @@ impl SessionWriter {
         {
             return Err(WriterError::Incompatible);
         }
+        let pending = interruptions::pending_reason(&connection)?;
         Ok(Self {
             connection,
             fatal_latch_transition,
-            recording_gap: false,
+            recording_gap: pending.is_some(),
+            interruption_reason: pending.unwrap_or_default(),
         })
     }
 
@@ -401,7 +407,7 @@ impl SessionWriter {
                     .checked_add(1)
                     .ok_or(WriterError::InvalidInput)?;
                 let previous = last_key.map_or(0, |k| k.1);
-                transaction.execute("INSERT INTO session_event(sequence,source_sample_sequence,observed_at_ms,monotonic_elapsed_ms,kind,details_json) VALUES (?,?,?,?,'recordingBoundary',?)", params![sqlite_integer(event_sequence)?, sqlite_integer(sample.sequence)?, sample.observed_at_epoch_ms, sqlite_integer(sample.elapsed_ms)?, serde_json::json!({"value":"resumed","previousSequence":previous}).to_string()]).map_err(map_sqlite)?;
+                transaction.execute("INSERT INTO session_event(sequence,source_sample_sequence,observed_at_ms,monotonic_elapsed_ms,kind,details_json) VALUES (?,?,?,?,'recordingBoundary',?)", params![sqlite_integer(event_sequence)?, sqlite_integer(sample.sequence)?, sample.observed_at_epoch_ms, sqlite_integer(sample.elapsed_ms)?, serde_json::json!({"value":"resumed","previousSequence":previous,"reason":self.interruption_reason}).to_string()]).map_err(map_sqlite)?;
             }
             if ordered_append {
                 aggregate.append(sample, gap)?;
@@ -494,6 +500,9 @@ impl SessionWriter {
             .map_err(map_sqlite)?;
         transaction.commit().map_err(map_sqlite)?;
         self.recording_gap = gap;
+        if !gap {
+            self.interruption_reason = InterruptionReason::Unknown;
+        }
         self.fatal_latch_transition = transitions.remove("fatalErrorLatched");
         self.marker()
     }
@@ -631,6 +640,14 @@ impl SessionWriter {
         self.connection
             .close()
             .map_err(|(_, error)| map_sqlite(error))
+    }
+
+    /// Release ownership even if checkpointing fails. Committed WAL data remains
+    /// recoverable; a failed checkpoint must not retain the recording writer.
+    pub fn checkpoint_and_close(self) -> Result<(), WriterError> {
+        let checkpoint = self.checkpoint();
+        let close = self.close();
+        checkpoint.and(close)
     }
 }
 
@@ -1528,6 +1545,25 @@ mod append_regressions {
         );
         assert_eq!(marker.last_speed_kph, expected.last_speed_kph);
         assert_eq!(marker.last_ride_state, expected.last_ride_state);
+    }
+
+    #[test]
+    fn failed_checkpoint_still_closes_the_writer_and_preserves_committed_rows() {
+        let directory = TestDirectory::new();
+        let mut writer = writer(&directory);
+        writer.append_samples(&[sample(1, 0)]).unwrap();
+        let committed = writer.marker().unwrap();
+        // SQLite rejects checkpointing while this connection has a transaction.
+        writer.connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        assert_eq!(
+            writer.checkpoint_and_close().unwrap_err(),
+            WriterError::Busy
+        );
+        let path = directory.file("ride.sqlite3");
+        let reopened = SessionWriter::open(&path).unwrap();
+        assert_eq!(reopened.marker().unwrap(), committed);
+        let db = Connection::open(path).unwrap();
+        db.execute_batch("BEGIN IMMEDIATE; ROLLBACK;").unwrap();
     }
 
     #[test]

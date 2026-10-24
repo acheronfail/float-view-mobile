@@ -167,7 +167,10 @@ impl BackendService {
         if self.stopping {
             return Err(Failure::Unavailable);
         }
-        self.admit_revision()?;
+        let stopping_connection = matches!(&envelope.fact, Fact::StopRequested {});
+        if !stopping_connection {
+            self.admit_revision()?;
+        }
         let e = &self.policy.exchange;
         if envelope.lifetime != e.lifetime || envelope.sequence <= e.sequence {
             return Err(Failure::InvalidState);
@@ -249,8 +252,10 @@ impl BackendService {
         self.policy.exchange.sequence = envelope.sequence;
         self.policy.exchange.now = envelope.monotonic_ms;
         self.policy.exchange.epoch = envelope.epoch_ms;
-        self.expire_paused_ride()?;
-        self.sync_ride_timer()?;
+        if !stopping_connection {
+            self.expire_paused_ride()?;
+            self.sync_ride_timer()?;
+        }
         let now = envelope.monotonic_ms;
         let epoch = envelope.epoch_ms;
         self.diagnostics.generation = self.policy.active.as_ref().map_or(0, |a| a.generation);
@@ -920,21 +925,15 @@ impl BackendService {
         })))
     }
     pub fn disconnect(&mut self, reason: &str) -> Result<(), Failure> {
-        self.clear_connection_editor_state()?;
-        self.diagnostics.event(
-            self.policy.exchange.now,
-            self.policy.exchange.epoch,
-            "disconnect",
-            serde_json::json!({"reason":reason.chars().take(64).collect::<String>()}),
-            true,
-        );
-        self.fail_kernel_requests();
-        let Some(a) = self.policy.active.as_ref() else {
+        let Some(active) = self.policy.active.as_ref() else {
             return Ok(());
         };
-        let generation = a.generation;
-        self.policy.ble.clear();
+        let generation = active.generation;
+        let session = active.session.clone();
+        // Reserved cleanup is independent of queue capacity and storage. Queue
+        // it before any fallible work, including editor and recording cleanup.
         self.policy.exchange.clear_connection(generation);
+        self.policy.ble.clear();
         self.policy.timers.retain(|_, t| {
             matches!(
                 t.kind,
@@ -942,26 +941,73 @@ impl BackendService {
             )
         });
         self.policy.capture = None;
+        self.fail_kernel_requests();
+        self.diagnostics.event(
+            self.policy.exchange.now,
+            self.policy.exchange.epoch,
+            "disconnect",
+            serde_json::json!({"reason":reason.chars().take(64).collect::<String>()}),
+            true,
+        );
+        // Result::and evaluates each cleanup eagerly; keep the first error
+        // without letting it skip release, catalog work or state publication.
+        let mut result = self.clear_connection_editor_state();
         if self.runtime.snapshot().session_attached {
-            self.runtime
-                .apply(Command::DetachSession)
-                .map_err(|_| Failure::Internal)?;
+            let interruption = match reason {
+                "explicit_disconnect" | "native_stop_requested" => {
+                    session::InterruptionReason::Pause
+                }
+                "reconnect_timeout" => session::InterruptionReason::ConnectionLoss,
+                _ => session::InterruptionReason::Unknown,
+            };
+            let saved = self
+                .runtime
+                .interrupt_recording(interruption, self.policy.exchange.epoch)
+                .map_err(|_| Failure::Unavailable)
+                .and_then(|marker| {
+                    session.as_ref().map_or(Ok(()), |session| {
+                        self.store
+                            .apply_session_marker(&session.session_id, &marker)
+                            .map_err(crate::store_failure)
+                    })
+                });
+            result = result.and(saved);
+            result = result.and(
+                self.runtime
+                    .apply(Command::DetachSession)
+                    .map(|_| ())
+                    .map_err(|_| Failure::Internal),
+            );
         }
-        self.diagnostics
-            .finish(self.policy.exchange.now, self.policy.exchange.epoch);
-        if let Some(session) = self.policy.active.as_ref().and_then(|a| a.session.as_ref()) {
-            if matches!(
+        if let Some(session) = session {
+            let pause = matches!(
                 reason,
                 "explicit_disconnect"
                     | "native_stop_requested"
                     | "controller_shutdown"
                     | "service_shutdown"
                     | "reconnect_timeout"
-            ) && self.policy.ride.is_some()
+            ) && self.policy.ride.is_some();
+            // Logical pause state describes the connection we just released.
+            // It is not evidence for a historical interruption reason.
+            let mut fallback = self
+                .policy
+                .ride
+                .clone()
+                .filter(|r| pause && r.session_id == session.session_id);
+            if let Some(ride) = fallback.as_mut()
+                && ride.paused_at_ms.is_none()
             {
-                self.store
-                    .pause_ride(self.policy.exchange.epoch)
-                    .map_err(crate::store_failure)?;
+                let window = self.policy.settings.ride_resume_window_minutes;
+                let deadline = self.policy.exchange.epoch + window as i64 * 60_000;
+                if deadline <= 253_402_300_799_999 {
+                    ride.window_minutes = window;
+                    ride.paused_at_ms = Some(self.policy.exchange.epoch);
+                    ride.resume_until_ms = Some(deadline);
+                }
+            }
+            let catalog = if pause {
+                self.store.pause_ride(self.policy.exchange.epoch)
             } else {
                 self.store
                     .close_session(
@@ -969,20 +1015,45 @@ impl BackendService {
                         self.policy.exchange.epoch.max(session.started_at_ms),
                         reason,
                     )
-                    .map_err(crate::store_failure)?;
+                    .map(|_| ())
+            };
+            result = result.and(catalog.map_err(crate::store_failure));
+            match self.store.ride_checkpoint() {
+                Ok(ride) => {
+                    self.policy.ride = if pause
+                        && ride.as_ref().is_some_and(|r| {
+                            r.session_id == session.session_id && r.paused_at_ms.is_none()
+                        }) {
+                        fallback
+                    } else {
+                        ride
+                    };
+                }
+                Err(error) => {
+                    self.policy.ride = fallback;
+                    result = result.and(Err(crate::store_failure(error)));
+                }
             }
-            self.policy.ride = self.store.ride_checkpoint().map_err(crate::store_failure)?;
         }
-        self.runtime
-            .apply(Command::Application(c::Command::Reset {
-                now_ms: self.policy.exchange.now,
-            }))
-            .map_err(|_| Failure::Internal)?;
+        result = result.and(
+            self.runtime
+                .apply(Command::Application(c::Command::Reset {
+                    now_ms: self.policy.exchange.now,
+                }))
+                .map(|_| ())
+                .map_err(|_| Failure::Internal),
+        );
         self.policy.active = None;
         self.policy.latest_location = None;
-        self.sync_ride_timer()?;
-        self.refresh_boards().map_err(crate::store_failure)?;
-        self.changed()
+        result = result.and(self.sync_ride_timer());
+        result = result.and(self.refresh_boards().map_err(crate::store_failure));
+        result = result.and(self.changed());
+        if let Err(error) = &result {
+            self.record_operation_failure("device.disconnect", error);
+        }
+        self.diagnostics
+            .finish(self.policy.exchange.now, self.policy.exchange.epoch);
+        result
     }
     fn reconnect(&mut self) -> Result<(), Failure> {
         // A discovery rejection needs an explicit new attempt, even if BLE drops later.
@@ -1007,7 +1078,20 @@ impl BackendService {
             return Ok(());
         };
         a.battery.reconnect();
-        self.runtime.mark_recording_gap();
+        if self.runtime.snapshot().session_attached {
+            let marker = self
+                .runtime
+                .interrupt_recording(
+                    session::InterruptionReason::ConnectionLoss,
+                    self.policy.exchange.epoch,
+                )
+                .map_err(|_| Failure::Unavailable)?;
+            if let Some(session) = a.session.as_ref() {
+                self.store
+                    .apply_session_marker(&session.session_id, &marker)
+                    .map_err(crate::store_failure)?;
+            }
+        }
         if a.session.is_some() {
             self.store
                 .pause_ride(self.policy.exchange.epoch)
@@ -3649,6 +3733,84 @@ mod tests {
             Err(float_view_product_store::Error::NotFound)
         ));
     }
+    #[test]
+    fn persisted_interruption_causes_follow_user_actions_and_automatic_recovery() {
+        #[allow(dead_code)]
+        mod samples {
+            use float_view_application_runtime::telemetry as float_view_refloat_telemetry_service;
+            include!("../../session-sqlite/tests/support/mod.rs");
+        }
+        for (action, expected) in [
+            ("explicit_disconnect", session::InterruptionReason::Pause),
+            ("native_stop_requested", session::InterruptionReason::Pause),
+            (
+                "connection_loss",
+                session::InterruptionReason::ConnectionLoss,
+            ),
+            ("service_shutdown", session::InterruptionReason::Unknown),
+            ("pause_during_recovery", session::InterruptionReason::Pause),
+        ] {
+            let mut t = Test::new();
+            t.activate(true);
+            let id = t.service.policy.ride.as_ref().unwrap().session_id.clone();
+            let mut sample = samples::sample(1, 0);
+            sample.observed_at_epoch_ms = t.service.policy.exchange.epoch;
+            t.service.runtime.record_sample(&sample, None).unwrap();
+            let marker = t.service.runtime.snapshot().session_marker.unwrap();
+            t.service.store.apply_session_marker(&id, &marker).unwrap();
+            if matches!(action, "connection_loss" | "pause_during_recovery") {
+                t.service.reconnect().unwrap();
+            }
+            if action != "connection_loss" {
+                t.service
+                    .disconnect(if action == "pause_during_recovery" {
+                        "explicit_disconnect"
+                    } else {
+                        action
+                    })
+                    .unwrap();
+                // The reason must already be durable before any resumed sample.
+                let db =
+                    rusqlite::Connection::open(t.service.store.session_path(&id).unwrap()).unwrap();
+                let reason: String = db.query_row("SELECT json_extract(details_json,'$.reason') FROM session_event WHERE kind='recordingInterrupted' ORDER BY sequence DESC LIMIT 1", [], |r| r.get(0)).unwrap();
+                assert_eq!(
+                    serde_json::from_value::<session::InterruptionReason>(serde_json::json!(
+                        reason
+                    ))
+                    .unwrap(),
+                    expected
+                );
+                drop(db);
+                if action == "explicit_disconnect" {
+                    let replacement = samples::TestDirectory::new();
+                    let old = std::mem::replace(
+                        &mut t.service,
+                        BackendService::open(replacement.path()).unwrap(),
+                    );
+                    drop(old);
+                    t.service = BackendService::open(&t.root).unwrap();
+                }
+                t.activate(true);
+            }
+            sample.sequence = 2;
+            sample.elapsed_ms = 10_000;
+            sample.observed_at_epoch_ms += 10_000;
+            t.service.runtime.record_sample(&sample, None).unwrap();
+            let mut reader =
+                session::SessionReader::open(t.service.store.session_path(&id).unwrap()).unwrap();
+            let marker = reader.marker().unwrap();
+            assert_eq!(
+                reader.recording_breaks((&marker).into()).unwrap()[0].reason,
+                expected,
+                "{action}"
+            );
+        }
+    }
+
+    mod disconnect_failures {
+        include!("../tests/policy/disconnect.rs");
+    }
+
     #[test]
     fn explicit_pause_resume_restart_and_end_keep_one_ride() {
         let mut t = Test::new();

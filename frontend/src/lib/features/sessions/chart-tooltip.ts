@@ -1,7 +1,6 @@
 import type { SessionSeriesColumn } from '$lib/backend/session-data';
-import { pointAtElapsed, type NumericDomain, type PlotPoint } from './history-geometry';
+import { pointAtElapsed, type NumericDomain, type PlotPoint, type PlotPathOptions } from './history-geometry';
 import type { SessionChartGroup } from './session-fields';
-import type { Viewport } from './viewport';
 
 export interface ChartTooltipEntry {
   field: SessionChartGroup['fields'][number];
@@ -14,7 +13,7 @@ export function buildChartTooltipEntries(
   hiddenFields: ReadonlySet<string>,
   elapsedMs: number,
   domain: NumericDomain,
-  options: { width: number; height: number; viewport: Viewport; intervals?: readonly Viewport[] }
+  options: PlotPathOptions
 ): ChartTooltipEntry[] {
   return chartGroup.fields.flatMap((field) => {
     const column = columns?.[field.name];

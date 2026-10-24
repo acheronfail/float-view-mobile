@@ -158,7 +158,7 @@ pub fn boundary(facts: &Boundary) -> Value {
         "committedLocationSequence":facts.committed_location_sequence,"committedLocationElapsedMs":facts.committed_location_elapsed_ms})
 }
 pub fn metadata(facts: &SessionMetadata) -> Value {
-    json!({"summary":facts.summary,"fields":descriptors(&facts.recorded_fields,&facts.extension_fields),"eventCount":facts.summary.event_count,
+    json!({"recordingBreaks":facts.recording_breaks.iter().map(|b|(b.start_elapsed_ms,b.end_elapsed_ms,b.reason)).collect::<Vec<_>>(),"summary":facts.summary,"fields":descriptors(&facts.recorded_fields,&facts.extension_fields),"eventCount":facts.summary.event_count,
         "recordedSampleCount":facts.boundary.recorded_sample_count,"storedSampleCount":facts.boundary.stored_sample_count,
         "connectionContextCount":facts.connection_context_count,"markerCount":facts.marker_count,"prune":facts.prune,"snapshot":boundary(&facts.boundary),"location":{"available":facts.boundary.recorded_location_count > 0,
         "count":facts.boundary.recorded_location_count,"lastSequence":facts.boundary.committed_location_sequence,

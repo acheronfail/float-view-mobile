@@ -59,8 +59,10 @@ export async function runConnectionContextConformance(target: Target) {
     };
     const ready = await connect();
     const id = required(ready.activeConnection?.activeSession, 'No saved session').sessionId;
+    await client.waitForState((state) => (state.activeConnection?.activeSession?.sampleCount ?? 0) > 0);
     const first = await client.request('session.get', { sessionId: id });
     assert.equal(first.connectionContextCount, 1);
+    assert.deepEqual(first.recordingBreaks, []);
     const request = {
       kind: 'connectionContexts' as const,
       sessionId: id,
@@ -79,8 +81,33 @@ export async function runConnectionContextConformance(target: Target) {
     await client.request('device.disconnect', {});
     const resumed = await connect();
     assert.equal(resumed.activeConnection?.activeSession?.sessionId, id);
+    await client.waitForState(
+      (state) => (state.activeConnection?.activeSession?.sampleCount ?? 0) > first.summary.sampleCount
+    );
     const metadata = await client.request('session.get', { sessionId: id });
     assert.equal(metadata.connectionContextCount, 2);
+    assert.equal(metadata.recordingBreaks.length, 1);
+    const [breakStart, breakEnd] = metadata.recordingBreaks[0]!;
+    assert.equal(metadata.recordingBreaks[0]![2], 'pause');
+    assert.ok(breakStart >= first.snapshot.committedElapsedMs);
+    assert.ok(breakEnd > breakStart && breakEnd <= metadata.snapshot.committedElapsedMs);
+    // A committed boundary identifies exact source samples, rather than a
+    // threshold-derived gap inferred from the reduced chart series.
+    if (target.name !== 'mock') {
+      const endpoints = await client.sessionData({
+        kind: 'samples',
+        sessionId: id,
+        snapshot: metadata.snapshot,
+        range: { startElapsedMs: breakStart, endElapsedMs: breakEnd },
+        fields: ['speedKph'],
+        mode: 'window',
+        limit: 2000,
+      });
+      assert.equal(endpoints.kind, 'samples');
+      if (endpoints.kind === 'samples') {
+        assert.deepEqual(endpoints.elapsedMs, [breakStart, breakEnd]);
+      }
+    }
     const pageRequest = {
       ...request,
       snapshot: metadata.snapshot,
@@ -675,6 +702,7 @@ async function exerciseProductMethods(
   });
   assert.equal(detail.markerCount, 2);
   assert.ok(Number.isSafeInteger(detail.connectionContextCount));
+  assert.ok(Array.isArray(detail.recordingBreaks) && detail.recordingBreaks.length <= 1000);
   const originalContexts = await client.sessionData({
     kind: 'connectionContexts',
     sessionId: session.sessionId,
@@ -819,6 +847,7 @@ async function exerciseProductMethods(
   });
   assert.equal(afterPrune.markerCount, detail.markerCount);
   assert.equal(afterPrune.connectionContextCount, detail.connectionContextCount);
+  assert.deepEqual(afterPrune.recordingBreaks, detail.recordingBreaks);
   const prunedContexts = await client.sessionData({
     kind: 'connectionContexts',
     sessionId: session.sessionId,

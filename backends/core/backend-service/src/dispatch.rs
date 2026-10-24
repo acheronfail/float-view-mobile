@@ -33,20 +33,25 @@ pub(crate) struct Pending {
 }
 impl BackendService {
     pub fn dispatch(&mut self, owner: u64, operation: Operation) -> Result<Dispatch, Failure> {
-        if self.stopping {
+        let disconnecting = matches!(&operation, Operation::Disconnect);
+        if self.stopping && !disconnecting {
             return Err(Failure::Unavailable);
         }
-        self.admit_revision()?;
-        self.policy.exchange.admit()?;
-        if self.pending.len() >= 64
-            || self.pending.values().filter(|p| p.owner == owner).count() >= 8
-        {
-            return Err(Failure::Unavailable);
+        if !disconnecting {
+            self.admit_revision()?;
+            self.policy.exchange.admit()?;
+            if self.pending.len() >= 64
+                || self.pending.values().filter(|p| p.owner == owner).count() >= 8
+            {
+                return Err(Failure::Unavailable);
+            }
         }
         let now = self.policy.exchange.now;
         let epoch = self.policy.exchange.epoch;
         let generation = self.runtime.snapshot().application.generation;
-        self.expire_paused_ride()?;
+        if !disconnecting {
+            self.expire_paused_ride()?;
+        }
         let result = match operation {
             Operation::EndRide { session_id } => {
                 self.end_ride(&session_id)?;
@@ -135,7 +140,8 @@ impl BackendService {
                 f::Completion::Unit
             }
             Operation::Disconnect => {
-                self.cancel_manual_auto_connect()?;
+                self.cancel_auto_connect();
+                self.stop_scan();
                 self.disconnect("explicit_disconnect")?;
                 f::Completion::Unit
             }

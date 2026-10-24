@@ -45,6 +45,8 @@ import {
   type RefloatPendingAction,
   type Response,
   type SessionMetadata,
+  type SessionRecordingBreak,
+  type SessionInterruptionReason,
   type SessionRideMarker,
   type SessionListPage,
   type SessionOperationState,
@@ -213,6 +215,7 @@ function sessionMetadata(summary: SessionSummary): SessionMetadata {
     summary,
     connectionContextCount: 0,
     markerCount: 0,
+    recordingBreaks: [],
     fields: summary.sampleCount > 0 ? sessionFields : [],
     eventCount: summary.eventCount,
     recordedSampleCount: summary.sampleCount,
@@ -287,14 +290,28 @@ export class MockBackend {
   private refloatDrafts = new Map<string, RefloatEditorDraft>();
   private uiCheckpoint: UiCheckpoint | null = null;
   private connectionContexts = new Map<string, ConnectionContextEvent[]>();
+  private recordingBreaks = new Map<string, SessionRecordingBreak[]>();
+  private interruptionReasons = new Map<string, SessionInterruptionReason>();
   contextRows(sessionId: string) {
     return structuredClone(this.connectionContexts.get(sessionId) ?? []);
   }
-  private captureConnectionContext(active: ActiveConnection) {
+  private captureConnectionContext(active: ActiveConnection, resumed: boolean) {
     const session = active?.activeSession;
     if (!active || !session || active.trackingMode !== 'saved' || !active.firmware || !active.controllerConnection)
       return;
     const rows = this.connectionContexts.get(session.sessionId) ?? [];
+    if (resumed && rows.length) {
+      const breaks = this.recordingBreaks.get(session.sessionId) ?? [];
+      if (breaks.length >= 1000) throw new Error('Recording break capacity reached');
+      const start = session.totalElapsedMs;
+      const end = Math.max(start + 1, Date.now() - Date.parse(session.startedAt));
+      breaks.push([start, end, this.interruptionReasons.get(session.sessionId) ?? 'unknown']);
+      this.interruptionReasons.delete(session.sessionId);
+      this.recordingBreaks.set(session.sessionId, breaks);
+      session.totalElapsedMs = end;
+      session.sampleCount++;
+      session.eventCount++;
+    }
     if (rows.length >= 1000) throw new Error('Connection history capacity reached');
     const [major = 0, minor = 0] = active.firmware.vescVersion.split('.').map(Number);
     const transport = active.transportFirmware;
@@ -460,6 +477,7 @@ export class MockBackend {
   }
 
   private finishRide(sessionId: string) {
+    this.interruptionReasons.delete(sessionId);
     if (this.rideExpiryTimer) clearTimeout(this.rideExpiryTimer);
     this.rideExpiryTimer = undefined;
     this.sessionCatalog = this.sessionCatalog.map((s) =>
@@ -809,6 +827,7 @@ export class MockBackend {
         if (deviceId) this.refloatDrafts.delete(deviceId);
         if (deviceId && this.uiCheckpoint?.live?.deviceId === deviceId) this.uiCheckpoint = null;
         const activeSessionId = this.activeSessionId;
+        if (activeSessionId) this.interruptionReasons.set(activeSessionId, 'pause');
         this.activeSessionId = undefined;
         const pausedRide =
           activeSessionId && this.state.activeConnection?.savedDeviceId
@@ -1221,6 +1240,7 @@ export class MockBackend {
         return found
           ? success(id, {
               ...sessionMetadata(found),
+              recordingBreaks: structuredClone(this.recordingBreaks.get(found.sessionId) ?? []),
               connectionContextCount: this.connectionContexts.get(found.sessionId)?.length ?? 0,
               markerCount: this.rideMarkers.get(found.sessionId)?.length ?? 0,
             })
@@ -1253,6 +1273,8 @@ export class MockBackend {
         this.sessionCatalog = this.sessionCatalog.filter((item) => item.sessionId !== found.sessionId);
         this.rideMarkers.delete(found.sessionId);
         this.connectionContexts.delete(found.sessionId);
+        this.recordingBreaks.delete(found.sessionId);
+        this.interruptionReasons.delete(found.sessionId);
         this.change(
           {
             ...this.state,
@@ -1435,6 +1457,12 @@ export class MockBackend {
   simulateConnectionState(state: 'ready' | 'reconnecting', foreground = true): void {
     const active = this.state.activeConnection;
     if (!active) return;
+    if (
+      state === 'reconnecting' &&
+      active.activeSession &&
+      this.interruptionReasons.get(active.activeSession.sessionId) !== 'pause'
+    )
+      this.interruptionReasons.set(active.activeSession.sessionId, 'connectionLoss');
     if (state === 'reconnecting' && !foreground) {
       this.refloatDrafts.delete(active.deviceId);
       if (this.uiCheckpoint?.live?.deviceId === active.deviceId) this.uiCheckpoint = null;
@@ -2304,7 +2332,7 @@ export class MockBackend {
         previous.activeSession?.sessionId !== active.activeSession?.sessionId ||
         JSON.stringify(previous.controllerConnection) !== JSON.stringify(active.controllerConnection))
     )
-      this.captureConnectionContext(active);
+      this.captureConnectionContext(active, previous?.state !== 'ready');
     const estimate = this.battery.update(
       next.activeConnection,
       this.profiles.get(next.activeConnection?.savedDeviceId ?? '')

@@ -19,13 +19,15 @@ impl BackendService {
         let Some(active) = self.policy.active.as_ref() else {
             return Ok(());
         };
-        if let Some(key) = &active.refloat_draft_key {
+        let result = if let Some(key) = &active.refloat_draft_key {
             self.store
                 .delete_refloat_editor_draft(key)
-                .map_err(store_failure)?;
-        }
+                .map_err(store_failure)
+        } else {
+            Ok(())
+        };
         self.clear_connection_checkpoint(&active.device.id.clone());
-        Ok(())
+        result
     }
     pub fn refloat_editor_draft(
         &self,

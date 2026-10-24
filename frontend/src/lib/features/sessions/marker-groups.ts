@@ -1,18 +1,19 @@
 import type { Viewport } from './viewport';
-import { timeline } from './map-filter';
+import { recordingTimeline } from './recording-time';
+import type { SessionRecordingBreak } from '$lib/backend/contract';
 export function chartMarkerGroups<T extends { sequence: number; elapsedMs: number }>(
   markers: readonly T[],
   viewport: Viewport,
   width: number,
-  intervals?: readonly Viewport[]
+  intervals?: readonly Viewport[],
+  recordingBreaks?: readonly SessionRecordingBreak[]
 ) {
   const groups = new Map<number, { marker: T; count: number; percent: number }>();
-  const span = Math.max(1, viewport.endElapsedMs - viewport.startElapsedMs);
-  const axis = timeline(intervals ?? [viewport]);
+  const axis = recordingTimeline(viewport, recordingBreaks, intervals);
   for (const marker of markers) {
     if (!intervals && (marker.elapsedMs < viewport.startElapsedMs || marker.elapsedMs > viewport.endElapsedMs))
       continue;
-    const ratio = intervals ? axis.ratioAt(marker.elapsedMs) : (marker.elapsedMs - viewport.startElapsedMs) / span;
+    const ratio = axis.ratioAt(marker.elapsedMs);
     if (ratio === null) continue;
     const percent = ratio * 100;
     const bucket = Math.round(((percent / 100) * Math.max(1, width)) / 12);

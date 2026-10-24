@@ -73,6 +73,14 @@ async fn run<T: Send + 'static>(
             .map_err(|_| Failure::Unavailable)?
             .len();
         let metadata = SessionMetadata {
+            recording_breaks: reader
+                .recording_breaks(session::PublishedBoundary {
+                    history_revision: source.boundary.history_revision,
+                    sample_sequence: source.boundary.committed_sample_sequence,
+                    event_sequence: source.boundary.committed_event_sequence,
+                    location_sequence: source.boundary.committed_location_sequence,
+                })
+                .map_err(|_| Failure::Unavailable)?,
             connection_context_count,
             marker_count,
             summary: source.summary,

@@ -1,6 +1,7 @@
 import { requestFailures, type RequestFailureReporter } from './request-failures';
 import { validUiCheckpoint } from './ui-checkpoint';
 import { validatePermissions } from './permissions';
+import { validRecordingBreaks } from './recording-breaks';
 import type {
   AppState,
   BackendError,
@@ -198,9 +199,19 @@ export class ApiClient {
           throw new ApiProtocolError('Invalid UI checkpoint');
         if (request.method === 'state.get') validatePermissions((envelope.result as AppState)?.permissions);
         if (request.method === 'permissions.recover') validatePermissions(envelope.result);
+        if (request.method === 'session.get') {
+          const metadata = envelope.result as BackendResult<'session.get'>;
+          if (!validRecordingBreaks(metadata?.recordingBreaks, metadata?.snapshot?.committedElapsedMs))
+            throw new ApiProtocolError('Invalid recording break metadata');
+        }
         request.resolve(envelope.result);
       } catch {
-        const reason = request.method === 'uiState.get' ? 'invalid UI checkpoint' : 'invalid permission inventory';
+        const reason =
+          request.method === 'uiState.get'
+            ? 'invalid UI checkpoint'
+            : request.method === 'session.get'
+              ? 'invalid recording break metadata'
+              : 'invalid permission inventory';
         request.reject(new ApiProtocolError(`Backend sent an ${reason}`));
         this.close(1002, reason);
       }

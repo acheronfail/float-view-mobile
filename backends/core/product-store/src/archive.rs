@@ -131,6 +131,7 @@ impl ImportSink {
         let marker = reader.marker()?;
         let metadata = reader.metadata()?;
         let reader_marker_count = reader.ride_markers((&marker).into())?.len();
+        reader.recording_breaks((&marker).into())?;
         drop(reader);
         let db = open(&stage, cancel)?;
         let counts:(u64,u64,u64)=db.query_row("SELECT (SELECT COUNT(*) FROM sample),(SELECT COUNT(*) FROM session_event),(SELECT COUNT(*) FROM location)",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;

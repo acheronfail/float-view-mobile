@@ -325,9 +325,8 @@ impl ApplicationRuntime {
         let Some(writer) = self.session.take() else {
             return Err(RuntimeError::SessionNotAttached);
         };
-        writer.checkpoint()?;
-        writer.close()?;
         self.session_marker = None;
+        writer.checkpoint_and_close()?;
         Ok(Vec::new())
     }
 
@@ -340,6 +339,20 @@ impl ApplicationRuntime {
         if let Some(writer) = self.session.as_mut() {
             writer.mark_recording_gap();
         }
+    }
+
+    pub fn interrupt_recording(
+        &mut self,
+        reason: session::InterruptionReason,
+        at_ms: i64,
+    ) -> Result<CommitMarker, RuntimeError> {
+        let marker = self
+            .session
+            .as_mut()
+            .ok_or(RuntimeError::SessionNotAttached)?
+            .interrupt_recording(reason, at_ms)?;
+        self.session_marker = Some(marker.clone());
+        Ok(marker)
     }
 
     pub fn restore_recording(

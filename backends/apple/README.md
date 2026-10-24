@@ -1,5 +1,11 @@
 # Apple host
 
+Session metadata exposes recording-break endpoints and persisted interruption
+reasons through the shared Rust reader and loopback projection. The common
+frontend compacts only deliberate user pauses; connection losses and unknown
+historical reasons remain uncompressed. Apple adapters add no timestamp or
+gap policy.
+
 No personal development team is committed in the Xcode project. For signed
 device builds, supply `DEVELOPMENT_TEAM=<team-id>` as an `xcodebuild` build-setting
 override. Keep local signing/account configuration out of version control.

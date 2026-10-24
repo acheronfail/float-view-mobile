@@ -838,7 +838,13 @@ export interface ConnectionContextEvent {
   context: ConnectionContext;
 }
 
+export const MAX_SESSION_RECORDING_BREAKS = 1_000;
+export type SessionInterruptionReason = 'pause' | 'connectionLoss' | 'unknown';
+export type SessionRecordingBreak = [startElapsedMs: number, endElapsedMs: number, reason: SessionInterruptionReason];
+
 export interface SessionMetadata {
+  /** Exact last-before/first-after timestamps from explicit recording boundaries only. */
+  recordingBreaks: SessionRecordingBreak[];
   connectionContextCount: number;
   markerCount: number;
   summary: SessionSummary;

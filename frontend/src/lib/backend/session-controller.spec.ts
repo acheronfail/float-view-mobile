@@ -6,6 +6,7 @@ import type { SessionMetadata } from './contract';
 const metadata: SessionMetadata = {
   connectionContextCount: 0,
   markerCount: 0,
+  recordingBreaks: [],
   summary: {
     sessionId: 'controller-session',
     deviceHistoryId: 'history',

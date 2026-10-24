@@ -1,6 +1,6 @@
 import type { SessionSeriesColumn } from '$lib/backend/session-data';
 import { buildPathSegments, type PlotPathOptions } from './history-geometry';
-import { timeline } from './map-filter';
+import { recordingTimeline } from './recording-time';
 
 /** Average the retained, piecewise-linear readings over ~8 screen pixels.
  * The backend's extrema reduction is not a uniformly sampled series: weighting
@@ -13,7 +13,7 @@ export function historyTrend(
   screenWidth: number,
   enabled = true
 ) {
-  const axis = timeline(options.intervals ?? [options.viewport]);
+  const axis = recordingTimeline(options.viewport, options.recordingBreaks, options.intervals);
   const duration = axis.duration;
   const windowMs = (duration * 8) / Math.max(1, screenWidth);
   const raw = () => ({ paths: buildPathSegments(column, options), bands: [] as string[], smoothed: false });
@@ -31,10 +31,7 @@ export function historyTrend(
   // Ordinary panning must translate the retained curve, including offscreen
   // readings. Clipping/rebinning at the moving viewport edge changes its shape.
   // Only map filtering excludes readings and concatenates separate intervals.
-  const x = (time: number) =>
-    options.intervals
-      ? (axis.ratioAt(time) ?? 0) * options.width
-      : ((time - options.viewport.startElapsedMs) / Math.max(1, duration)) * options.width;
+  const x = (time: number) => (axis.ratioAt(time) ?? 0) * options.width;
   const point = (time: number, value: number) => `${x(time).toFixed(2)} ${y(value).toFixed(2)}`;
   function flush() {
     if (!run.length) return;
@@ -88,7 +85,7 @@ export function historyTrend(
   }
   column.values.forEach((value, index) => {
     const time = column.elapsedMs[index];
-    const interval = options.intervals ? axis.indexAt(time) : 0;
+    const interval = axis.indexAt(time);
     if (value === null || !Number.isFinite(value) || interval < 0) {
       flush();
       return;

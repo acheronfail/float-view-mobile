@@ -20,6 +20,15 @@ and render their owning feature. Product behavior belongs to the feature.
 
 ## Files and imports
 
+Session metadata includes bounded `recordingBreaks` tuples of start, end and
+reason (`pause`, `connectionLoss`, `unknown`) derived from explicit recording
+boundaries. Missing historical reasons stay unknown without inference.
+`features/sessions/recording-time.ts` compacts only deliberate `pause` intervals.
+Chart paths, inspection, markers and gestures use that same
+mapping while requests and map synchronization retain original elapsed times.
+Connection losses, unknown interruptions and ordinary telemetry delays remain uncompressed. Both native hosts use the shared
+Rust reader and loopback projection, including for imported and pruned rides.
+
 - Keep feature directories flat by default.
 - Give a complex component a PascalCase directory only when it has meaningful private children or modules.
 - Keep component-private props and types in `Thing.svelte`.

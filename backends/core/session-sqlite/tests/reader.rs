@@ -25,6 +25,234 @@ fn metadata() -> SessionMetadata {
     }
 }
 
+#[test]
+fn interruption_reasons_survive_reopen_and_user_pause_supersedes_recovery() {
+    use float_view_session_sqlite::InterruptionReason::{ConnectionLoss, Pause, Unknown};
+    let directory = TestDirectory::new();
+    let path = directory.file("reasons.sqlite3");
+    let mut writer = recording_break_fixture(&path);
+    writer
+        .append_samples(&[sample(1, 0), sample(2, 1000)])
+        .unwrap();
+    let before = writer.marker().unwrap();
+    let interrupted = writer
+        .interrupt_recording(ConnectionLoss, 1_001_001)
+        .unwrap();
+    assert_eq!(
+        interrupted.committed_event_count,
+        before.committed_event_count + 1
+    );
+    for _ in 0..5 {
+        assert_eq!(
+            writer
+                .interrupt_recording(ConnectionLoss, 1_001_002)
+                .unwrap()
+                .committed_event_count,
+            interrupted.committed_event_count
+        );
+    }
+    writer.close().unwrap();
+    let mut writer = SessionWriter::open(&path).unwrap();
+    writer.append_samples(&[sample(3, 10_000)]).unwrap();
+    writer
+        .interrupt_recording(ConnectionLoss, 1_010_001)
+        .unwrap();
+    writer.interrupt_recording(Pause, 1_010_002).unwrap();
+    let paused = writer.marker().unwrap();
+    assert_eq!(
+        writer
+            .interrupt_recording(ConnectionLoss, 1_010_003)
+            .unwrap()
+            .committed_event_count,
+        paused.committed_event_count
+    );
+    writer.close().unwrap();
+    let mut writer = SessionWriter::open(&path).unwrap();
+    // Restore must not replace the durable pause with an unknown generic gap.
+    writer.mark_recording_gap();
+    writer.append_samples(&[sample(4, 100_000)]).unwrap();
+    writer.mark_recording_gap();
+    writer.append_samples(&[sample(5, 200_000)]).unwrap();
+    writer.close().unwrap();
+    let mut reader = SessionReader::open(&path).unwrap();
+    let marker = reader.marker().unwrap();
+    let breaks = reader.recording_breaks((&marker).into()).unwrap();
+    assert_eq!(
+        breaks.iter().map(|b| b.reason).collect::<Vec<_>>(),
+        vec![ConnectionLoss, Pause, Unknown]
+    );
+    assert_eq!(
+        (breaks[1].start_elapsed_ms, breaks[1].end_elapsed_ms),
+        (10_000, 100_000)
+    );
+    drop(reader);
+    let mut pruner = float_view_session_sqlite::SessionPruner::open(&path).unwrap();
+    let plan = pruner.preview(10).unwrap();
+    pruner.commit(plan, 1_200_000).unwrap();
+    pruner.close().unwrap();
+    let mut reader = SessionReader::open(&path).unwrap();
+    let marker = reader.marker().unwrap();
+    assert_eq!(reader.recording_breaks((&marker).into()).unwrap(), breaks);
+}
+
+#[test]
+fn interruption_write_failure_is_atomic_and_capacity_is_bounded() {
+    use float_view_session_sqlite::{InterruptionReason, WriterError};
+    let directory = TestDirectory::new();
+    let path = directory.file("failed-reason.sqlite3");
+    let mut writer = recording_break_fixture(&path);
+    writer.append_samples(&[sample(1, 0)]).unwrap();
+    let before = writer.marker().unwrap();
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_interruption BEFORE INSERT ON session_event WHEN NEW.kind='recordingInterrupted' BEGIN SELECT RAISE(ABORT,'failure'); END;").unwrap();
+    assert!(
+        writer
+            .interrupt_recording(InterruptionReason::Pause, 1_000_001)
+            .is_err()
+    );
+    assert_eq!(writer.marker().unwrap(), before);
+    db.execute_batch("DROP TRIGGER reject_interruption")
+        .unwrap();
+    // A failed pause write must not become a pause on a later unknown resume.
+    writer.mark_recording_gap();
+    writer.append_samples(&[sample(2, 1000)]).unwrap();
+    let mut reader = SessionReader::open(&path).unwrap();
+    let marker = reader.marker().unwrap();
+    assert_eq!(
+        reader.recording_breaks((&marker).into()).unwrap()[0].reason,
+        InterruptionReason::Unknown
+    );
+    drop(reader);
+    db.execute_batch("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<2000) INSERT INTO session_event(sequence,source_sample_sequence,observed_at_ms,monotonic_elapsed_ms,kind,details_json) SELECT (SELECT MAX(sequence) FROM session_event)+i,1,1000000,0,'recordingInterrupted','{\"reason\":\"unknown\"}' FROM n;").unwrap();
+    assert_eq!(
+        writer
+            .interrupt_recording(InterruptionReason::Pause, 1_001_001)
+            .unwrap_err(),
+        WriterError::Full
+    );
+}
+
+#[test]
+fn confirmed_recording_breaks_are_exact_snapshot_scoped_and_survive_pruning() {
+    let directory = TestDirectory::new();
+    let path = directory.file("breaks.sqlite3");
+    let mut writer = recording_break_fixture(&path);
+    writer
+        .append_samples(&[sample(1, 0), sample(2, 1000), sample(3, 6000)])
+        .unwrap();
+    let before = PublishedBoundary::from(&writer.marker().unwrap());
+    writer.mark_recording_gap();
+    writer
+        .append_samples(&[sample(4, 400_000), sample(5, 401_000)])
+        .unwrap();
+    let after = PublishedBoundary::from(&writer.marker().unwrap());
+    writer.close().unwrap();
+    let mut reader = SessionReader::open(&path).unwrap();
+    assert!(reader.recording_breaks(before).unwrap().is_empty());
+    let breaks = reader.recording_breaks(after).unwrap();
+    assert_eq!(
+        breaks,
+        vec![float_view_session_sqlite::RecordingBreak {
+            start_elapsed_ms: 6000,
+            end_elapsed_ms: 400_000,
+            reason: float_view_session_sqlite::InterruptionReason::Unknown,
+        }]
+    );
+    let mut unpublished_sample = after;
+    unpublished_sample.sample_sequence = before.sample_sequence;
+    assert!(reader.recording_breaks(unpublished_sample).is_err());
+    drop(reader);
+    let mut pruner = float_view_session_sqlite::SessionPruner::open(&path).unwrap();
+    let plan = pruner.preview(10).unwrap();
+    pruner.commit(plan, 1_000_000).unwrap();
+    pruner.close().unwrap();
+    let mut reader = SessionReader::open(&path).unwrap();
+    let pruned = PublishedBoundary::from(&reader.marker().unwrap());
+    assert_eq!(reader.recording_breaks(pruned).unwrap(), breaks);
+}
+
+#[test]
+fn invalid_and_excessive_recording_breaks_fail_without_truncation() {
+    let directory = TestDirectory::new();
+    let path = directory.file("invalid-breaks.sqlite3");
+    let mut writer = recording_break_fixture(&path);
+    writer
+        .append_samples(&[sample(1, 0), sample(2, 1000)])
+        .unwrap();
+    writer.mark_recording_gap();
+    writer.append_samples(&[sample(3, 10_000)]).unwrap();
+    let boundary = PublishedBoundary::from(&writer.marker().unwrap());
+    writer.close().unwrap();
+    let db = Connection::open(&path).unwrap();
+    for details in [
+        r#"{"value":"resumed","previousSequence":999}"#,
+        r#"{"value":"resumed","previousSequence":"2"}"#,
+        r#"{"value":"wrong","previousSequence":2}"#,
+        r#"{"value":"resumed","previousSequence":2,"reason":null}"#,
+        r#"{"value":"resumed","previousSequence":2,"reason":"guessedPause"}"#,
+    ] {
+        db.execute(
+            "UPDATE session_event SET details_json=? WHERE kind='recordingBoundary'",
+            [details],
+        )
+        .unwrap();
+        assert_eq!(
+            SessionReader::open(&path)
+                .unwrap()
+                .recording_breaks(boundary)
+                .unwrap_err(),
+            ReaderError::Incompatible
+        );
+    }
+    db.execute("UPDATE session_event SET details_json='{\"value\":\"resumed\",\"previousSequence\":2}' WHERE kind='recordingBoundary'", []).unwrap();
+    let event = boundary.event_sequence;
+    for i in 1..=1000 {
+        let previous = 2 * i + 2;
+        let source = previous + 1;
+        let end = 10_000 + 2 * i;
+        db.execute("INSERT INTO sample(sequence,observed_at_ms,monotonic_elapsed_ms,ride_state) VALUES (?,?,?,'idle')", [previous,end-1,end-1]).unwrap();
+        db.execute("INSERT INTO sample(sequence,observed_at_ms,monotonic_elapsed_ms,ride_state) VALUES (?,?,?,'idle')", [source,end,end]).unwrap();
+        db.execute("INSERT INTO session_event(sequence,source_sample_sequence,observed_at_ms,monotonic_elapsed_ms,kind,details_json) VALUES (?,?,?,?,'recordingBoundary',?)", rusqlite::params![event+i,source,end,end,serde_json::json!({"value":"resumed","previousSequence":previous}).to_string()]).unwrap();
+    }
+    db.execute("UPDATE commit_marker SET committed_event_sequence=?,committed_event_count=committed_event_count+1000,committed_sample_sequence=2003,recorded_sample_count=2003,stored_sample_count=2003,committed_elapsed_ms=12000", [event+1000]).unwrap();
+    let mut excessive = boundary;
+    excessive.sample_sequence = 2003;
+    excessive.event_sequence += 999;
+    assert_eq!(
+        SessionReader::open(&path)
+            .unwrap()
+            .recording_breaks(excessive)
+            .unwrap()
+            .len(),
+        1000
+    );
+    excessive.event_sequence += 1;
+    assert_eq!(
+        SessionReader::open(&path)
+            .unwrap()
+            .recording_breaks(excessive)
+            .unwrap_err(),
+        ReaderError::Incompatible
+    );
+}
+
+// These reader tests do not exercise atomic file installation. Construct the
+// canonical empty schema directly so they also run on Windows, where opening a
+// directory for fsync in SessionWriter::create is unsupported.
+fn recording_break_fixture(path: &std::path::Path) -> SessionWriter {
+    let db = Connection::open(path).unwrap();
+    db.execute_batch(float_view_session_sqlite::SESSION_SCHEMA)
+        .unwrap();
+    db.execute("INSERT INTO session_metadata(singleton,expected_riding_persistence_ms,expected_idle_persistence_ms) VALUES (1,100,1000)", []).unwrap();
+    db.execute(
+        "INSERT INTO commit_marker(singleton,committed_at_ms) VALUES (1,999000)",
+        [],
+    )
+    .unwrap();
+    drop(db);
+    SessionWriter::open(path).unwrap()
+}
+
 fn fixture(directory: &TestDirectory, name: &str) -> (std::path::PathBuf, PublishedBoundary) {
     let path = directory.file(name);
     let mut writer = SessionWriter::create(&path, metadata()).expect("create fixture");
