@@ -1,5 +1,7 @@
 import { BOX_HOLD_MS } from './hold-to-configure';
 
+const EDIT_HOLD_MS = 300;
+
 type Options = {
   id: string;
   scroll: HTMLElement | undefined;
@@ -92,6 +94,7 @@ export function dashboardGesture(node: HTMLElement, initial: Options) {
     slots.clear();
     lifted?.remove();
     lifted = null;
+    delete node.dataset.pressing;
     delete node.dataset.dragging;
     delete node.dataset.drop;
     options.ondrag?.(false);
@@ -107,6 +110,7 @@ export function dashboardGesture(node: HTMLElement, initial: Options) {
   }
   function arm() {
     if (!pointer || pointer.mode !== 'pending') return;
+    delete node.dataset.pressing;
     options.onedit();
     pointer.mode = 'dragging';
     const bounds = node.getBoundingClientRect();
@@ -114,9 +118,13 @@ export function dashboardGesture(node: HTMLElement, initial: Options) {
     lifted.inert = true;
     lifted.setAttribute('aria-hidden', 'true');
     lifted.removeAttribute('data-dashboard-widget');
+    lifted.querySelectorAll('[data-dashboard-remove]').forEach((el) => el.remove());
     lifted.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
-    lifted.style.cssText = `position:fixed;left:${bounds.left}px;top:${bounds.top}px;width:${bounds.width}px;height:${bounds.height}px;pointer-events:none;z-index:100;box-sizing:border-box;animation:none;--widget-wiggle:none;rotate:0deg;scale:1.035;opacity:.95;box-shadow:0 16px 36px #0004;`;
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    lifted.dataset.dashboardLifted = 'true';
+    lifted.style.cssText = `position:fixed;left:${bounds.left}px;top:${bounds.top}px;width:${bounds.width}px;height:${bounds.height}px;pointer-events:none;z-index:100;box-sizing:border-box;animation:none;--widget-wiggle:none;rotate:0deg;scale:${reducedMotion ? 1 : 1.035};opacity:1;outline:2px solid var(--color-accent);outline-offset:1px;box-shadow:0 16px 36px #0005,0 0 0 3px color-mix(in srgb,var(--color-accent) 18%,transparent);`;
     document.body.append(lifted);
+    if (!reducedMotion) lifted.animate([{ scale: 0.97 }, { scale: 1.035 }], { duration: 150, easing: 'ease-out' });
     placement = [...(node.parentElement?.querySelectorAll<HTMLElement>('[data-dashboard-widget]') ?? [])];
     node.dataset.dragging = 'true';
     node.dataset.drop = 'true';
@@ -148,13 +156,15 @@ export function dashboardGesture(node: HTMLElement, initial: Options) {
       mode: 'pending',
     };
     node.setPointerCapture?.(e.pointerId);
-    timer = setTimeout(arm, BOX_HOLD_MS);
+    node.dataset.pressing = 'true';
+    timer = setTimeout(arm, pointer.editing ? EDIT_HOLD_MS : BOX_HOLD_MS);
   };
   const move = (e: PointerEvent) => {
     if (!pointer || pointer.id !== e.pointerId) return;
     const distance = Math.hypot(e.clientX - pointer.x, e.clientY - pointer.y);
     if (pointer.mode === 'pending' && distance > 10) {
       clearTimeout(timer);
+      delete node.dataset.pressing;
       if (pointer.touch || !pointer.editing) pointer.mode = 'scrolling';
       else arm();
     }

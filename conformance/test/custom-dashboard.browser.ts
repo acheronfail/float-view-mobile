@@ -249,6 +249,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
           assert.equal(await custom.getByText('Editing dashboard', { exact: true }).count(), 0);
           assert.equal(methods.filter((m) => m === 'refloat.control.set').length, controlRequests);
+          assert.equal(await custom.locator('[data-pressing]').count(), 0, 'scrolling cancels press feedback');
           await custom.locator('[data-dashboard-widget="lights"]').scrollIntoViewIfNeeded();
           const held = (await custom.locator('[data-dashboard-widget="lights"]').boundingBox())!;
           await cdp.send('Input.dispatchTouchEvent', {
@@ -514,6 +515,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           });
           await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
           assert.deepEqual(await order(), beforeCancel, 'cancelled touch drag must not reorder');
+          assert.equal(await custom.locator('[data-pressing]').count(), 0);
           assert.equal(await custom.locator('[data-dashboard-widget][style*="order"]').count(), 0);
           await cdp.send('Input.dispatchTouchEvent', {
             type: 'touchStart',
@@ -1029,6 +1031,79 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.reload();
         await page.getByRole('button', { name: 'Board actions', exact: true }).click();
         assert.equal(await page.getByRole('button', { name: 'Custom View', exact: true }).count(), 0);
+        await page
+          .getByRole('dialog', { name: 'Board actions', exact: true })
+          .getByRole('button', { name: 'Done', exact: true })
+          .click();
+        await page.getByRole('dialog', { name: 'Board actions', exact: true }).waitFor({ state: 'hidden' });
+        guest = false;
+        await page.reload();
+        await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+        await page.getByRole('button', { name: 'Custom View', exact: true }).click();
+        const timedCard = custom.locator('[data-dashboard-widget]').first();
+        await timedCard.waitFor();
+        await timedCard.scrollIntoViewIfNeeded();
+        const timedBounds = (await timedCard.boundingBox())!;
+        const holdPoint = { x: timedBounds.x + timedBounds.width / 2, y: timedBounds.y + timedBounds.height / 2 };
+        await page.clock.install();
+        await page.mouse.move(holdPoint.x, holdPoint.y);
+        await page.mouse.down();
+        assert.equal(await timedCard.getAttribute('data-pressing'), 'true', 'press is acknowledged immediately');
+        await page.clock.runFor(599);
+        assert.equal(await timedCard.getAttribute('data-dragging'), null, 'entering edit mode still waits 600ms');
+        await page.clock.runFor(1);
+        assert.equal(await timedCard.getAttribute('data-dragging'), 'true');
+        const liftedCue = await page.locator('[data-dashboard-lifted]').evaluate((el) => ({
+          outline: getComputedStyle(el).outlineWidth,
+          shadow: getComputedStyle(el).boxShadow,
+          scale: getComputedStyle(el).scale,
+          badges: el.querySelectorAll('[data-dashboard-remove]').length,
+        }));
+        assert.ok(
+          liftedCue.outline === '2px' &&
+            liftedCue.shadow !== 'none' &&
+            liftedCue.scale === '1' &&
+            liftedCue.badges === 0,
+          'lift remains clear without motion or duplicate delete buttons'
+        );
+        assert.equal(await timedCard.getAttribute('data-pressing'), null);
+        await page.mouse.up();
+        await page.mouse.down();
+        await page.clock.runFor(299);
+        assert.equal(await timedCard.getAttribute('data-dragging'), null, 'editing hold is not armed before 300ms');
+        await page.clock.runFor(1);
+        assert.equal(await timedCard.getAttribute('data-dragging'), 'true', 'editing hold arms at 300ms');
+        await page.mouse.up();
+        await page.mouse.down();
+        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        await page.clock.runFor(600);
+        assert.equal(await timedCard.getAttribute('data-pressing'), null);
+        assert.equal(await timedCard.getAttribute('data-dragging'), null, 'cancelled hold cannot lift later');
+        await page.mouse.up();
+        if (name === 'chromium') {
+          const timingTouch = await page.context().newCDPSession(page);
+          await timingTouch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [holdPoint] });
+          await page.clock.runFor(299);
+          assert.equal(await timedCard.getAttribute('data-dragging'), null);
+          await page.clock.runFor(1);
+          assert.equal(await timedCard.getAttribute('data-dragging'), 'true', 'touch editing hold also arms at 300ms');
+          await timingTouch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          await timingTouch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [holdPoint] });
+          await page.clock.runFor(100);
+          await timingTouch.send('Input.dispatchTouchEvent', {
+            type: 'touchMove',
+            touchPoints: [{ x: holdPoint.x, y: holdPoint.y + 40 }],
+          });
+          assert.equal(await timedCard.getAttribute('data-pressing'), null);
+          await page.clock.runFor(600);
+          assert.equal(
+            await timedCard.getAttribute('data-dragging'),
+            null,
+            'early touch scrolling cancels the short hold'
+          );
+          await timingTouch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          await timingTouch.detach();
+        }
         assert.deepEqual(errors, []);
         await page.close();
       } finally {

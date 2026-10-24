@@ -506,6 +506,19 @@
     border-radius: inherit;
     pointer-events: none;
   }
+  .dashboard-card > :global(div),
+  .dashboard-card::before {
+    transition: scale 120ms ease-out;
+  }
+  .dashboard-card:global([data-pressing]) {
+    background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+  }
+  .dashboard-card:global([data-pressing]) > :global(div),
+  .dashboard-card:global([data-pressing])::before {
+    scale: 0.97;
+    animation: none;
+    rotate: 0deg;
+  }
   .edit-surface {
     touch-action: none;
   }
@@ -533,6 +546,15 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
+    .dashboard-card > :global(div),
+    .dashboard-card::before {
+      transition: none;
+    }
+    .dashboard-card:global([data-pressing]) > :global(div),
+    .dashboard-card:global([data-pressing])::before {
+      scale: 1;
+    }
+
     .dashboard-card.editing::before,
     .dashboard-card.editing > :global(div) {
       animation: none;

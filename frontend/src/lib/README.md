@@ -82,8 +82,11 @@ activates it. Widget surfaces forward early vertical movement to the scroll owne
 in both modes so the same pointer can continue dragging after a hold. An inert
 pointer-following preview marks the lift and neighbouring widgets animate into
 the proposed order. Cancelling restores the original draft ordering.
-Editing intercepts all ordinary widget controls. Static borders indicate edit
-mode and reduced-motion preferences suppress wiggle and placement animations. Only Save writes
+Entering edit mode requires a stationary 600ms hold; while already editing,
+touch holds arm dragging after 300ms. Pending presses shrink/tint the widget,
+then a raised preview gains an accent outline and shadow. Scrolling/cancellation
+clear the press state. Editing intercepts all ordinary widget controls. Borders
+wiggle with their contents; reduced motion suppresses scaling and animations. Only Save writes
 the complete dashboard; leaving a dirty draft asks whether to discard it.
 
 `live-history.svelte.ts` creates one route-scoped `LiveHistoryBuffer`, reused by

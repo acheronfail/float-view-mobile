@@ -186,6 +186,16 @@ In edit mode, a tap SHALL open that widget's configuration modal and a deliberat
 - **WHEN** a user deliberately drags a widget, scrolls the dashboard or cancels an active pointer gesture
 - **THEN** only the deliberate completed drag changes draft order, scrolling remains usable, and none of those gestures opens the widget modal
 
+#### Scenario: Press and lift feedback
+
+- **WHEN** a primary pointer starts a stationary hold
+- **THEN** the widget acknowledges the press and lifts after 600ms to enter editing, or 300ms when already editing
+- **AND** lifting adds an accent outline and raised shadow without moving neighbouring layout until dragging
+- **WHEN** movement starts scrolling or the hold is cancelled
+- **THEN** press feedback clears and no delayed lift occurs
+- **WHEN** reduced motion is enabled
+- **THEN** static press/lift cues remain without scaling or lift animation
+
 #### Scenario: Resize during a drag
 
 - **WHEN** the viewport changes during an active drag

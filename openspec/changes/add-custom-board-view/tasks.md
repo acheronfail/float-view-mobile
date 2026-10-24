@@ -507,3 +507,14 @@ of both, and badge hit testing above neighbours. Svelte, targeted lint/formattin
 production build, conformance TypeScript, strict OpenSpec and whitespace checks
 passed. Visually checked the accent shadow in live previews and saved a close-up
 from an isolated preview without interrupting the user's active tab.
+
+## 33. Discoverable press and lift
+
+- [x] Keep 600ms holds to enter editing and shorten subsequent editing holds to 300ms, preserving immediate desktop drag.
+- [x] Show cancellable press feedback and a raised, accent-outlined lift; honour reduced motion and remove duplicate delete badges from the lift.
+- [x] Verify exact hold boundaries, feedback cleanup, real touch scrolling and existing drag/delete behavior in Chromium/WebKit; run frontend checks.
+
+Verification: Chromium and WebKit dashboard browser suites passed, including exact
+600ms/300ms boundaries and cancellation cleanup; Chromium also exercised real touch
+input. Svelte checks, targeted lint/formatting, production build, conformance
+TypeScript, strict OpenSpec validation and whitespace checks passed.
