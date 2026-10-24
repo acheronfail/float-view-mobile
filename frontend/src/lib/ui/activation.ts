@@ -1,5 +1,9 @@
 export type Activation = () => void | Promise<void>;
 
+function isDisabled(target: EventTarget | null): boolean {
+  return target instanceof EventTarget && 'disabled' in target && target.disabled === true;
+}
+
 export function isPrimaryPointerActivation(event: Pick<PointerEvent, 'button' | 'isPrimary'>): boolean {
   return event.isPrimary && event.button === 0;
 }
@@ -13,7 +17,7 @@ export function activateFromPointer(
   action: Activation,
   { scrollable = false }: { scrollable?: boolean } = {}
 ): void {
-  if (!isPrimaryPointerActivation(event)) return;
+  if (!isPrimaryPointerActivation(event) || isDisabled(event.currentTarget)) return;
   if (!scrollable) event.preventDefault();
   const target = event.currentTarget;
   if (!(target instanceof EventTarget)) {
@@ -43,6 +47,7 @@ export function activateFromPointer(
     }
     settled = true;
     cleanup();
+    if (isDisabled(target)) return;
     void action();
   };
   const moved = (next: Event) =>
@@ -63,6 +68,6 @@ export function activateFromPointer(
 }
 
 export function activateFromKeyboardOrAssistiveClick(event: MouseEvent, action: Activation): void {
-  if (!isKeyboardOrAssistiveClick(event)) return;
+  if (!isKeyboardOrAssistiveClick(event) || isDisabled(event.currentTarget)) return;
   void action();
 }

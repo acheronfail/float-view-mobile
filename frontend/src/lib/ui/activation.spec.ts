@@ -7,6 +7,22 @@ import {
 } from './activation';
 
 describe('cross-platform control activation', () => {
+  it.each(['before press', 'before release'])('ignores a button disabled %s', (when) => {
+    const action = vi.fn();
+    const target = Object.assign(new EventTarget(), { disabled: when === 'before press' });
+    const preventDefault = vi.fn();
+    activateFromPointer(
+      { button: 0, isPrimary: true, pointerId: 7, currentTarget: target, preventDefault } as unknown as PointerEvent,
+      action
+    );
+    target.disabled = true;
+    const release = Object.assign(new Event('pointerup'), { pointerId: 7, isPrimary: true });
+    target.dispatchEvent(release);
+    activateFromKeyboardOrAssistiveClick({ detail: 0, currentTarget: target } as unknown as MouseEvent, action);
+    expect(action).not.toHaveBeenCalled();
+    if (when === 'before press') expect(preventDefault).not.toHaveBeenCalled();
+  });
+
   it('accepts only the primary pointer', () => {
     expect(isPrimaryPointerActivation({ button: 0, isPrimary: true })).toBe(true);
     expect(isPrimaryPointerActivation({ button: 1, isPrimary: true })).toBe(false);

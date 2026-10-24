@@ -165,6 +165,19 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await number().waitFor();
       assert.equal(await number().inputValue(), '');
       assert.equal(await page.getByRole('button', { name: 'Write configuration', exact: true }).isDisabled(), true);
+      const disabledWrite = page.getByRole('button', { name: 'Write configuration', exact: true });
+      const writeBounds = await disabledWrite.boundingBox();
+      assert.ok(writeBounds);
+      // Tap coordinates directly: locator.tap() waits for disabled controls to become enabled.
+      await page.touchscreen.tap(writeBounds.x + writeBounds.width / 2, writeBounds.y + writeBounds.height / 2);
+      await disabledWrite.dispatchEvent('pointerdown', { button: 0, isPrimary: true, pointerId: 7 });
+      await disabledWrite.dispatchEvent('pointerup', { button: 0, isPrimary: true, pointerId: 7 });
+      await disabledWrite.dispatchEvent('click', { detail: 0 });
+      assert.equal(
+        await page.getByRole('alertdialog', { name: 'Write persistent Refloat configuration?' }).count(),
+        0,
+        'disabled write button opened the confirmation'
+      );
       assert.equal(reads.length, 3);
       assert.ok(
         reads.every((read) => read.refresh === false),
