@@ -194,3 +194,7 @@ The floating edit toolbar uses a theme-accent border/halo and soft accent-colour
 shadow above a neutral depth shadow, preserving its position and solid readable
 controls. Border/content wiggles share their animation timing; reduced-motion
 mode disables both and drop placeholders remain steady.
+
+Widget configuration previews retain the dashboard footprint as their internal layout size. If the overlay is narrower, scale the rendered preview uniformly inside a measured frame; do not shrink its layout box and trigger different container-query labels or content.
+
+Dashboard charts reserve only the intrinsic width of visible vertical-axis labels plus a 6px gap. The plot and time labels share a grid column so they align without duplicating a fixed gutter. Hidden axes reserve no space.

@@ -75,8 +75,8 @@
 {/snippet}
 
 {#if dashboard}
-  <div class="dashboard-chart flex h-full min-h-0 flex-col" class:sparkline>
-    <div class="chart-body flex min-h-0 flex-1">
+  <div class="dashboard-chart grid h-full min-h-0" class:sparkline>
+    <div class="chart-body contents">
       <div
         class="chart-y-axis shrink-0 flex-col justify-between text-right font-mono text-[10px] leading-3 text-muted"
         aria-hidden="true"
@@ -85,7 +85,7 @@
           >{axisLabel((geometry.high + geometry.low) / 2)}</span
         ><span>{axisLabel(geometry.low)}</span>
       </div>
-      <div class="telemetry-chart-frame relative min-h-0 min-w-0 flex-1" style:height="100%">{@render plot()}</div>
+      <div class="telemetry-chart-frame relative min-h-0 min-w-0" style:height="100%">{@render plot()}</div>
     </div>
     <div
       class="chart-time-axis mt-1 flex shrink-0 justify-between font-mono text-[10px] leading-3 text-muted"
@@ -113,10 +113,24 @@
 {/if}
 
 <style>
+  .dashboard-chart {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .dashboard-chart .telemetry-chart-frame {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .chart-time-axis {
+    grid-column: 2;
+    grid-row: 2;
+  }
   .chart-y-axis {
     display: none;
-    width: 3.5rem;
-    padding-right: 8px;
+    grid-column: 1;
+    grid-row: 1;
+    width: max-content;
+    padding-right: 6px;
   }
   .chart-middle,
   .chart-middle-time {
@@ -132,9 +146,6 @@
   @container custom-widget (min-width: 140px) and (min-height: 90px) {
     .dashboard-chart:not(.sparkline) .chart-y-axis {
       display: flex;
-    }
-    .dashboard-chart:not(.sparkline) .chart-time-axis {
-      padding-left: 3.5rem;
     }
   }
   @container custom-widget (min-height: 170px) {

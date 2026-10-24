@@ -176,6 +176,51 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(methods.filter((m) => m === 'boardProfile.update').length, 0, 'opening must not write defaults');
         assert.match(await custom.locator('[data-dashboard-widget="bms"]').innerText(), /Unavailable/);
 
+        await page.setViewportSize({ width: 390, height: 500 });
+        const scrollFrame = custom.locator('.dashboard-scroll');
+        const scrollEdge = custom.locator('.dashboard-scroll-edge');
+        const headerHeight = await page
+          .locator('header')
+          .first()
+          .evaluate((el) => el.getBoundingClientRect().height);
+        assert.equal(await scrollEdge.evaluate((el) => getComputedStyle(el, '::after').opacity), '0');
+        await scrollFrame.evaluate((el) => {
+          el.scrollTop = 60;
+        });
+        await page.waitForFunction(() =>
+          document.querySelector('.dashboard-scroll-edge')?.classList.contains('scrolled')
+        );
+        const edgeStyle = await scrollEdge.evaluate((el) => ({
+          opacity: getComputedStyle(el, '::after').opacity,
+          shadow: getComputedStyle(el, '::after').boxShadow,
+          height: el.getBoundingClientRect().height,
+          top: Math.abs(el.getBoundingClientRect().top - el.parentElement!.getBoundingClientRect().top),
+          pointer: getComputedStyle(el).pointerEvents,
+        }));
+        assert.ok(
+          edgeStyle.opacity === '1' && edgeStyle.shadow !== 'none',
+          'scrolled dashboard has a subtle edge shadow'
+        );
+        assert.ok(
+          edgeStyle.height === 0 && edgeStyle.top <= 1 && edgeStyle.pointer === 'none',
+          'divider stays at the top without shifting or intercepting content'
+        );
+        assert.equal(
+          await page
+            .locator('header')
+            .first()
+            .evaluate((el) => el.getBoundingClientRect().height),
+          headerHeight
+        );
+        await page.screenshot({ path: new URL('scrolled-header-edge.png', output).pathname });
+        await scrollFrame.evaluate((el) => {
+          el.scrollTop = 0;
+        });
+        await page.waitForFunction(
+          () => !document.querySelector('.dashboard-scroll-edge')?.classList.contains('scrolled')
+        );
+        assert.equal(await scrollEdge.evaluate((el) => getComputedStyle(el, '::after').opacity), '0');
+
         for (const { columns, ...viewport } of [
           { width: 280, height: 653, columns: 2 },
           { width: 390, height: 844, columns: 4 },
@@ -1056,6 +1101,82 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(flexible.widgets[1]!.size, 'compact', 'untouched named footprints survive saves');
         await page.reload();
         await custom.locator(`[data-dashboard-widget="${tallId}"]`).waitFor();
+
+        // Preview fitting must not change the chart's responsive label layout.
+        const chartLayout = (root: Element) => {
+          const content = root.querySelector<HTMLElement>('.custom-widget-content')!;
+          return {
+            width: content.clientWidth,
+            height: content.clientHeight,
+            axis: getComputedStyle(content.querySelector('.chart-y-axis')!).display,
+            middle: getComputedStyle(content.querySelector('.chart-middle')!).display,
+            time: getComputedStyle(content.querySelector('.chart-middle-time')!).display,
+          };
+        };
+        const chartSpace = (root: Element) => {
+          const axis = root.querySelector('.chart-y-axis')!;
+          const labelWidth = Math.max(
+            ...Array.from(axis.children, (label) => {
+              const range = document.createRange();
+              range.selectNodeContents(label);
+              return range.getBoundingClientRect().width;
+            })
+          );
+          return {
+            unused: axis.getBoundingClientRect().width - labelWidth,
+            timeOffset: Math.abs(
+              root.querySelector('.chart-time-axis')!.getBoundingClientRect().left -
+                root.querySelector('.telemetry-chart-frame')!.getBoundingClientRect().left
+            ),
+          };
+        };
+        for (const width of [390, 768, 1280]) {
+          await page.setViewportSize({ width, height: 844 });
+          await enterEditing();
+          const tile = custom.locator('[data-dashboard-widget]').first();
+          await tile.getByRole('button', { name: /^Configure / }).click();
+          await page.getByLabel('Content', { exact: true }).selectOption('reading:speedKph');
+          await choosePresentation('trend');
+          await page.getByRole('button', { name: '4 columns by 2 rows', exact: true }).click();
+          await page.evaluate(
+            () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+          );
+          const preview = page.getByLabel('Widget preview', { exact: true });
+          const previewLayout = await preview.evaluate(chartLayout);
+          const previewSpace = await preview.evaluate(chartSpace);
+          assert.ok(
+            previewSpace.unused <= 8 && previewSpace.timeOffset <= 1,
+            'preview reserves only a small gap beside labels and aligns time labels with the plot'
+          );
+          assert.equal(previewLayout.axis, 'flex', 'four-by-two chart preview retains vertical labels');
+          const previewBounds = (await preview.boundingBox())!;
+          assert.ok(
+            previewBounds.x >= 0 && previewBounds.x + previewBounds.width <= width,
+            'scaled preview fits the overlay'
+          );
+          await page.getByRole('button', { name: 'Save', exact: true }).click();
+          const dashboardLayout = await tile.evaluate(chartLayout);
+          const dashboardSpace = await tile.evaluate(chartSpace);
+          assert.ok(
+            dashboardSpace.unused <= 8 && dashboardSpace.timeOffset <= 1,
+            'dashboard plot uses the available horizontal space'
+          );
+          if (width === 390) await tile.screenshot({ path: new URL('chart-label-spacing.png', output).pathname });
+          assert.ok(
+            Math.abs(previewLayout.width - dashboardLayout.width) <= 1 &&
+              Math.abs(previewLayout.height - dashboardLayout.height) <= 1,
+            `preview uses dashboard layout dimensions at ${width}px`
+          );
+          assert.deepEqual(
+            { ...previewLayout, width: 0, height: 0 },
+            { ...dashboardLayout, width: 0, height: 0 },
+            'preview and dashboard show the same chart labels'
+          );
+          await custom.getByRole('button', { name: 'Cancel', exact: true }).click();
+          await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+          await viewing();
+        }
+        await page.setViewportSize({ width: 390, height: 844 });
 
         const current = await client.request('boardProfile.get', { savedDeviceId: id });
         const maximum = await client.request('boardProfile.update', {

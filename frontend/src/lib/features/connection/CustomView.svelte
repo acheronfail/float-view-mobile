@@ -38,6 +38,7 @@
   let picker = $state(false);
   let pendingWidget = $state<DashboardWidget | null>(null);
   let scroll = $state<HTMLElement>();
+  let scrolled = $state(false);
   let announcement = $state('');
   let gridGeometry = $state<DashboardGridGeometry>({ columns: 4, cellSize: 80, rowSize: 56, gap: 6 });
   function measureGrid(node: HTMLElement) {
@@ -250,7 +251,16 @@
     >
       Press and hold any widget to arrange your dashboard.
     </p>{/if}
-  <div bind:this={scroll} class="dashboard-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+  <div
+    bind:this={scroll}
+    class="dashboard-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
+    onscroll={(event) => (scrolled = event.currentTarget.scrollTop > 1)}
+  >
+    <div
+      class="dashboard-scroll-edge pointer-events-none sticky top-0 z-30 h-0"
+      class:scrolled
+      aria-hidden="true"
+    ></div>
     {#if dashboard}
       {#if !dashboard.widgets.length}<p class="p-6 text-center text-muted">
           No widgets yet. Add a widget to get started.
@@ -447,6 +457,17 @@
     margin-right: calc(-1 * var(--delete-gutter));
     padding-right: 1.25rem;
     padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .dashboard-scroll-edge::after {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    border-top: 1px solid color-mix(in srgb, var(--color-outline) 70%, transparent);
+    box-shadow: 0 4px 8px rgb(0 0 0 / 0.25);
+    opacity: 0;
+  }
+  .dashboard-scroll-edge.scrolled::after {
+    opacity: 1;
   }
   .dashboard-toolbar {
     bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));

@@ -542,3 +542,36 @@ pass with the retained midpoint, two/four-row footprints, repeated jitter and
 intentional midpoint reversals; Chromium exercises real touch streams with
 frame-delivered input. Svelte checks, targeted ESLint/Prettier, production build,
 conformance TypeScript, strict OpenSpec validation and whitespace checks passed.
+
+## 35. Preview layout parity
+
+- [x] Render the preview at its actual dashboard footprint and uniformly scale it to fit the overlay, preserving responsive content and labels.
+- [x] Verify chart preview/dashboard label and logical size parity at phone, tablet and desktop widths in Chromium/WebKit, with frontend checks.
+
+Verification: Both browsers reproduced missing preview axis labels before the fix.
+Chromium and WebKit now pass label visibility and internal layout parity checks at
+390px, 768px and 1280px, including fitting inside the overlay. Existing dashboard
+interaction coverage, Svelte checks, targeted ESLint/Prettier, production build,
+conformance TypeScript, strict OpenSpec validation and whitespace checks passed.
+
+## 36. Compact chart label gutter
+
+- [x] Size the vertical-axis gutter to its labels and share the plot column with the time axis, replacing the fixed 3.5rem gutter.
+- [x] Verify label spacing/alignment in preview and dashboard across viewport sizes, and run affected frontend checks.
+
+Verification: Chromium and WebKit dashboard suites passed, including bounded
+unused axis space and time/plot alignment in previews and dashboard charts at
+390px, 768px and 1280px. Inspected the phone chart screenshot. Svelte checks,
+targeted ESLint/Prettier, production build, conformance TypeScript, strict OpenSpec
+validation and whitespace checks passed.
+
+## 37. Scrolled dashboard separation
+
+- [x] Show a subtle top divider and downward shadow only while dashboard content is scrolled; keep the indicator out of layout and pointer handling.
+- [x] Verify top/scrolled/restored states and unchanged header geometry in Chromium/WebKit; run affected frontend checks.
+
+Verification: Chromium and WebKit dashboard suites passed, covering hidden/visible/
+restored divider states, fixed scroll-edge position, zero layout height, pointer
+transparency and unchanged header geometry. Inspected the scrolled screenshot.
+Svelte checks, targeted ESLint/Prettier, production build, conformance TypeScript,
+strict OpenSpec validation and whitespace checks passed.

@@ -65,7 +65,8 @@ Resizing SHALL preserve the chosen presentation and adapt its contents to availa
 - **WHEN** a user selects a size in widget configuration
 - **THEN** the menu names its width and height in cells, and the preview uses the current dashboard’s cell size and effective footprint rather than stretching to the panel width
 - **WHEN** a preview is too wide for the editor
-- **THEN** it scales down uniformly without changing aspect ratio or the saved footprint
+- **THEN** it scales down uniformly without changing aspect ratio, internal layout dimensions or the saved footprint
+- **AND** chart axis labels and responsive content remain the same as on the dashboard
 
 #### Scenario: Fit narrow and short tiles
 

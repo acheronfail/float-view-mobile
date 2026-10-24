@@ -136,6 +136,15 @@
     resetRange();
   }
   const previewSize = $derived(widgetPreviewSize(working.size, grid));
+  let previewAvailableWidth = $state<number | null>(null);
+  const previewScale = $derived(Math.min(1, (previewAvailableWidth ?? previewSize.width) / previewSize.width));
+  function measurePreview(node: HTMLElement) {
+    const observer = new ResizeObserver(([entry]) => {
+      previewAvailableWidth = entry.contentRect.width;
+    });
+    observer.observe(node);
+    return { destroy: () => observer.disconnect() };
+  }
   const valid = $derived(validCustomDashboard({ version: 1, widgets: [candidate] }));
 </script>
 
@@ -263,16 +272,19 @@
         Enter a valid range with minimum below maximum, within the supported bounds.
       </p>{/if}
     <section aria-label="Size preview">
-      <div class="rounded-xl border border-dashed border-outline bg-canvas p-3">
+      <div class="rounded-xl border border-dashed border-outline bg-canvas p-3" use:measurePreview>
         <div
-          class="pointer-events-none relative max-w-full"
-          style:width={`${previewSize.width}px`}
-          style:aspect-ratio={`${previewSize.width} / ${previewSize.height}`}
+          class="pointer-events-none relative max-w-full overflow-hidden"
+          style:width={`${previewSize.width * previewScale}px`}
+          style:height={`${previewSize.height * previewScale}px`}
           inert
           aria-label="Widget preview"
         >
           <div
-            class="absolute inset-0 rounded-lg border border-outline bg-surface"
+            class="absolute top-0 left-0 origin-top-left rounded-lg border border-outline bg-surface"
+            style:width={`${previewSize.width}px`}
+            style:height={`${previewSize.height}px`}
+            style:transform={`scale(${previewScale})`}
             style:padding={dimensions.rows === 1 ? '0.375rem' : '0.75rem'}
           >
             <CustomWidget
