@@ -73,7 +73,7 @@
     <div
       in:appearSurface={'menu'}
       out:exitSurface
-      class="absolute right-0 z-30 min-w-52 overflow-hidden rounded-xl border border-outline bg-elevated shadow-xl"
+      class="absolute right-0 z-30 w-max max-w-[calc(100dvw-2rem-env(safe-area-inset-left,0px)-env(safe-area-inset-right,0px))] min-w-[min(13rem,calc(100dvw-2rem))] overflow-hidden rounded-xl border border-outline bg-elevated shadow-xl"
       bind:this={menuPanel}
       class:top-full={variant === 'card' && !openAbove}
       class:bottom-full={variant === 'card' && openAbove}

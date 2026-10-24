@@ -316,6 +316,7 @@
   class:min-h-screen={!liveRoute}
   class:h-screen={liveRoute}
   class:overflow-hidden={liveRoute}
+  style={`--app-floating-controls-visibility: ${menuOpen ? 'hidden' : 'visible'}`}
 >
   <div
     class="app-safe-area mx-auto flex flex-col"

@@ -12,7 +12,7 @@
   import SessionMarkers from './SessionMarkers.svelte';
   import { getContext, onDestroy, onMount, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
-  import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
+  import { APP_HEADER_CONTEXT, type AppHeaderAction, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
@@ -92,6 +92,31 @@
   let deleteConfirmationOpen = $state(false);
   let pruneOpen = $state(false);
   let deleting = $state(false);
+  let endRideConfirmationOpen = $state(false);
+  let endingRide = $state(false);
+  let endRideError = $state('');
+  function requestEndRide(closeMenu: () => void) {
+    closeMenu();
+    endRideError = '';
+    endRideConfirmationOpen = true;
+  }
+  async function endRide() {
+    if (endingRide) return;
+    endingRide = true;
+    endRideError = '';
+    try {
+      if (await backendState.endRide(sessionId)) {
+        endRideConfirmationOpen = false;
+        try {
+          await backendState.refreshSession(sessionId, () => true);
+        } catch {
+          refreshError = 'The ride ended, but the session could not be refreshed. Reopen it to try again.';
+        }
+      } else endRideError = backendState.error ?? 'Could not end the ride. Try again.';
+    } finally {
+      endingRide = false;
+    }
+  }
   let savingDisplayOptions = $state(false);
   let smoothCharts = $state(true);
   async function toggleDisplayOption(key: keyof SessionDisplayOptions) {
@@ -209,6 +234,17 @@
   $effect(() => {
     const session = backendState.selectedSession;
     const canExport = !backendState.busy && session?.state !== 'active';
+    const canEndRide = isActive && (isCurrentRide || !!pausedRide);
+    const sessionActions = {
+      group: 'Session',
+      groupDescription: backendState.busy
+        ? 'Another operation is in progress. Please wait.'
+        : isActive
+          ? pausedRide
+            ? 'This ride is paused. End it to share, prune or delete the session.'
+            : 'Available after this ride ends.'
+          : undefined,
+    };
     appHeader.set(headerOwner, {
       title: isActive ? 'Current ride' : (sessionStartDateLabel(session?.startedAt) ?? 'Session'),
       backHref: returnHref,
@@ -218,6 +254,7 @@
             menuLabel: 'Session actions',
             menu: [
               {
+                group: 'Chart display',
                 label: 'Smooth charts',
                 checked: smoothCharts,
                 onactivate: () => {
@@ -225,28 +262,43 @@
                 },
               },
               {
+                group: 'Chart display',
                 label: 'Both footpads off at speed',
                 checked: backendState.settings?.sessionDisplayOptions.bothFootpadsOff ?? false,
                 disabled: savingDisplayOptions,
                 onactivate: () => toggleDisplayOption('bothFootpadsOff'),
               },
               {
+                group: 'Chart display',
                 label: 'One footpad off at speed',
                 checked: backendState.settings?.sessionDisplayOptions.oneFootpadOff ?? false,
                 disabled: savingDisplayOptions,
                 onactivate: () => toggleDisplayOption('oneFootpadOff'),
               },
+              ...(canEndRide
+                ? [
+                    {
+                      group: 'Session',
+                      label: 'End ride…',
+                      disabled: backendState.busy || endingRide,
+                      onactivate: requestEndRide,
+                    } satisfies AppHeaderAction,
+                  ]
+                : []),
               {
+                ...sessionActions,
                 label: sessionExportLabel(backendState.platform, 'float-view-archive'),
                 disabled: !canExport,
                 onactivate: (closeMenu: () => void) => exportSession(closeMenu, 'float-view-archive'),
               },
               {
+                group: 'Session',
                 label: sessionExportLabel(backendState.platform, 'csv'),
                 disabled: !canExport,
                 onactivate: (closeMenu: () => void) => exportSession(closeMenu, 'csv'),
               },
               {
+                group: 'Session',
                 label: 'Prune',
                 appearance: 'warning' as const,
                 disabled:
@@ -255,6 +307,7 @@
                 onactivate: (closeMenu: () => void) => requestPruneSession(closeMenu),
               },
               {
+                group: 'Session',
                 label: 'Delete session',
                 appearance: 'destructive' as const,
                 disabled: !canExport,
@@ -505,6 +558,25 @@
   onpreview={(resolution) => backendState.previewSessionPrune('one', resolution, sessionId)}
   onprune={(resolution) => backendState.startSessionPrune('one', resolution, sessionId)}
   oncancel={closePruneSession}
+/>
+
+<ConfirmDialog
+  open={endRideConfirmationOpen}
+  titleId="session-end-ride-title"
+  title="End ride?"
+  description={isCurrentRide
+    ? 'This will end the ride and disconnect the board. Reconnecting will start a new ride.'
+    : 'This will finish this ride. Reconnecting will start a new ride.'}
+  confirmLabel="End ride"
+  appearance="destructive"
+  busy={endingRide}
+  error={endRideError}
+  onconfirm={endRide}
+  oncancel={async () => {
+    endRideConfirmationOpen = false;
+    await tick();
+    appHeader.focusMenu();
+  }}
 />
 
 <ConfirmDialog

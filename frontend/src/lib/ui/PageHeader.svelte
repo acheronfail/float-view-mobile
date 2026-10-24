@@ -104,17 +104,33 @@
       {:else}
         <Menu label={menuLabel} bind:button bind:menuOpen>
           {#snippet children(closeMenu)}
-            {#each actions as action (action.label)}
-              <MenuItem
-                label={action.label}
-                icon={action.icon}
-                appearance={action.appearance}
-                disabled={action.disabled}
-                checked={action.checked}
-                pending={action.pending}
-                onactivate={() => action.onactivate(closeMenu)}
-              />
-            {/each}
+            <div
+              data-header-menu
+              class="max-h-[calc(100dvh-max(1.5rem,env(safe-area-inset-top,0px))-3rem-max(1rem,env(safe-area-inset-bottom,0px)))] touch-pan-y overflow-y-auto overscroll-contain"
+            >
+              {#each actions as action, index (action.label)}
+                {#if action.group && action.group !== actions[index - 1]?.group}
+                  {#if index > 0}
+                    <div role="separator" class="border-t border-outline"></div>
+                  {/if}
+                  <h2 class="sticky top-0 z-10 bg-elevated px-4 pt-3 pb-1 text-xs font-semibold text-muted">
+                    {action.group}
+                  </h2>
+                {/if}
+                {#if action.groupDescription}
+                  <p class="max-w-72 px-4 pt-2 pb-1 text-sm text-muted">{action.groupDescription}</p>
+                {/if}
+                <MenuItem
+                  label={action.label}
+                  icon={action.icon}
+                  appearance={action.appearance}
+                  disabled={action.disabled}
+                  checked={action.checked}
+                  pending={action.pending}
+                  onactivate={() => action.onactivate(closeMenu)}
+                />
+              {/each}
+            </div>
           {/snippet}
         </Menu>
       {/if}

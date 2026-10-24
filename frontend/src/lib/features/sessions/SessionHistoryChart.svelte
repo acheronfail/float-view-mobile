@@ -1187,7 +1187,10 @@
 </div>
 
 {#if touchDevice || isZoomed}
-  <div class="fixed right-4 bottom-4 z-20 flex flex-col items-center gap-2">
+  <div
+    class="fixed right-4 bottom-4 z-20 flex flex-col items-center gap-2"
+    style="visibility: var(--app-floating-controls-visibility, visible)"
+  >
     {#if isZoomed}
       <button
         type="button"
