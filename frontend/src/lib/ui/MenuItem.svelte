@@ -29,6 +29,16 @@
   } = $props();
 
   const unavailable = $derived(disabled || pending || checked === null);
+
+  function activate() {
+    if (unavailable) return;
+    return onactivate();
+  }
+
+  function pointerDown(event: PointerEvent) {
+    if (unavailable) return;
+    activateFromPointer(event, activate, { scrollable: true });
+  }
 </script>
 
 <button
@@ -43,8 +53,8 @@
   aria-label={label}
   aria-describedby={checked === null ? statusId : undefined}
   aria-busy={pending || undefined}
-  onpointerdown={(event) => activateFromPointer(event, onactivate, { scrollable: true })}
-  onclick={(event) => activateFromKeyboardOrAssistiveClick(event, onactivate)}
+  onpointerdown={pointerDown}
+  onclick={(event) => activateFromKeyboardOrAssistiveClick(event, activate)}
 >
   {#if icon || appearance === 'warning'}<Icon name={icon ?? 'triangle-alert'} class="mr-1 text-xl" />{/if}
   <span

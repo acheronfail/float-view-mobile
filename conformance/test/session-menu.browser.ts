@@ -82,6 +82,25 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.route('https://tile.openstreetmap.org/**', (route) => route.abort());
         await page.goto(`${endpoint.origin}/#/sessions/${sessionId}`);
         const menu = page.getByRole('button', { name: 'Session actions', exact: true });
+        async function assertDisabledActionsIgnoreActivation(labels: string[]) {
+          for (const label of labels) {
+            const button = page.getByRole('button', { name: label, exact: true });
+            assert.equal(await button.isDisabled(), true);
+            await button.scrollIntoViewIfNeeded();
+            const bounds = (await button.boundingBox())!;
+            await page.touchscreen.tap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+            // Disabled buttons can still receive pointer events from their
+            // descendants on WebKit. Exercise that route and assistive clicks.
+            const child = button.locator('span').first();
+            const pointer = { pointerId: 42, pointerType: 'touch', isPrimary: true, button: 0 };
+            await child.dispatchEvent('pointerdown', pointer);
+            await child.dispatchEvent('pointerup', pointer);
+            await child.dispatchEvent('click', { detail: 0 });
+            await page.evaluate(() => new Promise(requestAnimationFrame));
+            assert.equal(await menu.getAttribute('aria-expanded'), 'true', `${label} keeps the menu open`);
+            assert.equal(await page.getByRole('alertdialog').count(), 0, `${label} opens no confirmation`);
+          }
+        }
         await menu.tap();
         await page.getByText('Available after this ride ends.', { exact: true }).waitFor();
         await page.getByRole('heading', { name: 'Chart display', exact: true }).waitFor();
@@ -98,6 +117,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         );
         assert.equal(new Set(disabledColors).size, 1, 'disabled actions use a consistent muted colour');
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-active.png`, screenshots)) });
+        await assertDisabledActionsIgnoreActivation(['Delete session', 'Prune', 'Share Archive', 'Share CSV']);
         await end.click({ button: 'right' });
         assert.equal(await page.getByRole('alertdialog', { name: 'End ride?' }).count(), 0);
         await end.tap();
@@ -118,6 +138,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await client.request('device.disconnect', {});
         const pausedCopy = 'This ride is paused. End it to share, prune or delete the session.';
         await page.getByText(pausedCopy, { exact: true }).waitFor();
+        await assertDisabledActionsIgnoreActivation(['Delete session', 'Prune', 'Share Archive', 'Share CSV']);
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-paused.png`, screenshots)) });
         const scroll = page.locator('[data-header-menu]');
         assert.equal(await page.getByRole('button', { name: /^Chart mode:/ }).isVisible(), false);
@@ -217,15 +238,29 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(await end.count(), 0);
         assert.equal(await page.getByText(pausedCopy, { exact: true }).count(), 0);
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-completed.png`, screenshots)) });
-        await page.getByRole('switch', { name: 'Both footpads off at speed', exact: true }).tap();
+        const deleteBounds = (await deletion.boundingBox())!;
+        await page.mouse.move(deleteBounds.x + deleteBounds.width / 2, deleteBounds.y + deleteBounds.height / 2);
+        await page.mouse.down();
+        await page
+          .getByRole('switch', { name: 'Both footpads off at speed', exact: true })
+          .dispatchEvent('click', { detail: 0 });
         await page.getByText('Another operation is in progress. Please wait.', { exact: true }).waitFor();
+        await page.mouse.up();
+        await page.evaluate(() => new Promise(requestAnimationFrame));
+        assert.equal(await menu.getAttribute('aria-expanded'), 'true', 'disabling during a press cancels activation');
+        assert.equal(await page.getByRole('alertdialog').count(), 0);
         assert.equal(await share.isDisabled(), true);
+        await assertDisabledActionsIgnoreActivation(['Delete session', 'Prune', 'Share Archive', 'Share CSV']);
         assert.equal(await page.getByText('Available after this ride ends.', { exact: true }).count(), 0);
         releaseSettings();
         await page
           .getByText('Another operation is in progress. Please wait.', { exact: true })
           .waitFor({ state: 'hidden' });
         assert.equal(await share.isDisabled(), false);
+        await deletion.tap();
+        const deleteConfirmation = page.getByRole('alertdialog', { name: 'Delete session?' });
+        await deleteConfirmation.waitFor();
+        await deleteConfirmation.getByRole('button', { name: 'Cancel', exact: true }).tap();
         assert.deepEqual(errors, []);
       } finally {
         await browser.close();
