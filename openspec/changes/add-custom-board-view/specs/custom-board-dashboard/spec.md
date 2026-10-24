@@ -196,6 +196,14 @@ In edit mode, a tap SHALL open that widget's configuration modal and a deliberat
 - **WHEN** reduced motion is enabled
 - **THEN** static press/lift cues remain without scaling or lift animation
 
+#### Scenario: Stable drag placement
+
+- **WHEN** a dragged widget causes neighbours of different sizes to reflow
+- **THEN** stationary input, small pointer jitter and continued forward travel through that neighbour SHALL retain the proposed placement
+- **AND** deliberately crossing back over the original insertion boundary can reverse the placement without a timed pause
+- **AND** edge scrolling can continue advancing the placement
+- **AND** release commits the visible placeholder and cancellation restores the draft order
+
 #### Scenario: Resize during a drag
 
 - **WHEN** the viewport changes during an active drag

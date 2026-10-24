@@ -1,6 +1,7 @@
 import { BOX_HOLD_MS } from './hold-to-configure';
 
 const EDIT_HOLD_MS = 300;
+const PLACEMENT_HYSTERESIS_PX = 20;
 
 type Options = {
   id: string;
@@ -33,7 +34,20 @@ export function dashboardGesture(node: HTMLElement, initial: Options) {
   const animations = new Map<HTMLElement, Animation>();
   let slots = new Map<HTMLElement, DOMRect>();
   let slotScrollTop = 0;
+  let lastPlacement: { x: number; y: number } | null = null;
+  let hover: {
+    target: HTMLElement;
+    rect: DOMRect;
+    scrollTop: number;
+    horizontal: boolean;
+    before: boolean;
+    placed: boolean;
+  } | null = null;
   function preview(x: number, y: number) {
+    const contentY = y + (options.scroll?.scrollTop ?? 0);
+    // Reflow may move another neighbour under the same pointer. Require deliberate
+    // travel before accepting another placement; scrolling counts as content travel.
+    if (lastPlacement && Math.hypot(x - lastPlacement.x, contentY - lastPlacement.y) < PLACEMENT_HYSTERESIS_PX) return;
     const scrollBounds = options.scroll?.getBoundingClientRect();
     const inside =
       scrollBounds &&
@@ -43,17 +57,59 @@ export function dashboardGesture(node: HTMLElement, initial: Options) {
       y <= scrollBounds.bottom;
     const scrollDelta = slotScrollTop - (options.scroll?.scrollTop ?? 0);
     // Hit-test final slots, not neighbours still animating past the pointer.
-    const next = slots.size
-      ? ([...slots].find(
-          ([, rect]) =>
-            inside && x >= rect.left && x <= rect.right && y >= rect.top + scrollDelta && y <= rect.bottom + scrollDelta
-        )?.[0] ?? null)
-      : (document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-dashboard-widget]') ?? null);
+    const contains = (rect: DOMRect, delta: number) =>
+      inside && x >= rect.left && x <= rect.right && y >= rect.top + delta && y <= rect.bottom + delta;
+    const retained =
+      hover &&
+      (contains(hover.rect, hover.scrollTop - (options.scroll?.scrollTop ?? 0)) ||
+        (slots.has(hover.target) && contains(slots.get(hover.target)!, scrollDelta)));
+    const next = retained
+      ? hover!.target
+      : slots.size
+        ? ([...slots].find(
+            ([, rect]) =>
+              inside &&
+              x >= rect.left &&
+              x <= rect.right &&
+              y >= rect.top + scrollDelta &&
+              y <= rect.bottom + scrollDelta
+          )?.[0] ?? null)
+        : (document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-dashboard-widget]') ?? null);
     const target = next && options.scroll?.contains(next) ? next : null;
-    if (!target) return;
+    if (!target || target === node) {
+      hover = null;
+      return;
+    }
     const from = placement.indexOf(node);
-    const to = placement.indexOf(target);
-    if (from < 0 || to < 0 || from === to) return;
+    const targetIndex = placement.indexOf(target);
+    if (from < 0 || targetIndex < 0) return;
+    if (hover?.target !== target) {
+      const rect = slots.get(target) ?? target.getBoundingClientRect();
+      const source = slots.get(node) ?? node.getBoundingClientRect();
+      const horizontal = rect.top < source.bottom - 1 && source.top < rect.bottom - 1;
+      const coordinate = horizontal ? x : y - (slots.size ? scrollDelta : 0);
+      const middle = horizontal ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
+      hover = {
+        target,
+        rect,
+        scrollTop: slots.size ? slotScrollTop : (options.scroll?.scrollTop ?? 0),
+        horizontal,
+        before: coordinate === middle ? from > targetIndex : coordinate < middle,
+        placed: false,
+      };
+    } else {
+      // Keep the boundary in its original content position while this neighbour
+      // reflows. Crossing its centre deliberately can reverse; reflow cannot.
+      const coordinate = hover.horizontal ? x : contentY - hover.scrollTop;
+      const middle = hover.horizontal ? hover.rect.left + hover.rect.width / 2 : hover.rect.top + hover.rect.height / 2;
+      if (!hover.placed) hover.before = coordinate === middle ? from > targetIndex : coordinate < middle;
+      else if (coordinate < middle - PLACEMENT_HYSTERESIS_PX / 2) hover.before = true;
+      else if (coordinate > middle + PLACEMENT_HYSTERESIS_PX / 2) hover.before = false;
+    }
+    const to = targetIndex + (hover.before ? 0 : 1) - (from < targetIndex ? 1 : 0);
+    if (from === to) return;
+    hover.placed = true;
+    lastPlacement = { x, y: contentY };
     const before = new Map(placement.map((card) => [card, card.getBoundingClientRect()]));
     placement.splice(from, 1);
     placement.splice(to, 0, node);
@@ -92,6 +148,8 @@ export function dashboardGesture(node: HTMLElement, initial: Options) {
     placement.forEach((card) => card.style.removeProperty('order'));
     placement = [];
     slots.clear();
+    lastPlacement = null;
+    hover = null;
     lifted?.remove();
     lifted = null;
     delete node.dataset.pressing;

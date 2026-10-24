@@ -518,3 +518,27 @@ Verification: Chromium and WebKit dashboard browser suites passed, including exa
 600ms/300ms boundaries and cancellation cleanup; Chromium also exercised real touch
 input. Svelte checks, targeted lint/formatting, production build, conformance
 TypeScript, strict OpenSpec validation and whitespace checks passed.
+
+## 34. Stable drag placement
+
+- [x] Add spatial hysteresis after each accepted placement, accounting for scroll travel and clearing on cancellation.
+- [x] Verify mixed-size reflow, small pointer jitter, deliberate reversal, drop and cancellation in Chromium/WebKit with normal and reduced motion; run frontend checks.
+
+Verification: The regression reproduced placement oscillation in both browsers
+before the fix. Chromium and WebKit now pass mixed-size jitter/reversal checks at
+390px and 1280px with normal and reduced motion, plus the existing dashboard drag,
+touch, drop and cancellation suite. Exact hold-time tests now pause the installed
+clock to exclude wall-clock drift. Svelte checks, targeted ESLint/Prettier, production
+build, conformance TypeScript, strict OpenSpec and whitespace checks passed.
+
+### 34.1. Stable insertion boundary for large neighbours
+
+- [x] Retain the hovered neighbour and its original insertion midpoint across reflow, with directional before/after placement and a reversal dead band.
+- [x] Reproduce the recording's continued-forward-travel failure, then verify two/four-row footprints, midpoint reversal and existing mouse/touch/drop/cancel behavior in both browsers.
+
+Verification: Continued forward travel reproduced the remaining two-state oscillation
+in Chromium and WebKit against the previous 20px-only fix. Both browser suites now
+pass with the retained midpoint, two/four-row footprints, repeated jitter and
+intentional midpoint reversals; Chromium exercises real touch streams with
+frame-delivered input. Svelte checks, targeted ESLint/Prettier, production build,
+conformance TypeScript, strict OpenSpec validation and whitespace checks passed.

@@ -467,6 +467,95 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await drag('lights', 'speed');
         await page.emulateMedia({ reducedMotion: 'reduce' });
         assert.deepEqual((await order()).slice(0, 2), ['speed', 'lights']);
+        // Reflow can put the same neighbour back beneath a stationary pointer.
+        for (const width of [390, 1280]) {
+          await page.setViewportSize({ width, height: 844 });
+          for (const reducedMotion of ['reduce', 'no-preference'] as const) {
+            await page.emulateMedia({ reducedMotion });
+            // Exercise both two-row charts and the four-row gauge/chart footprint.
+            await custom.locator('[data-dashboard-widget="trend"]').evaluate(
+              (card, rows) => {
+                (card as HTMLElement).style.gridRow = `span ${rows}`;
+              },
+              reducedMotion === 'reduce' ? 2 : 4
+            );
+            const source = custom.locator('[data-dashboard-widget="speed"]');
+            await source.scrollIntoViewIfNeeded();
+            const a = (await source.boundingBox())!;
+            const b = (await custom.locator('[data-dashboard-widget="trend"]').boundingBox())!;
+            const point = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+            const previewOrder = () =>
+              custom
+                .locator('[data-dashboard-widget]')
+                .evaluateAll((cards) => cards.map((card) => (card as HTMLElement).style.order));
+            const touch = name === 'chromium' && width === 390 ? await page.context().newCDPSession(page) : null;
+            const move = async (x: number, y: number) => {
+              if (touch) {
+                await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] });
+                // Chromium can coalesce touch moves until the next rendering frame.
+                await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+              } else await page.mouse.move(x, y);
+            };
+            if (touch) {
+              await touch.send('Input.dispatchTouchEvent', {
+                type: 'touchStart',
+                touchPoints: [{ x: a.x + a.width / 2, y: a.y + a.height / 2 }],
+              });
+              await page.waitForFunction(() => !!document.querySelector('[data-dragging]'));
+            } else {
+              await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+              await page.mouse.down();
+            }
+            await move(point.x, point.y);
+            const placed = await previewOrder();
+            assert.ok(
+              placed.some((value) => value !== ''),
+              'drag creates a proposed placement'
+            );
+            for (let step = 0; step < 12; step++) {
+              await move(point.x + (step % 2 ? 2 : -2), point.y);
+              assert.deepEqual(await previewOrder(), placed, `preview stays stable at ${width}px (${reducedMotion})`);
+            }
+            // Continued forward travel beyond the hysteresis must not toggle either.
+            for (let y = point.y + 24; y < b.y + b.height - 8; y += 24) {
+              await move(point.x, y);
+              assert.deepEqual(
+                await previewOrder(),
+                placed,
+                `forward travel stays stable at ${width}px (${reducedMotion})`
+              );
+            }
+            if (width === 390) {
+              await move(point.x, b.y + b.height / 4);
+              assert.notDeepEqual(await previewOrder(), placed, 'crossing the original midpoint reverses placement');
+              await move(point.x, b.y + (b.height * 3) / 4);
+              assert.deepEqual(await previewOrder(), placed, 'crossing back restores placement without oscillation');
+            }
+            // Target its final slot rather than a painted position midway through FLIP.
+            await custom
+              .locator('[data-dashboard-widget]')
+              .evaluateAll((cards) =>
+                cards.forEach((card) => card.getAnimations().forEach((animation) => animation.finish()))
+              );
+            const retreat = (await custom.locator('[data-dashboard-widget="lights"]').boundingBox())!;
+            await move(retreat.x + retreat.width / 2, retreat.y + retreat.height / 2);
+            assert.notDeepEqual(await previewOrder(), placed, `deliberate reversal at ${width}px (${reducedMotion})`);
+            await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+            if (touch) {
+              await touch.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+              await touch.detach();
+            } else await page.mouse.up();
+            assert.ok(
+              (await previewOrder()).every((value) => value === ''),
+              'cancellation clears preview order'
+            );
+          }
+        }
+        await custom.locator('[data-dashboard-widget="trend"]').evaluate((card) => {
+          (card as HTMLElement).style.removeProperty('grid-row');
+        });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.emulateMedia({ reducedMotion: 'reduce' });
         const beforeCancel = await order();
         const speedEdit = custom.getByRole('button', { name: /^Configure Speed,/ });
         await speedEdit.focus();
@@ -1045,7 +1134,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await timedCard.scrollIntoViewIfNeeded();
         const timedBounds = (await timedCard.boundingBox())!;
         const holdPoint = { x: timedBounds.x + timedBounds.width / 2, y: timedBounds.y + timedBounds.height / 2 };
-        await page.clock.install();
+        await page.clock.install({ time: 0 });
+        await page.clock.pauseAt(1000);
         await page.mouse.move(holdPoint.x, holdPoint.y);
         await page.mouse.down();
         assert.equal(await timedCard.getAttribute('data-pressing'), 'true', 'press is acknowledged immediately');
