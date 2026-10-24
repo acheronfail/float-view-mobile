@@ -15,7 +15,7 @@ async function nativeBack(page: Page) {
 
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(`${name}: connected navigation, stable returns and guarded dismissal`, { timeout: 60_000 }, async () => {
-    const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
+    const port = await startMockServer(0, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
     const browser = await engine.launch();
@@ -89,11 +89,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const settingsTab = tabs.getByRole('link', { name: 'settings', exact: true });
       const liveMenu = page.getByRole('button', { name: 'Board actions', exact: true });
       await liveMenu.waitFor();
+      await page.keyboard.press('Escape');
       assert.equal(await tabs.count(), 0, 'Live reserves the full screen without tabs');
       await liveMenu.tap();
       const backToApp = page
         .getByRole('dialog', { name: 'Board actions', exact: true })
-        .getByRole('button', { name: 'Back to app', exact: true });
+        .getByRole('button', { name: 'Go to Sessions', exact: true });
       await backToApp.dispatchEvent('pointerdown', { pointerId: 70, isPrimary: false, button: 0 });
       await backToApp.dispatchEvent('pointerup', { pointerId: 70, isPrimary: false, button: 0 });
       assert.match(page.url(), /#\/live$/);
@@ -206,7 +207,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await tabs.count(), 0, 'standalone BMS also reserves the full screen');
       const bmsMenu = page.getByRole('button', { name: 'BMS actions', exact: true });
       await bmsMenu.tap();
-      await page.getByRole('button', { name: 'Back to app', exact: true }).tap();
+      await page.getByRole('button', { name: 'Go to Sessions', exact: true }).tap();
       await page.waitForURL(/#\/sessions$/);
       await boardTab.focus();
       await page.keyboard.press('Enter');

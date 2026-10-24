@@ -129,7 +129,62 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         'Refloat',
         'Board',
         'Connection',
+        'App',
       ]);
+      const connectionSection = actionOverlay
+        .locator('section')
+        .filter({ has: page.getByRole('heading', { name: 'Connection', exact: true }) });
+      for (const width of [390, 768]) {
+        await page.setViewportSize({ width, height: 844 });
+        const tiles = await connectionSection.getByRole('button').all();
+        const bounds = await Promise.all(tiles.map((tile) => tile.boundingBox()));
+        assert.equal(bounds.length, 3);
+        if (width === 390) {
+          assert.ok(
+            await connectionSection.getByRole('button').evaluateAll((buttons) =>
+              buttons.every((button) => {
+                const tile = button.getBoundingClientRect();
+                const icon = button.firstElementChild!.getBoundingClientRect();
+                const text = button.children[1]!.getBoundingClientRect();
+                return (
+                  getComputedStyle(button).textAlign === 'center' &&
+                  Math.abs(icon.x + icon.width / 2 - (tile.x + tile.width / 2)) < 1 &&
+                  Math.abs(text.x + text.width / 2 - (tile.x + tile.width / 2)) < 1 &&
+                  Math.abs((icon.y + text.bottom) / 2 - (tile.y + tile.height / 2)) < 1
+                );
+              })
+            ),
+            'stacked icons and labels are centred horizontally and vertically'
+          );
+        }
+        assert.ok(
+          await connectionSection
+            .getByRole('button')
+            .evaluateAll((buttons) => buttons.every((button) => button.scrollWidth <= button.clientWidth)),
+          'connection labels fit within their tiles'
+        );
+        assert.ok(
+          bounds.every((box) => box && Math.abs(box.y - bounds[0]!.y) < 1),
+          'three connection actions share one row'
+        );
+      }
+      await page.setViewportSize({ width: 390, height: 844 });
+      const appSection = actionOverlay
+        .locator('section')
+        .filter({ has: page.getByRole('heading', { name: 'App', exact: true }) });
+      assert.equal(await appSection.getByRole('button', { name: 'Go to Sessions', exact: true }).count(), 1);
+      assert.equal(
+        await actionOverlay
+          .locator('section')
+          .first()
+          .getByRole('button', { name: 'Go to Sessions', exact: true })
+          .count(),
+        0
+      );
+      await actionOverlay.getByRole('button', { name: 'Done', exact: true }).tap();
+      await actionOverlay.waitFor({ state: 'hidden' });
+      assert.match(page.url(), /#\/live$/);
+      await menu.tap();
       assert.equal(
         await actionOverlay
           .getByRole('button', { name: 'Done', exact: true })

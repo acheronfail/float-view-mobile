@@ -20,8 +20,8 @@
       menuLabel: 'BMS actions',
       menu: [
         {
-          label: 'Back to app',
-          icon: 'arrow-left',
+          label: 'Go to Sessions',
+          icon: 'list',
           onactivate: (closeMenu: () => void) => {
             closeMenu();
             void goto(connectionReturnHref);

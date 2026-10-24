@@ -302,15 +302,6 @@
         connection.trackingMode === 'guest' ? 'Guest connection — live data will not be saved or tracked.' : undefined,
       menuUnavailable: flywheelOverlayVisible(connection),
       menu: [
-        {
-          label: 'Back to app',
-          icon: 'arrow-left',
-          group: 'View',
-          onactivate: (closeMenu: () => void) => {
-            closeMenu();
-            void goto(connectionReturnHref);
-          },
-        },
         ...viewOptions
           .filter(
             (option) => option.type !== 'custom' || (connection.trackingMode === 'saved' && connection.savedDeviceId)
@@ -483,6 +474,15 @@
               },
             ]
           : []),
+        {
+          label: 'Go to Sessions',
+          icon: 'list',
+          group: 'App',
+          onactivate: (closeMenu: () => void) => {
+            closeMenu();
+            void goto(connectionReturnHref);
+          },
+        },
       ],
     });
   });

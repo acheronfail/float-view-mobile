@@ -135,16 +135,16 @@
           </p>
         {/if}
         {#each groups as group, index (group)}
+          {@const groupActions = actions.filter((action) => (action.group ?? 'Actions') === group)}
+          {@const threeColumns =
+            groupActions.length === 3 || groupActions.some((action) => action.selected !== undefined)}
+          {@const stacked = groupActions.length === 3 && !groupActions.some((action) => action.selected !== undefined)}
           <section aria-labelledby={`${titleId}-${index}`}>
             <h3 id={`${titleId}-${index}`} class="mb-2 text-xs font-semibold tracking-widest text-muted uppercase">
               {group}
             </h3>
-            <div
-              class="grid gap-2"
-              class:grid-cols-3={actions.some((action) => action.group === group && action.selected !== undefined)}
-              class:grid-cols-2={!actions.some((action) => action.group === group && action.selected !== undefined)}
-            >
-              {#each actions.filter((action) => (action.group ?? 'Actions') === group) as action (action.label)}
+            <div class="grid gap-2" class:grid-cols-3={threeColumns} class:grid-cols-2={!threeColumns}>
+              {#each groupActions as action (action.label)}
                 <button
                   type="button"
                   aria-label={action.label}
@@ -154,7 +154,7 @@
                   aria-describedby={action.checked === null ? `${titleId}-unknown-${action.label}` : undefined}
                   aria-busy={action.pending || undefined}
                   disabled={action.disabled || action.pending || action.checked === null}
-                  class="flex min-h-14 min-w-0 touch-pan-y items-center gap-2 rounded-lg border border-outline bg-surface px-3 py-2 text-left hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  class={`flex min-h-14 min-w-0 touch-pan-y items-center gap-2 rounded-lg border border-outline bg-surface px-3 py-2 text-left hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ${stacked ? 'max-sm:flex-col max-sm:justify-center max-sm:text-center' : ''}`}
                   class:text-danger={action.appearance === 'destructive' || action.appearance === 'danger'}
                   class:text-warning={action.appearance === 'warning'}
                   class:ring-2={action.selected}
@@ -164,7 +164,7 @@
                   onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => activate(action, true))}
                 >
                   {#if action.icon}<Icon name={action.icon} class="shrink-0 text-lg" />{/if}
-                  <span class="min-w-0 flex-1">
+                  <span class={`min-w-0 flex-1 ${stacked ? 'max-sm:flex-none' : ''}`}>
                     <span class="block text-sm font-medium">{action.label}</span>
                     {#if action.pending}
                       <span class="block text-xs text-muted">Pending…</span>
