@@ -52,6 +52,84 @@ test('semantic model serves every exact stable release and applies disposable wr
   }
 });
 
+test('arbitrary complete writes persist across repeated edits on every release and route', () => {
+  for (const version of versions) {
+    for (const topology of ['direct', 'express'] as const) {
+      const simulator = new VescSimulator(
+        composeBoard({ firmware: '6.06', refloat: version, topology, canId: 1, requestPolicy: 'strict' })
+      );
+      const route = (payload: Uint8Array) => (topology === 'direct' ? payload : Uint8Array.from([34, 1, ...payload]));
+      const current = bytes(`values/${version}-current.bin`);
+      const edited = current.slice();
+      const view = new DataView(edited.buffer);
+      // Audited wire order starts with kp (scale 10), kp2 (scale 100).
+      view.setInt16(4, 220);
+      view.setInt16(6, 75);
+      for (const kp of [220, 235, 200]) {
+        view.setInt16(4, kp);
+        assert.deepEqual(decode(simulator, route(Uint8Array.from([95, 0, ...edited]))), Uint8Array.of(95));
+        const expected = edited.slice();
+        if (!version.startsWith('1.0.')) expected[expected.length - 1] = 0; // meta.is_default
+        assert.deepEqual(decode(simulator, route(Uint8Array.of(93, 0))), Uint8Array.from([93, 0, ...expected]));
+        assert.deepEqual(decode(simulator, route(Uint8Array.of(94, 0))), response(94, `values/${version}-default.bin`));
+      }
+      simulator.reset();
+      assert.deepEqual(decode(simulator, route(Uint8Array.of(93, 0))), Uint8Array.from([93, 0, ...current]));
+    }
+  }
+});
+
+test('arbitrary writes validate signature, complete layout, numeric ranges, booleans and enums atomically', () => {
+  const model = new RefloatConfigurationModel('1.3.0');
+  const edited = bytes('values/1.3.0-current.bin');
+  // Source-derived 1.3.0 offsets: fault_pitch:u8, footbeep:bool, front mode:enum.
+  edited[42] = 65;
+  edited[48] = 0;
+  edited[186] = 2;
+  assert.deepEqual(model.respond(Uint8Array.from([95, 0, ...edited]), true), Uint8Array.of(95));
+  const baseline = model.respond(Uint8Array.of(93, 0), true);
+  const changed = (offset: number, value: number) => {
+    const copy = edited.slice();
+    copy[offset] = value;
+    return copy;
+  };
+  for (const [values, reason] of [
+    [edited.subarray(0, edited.length - 1), /length mismatch/],
+    [Uint8Array.from([...edited, 0]), /length mismatch/],
+    [changed(0, edited[0]! ^ 1), /signature mismatch/],
+    [changed(4, 0x7f), /invalid value for kp$/],
+    [changed(42, 0), /invalid value for fault_pitch$/],
+    [changed(48, 2), /invalid value for is_footbeep_enabled$/],
+    [changed(186, 127), /invalid value for leds.front.mode$/],
+  ] as const) {
+    assert.equal(model.respond(Uint8Array.from([95, 0, ...values]), true), undefined);
+    assert.match(model.rejectionReason!, reason);
+    assert.deepEqual(model.respond(Uint8Array.of(93, 0), true), baseline);
+  }
+  assert.equal(model.counters.write, 1);
+  const fork = model.fork();
+  fork.reset();
+  assert.deepEqual(model.respond(Uint8Array.of(93, 0), true), baseline, 'resetting a fork mutated its owner');
+});
+
+test('rejection reasons distinguish unsafe state, indexes and malformed schema chunks', () => {
+  const model = new RefloatConfigurationModel('1.3.0');
+  for (const [payload, safety, reason] of [
+    [Uint8Array.of(95, 0), 'riding', /controller is not idle/],
+    [Uint8Array.of(93, 0), 'flywheel', /flywheel mode is active/],
+    [Uint8Array.of(95, 1), true, /index must be 0/],
+    [Uint8Array.of(92, 0), true, /exactly 10 bytes/],
+    [Uint8Array.from([92, 0, ...i32(401), ...i32(0)]), true, /chunk length/],
+    [Uint8Array.from([92, 0, ...i32(400), ...i32(99_999)]), true, /offset is out of bounds/],
+  ] as const) {
+    assert.equal(model.respond(payload, safety), undefined);
+    assert.match(model.rejectionReason!, reason);
+  }
+  assert.equal(model.counters.write, 0);
+  model.reset();
+  assert.equal(model.rejectionReason, undefined);
+});
+
 test('commands 92–95 preserve exact bytes over direct and once-forwarded CAN routes', () => {
   for (const topology of ['direct', 'express'] as const) {
     const board = composeBoard({ firmware: '6.06', refloat: '1.3.0', topology, canId: 42, requestPolicy: 'strict' });

@@ -225,6 +225,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await context.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
       const current = await client.request('refloat.configuration.read', { source: 'current', refresh: true });
       let failWrite = true;
+      let writeFailure: 'invalid_state' | 'unavailable' | 'timeout' = 'invalid_state';
       let writes = 0;
       await context.routeWebSocket('**/api/ws?*', (socket) => {
         const server = socket.connectToServer();
@@ -234,10 +235,15 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           if (request.method === 'refloat.configuration.write') {
             writes++;
             if (failWrite) {
+              if (writeFailure === 'timeout') return;
               socket.send(
                 JSON.stringify({
                   id: request.id,
-                  error: { code: 'invalid_state', message: 'Configuration test failure' },
+                  error: {
+                    code: writeFailure,
+                    message:
+                      writeFailure === 'unavailable' ? 'Backend service is unavailable' : 'Configuration test failure',
+                  },
                 })
               );
               return;
@@ -296,13 +302,26 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.setViewportSize({ width: 390, height: 600 });
       await open.tap();
       assert.equal(await dialog.getByRole('alert').count(), 0, 'reopening retained the old error');
+      writeFailure = 'unavailable';
       await confirm.tap();
       await alert.waitFor();
+      assert.match((await alert.textContent()) ?? '', /controller may have timed out or disconnected/);
+      assert.match((await alert.textContent()) ?? '', /Read current values before retrying/);
+      assert.equal(await input.inputValue(), '0.85');
+      const unavailableBounds = await alert.boundingBox();
+      assert.ok(unavailableBounds && unavailableBounds.y >= 0 && unavailableBounds.y + unavailableBounds.height <= 600);
+      writeFailure = 'timeout';
+      await confirm.tap();
+      await dialog
+        .getByText('Timed out waiting for the configuration write to be confirmed.', { exact: false })
+        .waitFor({ timeout: 10000 });
+      assert.match((await alert.textContent()) ?? '', /write may have reached the controller/);
+      assert.equal(await input.inputValue(), '0.85');
       failWrite = false;
       await confirm.focus();
       await page.keyboard.press('Enter');
       await dialog.waitFor({ state: 'hidden' });
-      assert.equal(writes, 3, 'pointer or keyboard activation duplicated a write');
+      assert.equal(writes, 4, 'pointer or keyboard activation duplicated a write');
       assert.equal(await open.isDisabled(), true, 'successful write did not clear the pending changes');
       assert.deepEqual(errors, []);
     } finally {

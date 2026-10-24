@@ -2,7 +2,7 @@ import { permissionInventory } from '../../../backend-mock/permissions';
 import { describe, expect, it, vi } from 'vitest';
 import type { AppState } from '$lib/backend/contract';
 import { RequestFailureReporter } from './request-failures';
-import { ApiClient, ApiProtocolError } from './client';
+import { ApiClient, ApiProtocolError, ApiRequestTimeoutError } from './client';
 
 type Listener = (event: { data?: unknown }) => void;
 
@@ -85,7 +85,12 @@ describe('ApiClient', () => {
     await expect(closedResult).rejects.toBeInstanceOf(ApiProtocolError);
 
     const timed = setup();
-    await expect(timed.client.request('state.get', {})).rejects.toThrow('timed out');
+    await expect(timed.client.request('state.get', {})).rejects.toMatchObject({
+      name: 'ApiRequestTimeoutError',
+      method: 'state.get',
+      message: 'Backend request timed out: state.get',
+    });
+    expect(new ApiRequestTimeoutError('state.get')).toBeInstanceOf(ApiProtocolError);
 
     const malformed = setup();
     const malformedResult = malformed.client.request('state.get', {});

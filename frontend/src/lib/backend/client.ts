@@ -38,6 +38,13 @@ export class ApiProtocolError extends Error {
   }
 }
 
+export class ApiRequestTimeoutError extends ApiProtocolError {
+  constructor(readonly method: BackendMethod) {
+    super(`Backend request timed out: ${method}`);
+    this.name = 'ApiRequestTimeoutError';
+  }
+}
+
 export class ApiClient {
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
@@ -96,7 +103,7 @@ export class ApiClient {
     return new Promise<BackendResult<M>>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
-        reject(new ApiProtocolError(`Backend request timed out: ${method}`));
+        reject(new ApiRequestTimeoutError(method));
       }, timeoutMs);
       this.pending.set(id, { method, resolve: resolve as (value: unknown) => void, reject, timeout });
       try {

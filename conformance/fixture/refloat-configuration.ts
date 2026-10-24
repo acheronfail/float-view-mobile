@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { RefloatConfigurationValuesLayout } from './refloat-configuration-values.ts';
 
 export type StableRefloatConfigurationVersion =
   '1.0.0' | '1.0.1' | '1.1.0' | '1.1.1' | '1.1.2' | '1.2.0' | '1.2.1' | '1.2.2' | '1.2.3' | '1.3.0';
@@ -17,12 +18,11 @@ interface ManifestRelease {
   version: StableRefloatConfigurationVersion;
   schemaFingerprintSha256: string;
   wireSignature: number;
+  writeNormalization: Array<{ field: string; value: number }>;
   files: {
     schema: string;
     default: string;
     current: string;
-    acceptedWrite: string;
-    expectedReadback: string;
   };
 }
 
@@ -49,8 +49,9 @@ export class RefloatConfigurationModel {
   private readonly schema: Uint8Array;
   private readonly defaults: Uint8Array;
   private readonly initialCurrent: Uint8Array;
-  private readonly acceptedWrite: Uint8Array;
-  private readonly expectedReadback: Uint8Array;
+  private readonly layout: RefloatConfigurationValuesLayout;
+  private readonly normalization: ManifestRelease['writeNormalization'];
+  rejectionReason: string | undefined;
   private current: Uint8Array;
 
   constructor(version: StableRefloatConfigurationVersion) {
@@ -62,8 +63,8 @@ export class RefloatConfigurationModel {
     this.schema = boundedFile(release.files.schema, MAX_SCHEMA_BYTES);
     this.defaults = boundedFile(release.files.default, MAX_VALUE_BYTES);
     this.initialCurrent = boundedFile(release.files.current, MAX_VALUE_BYTES);
-    this.acceptedWrite = boundedFile(release.files.acceptedWrite, MAX_VALUE_BYTES);
-    this.expectedReadback = boundedFile(release.files.expectedReadback, MAX_VALUE_BYTES);
+    this.layout = new RefloatConfigurationValuesLayout(this.schema, this.fingerprint);
+    this.normalization = release.writeNormalization;
     this.current = this.initialCurrent.slice();
   }
 
@@ -77,6 +78,7 @@ export class RefloatConfigurationModel {
 
   reset() {
     this.current = this.initialCurrent.slice();
+    this.rejectionReason = undefined;
     Object.assign(this.counters, { schema: 0, current: 0, default: 0, write: 0, rejected: 0 });
   }
 
@@ -92,34 +94,37 @@ export class RefloatConfigurationModel {
     };
   }
 
-  respond(payload: Uint8Array, safe: boolean): Uint8Array | undefined {
+  respond(payload: Uint8Array, safe: boolean | 'riding' | 'flywheel'): Uint8Array | undefined {
+    this.rejectionReason = undefined;
     const command = payload[0];
+    if ((command === 93 || command === 95) && safe !== true) {
+      return this.reject(
+        safe === 'flywheel'
+          ? 'flywheel mode is active'
+          : safe === 'riding'
+            ? 'controller is not idle'
+            : 'controller is unsafe or flywheel mode is active'
+      );
+    }
+    if (command !== undefined && command >= 92 && command <= 95 && payload[1] !== 0) {
+      return this.reject('custom configuration index must be 0');
+    }
     if (command === 92) return this.schemaResponse(payload);
     if (command === 93) {
-      if (!safe || payload.length !== 2 || payload[1] !== 0) return this.reject();
+      if (payload.length !== 2) return this.reject('current read must contain exactly 2 bytes');
       this.counters.current += 1;
       return Uint8Array.from([93, 0, ...this.current]);
     }
     if (command === 94) {
-      if (payload.length !== 2 || payload[1] !== 0) return this.reject();
+      if (payload.length !== 2) return this.reject('default read must contain exactly 2 bytes');
       this.counters.default += 1;
       return Uint8Array.from([94, 0, ...this.defaults]);
     }
     if (command === 95) {
-      if (!safe || payload.length < 3 || payload[1] !== 0) return this.reject();
-      const values = payload.slice(2);
-      const restore = equal(values, this.initialCurrent);
-      if (!restore && !equal(values, this.acceptedWrite)) return this.reject();
-      this.current = (restore ? this.initialCurrent : this.expectedReadback).slice();
-      if (restore) {
-        // Apply only the audited firmware normalization bytes from the golden
-        // write/readback pair (meta.is_default is cleared after a write).
-        for (let index = 0; index < this.current.length; index += 1) {
-          if (this.acceptedWrite[index] !== this.expectedReadback[index]) {
-            this.current[index] = this.expectedReadback[index]!;
-          }
-        }
-      }
+      const values = payload.subarray(2);
+      const reason = this.layout.rejection(values, this.wireSignature);
+      if (reason) return this.reject(reason);
+      this.current = this.layout.normalize(values, this.normalization);
       this.counters.write += 1;
       return Uint8Array.of(95);
     }
@@ -127,16 +132,18 @@ export class RefloatConfigurationModel {
   }
 
   private schemaResponse(payload: Uint8Array): Uint8Array | undefined {
-    if (payload.length !== 10 || payload[1] !== 0) return this.reject();
+    if (payload.length !== 10) return this.reject('schema request must contain exactly 10 bytes');
     const length = i32(payload, 2);
     const offset = i32(payload, 6);
-    if (length < 1 || length > MAX_CHUNK_BYTES || offset < 0 || offset >= this.schema.length) return this.reject();
+    if (length < 1 || length > MAX_CHUNK_BYTES) return this.reject('schema chunk length must be between 1 and 400');
+    if (offset < 0 || offset >= this.schema.length) return this.reject('schema chunk offset is out of bounds');
     const chunk = this.schema.slice(offset, Math.min(this.schema.length, offset + length));
     this.counters.schema += 1;
     return Uint8Array.from([92, 0, ...encodeI32(this.schema.length), ...encodeI32(offset), ...chunk]);
   }
 
-  private reject(): undefined {
+  private reject(reason: string): undefined {
+    this.rejectionReason = reason;
     this.counters.rejected += 1;
     return undefined;
   }
@@ -156,8 +163,4 @@ function i32(bytes: Uint8Array, offset: number) {
 
 function encodeI32(value: number) {
   return [value >>> 24, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
-}
-
-function equal(left: Uint8Array, right: Uint8Array) {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

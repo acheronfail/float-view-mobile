@@ -264,9 +264,16 @@ export class VescSimulator {
       return { request: { at, command, canId, kind: 'controller-shutdown' } };
     }
     if (command >= 92 && command <= 95) {
-      const safe = !board.refloatControls.state.flywheelEnabled && board.telemetry.phase() === 'idle';
+      const safe = board.refloatControls.state.flywheelEnabled
+        ? 'flywheel'
+        : board.telemetry.phase() === 'idle'
+          ? true
+          : 'riding';
       const response = board.refloatConfiguration.respond(payload, safe);
-      if (!response) return this.reject(`Rejected Refloat configuration command ${command}`);
+      if (!response)
+        return this.reject(
+          `Rejected Refloat configuration command ${command}: ${board.refloatConfiguration.rejectionReason}`
+        );
       const kind =
         command === 92
           ? 'refloat-configuration-schema'
@@ -377,10 +384,16 @@ export class VescSimulator {
       return { request: { ...base, kind: 'controller-shutdown' } };
     }
     if (command >= 92 && command <= 95 && controller.refloatConfiguration) {
-      const safe =
-        !controller.refloatControls?.state.flywheelEnabled && (controller.telemetry?.phase() ?? 'idle') === 'idle';
+      const safe = controller.refloatControls?.state.flywheelEnabled
+        ? 'flywheel'
+        : (controller.telemetry?.phase() ?? 'idle') === 'idle'
+          ? true
+          : 'riding';
       const response = controller.refloatConfiguration.respond(payload, safe);
-      if (!response) return this.rejectBoard(`Rejected Refloat configuration command ${command}`);
+      if (!response)
+        return this.rejectBoard(
+          `Rejected Refloat configuration command ${command}: ${controller.refloatConfiguration.rejectionReason}`
+        );
       const kind =
         command === 92
           ? 'refloat-configuration-schema'

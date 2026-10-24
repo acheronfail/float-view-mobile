@@ -54,10 +54,13 @@ The ESP32 remains unchanged and has no VBMS scenario logic.
 Each semantic controller also owns one exact versioned Refloat configuration
 model backed by the immutable backend fixtures. It serves commands 92–95 over
 direct or once-forwarded CAN routes, retains disposable current/default/write
-state, applies expected firmware normalization, and resets safely without
+state, accepts arbitrary complete writes validated against the selected schema
+and wire signature, applies expected firmware normalization, and resets safely without
 duplicating nine board profiles. The request panel exposes only bounded identity,
 byte counts, operation/rejection counters, and sanitized diagnostics. Raw schema
-and value bodies are never rendered. Riding/flywheel current reads and writes,
+and value bodies are never rendered. Rejections report their specific reason
+(unsafe state, index, request length, wire signature, field value, or schema chunk
+bounds) with the command and route, without logging configuration values. Riding/flywheel current reads and writes,
 unknown indexes/routes, malformed requests, and unsafe app-data
 remain rejected; the ESP32 continues to interpret none of them.
 

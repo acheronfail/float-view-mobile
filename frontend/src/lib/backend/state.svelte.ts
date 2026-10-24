@@ -23,7 +23,7 @@ import type {
   RefloatTuneListPage,
 } from '$lib/backend/contract';
 import { connectBootstrap, loadBootstrap, type FrontendPlatform } from './bootstrap';
-import { ApiRequestError, type ApiClient } from './client';
+import { ApiRequestError, ApiRequestTimeoutError, type ApiClient } from './client';
 import { SessionDataClient } from './session-data-client';
 import { SessionReviewController } from './session-controller';
 import { SessionExportClient, triggerBrowserDownload, type SessionExportFormat } from './session-export-client';
@@ -268,15 +268,29 @@ export class BackendState {
     baseRevision: number,
     values: Record<string, RefloatConfigurationValue>
   ): Promise<RefloatConfigurationValues | null> {
-    return this.query((client) =>
-      client.request('refloat.configuration.write', {
-        packageVersion: identity.packageVersion,
-        schemaFingerprint: identity.schemaFingerprint,
-        wireSignature: identity.wireSignature,
-        baseRevision,
-        values,
-      })
-    );
+    return this.query(async (client) => {
+      try {
+        return await client.request('refloat.configuration.write', {
+          packageVersion: identity.packageVersion,
+          schemaFingerprint: identity.schemaFingerprint,
+          wireSignature: identity.wireSignature,
+          baseRevision,
+          values,
+        });
+      } catch (error) {
+        if (error instanceof ApiRequestTimeoutError) {
+          throw new Error(
+            'Timed out waiting for the configuration write to be confirmed. The write may have reached the controller. Read current values before retrying.'
+          );
+        }
+        if (error instanceof ApiRequestError && error.code === 'unavailable') {
+          throw new Error(
+            'The configuration write could not be confirmed. The controller may have timed out or disconnected. Read current values before retrying.'
+          );
+        }
+        throw error;
+      }
+    });
   }
 
   listRefloatTunes(

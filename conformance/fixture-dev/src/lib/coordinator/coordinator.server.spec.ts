@@ -190,6 +190,41 @@ test('unsupported protocol requests are visible and do not detach serial', async
   await coordinator.cleanup();
 });
 
+test('configuration rejection logs retain the route and specific sanitized reason', async () => {
+  for (const topology of ['direct', 'express'] as const) {
+    const fixture = new FakeFixture();
+    const logs: string[] = [];
+    const coordinator = coordinatorFor(fixture, (_level, message) => logs.push(message));
+    await coordinator.act({ kind: 'attach', path: '/dev/fixture' });
+    await coordinator.act({ kind: 'configure', configuration: configuration({ topology }) });
+    await coordinator.act({ kind: 'power-on' });
+    fixture.emit({ kind: 'CONNECTED' });
+    const route = (payload: number[]) =>
+      encodeFrame(Uint8Array.from(topology === 'direct' ? payload : [34, 1, ...payload]));
+    for (const [index, payload, reason] of [
+      [1, [95, 0, 1, 2, 3], 'configuration length mismatch'],
+      [2, [95, 1, 1, 2, 3], 'custom configuration index must be 0'],
+    ] as const) {
+      fixture.emit({ kind: 'WRITE', bytes: route([...payload]) });
+      await eventually(() => coordinator.snapshot().counters.dropped === index);
+      const error = coordinator.snapshot().lastAttempt?.error;
+      assert.ok(error?.includes(reason), error);
+      assert.ok(
+        logs.some(
+          (line) =>
+            line.includes(`command=95 route=${topology === 'direct' ? 'direct' : 'CAN:1'}`) && line.includes(reason)
+        )
+      );
+    }
+    await coordinator.act({ kind: 'start-riding' });
+    fixture.emit({ kind: 'WRITE', bytes: route([95, 0]) });
+    await eventually(() => coordinator.snapshot().counters.dropped === 3);
+    assert.match(coordinator.snapshot().lastAttempt?.error ?? '', /controller is not idle/);
+    assert.equal(coordinator.snapshot().serial.status, 'attached');
+    await coordinator.cleanup();
+  }
+});
+
 test('ports are bounded and initial attachment failure becomes detached state', async () => {
   const coordinator = new FixtureCoordinator({
     open: async () => {

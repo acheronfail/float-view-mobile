@@ -10,7 +10,7 @@ import type {
   BluetoothState,
 } from '$lib/backend/contract';
 import { defaultAnnouncements } from '$lib/backend/contract';
-import { ApiRequestError, type ApiClient } from './client';
+import { ApiRequestError, ApiRequestTimeoutError, type ApiClient } from './client';
 import { BackendState, permissionOutcome } from './state.svelte';
 
 const bluetooth = (scanPermission: BluetoothPermissionState): BluetoothState => ({
@@ -268,6 +268,46 @@ class FakeClient {
 }
 
 describe('BackendState', () => {
+  it.each([
+    [
+      new ApiRequestError({ code: 'unavailable', message: 'Backend service is unavailable' }),
+      'may have timed out or disconnected',
+    ],
+    [new ApiRequestTimeoutError('refloat.configuration.write'), 'Timed out waiting for the configuration write'],
+    [new ApiRequestError({ code: 'invalid_state', message: 'Controller must be idle' }), 'Controller must be idle'],
+    [
+      new ApiRequestError({ code: 'conflict', message: 'Configuration changed on the controller' }),
+      'Configuration changed on the controller',
+    ],
+  ])('explains configuration write failures without claiming success: %s', async (failure, expected) => {
+    const client = new FakeClient();
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    const original = client.request.bind(client);
+    client.request = async <M extends BackendMethod>(
+      method: M,
+      params: BackendParams<M>
+    ): Promise<BackendResult<M>> => {
+      if (method === 'refloat.configuration.write') throw failure;
+      return original(method, params);
+    };
+    const result = await store.writeRefloatConfiguration(
+      { packageName: 'refloat', packageVersion: '1.3.0', schemaFingerprint: 'test', wireSignature: 1 },
+      1,
+      {}
+    );
+    expect(result).toBeNull();
+    expect(store.error).toContain(expected);
+    if (failure instanceof ApiRequestTimeoutError || failure.code === 'unavailable')
+      expect(store.error).toContain('Read current values before retrying');
+    expect(store.status).toBe('connected');
+    expect(store.busy).toBe(false);
+    store.close();
+  });
+
   it.each([
     ['granted', 'ready'],
     ['not_required', 'ready'],
