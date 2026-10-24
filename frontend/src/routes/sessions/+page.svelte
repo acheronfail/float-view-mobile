@@ -9,6 +9,7 @@
   import BoardList from '$lib/features/boards/BoardList.svelte';
   import PruneDialog from '$lib/features/sessions/PruneDialog.svelte';
   import LastRideSubtitle from '$lib/features/sessions/LastRideSubtitle.svelte';
+  import LastRideButton from '$lib/features/sessions/LastRideButton.svelte';
 
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   let importInput = $state<HTMLInputElement>();
@@ -85,6 +86,7 @@
     <p class="text-warning" role="alert">{backendState.error}</p>
   {/if}
   <CurrentRideButton />
+  <LastRideButton />
   <BoardList />
   <SessionStorageFooter />
 </section>

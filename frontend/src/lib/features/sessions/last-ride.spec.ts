@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { SavedDevice } from '$lib/backend/contract';
-import { lastRideLabel, latestRideAt } from './last-ride';
+import { lastRideLabel, latestRideAt, latestRideBoard } from './last-ride';
 
 const board = (date: string | null) => ({ summary: { mostRecentSessionAt: date } }) as SavedDevice;
 
 describe('last ride subtitle', () => {
   it('selects the latest ride across boards and ignores missing or invalid dates', () => {
+    const latest = board('2026-02-01T00:00:00Z');
+    expect(latestRideBoard([board(null), board('invalid')])).toBeNull();
+    expect(latestRideBoard([board('2026-01-01T00:00:00Z'), latest, board(null)])).toBe(latest);
     expect(latestRideAt([board(null), board('invalid')])).toBeNull();
     expect(latestRideAt([])).toBeNull();
     expect(latestRideAt([board('2026-01-01T00:00:00Z'), board('2026-02-01T00:00:00Z'), board(null)])).toBe(

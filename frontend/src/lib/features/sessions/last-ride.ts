@@ -1,12 +1,21 @@
 import type { SavedDevice } from '$lib/backend/contract';
 
-export function latestRideAt(devices: readonly SavedDevice[]): number | null {
+export function latestRideBoard(devices: readonly SavedDevice[]): SavedDevice | null {
+  let board: SavedDevice | null = null;
   let latest: number | null = null;
   for (const device of devices) {
     const timestamp = Date.parse(device.summary.mostRecentSessionAt ?? '');
-    if (Number.isFinite(timestamp) && (latest === null || timestamp > latest)) latest = timestamp;
+    if (Number.isFinite(timestamp) && (latest === null || timestamp > latest)) {
+      latest = timestamp;
+      board = device;
+    }
   }
-  return latest;
+  return board;
+}
+
+export function latestRideAt(devices: readonly SavedDevice[]): number | null {
+  const board = latestRideBoard(devices);
+  return board ? Date.parse(board.summary.mostRecentSessionAt!) : null;
 }
 
 export function lastRideLabel(timestamp: number | null, now: number): string {
