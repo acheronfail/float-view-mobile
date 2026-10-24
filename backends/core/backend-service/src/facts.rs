@@ -81,7 +81,7 @@ record!(Controls {
     fatal_error_clearable: Option<bool>, pending_action: Option<String>,
 });
 record!(ConfigurationSummary {
-    availability: String, writable: bool, package_version: Option<String>, schema_fingerprint: Option<String>,
+    availability: String, writable: bool, write_block_reason: Option<String>, package_version: Option<String>, schema_fingerprint: Option<String>,
     wire_signature: Option<u32>, current_loaded: bool, default_loaded: bool, pending_operation: Option<String>,
 });
 record!(ConfigurationIdentity {

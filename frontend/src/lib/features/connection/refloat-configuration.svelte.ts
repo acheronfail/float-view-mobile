@@ -1,5 +1,6 @@
 import type {
   RefloatConfigurationField,
+  RefloatConfigurationWriteBlockReason,
   RefloatEditorDraft,
   RefloatConfigurationIdentity,
   RefloatConfigurationSchemaPage,
@@ -59,6 +60,20 @@ export function resolveRefloatConfigurationSection(
 ): RefloatConfigurationSection | null {
   return sections.find((section) => section.key === selectedKey) ?? sections[0] ?? null;
 }
+
+const writeBlockMessages: Record<RefloatConfigurationWriteBlockReason, string> = {
+  reconnecting: 'Wait for the board to reconnect before writing.',
+  loading: 'Wait for the Refloat configuration to finish loading.',
+  unavailable: 'Configuration is unavailable. Retry loading the configuration.',
+  readOnly: 'This firmware supports reading only. Connect to a board with supported writable firmware.',
+  busy: 'Wait for the current board operation to finish before writing.',
+  flywheel: 'Exit flywheel mode, then read current values before writing.',
+  riding: 'Stop riding and wait for the board to be ready before writing.',
+  stateUnknown: 'Wait for live board status before writing.',
+  packageNotReady: 'Wait for Refloat to be ready before writing.',
+  modeNotNormal: 'Return Refloat to normal mode before writing.',
+  currentRequired: 'Read current values before writing.',
+};
 
 export class RefloatConfigurationController {
   summary = $state<RefloatConfigurationSummary | null>(null);
@@ -161,9 +176,22 @@ export class RefloatConfigurationController {
     });
   }
 
+  get writeUnavailableReason(): string | null {
+    const reason = this.summary?.writeBlockReason;
+    if (reason) return writeBlockMessages[reason];
+    if (this.incompatible) return 'This draft uses a different firmware or schema. Read current values to replace it.';
+    if (this.source !== 'current') return 'You are viewing firmware defaults. Read current values before writing.';
+    if (!this.fresh || !this.summary?.currentLoaded) return 'Read current values before writing.';
+    if (Object.keys(this.validationErrors).length) return 'Fix the highlighted fields before writing.';
+    if (!this.summary?.writable) return 'Writing is unavailable. Refresh the board configuration before retrying.';
+    return null;
+  }
+
   get canWrite(): boolean {
     return Boolean(
       this.summary?.writable &&
+        this.summary.writeBlockReason === null &&
+        !this.error &&
         this.summary.currentLoaded &&
         this.fresh &&
         !this.incompatible &&

@@ -226,10 +226,21 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const current = await client.request('refloat.configuration.read', { source: 'current', refresh: true });
       let failWrite = true;
       let writeFailure: 'invalid_state' | 'unavailable' | 'timeout' = 'invalid_state';
+      let injectedBlockReason: 'riding' | null = null;
       let writes = 0;
       await context.routeWebSocket('**/api/ws?*', (socket) => {
         const server = socket.connectToServer();
-        server.onMessage((raw) => socket.send(raw));
+        server.onMessage((raw) => {
+          const envelope = JSON.parse(String(raw));
+          // This UI scenario controls backend admission independently of the mock's riding telemetry.
+          const snapshot = envelope.event === 'state.changed' ? envelope.data : envelope.result;
+          if (snapshot?.activeConnection?.refloatConfiguration) {
+            snapshot.activeConnection.refloatConfiguration.writeBlockReason = injectedBlockReason;
+          }
+          if (envelope.result && 'writeBlockReason' in envelope.result)
+            envelope.result.writeBlockReason = injectedBlockReason;
+          socket.send(JSON.stringify(envelope));
+        });
         socket.onMessage((raw) => {
           const request = JSON.parse(String(raw));
           if (request.method === 'refloat.configuration.write') {
@@ -276,6 +287,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const scroller = input?.closest('div.overflow-y-auto');
         return scroller && scroller.scrollHeight > scroller.clientHeight;
       });
+      await page.waitForFunction(() =>
+        document
+          .getElementById('refloat-configuration-controls')
+          ?.getAnimations()
+          .every((animation) => animation.playState !== 'running')
+      );
       await scroller.evaluate((el) => {
         el.scrollTop = el.scrollHeight;
       });
@@ -285,6 +302,25 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await open.tap();
       const dialog = page.getByRole('alertdialog', { name: 'Write persistent Refloat configuration?' });
       const confirm = dialog.getByRole('button', { name: 'Write and verify', exact: true });
+      injectedBlockReason = 'riding';
+      await dialog
+        .getByText('Stop riding and wait for the board to be ready before writing.', { exact: false })
+        .waitFor();
+      assert.equal(await confirm.isDisabled(), true);
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).tap();
+      await dialog.waitFor({ state: 'hidden' });
+      const status = page.getByRole('status').filter({ hasText: 'Stop riding' });
+      await status.waitFor();
+      const warningBounds = await status.boundingBox();
+      assert.ok(warningBounds && warningBounds.y >= 0 && warningBounds.y + warningBounds.height <= 400);
+      assert.equal(await open.isDisabled(), true);
+      assert.equal(await input.inputValue(), '0.85');
+      injectedBlockReason = null;
+      await page.waitForFunction(
+        () => !document.querySelector<HTMLButtonElement>('button[aria-describedby="refloat-write-readiness"]')
+      );
+      await open.tap();
+
       await confirm.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
       await confirm.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
       assert.equal(writes, 0);
@@ -299,9 +335,17 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).tap();
       await dialog.waitFor({ state: 'hidden' });
       assert.equal(await input.inputValue(), '0.85');
+      const retainedFailure = page.getByRole('alert').filter({ hasText: 'Write could not be confirmed.' });
+      await retainedFailure.waitFor();
+      const failureBounds = await retainedFailure.boundingBox();
+      assert.ok(failureBounds && failureBounds.y >= 0 && failureBounds.y + failureBounds.height <= 400);
       await page.setViewportSize({ width: 390, height: 600 });
       await open.tap();
-      assert.equal(await dialog.getByRole('alert').count(), 0, 'reopening retained the old error');
+      assert.equal(
+        await dialog.getByRole('alert').textContent(),
+        'Configuration test failure',
+        'reopening lost the previous failure'
+      );
       writeFailure = 'unavailable';
       await confirm.tap();
       await alert.waitFor();
@@ -323,6 +367,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await dialog.waitFor({ state: 'hidden' });
       assert.equal(writes, 4, 'pointer or keyboard activation duplicated a write');
       assert.equal(await open.isDisabled(), true, 'successful write did not clear the pending changes');
+      assert.equal(await retainedFailure.count(), 0, 'successful write retained a stale footer failure');
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

@@ -247,6 +247,7 @@ fn cached_activation_default_read_and_control_confirmation_share_one_scheduler()
         ValueSource::Current
     );
     assert!(snapshot.configuration.writable);
+    assert_eq!(snapshot.configuration_write_block_reason, None);
 
     let defaults = coordinator
         .apply(Command::ReadConfiguration {
@@ -324,6 +325,12 @@ fn configuration_write_holds_one_lease_through_ack_and_verified_readback() {
             .unwrap();
         let token = coordinator.snapshot().mutations.pending.expect("lease");
         assert_eq!(token.kind, PendingKind::ConfigurationWrite);
+        assert_eq!(
+            coordinator.snapshot().configuration_write_block_reason,
+            Some(
+                float_view_connection_application_coordinator::ConfigurationWriteBlockReason::Busy
+            )
+        );
         assert_eq!(write(&write_effects).payload[0..2], [95, 0]);
 
         let verification = receive(&mut coordinator, vec![95], 1_310);

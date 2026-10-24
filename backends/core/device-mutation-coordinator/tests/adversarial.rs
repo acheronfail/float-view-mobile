@@ -693,6 +693,7 @@ fn tune_apply_preserves_version_gate_and_other_configuration_guards() {
                         &mut coordinator,
                         sample_with(1, ride, state, mode, footpad, Some(false), None),
                     );
+                    let blocker = coordinator.configuration_block_reason(Generation(7), mutation);
                     let result = coordinator.apply(Command::BeginConfiguration {
                         generation: Generation(7),
                         mutation,
@@ -703,6 +704,11 @@ fn tune_apply_preserves_version_gate_and_other_configuration_guards() {
                                 && mutation == ConfigurationMutation::TuneApply
                                 && matches!(ride, RideState::Idle | RideState::Riding)
                                 && matches!(state, PackageState::Ready | PackageState::Running)));
+                    assert_eq!(
+                        blocker.is_none(),
+                        expected,
+                        "reason disagrees with admission: {blocker:?}"
+                    );
                     assert_eq!(
                         result.is_ok(),
                         expected,

@@ -1847,8 +1847,33 @@ export function assertState(state: AppState) {
       'schemaFingerprint',
       'wireSignature',
       'writable',
+      'writeBlockReason',
     ]);
     assert.ok(['loading', 'ready', 'unavailable'].includes(configuration.availability));
+    if (configuration.writeBlockReason === null) {
+      assert.equal(active.state, 'ready');
+      assert.equal(configuration.availability, 'ready');
+      assert.equal(configuration.writable, true);
+      assert.equal(configuration.currentLoaded, true);
+      assert.equal(configuration.pendingOperation, null);
+    }
+
+    assert.ok(
+      configuration.writeBlockReason === null ||
+        [
+          'reconnecting',
+          'loading',
+          'unavailable',
+          'readOnly',
+          'busy',
+          'flywheel',
+          'riding',
+          'stateUnknown',
+          'packageNotReady',
+          'modeNotNormal',
+          'currentRequired',
+        ].includes(configuration.writeBlockReason)
+    );
     assert.ok(
       configuration.pendingOperation === null ||
         ['schema', 'readCurrent', 'readDefault', 'write', 'applyTune'].includes(configuration.pendingOperation)

@@ -11,7 +11,7 @@ import type {
   BackendResult,
   Response,
 } from '$lib/backend/contract';
-import { MAX_MESSAGE_BYTES } from '$lib/backend/contract';
+import { MAX_MESSAGE_BYTES, REFLOAT_CONFIGURATION_WRITE_BLOCK_REASONS } from '$lib/backend/contract';
 
 type PendingRequest = {
   method: BackendMethod;
@@ -164,6 +164,7 @@ export class ApiClient {
       }
       try {
         validatePermissions(envelope.data.permissions);
+        validateConfigurationSummary(envelope.data.activeConnection?.refloatConfiguration);
       } catch {
         this.failProtocol('Backend sent an invalid result');
         return;
@@ -204,7 +205,11 @@ export class ApiClient {
       try {
         if (request.method === 'uiState.get' && envelope.result !== null && !validUiCheckpoint(envelope.result))
           throw new ApiProtocolError('Invalid UI checkpoint');
-        if (request.method === 'state.get') validatePermissions((envelope.result as AppState)?.permissions);
+        if (request.method === 'state.get') {
+          validatePermissions((envelope.result as AppState)?.permissions);
+          validateConfigurationSummary((envelope.result as AppState)?.activeConnection?.refloatConfiguration);
+        }
+        if (request.method === 'refloat.configuration.open') validateConfigurationSummary(envelope.result);
         if (request.method === 'permissions.recover') validatePermissions(envelope.result);
         if (request.method === 'session.get') {
           const metadata = envelope.result as BackendResult<'session.get'>;
@@ -216,9 +221,11 @@ export class ApiClient {
         const reason =
           request.method === 'uiState.get'
             ? 'invalid UI checkpoint'
-            : request.method === 'session.get'
-              ? 'invalid recording break metadata'
-              : 'invalid permission inventory';
+            : request.method === 'refloat.configuration.open'
+              ? 'invalid configuration write readiness'
+              : request.method === 'session.get'
+                ? 'invalid recording break metadata'
+                : 'invalid permission inventory';
         request.reject(new ApiProtocolError(`Backend sent an ${reason}`));
         this.close(1002, reason);
       }
@@ -283,4 +290,12 @@ export function connectApiClient(
     socket.addEventListener('open', handleOpen);
     socket.addEventListener('error', handleError);
   });
+}
+
+function validateConfigurationSummary(summary: unknown): void {
+  if (summary == null) return;
+  const reason = (summary as Record<string, unknown>).writeBlockReason;
+  if (reason !== null && !REFLOAT_CONFIGURATION_WRITE_BLOCK_REASONS.some((value) => value === reason)) {
+    throw new ApiProtocolError('Invalid configuration write-block reason');
+  }
 }

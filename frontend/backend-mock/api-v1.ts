@@ -42,6 +42,7 @@ import {
   type RefloatConfigurationField,
   type RefloatConfigurationIdentity,
   type RefloatConfigurationValue,
+  type RefloatConfigurationWriteBlockReason,
   type RefloatTune,
   type RefloatPendingAction,
   type Response,
@@ -678,6 +679,7 @@ export class MockBackend {
               refloatControls: readyRefloatControls(),
               refloatConfiguration: {
                 availability: 'ready',
+                writeBlockReason: null,
                 writable: true,
                 packageVersion: refloatIdentity.packageVersion,
                 schemaFingerprint: refloatIdentity.schemaFingerprint,
@@ -2359,6 +2361,19 @@ export class MockBackend {
               : next.settings.liveWidgetSlots,
         },
       };
+    const updatedActive = next.activeConnection;
+    if (updatedActive?.refloatConfiguration) {
+      next = {
+        ...next,
+        activeConnection: {
+          ...updatedActive,
+          refloatConfiguration: {
+            ...updatedActive.refloatConfiguration,
+            writeBlockReason: configurationWriteBlockReason(updatedActive),
+          },
+        },
+      };
+    }
     this.state = {
       ...next,
       savedDevices: catalogChanged ? this.refreshSummaries(this.sessionCatalog, next.savedDevices) : next.savedDevices,
@@ -2650,4 +2665,26 @@ function parseArchiveIdentity(archive: Uint8Array): { deviceHistoryId: string; d
   } catch {
     throw new Error('Session archive is missing a valid board identity');
   }
+}
+
+function configurationWriteBlockReason(active: ActiveConnection): RefloatConfigurationWriteBlockReason | null {
+  const summary = active.refloatConfiguration!;
+  if (active.state !== 'ready') return 'reconnecting';
+  if (summary.availability === 'loading') return 'loading';
+  if (summary.availability !== 'ready') return 'unavailable';
+  if (active.firmware?.accessMode !== 'readWrite') return 'readOnly';
+  if (
+    summary.pendingOperation !== null ||
+    active.refloatControls?.pendingAction != null ||
+    active.controllerActions.pendingAction !== null
+  )
+    return 'busy';
+  const sample = active.latestSample;
+  if (active.refloatControls?.flywheelEnabled || sample?.packageMode === 'flywheel') return 'flywheel';
+  if (!sample || sample.rideState === 'unknown' || !sample.packageState || !sample.packageMode) return 'stateUnknown';
+  if (sample.rideState === 'riding') return 'riding';
+  if (sample.rideState !== 'idle' || sample.packageState !== 'ready') return 'packageNotReady';
+  if (sample.packageMode !== 'normal') return 'modeNotNormal';
+  if (!summary.currentLoaded) return 'currentRequired';
+  return null;
 }

@@ -83,6 +83,22 @@ pub struct ActivationFacts {
     pub inventory_complete: bool,
 }
 
+/// Highest-priority blocker for an edited configuration write.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigurationWriteBlockReason {
+    Reconnecting,
+    Loading,
+    Unavailable,
+    ReadOnly,
+    Busy,
+    Flywheel,
+    Riding,
+    StateUnknown,
+    PackageNotReady,
+    ModeNotNormal,
+    CurrentRequired,
+}
+
 #[derive(Clone, PartialEq)]
 pub struct Snapshot {
     pub reported_refloat_version: Option<String>,
@@ -97,6 +113,7 @@ pub struct Snapshot {
     pub bms: bms::Snapshot,
     pub mutations: mutation::Snapshot,
     pub configuration: configuration::Snapshot,
+    pub configuration_write_block_reason: Option<ConfigurationWriteBlockReason>,
     pub current_limits: Option<controller_data::CurrentLimits>,
 }
 
@@ -556,8 +573,45 @@ impl ConnectionApplicationCoordinator {
             bms: self.bms.snapshot(),
             mutations: self.mutations.snapshot(),
             configuration: self.configuration.snapshot(),
+            configuration_write_block_reason: self.configuration_write_block_reason(),
             current_limits: self.current_limits,
         }
+    }
+
+    fn configuration_write_block_reason(&self) -> Option<ConfigurationWriteBlockReason> {
+        use ConfigurationWriteBlockReason as R;
+        use mutation::ConfigurationBlockReason as M;
+        if self.phase != Phase::Ready || self.standalone_bms {
+            return Some(R::Reconnecting);
+        }
+        let configuration = self.configuration.snapshot();
+        match configuration.availability {
+            configuration::Availability::Loading => return Some(R::Loading),
+            configuration::Availability::Unavailable => return Some(R::Unavailable),
+            configuration::Availability::Ready => {}
+        }
+        if let Some(reason) = self.mutations.configuration_block_reason(
+            self.scheduler.snapshot().generation,
+            mutation::ConfigurationMutation::Write,
+        ) {
+            return Some(match reason {
+                M::Reconnecting => R::Reconnecting,
+                M::ReadOnly => R::ReadOnly,
+                M::Busy => R::Busy,
+                M::Flywheel => R::Flywheel,
+                M::Riding => R::Riding,
+                M::StateUnknown => R::StateUnknown,
+                M::PackageNotReady => R::PackageNotReady,
+                M::ModeNotNormal => R::ModeNotNormal,
+            });
+        }
+        if configuration.pending.is_some() {
+            return Some(R::Busy);
+        }
+        if configuration.current.is_none() {
+            return Some(R::CurrentRequired);
+        }
+        None
     }
 
     #[must_use]

@@ -938,6 +938,24 @@ describe('deterministic mock backend', () => {
     expect(read()).toMatchObject({ result: null });
   });
 
+  it('publishes specific edited-write reasons as board state changes', () => {
+    const backend = new MockBackend();
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'guest' } });
+    backend.publishTelemetry();
+    const reason = () => backend.handle({ id: 3, method: 'refloat.configuration.open', params: {} });
+    backend.simulateRideState('idle');
+    expect(reason()).toMatchObject({ result: { writeBlockReason: null } });
+    backend.simulateRideState('riding');
+    expect(reason()).toMatchObject({ result: { writeBlockReason: 'riding' } });
+    backend.simulateRefloatControls({ flywheelEnabled: true });
+    expect(reason()).toMatchObject({ result: { writeBlockReason: 'flywheel' } });
+    backend.simulateRefloatControls({ flywheelEnabled: false, pendingAction: 'leds' });
+    expect(reason()).toMatchObject({ result: { writeBlockReason: 'busy' } });
+    backend.simulateConnectionState('reconnecting');
+    expect(reason()).toMatchObject({ result: { writeBlockReason: 'reconnecting' } });
+  });
+
   it('models bounded configuration pages, verified writes, flywheel exclusion, and exact-version Tunes', () => {
     const backend = new MockBackend();
     backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });

@@ -22,6 +22,7 @@ const connection: ActiveConnection = {
   refloatControls: null,
   refloatConfiguration: {
     availability: 'ready',
+    writeBlockReason: null,
     writable: true,
     packageVersion: '1.2.3',
     schemaFingerprint: 'a'.repeat(64),

@@ -32,10 +32,14 @@ pub(crate) fn route(route: c::discovery::Route) -> f::Route {
         c::discovery::Route::Can(can_id) => f::Route::Can { can_id },
     }
 }
-pub(crate) fn configuration(s: &c::configuration::Snapshot) -> f::ConfigurationSummary {
+pub(crate) fn configuration(
+    s: &c::configuration::Snapshot,
+    reason: Option<c::ConfigurationWriteBlockReason>,
+) -> f::ConfigurationSummary {
     f::ConfigurationSummary {
         availability: camel(s.availability),
         writable: s.writable,
+        write_block_reason: reason.map(camel),
         package_version: s.identity.as_ref().map(|i| i.package_version.to_string()),
         schema_fingerprint: s.identity.as_ref().map(|i| i.fingerprint.to_string()),
         wire_signature: s.identity.as_ref().map(|i| i.wire_signature),
@@ -327,7 +331,10 @@ impl BackendService {
                     .unwrap_or_else(|| "readOnly".into()),
             }),
             package_version: p.active.as_ref().and_then(|a| a.package_version.clone()),
-            configuration: configuration(&runtime.configuration),
+            configuration: configuration(
+                &runtime.configuration,
+                runtime.configuration_write_block_reason,
+            ),
             saved_boards: p.boards.clone(),
             settings: settings(&p.settings),
             permissions: self.permission_rows(),

@@ -407,8 +407,27 @@ export interface ControllerActions {
 export type RefloatConfigurationAvailability = 'loading' | 'ready' | 'unavailable';
 export type RefloatConfigurationOperation = 'schema' | 'readCurrent' | 'readDefault' | 'write' | 'applyTune';
 
+/** Shared backend admission blocker for edited configuration writes, independent of Tune policy. */
+export const REFLOAT_CONFIGURATION_WRITE_BLOCK_REASONS = [
+  'reconnecting',
+  'loading',
+  'unavailable',
+  'readOnly',
+  'busy',
+  'flywheel',
+  'riding',
+  'stateUnknown',
+  'packageNotReady',
+  'modeNotNormal',
+  'currentRequired',
+] as const;
+export type RefloatConfigurationWriteBlockReason = (typeof REFLOAT_CONFIGURATION_WRITE_BLOCK_REASONS)[number];
+
 export interface RefloatConfigurationSummary {
+  /** Null when backend preconditions for an edited write are satisfied; draft validation remains local. */
+  writeBlockReason: RefloatConfigurationWriteBlockReason | null;
   availability: RefloatConfigurationAvailability;
+  /** Capability-level writable state; this alone does not establish edited-write safety. */
   writable: boolean;
   packageVersion: string | null;
   schemaFingerprint: string | null;

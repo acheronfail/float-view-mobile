@@ -158,6 +158,19 @@ pub enum CoordinatorError {
     InvalidLightingResponse,
 }
 
+/// Authoritative blocker for configuration mutation admission.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigurationBlockReason {
+    Reconnecting,
+    ReadOnly,
+    Busy,
+    Flywheel,
+    Riding,
+    StateUnknown,
+    PackageNotReady,
+    ModeNotNormal,
+}
+
 /// Complete bounded current candidate state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Snapshot {
@@ -728,21 +741,10 @@ impl DeviceMutationCoordinator {
         generation: scheduler::Generation,
         mutation: ConfigurationMutation,
     ) -> Result<Vec<Effect>, CoordinatorError> {
-        self.validate_configuration_mutable(generation)?;
-        let riding_tune = mutation == ConfigurationMutation::TuneApply && self.riding_tune_apply;
-        let state_allowed = if riding_tune {
-            matches!(
-                self.ride_state,
-                telemetry::RideState::Idle | telemetry::RideState::Riding
-            ) && matches!(
-                self.package_state,
-                Some(telemetry::PackageState::Ready | telemetry::PackageState::Running)
-            )
-        } else {
-            self.ride_state == telemetry::RideState::Idle
-                && self.package_state == Some(telemetry::PackageState::Ready)
-        };
-        if !state_allowed || self.package_mode != Some(telemetry::PackageMode::Normal) {
+        if self
+            .configuration_block_reason(generation, mutation)
+            .is_some()
+        {
             return Err(CoordinatorError::InvalidState);
         }
         let token = self.reserve(mutation.pending_kind(), None);
@@ -868,18 +870,55 @@ impl DeviceMutationCoordinator {
         Ok(())
     }
 
-    fn validate_configuration_mutable(
+    /// Query the same policy used to admit writes, without reserving a mutation.
+    #[must_use]
+    pub fn configuration_block_reason(
         &self,
         generation: scheduler::Generation,
-    ) -> Result<(), CoordinatorError> {
-        if !self.is_current(generation)
-            || !self.connection_ready
-            || !self.writable
-            || self.pending.is_some()
-        {
-            return Err(CoordinatorError::InvalidState);
+        mutation: ConfigurationMutation,
+    ) -> Option<ConfigurationBlockReason> {
+        use ConfigurationBlockReason as R;
+        if !self.is_current(generation) || !self.connection_ready {
+            return Some(R::Reconnecting);
         }
-        Ok(())
+        if !self.writable {
+            return Some(R::ReadOnly);
+        }
+        if self.pending.is_some() {
+            return Some(R::Busy);
+        }
+        if self.package_mode == Some(telemetry::PackageMode::Flywheel) {
+            return Some(R::Flywheel);
+        }
+        let riding_tune = mutation == ConfigurationMutation::TuneApply && self.riding_tune_apply;
+        let state_allowed = if riding_tune {
+            matches!(
+                self.ride_state,
+                telemetry::RideState::Idle | telemetry::RideState::Riding
+            ) && matches!(
+                self.package_state,
+                Some(telemetry::PackageState::Ready | telemetry::PackageState::Running)
+            )
+        } else {
+            self.ride_state == telemetry::RideState::Idle
+                && self.package_state == Some(telemetry::PackageState::Ready)
+        };
+        if self.ride_state == telemetry::RideState::Unknown
+            || self.package_state.is_none()
+            || self.package_mode.is_none()
+        {
+            return Some(R::StateUnknown);
+        }
+        if !riding_tune && self.ride_state == telemetry::RideState::Riding {
+            return Some(R::Riding);
+        }
+        if !state_allowed {
+            return Some(R::PackageNotReady);
+        }
+        if self.package_mode != Some(telemetry::PackageMode::Normal) {
+            return Some(R::ModeNotNormal);
+        }
+        None
     }
 
     fn authorize_request(
@@ -1016,6 +1055,60 @@ fn routed_payload(route: scheduler::Route, payload: &[u8]) -> Result<Vec<u8>, Co
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn configuration_blockers_are_specific_and_do_not_reserve_a_write() {
+        use ConfigurationBlockReason as R;
+        let mut c = DeviceMutationCoordinator::new();
+        let generation = scheduler::Generation(7);
+        let write = ConfigurationMutation::Write;
+        assert_eq!(
+            c.configuration_block_reason(generation, write),
+            Some(R::Reconnecting)
+        );
+        c.configured = true;
+        c.generation = generation;
+        c.connection_ready = true;
+        assert_eq!(
+            c.configuration_block_reason(generation, write),
+            Some(R::ReadOnly)
+        );
+        c.writable = true;
+        assert_eq!(
+            c.configuration_block_reason(generation, write),
+            Some(R::StateUnknown)
+        );
+        c.ride_state = telemetry::RideState::Riding;
+        c.package_state = Some(telemetry::PackageState::Running);
+        c.package_mode = Some(telemetry::PackageMode::Flywheel);
+        assert_eq!(
+            c.configuration_block_reason(generation, write),
+            Some(R::Flywheel)
+        );
+        c.package_mode = Some(telemetry::PackageMode::Normal);
+        assert_eq!(
+            c.configuration_block_reason(generation, write),
+            Some(R::Riding)
+        );
+        c.riding_tune_apply = true;
+        assert_eq!(
+            c.configuration_block_reason(generation, ConfigurationMutation::TuneApply),
+            None
+        );
+        c.ride_state = telemetry::RideState::Idle;
+        assert_eq!(
+            c.configuration_block_reason(generation, write),
+            Some(R::PackageNotReady)
+        );
+        c.package_state = Some(telemetry::PackageState::Ready);
+        assert_eq!(c.configuration_block_reason(generation, write), None);
+        assert!(c.pending.is_none());
+        c.reserve(PendingKind::ConfigurationWrite, None);
+        assert_eq!(
+            c.configuration_block_reason(generation, write),
+            Some(R::Busy)
+        );
+    }
 
     #[test]
     fn token_counter_wraps_with_generation_identity_intact() {

@@ -156,3 +156,11 @@ it('reports bounded delivery timings at most once per ten seconds without revisi
     clock.mockRestore();
   }
 });
+
+it.each(['arbitrary', undefined, 42])('rejects invalid configuration write readiness %s', async (reason) => {
+  const { client, socket } = setup();
+  const pending = client.request('refloat.configuration.open', {});
+  socket.receive({ id: 1, result: { writeBlockReason: reason } });
+  await expect(pending).rejects.toThrow('invalid configuration write readiness');
+  expect(client.isOpen).toBe(false);
+});

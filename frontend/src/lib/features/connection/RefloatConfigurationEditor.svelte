@@ -21,6 +21,9 @@
   let { controller }: { controller: RefloatConfigurationController } = $props();
   let writeConfirmation = $state(false);
   let writeError = $state<string | null>(null);
+  const readinessWarning = $derived(
+    controller.loading ? null : (controller.error ?? controller.writeUnavailableReason)
+  );
   const controlsExpanded = $derived(controller.position.controlsExpanded);
   const selectedSectionKey = $derived(controller.position.sectionKey);
   let scroller = $state<HTMLDivElement>();
@@ -45,18 +48,23 @@
   });
 
   async function write() {
-    writeError = null;
     try {
-      if (await controller.write()) writeConfirmation = false;
-      else writeError = backendState.error ?? 'The configuration could not be written. Please try again.';
+      if (await controller.write()) {
+        writeError = null;
+        writeConfirmation = false;
+      } else writeError = backendState.error ?? 'The configuration could not be written. Please try again.';
     } catch (error) {
       writeError = error instanceof Error ? error.message : 'The configuration could not be written. Please try again.';
     }
   }
 
   function confirmWrite() {
-    writeError = null;
     writeConfirmation = true;
+  }
+
+  async function readValues(source: 'current' | 'default') {
+    await controller.load(source);
+    if (!controller.error) writeError = null;
   }
 
   function showHelp(field: RefloatConfigurationFieldContract, trigger: HTMLButtonElement) {
@@ -79,7 +87,7 @@
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-labelledby="refloat-configuration-title">
-  <div class="z-10 -mx-4 -mt-px shrink-0 border-y border-outline bg-surface px-4 py-1">
+  <div class="z-10 -mx-4 -mt-px max-h-[45%] min-h-12 overflow-y-auto border-y border-outline bg-surface px-4 py-1">
     <div class="flex min-h-11 items-center text-sm">
       {#if !controlsExpanded}
         <div class="max-w-[65%] min-w-0">
@@ -143,16 +151,16 @@
             type="button"
             class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
             disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
-            onpointerdown={(event) => activateFromPointer(event, () => controller.load('current'))}
-            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('current'))}
+            onpointerdown={(event) => activateFromPointer(event, () => readValues('current'))}
+            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => readValues('current'))}
             >Read current</button
           >
           <button
             type="button"
             class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
             disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
-            onpointerdown={(event) => activateFromPointer(event, () => controller.load('default'))}
-            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('default'))}
+            onpointerdown={(event) => activateFromPointer(event, () => readValues('default'))}
+            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => readValues('default'))}
             >Read defaults</button
           >
         </div>
@@ -170,7 +178,7 @@
 
   <div
     bind:this={scroller}
-    class="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-3"
+    class="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain py-3 [overflow-anchor:none]"
     onscroll={() => {
       if (scroller && !controller.loading) controller.setPosition({ scrollTop: Math.max(0, scroller.scrollTop) });
     }}
@@ -216,54 +224,58 @@
         onpointerdown={(event) => activateFromPointer(event, () => controller.open())}
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.open())}>Retry</button
       >
-    {:else}
-      {#if controller.summary?.writable === false}
-        <p class="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
-          Persistent writes are unavailable. The board may be read-only, reconnecting, unsafe, or in flywheel mode.
-        </p>
-      {/if}
-      {#if selectedSection}
-        <section class="grid gap-2" aria-labelledby="refloat-selected-section">
-          <h3 id="refloat-selected-section" class="text-lg font-semibold">
-            {selectedSection.group} · {selectedSection.subgroup}
-          </h3>
-          {#if visibleFields.length}
-            <div class="grid gap-2 md:grid-cols-2">
-              {#each visibleFields as field, index (field.name)}
-                {#if field.heading && (index === 0 || field.heading !== visibleFields[index - 1]?.heading)}
-                  <h4
-                    class="mt-3 border-b border-outline pb-1 text-sm font-semibold text-muted first:mt-0 md:col-span-2"
-                  >
-                    {field.heading}
-                  </h4>
-                {/if}
-                <RefloatConfigurationField
-                  {field}
-                  value={controller.draft[field.name]}
-                  error={controller.validationErrors[field.name]}
-                  disabled={controller.loading || backendState.busy || !controller.loaded || !!controller.incompatible}
-                  input={controller.inputs[field.name]}
-                  onnumericinput={(input) => controller.setNumericInput(field.name, input)}
-                  onchange={(value) => controller.setValue(field.name, value)}
-                  onhelp={showHelp}
-                />
-              {/each}
-            </div>
-          {:else}
-            <p class="rounded-lg border border-outline p-3 text-sm text-muted">No fields match this search.</p>
-          {/if}
-        </section>
-      {/if}
+    {:else if selectedSection}
+      <section class="grid gap-2" aria-labelledby="refloat-selected-section">
+        <h3 id="refloat-selected-section" class="text-lg font-semibold">
+          {selectedSection.group} · {selectedSection.subgroup}
+        </h3>
+        {#if visibleFields.length}
+          <div class="grid gap-2 md:grid-cols-2">
+            {#each visibleFields as field, index (field.name)}
+              {#if field.heading && (index === 0 || field.heading !== visibleFields[index - 1]?.heading)}
+                <h4 class="mt-3 border-b border-outline pb-1 text-sm font-semibold text-muted first:mt-0 md:col-span-2">
+                  {field.heading}
+                </h4>
+              {/if}
+              <RefloatConfigurationField
+                {field}
+                value={controller.draft[field.name]}
+                error={controller.validationErrors[field.name]}
+                disabled={controller.loading || backendState.busy || !controller.loaded || !!controller.incompatible}
+                input={controller.inputs[field.name]}
+                onnumericinput={(input) => controller.setNumericInput(field.name, input)}
+                onchange={(value) => controller.setValue(field.name, value)}
+                onhelp={showHelp}
+              />
+            {/each}
+          </div>
+        {:else}
+          <p class="rounded-lg border border-outline p-3 text-sm text-muted">No fields match this search.</p>
+        {/if}
+      </section>
     {/if}
   </div>
 
-  {#if !(controller.loading && !controller.pages.length) && !controller.error}
+  {#if controller.pages.length}
     <div
       class="-mx-4 grid shrink-0 gap-2 border-t border-outline bg-surface px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] shadow-[0_-4px_8px_-6px_rgb(0_0_0_/_0.35)]"
     >
+      {#if writeError || readinessWarning}
+        <div
+          class="max-h-[min(10rem,30dvh)] space-y-2 overflow-y-auto rounded-md border border-warning/40 bg-warning/10 p-2 text-sm text-warning"
+        >
+          {#if writeError}
+            <p role="alert"><strong>Write could not be confirmed.</strong> {writeError}</p>
+          {/if}
+          {#if readinessWarning}
+            <p id="refloat-write-readiness" role="status" aria-live="polite">{readinessWarning}</p>
+          {/if}
+        </div>
+      {/if}
       <button
         type="button"
         class="min-h-11 touch-manipulation rounded-md bg-accent-fill px-3 py-2 text-sm leading-tight text-on-accent disabled:opacity-50"
+        aria-describedby={readinessWarning ? 'refloat-write-readiness' : undefined}
         disabled={!controller.canWrite || controller.loading || backendState.busy}
         onpointerdown={(event) => activateFromPointer(event, confirmWrite)}
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, confirmWrite)}>Write configuration</button
@@ -290,7 +302,7 @@
   appearance="warning"
   busy={controller.loading || backendState.busy}
   confirmDisabled={!controller.canWrite}
-  error={writeError}
+  error={controller.loading ? null : [writeError, readinessWarning].filter(Boolean).join(' ') || null}
   onconfirm={write}
   oncancel={() => {
     writeConfirmation = false;

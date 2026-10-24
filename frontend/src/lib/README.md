@@ -610,3 +610,20 @@ or unreadable INFO failures retain generic retry guidance. Both native hosts use
 the shared projection, without adapter-specific interpretation.
 
 The live route restores `BoardProfileValues.lastLiveView` per saved board (Live by default), with an eligible process checkpoint taking precedence. Explicit selection saves only that field before mounting the destination so its dashboard editor reads the current revision. Preference conflicts retry once from a fresh profile; dashboard draft saves retain their explicit conflict handling. Guests do not persist a selection.
+
+## Refloat configuration write feedback
+
+The shared backend publishes `RefloatConfigurationSummary.writeBlockReason` for
+edited configuration writes, using the same mutation admission policy as actual
+writes. `writable` remains a capability flag; supported riding Tune application
+keeps its separate policy. The frontend maps closed reasons to actionable text
+without inferring board authority from telemetry.
+
+The editor keeps readiness guidance in its fixed footer and confirmation, so
+scrolling fields cannot hide a blocked write. Expanded section/search controls
+scroll within a bounded area on short screens, and status changes do not anchor
+the field scroller to a different position. A failed-write message remains in
+the footer after dismissal and reopening; only a successful write or explicit
+read clears it. Reads deliberately replace the draft with their selected source;
+status changes and error dismissal preserve edits and scroll and never retry a
+mutation automatically.

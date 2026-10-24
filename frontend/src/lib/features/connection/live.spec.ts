@@ -240,6 +240,7 @@ describe('live board behavior', () => {
     ready.refloatControls = { ...refloatControls };
     ready.refloatConfiguration = {
       availability: 'ready',
+      writeBlockReason: null,
       writable: true,
       packageVersion: '1.2.3',
       schemaFingerprint: 'a'.repeat(64),
@@ -291,6 +292,7 @@ describe('live board behavior', () => {
       ready.refloatControls = { ...refloatControls };
       ready.refloatConfiguration = {
         availability: 'ready',
+        writeBlockReason: null,
         writable: true,
         packageVersion,
         schemaFingerprint: 'a'.repeat(64),

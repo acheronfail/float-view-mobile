@@ -1,3 +1,4 @@
+import { REFLOAT_CONFIGURATION_WRITE_BLOCK_REASONS } from '$lib/backend/contract';
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 import type {
@@ -88,6 +89,7 @@ class FakeBackend implements RefloatConfigurationBackend {
   async openRefloatConfiguration() {
     return {
       availability: 'ready' as const,
+      writeBlockReason: null,
       writable: true,
       packageVersion: identity.packageVersion,
       schemaFingerprint: identity.schemaFingerprint,
@@ -120,6 +122,21 @@ class FakeBackend implements RefloatConfigurationBackend {
 }
 
 describe('generated Refloat configuration', () => {
+  it.each(REFLOAT_CONFIGURATION_WRITE_BLOCK_REASONS)(
+    'explains backend blocker %s without discarding edits',
+    async (reason) => {
+      const controller = new RefloatConfigurationController(new FakeBackend());
+      await controller.open();
+      controller.setValue('gain', { type: 'double', value: 1.2 });
+      controller.reconcile({ ...controller.summary!, writeBlockReason: reason });
+      expect(controller.writeUnavailableReason).toBeTruthy();
+      expect(controller.canWrite).toBe(false);
+      expect(controller.draft.gain).toEqual({ type: 'double', value: 1.2 });
+      controller.reconcile({ ...controller.summary!, writeBlockReason: null });
+      expect(controller.canWrite).toBe(true);
+    }
+  );
+
   it('loads deterministic pages, tracks source and dirty state, and writes exactly once', async () => {
     const backend = new FakeBackend();
     const controller = new RefloatConfigurationController(backend);
