@@ -154,11 +154,9 @@
                   aria-describedby={action.checked === null ? `${titleId}-unknown-${action.label}` : undefined}
                   aria-busy={action.pending || undefined}
                   disabled={action.disabled || action.pending || action.checked === null}
-                  class={`flex min-h-14 min-w-0 touch-pan-y items-center gap-2 rounded-lg border border-outline bg-surface px-3 py-2 text-left hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ${stacked ? 'max-sm:flex-col max-sm:justify-center max-sm:text-center' : ''}`}
+                  class={`flex min-h-14 min-w-0 touch-pan-y items-center gap-2 rounded-lg border border-outline px-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ${action.selected ? 'bg-accent-soft text-on-accent-soft' : 'bg-surface hover:bg-elevated'} ${stacked ? 'max-sm:flex-col max-sm:justify-center max-sm:text-center' : ''}`}
                   class:text-danger={action.appearance === 'destructive' || action.appearance === 'danger'}
                   class:text-warning={action.appearance === 'warning'}
-                  class:ring-2={action.selected}
-                  class:ring-accent={action.selected}
                   onpointerdown={(event) =>
                     activateFromPointer(event, () => activate(action, false), { scrollable: true })}
                   onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => activate(action, true))}
