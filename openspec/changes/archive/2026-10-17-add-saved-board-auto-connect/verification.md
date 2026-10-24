@@ -1,5 +1,14 @@
 # Verification — 2026-10-17
 
+## Owner confirmation — 2026-10-24
+
+The owner confirmed that the physical auto-connect startup scanning, permission
+recovery, foreground return after disconnect and background cancellation on iOS,
+macOS and Android were tested and complete. Task 5.3 is complete on that
+confirmation. No additional agent-run hardware checks were performed for this
+documentation update. The sections below preserve the original verification
+history and the coverage limits recorded at that time.
+
 ## Implemented behavior
 
 One installation-local preferred board, a 15-second foreground discovery
@@ -52,7 +61,7 @@ the reported passing runs used local access. An initial overlapping Android
 emulator/physical attempt shared the forwarded port and was discarded; final
 Android runs were sequential.
 
-## Physical checkpoint remains incomplete
+## Physical checkpoint status at archival — 2026-10-17
 
 The scoped Android auto-connect fixture run failed to discover the expected
 advertisement within its bounded attempts. No fixture connection or automatic

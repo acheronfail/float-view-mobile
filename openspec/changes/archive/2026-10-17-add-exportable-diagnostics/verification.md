@@ -1,5 +1,14 @@
 # Verification
 
+## Owner confirmation — 2026-10-24
+
+The owner confirmed that the native diagnostics save/share, Issues-list links
+and the scoped lifecycle/file-protection checks on iOS, macOS and Android were
+tested and complete. Task 6.3 is complete on that confirmation. No additional
+agent-run hardware checks were performed for this documentation update. The
+sections below preserve the original verification history and the coverage
+limits recorded at that time.
+
 Implementation provides Settings → Diagnostics → Export diagnostics, native ZIP
 presentation, independent bounded local incidents, and manual GitHub reporting
 instructions. There is no issue prefill, composer launch, submission or upload.
@@ -44,7 +53,7 @@ float-view-product-store -p float-view-session-sqlite`: passed outside the
   dependencies: passed. Existing `getrandom` and SQLite dependencies are reused.
 - Strict OpenSpec validation and `git diff --check`: passed.
 
-## Remaining native presentation checkpoint
+## Native presentation checkpoint status at archival — 2026-10-17
 
 Task 6.3 remains open. No Android device was attached and no Apple simulator was
 booted during this session. Real iOS/Android save/share UI, and real-device

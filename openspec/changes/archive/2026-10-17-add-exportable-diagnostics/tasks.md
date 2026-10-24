@@ -40,7 +40,7 @@
 
 - [x] 6.1 Run focused locked/offline Rust tests for changed crates and affected consumers, formatting and warnings-denied Clippy, plus frontend tests/type checks/build and affected mock/direct conformance per `CONTRIBUTING.md`; record actual commands/results and resolve failures before widening coverage.
 - [x] 6.2 Run affected Apple/Android host and binding integration tests plus applicable native conformance scenarios; verify complete mandatory contract behavior, independent staging, presentation lifetimes and baseline-data preservation without requiring unrelated native packaging or firmware matrices.
-- [ ] 6.3 Perform scoped native save/share and Issues-list link checks on iOS, macOS and Android, and physical lifecycle/file-protection checks only where software cannot establish the affected behavior; preserve detailed evidence locally and report any unavailable required checkpoint explicitly.
+- [x] 6.3 Perform scoped native save/share and Issues-list link checks on iOS, macOS and Android, and physical lifecycle/file-protection checks only where software cannot establish the affected behavior; preserve detailed evidence locally and report any unavailable required checkpoint explicitly.
 - [x] 6.4 Review for private-value leakage, unbounded diagnostic collections, stale/dead session capture paths and unintended baseline changes; run strict OpenSpec validation and `git diff --check`, and record concise implementation verification outcomes and material coverage limits.
 
 ## Workflow follow-up
@@ -63,7 +63,7 @@
 
 ## Archive disposition
 
-Synced and archived at the owner's explicit request on 2026-10-17. Task 6.3 stays
-unchecked as a coverage limitation: owner TestFlight use and an inspected iOS
-export support the iOS path, while the full listed native checkpoint was not
-completed. See verification.md for actual checks and remaining coverage.
+Synced and archived at the owner's explicit request on 2026-10-17, with task
+6.3 unchecked at that time. On 2026-10-24 the owner confirmed that the listed
+native and physical checkpoints were tested and complete. Task 6.3 is now marked
+complete; see [verification.md](verification.md) for the confirmation and historical evidence.

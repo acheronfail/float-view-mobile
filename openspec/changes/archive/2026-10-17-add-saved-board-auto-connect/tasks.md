@@ -30,17 +30,18 @@
 
 - [x] 5.1 Add and run canonical conformance scenarios for preference persistence/validation, exact automatic saved connection, manual suppression, foreground rearm, independent scan bounds and non-Home behavior against affected Apple/Android integrations; verify complete monotonic snapshots and existing saved/guest connection semantics.
 - [x] 5.2 Run affected Rust crate/consumer tests, relevant frontend type/lint/build and mock/browser checks, plus native integration checks justified by adapter changes; record commands/results and any unavailable coverage without requiring an unrelated full regression.
-- [ ] 5.3 Perform focused physical checkpoints on affected iOS/macOS/Android hosts for startup scan readiness, permission recovery, foreground return after explicit disconnect and cancellation on background, preserving fixture safety/restore checks where used; record actual platform/scenario results and any unavailable required hardware.
+- [x] 5.3 Perform focused physical checkpoints on affected iOS/macOS/Android hosts for startup scan readiness, permission recovery, foreground return after explicit disconnect and cancellation on background, preserving fixture safety/restore checks where used; record actual platform/scenario results and any unavailable required hardware.
 
 ## Workflow follow-up
 
 - Keep implementation slices buildable and commit their corresponding task updates.
 - After relevant verification, sync delta specs and archive this change together in the final commit; preserve actual verification evidence and outstanding physical coverage.
 
-Verification results and remaining physical coverage: [verification.md](verification.md).
+Verification results and owner-confirmed physical checkpoints: [verification.md](verification.md).
 
 ## Archive disposition — 2026-10-17
 
-The user declared the feature complete and requested sync/archive. Task 5.3 is
-retained unchecked to preserve the incomplete physical-verification evidence;
-archival does not claim a passing physical checkpoint. See [verification.md](verification.md).
+The user declared the feature complete and requested sync/archive on 2026-10-17,
+with task 5.3 unchecked at that time. On 2026-10-24 the owner confirmed that the
+listed physical checkpoints were tested and complete. Task 5.3 is now marked
+complete; see [verification.md](verification.md) for the confirmation and historical evidence.
