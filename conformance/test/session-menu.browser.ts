@@ -102,14 +102,25 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           }
         }
         await menu.tap();
-        await page.getByText('Available after this ride ends.', { exact: true }).waitFor();
+        await page.getByText('End the ride for more options.', { exact: true }).waitFor();
         await page.getByRole('heading', { name: 'Chart display', exact: true }).waitFor();
         await page.getByRole('heading', { name: 'Session', exact: true }).waitFor();
         for (const label of ['Share Archive', 'Share CSV', 'Prune', 'Delete session'])
           assert.equal(await page.getByRole('button', { name: label, exact: true }).isDisabled(), true);
         const end = page.getByRole('button', { name: 'End ride…', exact: true });
-        const explanation = page.getByText('Available after this ride ends.', { exact: true });
+        const explanation = page.getByText('End the ride for more options.', { exact: true });
         assert.ok((await end.boundingBox())!.y < (await explanation.boundingBox())!.y);
+        const unavailableGroup = (await page.locator('[data-unavailable-actions]').boundingBox())!;
+        const overlayBounds = (await explanation.boundingBox())!;
+        assert.ok(
+          Math.abs(overlayBounds.y + overlayBounds.height / 2 - unavailableGroup.y - unavailableGroup.height / 2) < 1
+        );
+        for (const label of ['Share Archive', 'Share CSV', 'Prune', 'Delete session']) {
+          const reasonId = await page
+            .getByRole('button', { name: label, exact: true })
+            .getAttribute('aria-describedby');
+          assert.equal(reasonId, await explanation.getAttribute('id'), 'disabled actions reference their explanation');
+        }
         const disabledColors = await Promise.all(
           ['Share Archive', 'Share CSV', 'Prune', 'Delete session'].map((label) =>
             page.getByRole('button', { name: label, exact: true }).evaluate((button) => getComputedStyle(button).color)
@@ -133,13 +144,16 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(await end.isDisabled(), true);
         assert.ok(releaseSettings);
         releaseSettings();
-        await page.getByText('Available after this ride ends.', { exact: true }).waitFor();
+        await page.getByText('End the ride for more options.', { exact: true }).waitFor();
 
         await client.request('device.disconnect', {});
-        const pausedCopy = 'This ride is paused. End it to share, prune or delete the session.';
+        const pausedCopy = 'End the ride for more options.';
         await page.getByText(pausedCopy, { exact: true }).waitFor();
         await assertDisabledActionsIgnoreActivation(['Delete session', 'Prune', 'Share Archive', 'Share CSV']);
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-paused.png`, screenshots)) });
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.screenshot({ path: fileURLToPath(new URL(`${name}-paused-dark.png`, screenshots)) });
+        await page.emulateMedia({ colorScheme: 'light' });
         const scroll = page.locator('[data-header-menu]');
         assert.equal(await page.getByRole('button', { name: /^Chart mode:/ }).isVisible(), false);
         for (const [label, width, height, textScale] of [
@@ -181,10 +195,41 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             }
             await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
             await page.waitForFunction(() => document.querySelector('[data-header-menu]')!.scrollTop > 20);
+            const reason = (await page.locator('[data-unavailable-overlay]').boundingBox())!;
+            const scrollBefore = await scroll.evaluate((node) => node.scrollTop);
+            const overlayX = reason.x + reason.width / 2;
+            const overlayY = Math.max(panel.y + 50, reason.y) + 10;
+            await cdp.send('Input.dispatchTouchEvent', {
+              type: 'touchStart',
+              touchPoints: [{ x: overlayX, y: overlayY }],
+            });
+            for (let step = 1; step <= 10; step++) {
+              await cdp.send('Input.dispatchTouchEvent', {
+                type: 'touchMove',
+                touchPoints: [{ x: overlayX, y: overlayY + step * 5 }],
+              });
+              await page.waitForTimeout(16);
+            }
+            await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+            await page.waitForFunction(
+              (before) => document.querySelector('[data-header-menu]')!.scrollTop < before - 5,
+              scrollBefore
+            );
             assert.equal(settingsRequests, requestsBefore, 'swiping does not submit a setting');
             assert.equal(await smooth.getAttribute('aria-checked'), checkedBefore, 'swiping does not toggle charts');
             assert.equal(await confirmation.isVisible(), false, 'swiping does not end a ride');
             await cdp.detach();
+            // Let touch momentum settle before positioning the menu for screenshots.
+            await scroll.evaluate(async (node) => {
+              let previous = node.scrollTop;
+              let stableFrames = 0;
+              for (let frame = 0; frame < 120 && stableFrames < 10; frame++) {
+                await new Promise(requestAnimationFrame);
+                const current = node.scrollTop;
+                stableFrames = Math.abs(current - previous) < 0.5 ? stableFrames + 1 : 0;
+                previous = current;
+              }
+            });
           }
           if (label === 'narrow-phone' || label === 'landscape-phone' || label === 'large-text') {
             await scroll.evaluate((node) => {
@@ -199,6 +244,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             );
             const last = await page.getByRole('button', { name: 'Delete session', exact: true }).boundingBox();
             assert.ok(last && last.y >= panel.y && last.y + last.height <= panel.y + panel.height + 1);
+            const reason = (await page.locator('[data-unavailable-overlay]').boundingBox())!;
+            assert.ok(
+              reason.y >= panel.y && reason.y + reason.height <= panel.y + panel.height + 1,
+              'explanation stays visible'
+            );
             await page.screenshot({ path: fileURLToPath(new URL(`${name}-${label}-scrolled.png`, screenshots)) });
           }
         }
@@ -251,7 +301,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(await page.getByRole('alertdialog').count(), 0);
         assert.equal(await share.isDisabled(), true);
         await assertDisabledActionsIgnoreActivation(['Delete session', 'Prune', 'Share Archive', 'Share CSV']);
-        assert.equal(await page.getByText('Available after this ride ends.', { exact: true }).count(), 0);
+        assert.equal(await page.getByText('End the ride for more options.', { exact: true }).count(), 0);
         releaseSettings();
         await page
           .getByText('Another operation is in progress. Please wait.', { exact: true })

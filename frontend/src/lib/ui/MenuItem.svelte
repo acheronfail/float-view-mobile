@@ -18,6 +18,7 @@
     disabled = false,
     checked,
     pending = false,
+    descriptionId,
   }: {
     label: string;
     icon?: IconName;
@@ -26,6 +27,7 @@
     disabled?: boolean;
     checked?: boolean | null;
     pending?: boolean;
+    descriptionId?: string;
   } = $props();
 
   const unavailable = $derived(disabled || pending || checked === null);
@@ -51,7 +53,7 @@
   role={typeof checked === 'boolean' ? 'switch' : undefined}
   aria-checked={typeof checked === 'boolean' ? checked : undefined}
   aria-label={label}
-  aria-describedby={checked === null ? statusId : undefined}
+  aria-describedby={[checked === null ? statusId : undefined, descriptionId].filter(Boolean).join(' ') || undefined}
   aria-busy={pending || undefined}
   onpointerdown={pointerDown}
   onclick={(event) => activateFromKeyboardOrAssistiveClick(event, activate)}

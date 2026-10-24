@@ -5,7 +5,7 @@ import type { MenuItemAppearance } from '$lib/ui/MenuItem.svelte';
 export type AppHeaderAction = {
   label: string;
   group?: string;
-  groupDescription?: string;
+  unavailableReason?: string;
   icon?: IconName;
   appearance?: MenuItemAppearance;
   disabled?: boolean;

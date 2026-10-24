@@ -48,6 +48,22 @@
   } = $props();
 
   const safeAreaTop = 'max(1.5rem, env(safe-area-inset-top, 0px))';
+  const menuId = $props.id();
+  const menuGroups = $derived.by(() => {
+    const groups: { label?: string; blocks: { reason?: string; actions: AppHeaderAction[] }[] }[] = [];
+    for (const action of actions ?? []) {
+      let group = groups.at(-1);
+      if (!group || group.label !== action.group) {
+        group = { label: action.group, blocks: [] };
+        groups.push(group);
+      }
+      const reason = action.disabled ? action.unavailableReason : undefined;
+      const previous = group.blocks.at(-1);
+      if (previous && previous.reason === reason) previous.actions.push(action);
+      else group.blocks.push({ reason, actions: [action] });
+    }
+    return groups;
+  });
 
   function observeHeader(node: HTMLElement) {
     const updateHeight = () => {
@@ -108,27 +124,47 @@
               data-header-menu
               class="max-h-[calc(100dvh-max(1.5rem,env(safe-area-inset-top,0px))-3rem-max(1rem,env(safe-area-inset-bottom,0px)))] touch-pan-y overflow-y-auto overscroll-contain"
             >
-              {#each actions as action, index (action.label)}
-                {#if action.group && action.group !== actions[index - 1]?.group}
-                  {#if index > 0}
-                    <div role="separator" class="border-t border-outline"></div>
+              {#each menuGroups as group, groupIndex (group.blocks[0].actions[0].label)}
+                {#if groupIndex > 0}
+                  <div role="separator" class="border-t border-outline"></div>
+                {/if}
+                <section>
+                  {#if group.label}
+                    <h2 class="sticky top-0 z-20 bg-elevated px-4 pt-3 pb-1 text-xs font-semibold text-muted">
+                      {group.label}
+                    </h2>
                   {/if}
-                  <h2 class="sticky top-0 z-10 bg-elevated px-4 pt-3 pb-1 text-xs font-semibold text-muted">
-                    {action.group}
-                  </h2>
-                {/if}
-                {#if action.groupDescription}
-                  <p class="max-w-72 px-4 pt-2 pb-1 text-sm text-muted">{action.groupDescription}</p>
-                {/if}
-                <MenuItem
-                  label={action.label}
-                  icon={action.icon}
-                  appearance={action.appearance}
-                  disabled={action.disabled}
-                  checked={action.checked}
-                  pending={action.pending}
-                  onactivate={() => action.onactivate(closeMenu)}
-                />
+                  {#each group.blocks as block, index (block.actions[0].label)}
+                    <div
+                      data-unavailable-actions={block.reason ? true : undefined}
+                      class:unavailable-actions={!!block.reason}
+                    >
+                      <div class:opacity-30={!!block.reason} class:under-overlay={!!block.reason}>
+                        {#each block.actions as action (action.label)}
+                          <MenuItem
+                            label={action.label}
+                            icon={action.icon}
+                            appearance={action.appearance}
+                            disabled={action.disabled}
+                            checked={action.checked}
+                            pending={action.pending}
+                            descriptionId={block.reason ? `${menuId}-unavailable-${groupIndex}-${index}` : undefined}
+                            onactivate={() => action.onactivate(closeMenu)}
+                          />
+                        {/each}
+                      </div>
+                      {#if block.reason}
+                        <p
+                          data-unavailable-overlay
+                          id={`${menuId}-unavailable-${groupIndex}-${index}`}
+                          class="unavailable-explanation pointer-events-none sticky top-10 bottom-2 z-10 col-start-1 row-start-1 mx-3 my-2 max-w-64 self-center p-3 text-center text-sm font-medium"
+                        >
+                          {block.reason}
+                        </p>
+                      {/if}
+                    </div>
+                  {/each}
+                </section>
               {/each}
             </div>
           {/snippet}
@@ -137,3 +173,29 @@
     {/if}
   </div>
 </header>
+
+<style>
+  .unavailable-actions {
+    display: grid;
+    position: relative;
+    isolation: isolate;
+  }
+
+  .under-overlay {
+    grid-area: 1 / 1;
+    filter: blur(1px);
+  }
+
+  .unavailable-actions::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(transparent, rgb(0 0 0 / 5%) 20%, rgb(0 0 0 / 5%) 80%, transparent);
+  }
+
+  .unavailable-explanation {
+    background: radial-gradient(ellipse, var(--app-elevated) 25%, transparent 75%);
+    text-shadow: 0 0 6px var(--app-elevated);
+  }
+</style>

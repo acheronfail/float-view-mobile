@@ -237,12 +237,10 @@
     const canEndRide = isActive && (isCurrentRide || !!pausedRide);
     const sessionActions = {
       group: 'Session',
-      groupDescription: backendState.busy
+      unavailableReason: backendState.busy
         ? 'Another operation is in progress. Please wait.'
         : isActive
-          ? pausedRide
-            ? 'This ride is paused. End it to share, prune or delete the session.'
-            : 'Available after this ride ends.'
+          ? 'End the ride for more options.'
           : undefined,
     };
     appHeader.set(headerOwner, {
@@ -292,13 +290,13 @@
                 onactivate: (closeMenu: () => void) => exportSession(closeMenu, 'float-view-archive'),
               },
               {
-                group: 'Session',
+                ...sessionActions,
                 label: sessionExportLabel(backendState.platform, 'csv'),
                 disabled: !canExport,
                 onactivate: (closeMenu: () => void) => exportSession(closeMenu, 'csv'),
               },
               {
-                group: 'Session',
+                ...sessionActions,
                 label: 'Prune',
                 appearance: 'warning' as const,
                 disabled:
@@ -307,7 +305,7 @@
                 onactivate: (closeMenu: () => void) => requestPruneSession(closeMenu),
               },
               {
-                group: 'Session',
+                ...sessionActions,
                 label: 'Delete session',
                 appearance: 'destructive' as const,
                 disabled: !canExport,
