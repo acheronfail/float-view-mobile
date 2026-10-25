@@ -22,7 +22,7 @@ The application SHALL retain at most one UI checkpoint in the existing native pr
 
 ### Requirement: Minimal supported presentation
 
-Restoration SHALL cover the route and its session/board target, Live normal/detailed mode and at most one allowlisted ordinary open surface. Surfaces SHALL include Live actions, Live charts, attached BMS details, Refloat configuration, Tunes, full or battery-only Board Profile configuration, and board-history actions/configuration. Unsupported transient UI SHALL reopen in its default state.
+Restoration SHALL cover the route and its session/board target, Live normal/detailed/custom mode and at most one allowlisted ordinary open surface. Surfaces SHALL include Live actions, Live charts, attached BMS details, Refloat configuration, Tunes, full or battery-only Board Profile configuration, and board-history actions/configuration. Unsupported transient UI SHALL reopen in its default state. Custom mode SHALL require a matching eligible saved board.
 
 #### Scenario: Session browsing during a connection
 
@@ -43,6 +43,16 @@ Restoration SHALL cover the route and its session/board target, Live normal/deta
 
 - **WHEN** a frontend is recreated
 - **THEN** chart/map position, selections, field visibility, follow-live mode, scroll/focus offsets, live-chart samples and unsaved editor inputs are initialized normally rather than restored
+
+#### Scenario: Custom presentation
+
+- **WHEN** the frontend is recreated in the same process with an accepted Custom View checkpoint for the still-active saved board
+- **THEN** Custom View loads the board's current accepted dashboard in ordinary viewing mode with empty live-chart history and without an editing or widget-configuration surface
+
+#### Scenario: Custom target no longer eligible
+
+- **WHEN** a custom checkpoint targets a different board or the current connection is a guest
+- **THEN** the current connection's ordinary eligible view is used without applying the old board's layout or draft
 
 ### Requirement: Capture on meaningful UI changes
 
@@ -134,3 +144,38 @@ Debug diagnostics SHALL describe capture/restore outcomes using fixed route/surf
 
 - **WHEN** debug diagnostics are enabled and a surface cannot be restored
 - **THEN** a bounded outcome identifies the surface kind and reason without printing its target or checkpoint contents
+
+### Requirement: Dashboard drafts stay outside checkpoints
+
+UI checkpoints SHALL NOT contain dashboard layouts, widget editor inputs, drag state or save intent. Saved dashboard data SHALL remain in Board Profiles. Restoration SHALL NOT replay dashboard writes or control actions, and ordinary connection recovery SHALL NOT discard an existing local draft for the same board.
+
+#### Scenario: Teardown during editing or saving
+
+- **WHEN** the frontend is destroyed with an unsaved dashboard draft or an unacknowledged save
+- **THEN** recreation loads current accepted profile values without restoring the draft or resubmitting the request
+
+#### Scenario: Same-board transport recovery
+
+- **WHEN** an existing frontend reconnects to the same board without being recreated
+- **THEN** its draft survives locally and fresh state reconciles readings without replaying edits or lighting actions
+
+### Requirement: Durable per-board live view selection
+
+Saved boards SHALL persist optional nullable `lastLiveView` (`normal`, `detailed`, `custom`) through revisioned profile updates preserving unrelated fields. Missing/null SHALL default to Live. Entry SHALL restore this choice without writing, with eligible process checkpoints taking precedence. Guests SHALL remain temporary. Stale reads or completions SHALL NOT change another board's view.
+
+#### Scenario: Restart or reconnect to a saved board
+
+- **WHEN** a user selects Custom for one board and Live for another, then reconnects or restarts without a process checkpoint
+- **THEN** each board opens its own saved view using current accepted dashboard data
+
+#### Scenario: Existing profile or guest
+
+- **WHEN** a saved board has no view preference or a guest connection starts
+- **THEN** Live is used without creating a preference merely by entering
+
+#### Scenario: Concurrent configuration or failed preference save
+
+- **WHEN** selection races with a profile change
+- **THEN** only the selected-view field may be retried once against a fresh revision, without overwriting dashboard or other fields
+- **WHEN** persistence fails
+- **THEN** the prior view remains selected and the user receives feedback permitting retry

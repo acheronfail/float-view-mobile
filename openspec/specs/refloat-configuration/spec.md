@@ -172,3 +172,89 @@ Configuration state SHALL be connection-generation scoped and independent of Web
 
 - **WHEN** telemetry enters flywheel mode and later confirms return to normal mode
 - **THEN** loaded current values and their write authority are invalidated on entry and remain unavailable after exit until a fresh normal-mode command-93 read succeeds
+
+### Requirement: Review Tune application before writing
+
+Activating a compatible saved Tune SHALL open a confirmation before any application request. The confirmation SHALL show only changed tunable settings from a fresh current board read to the saved values, with readable labels, units and enum choices. Long differences SHALL scroll with keyboard and touch while the title and actions remain visible. Matching tunes SHALL show no differences and SHALL NOT cause a write.
+
+#### Scenario: Confirm while idle
+
+- **WHEN** the user activates a compatible Tune while the board is idle
+- **THEN** the UI shows current and saved values and sends no application request until explicit confirmation
+
+#### Scenario: Confirm while riding
+
+- **WHEN** an eligible riding user opens the confirmation
+- **THEN** the modal includes the momentary-cutout warning and retains authoritative live safety gating
+
+#### Scenario: Cancel or matching tune
+
+- **WHEN** the user cancels by button, backdrop, Escape or native Back, or inspects a matching Tune
+- **THEN** no application occurs and dismissal restores focus to the activating control
+
+### Requirement: Preserve reviewed Tune application state
+
+Tune application SHALL retain the reviewed saved revision and refresh current board values before confirming. Changed tunable values SHALL refresh the comparison and require explicit review again. Read or apply failure SHALL retain the modal with actionable error feedback and no automatic retry. Connection or identity changes SHALL NOT authorize application using the old preview. Confirmation state SHALL remain transient across frontend recreation.
+
+#### Scenario: Values change during review
+
+- **WHEN** current tunable values change before confirmation
+- **THEN** the updated comparison is displayed without an application request and the user must confirm again
+
+#### Scenario: Failed operation
+
+- **WHEN** the current read or application fails
+- **THEN** the confirmation remains open with an error and allows dismissal or an explicit retry when eligible
+
+#### Scenario: Connection changes
+
+- **WHEN** the board disconnects or its exact configuration identity changes during review
+- **THEN** confirmation cannot apply the old preview to the replacement connection or identity
+
+#### Scenario: Frontend recreation
+
+- **WHEN** the frontend is recreated with an open confirmation
+- **THEN** it restores no pending confirmation or application request
+
+### Requirement: Authoritative edited-write readiness reason
+
+Every configuration summary SHALL include nullable `writeBlockReason`, identifying the highest-priority backend condition blocking an edited configuration write. Reasons SHALL be bounded closed codes shared across hosts. Existing capability-level `writable` and supported riding Tune admission SHALL retain their meanings.
+
+#### Scenario: Actionable blocked state
+
+- **WHEN** schema availability, connection readiness, read-only firmware, competing work, flywheel, motion, unknown telemetry, package state, package mode, or missing current values blocks an edited write
+- **THEN** the complete snapshot reports the corresponding reason without the frontend guessing from generic writable state
+
+#### Scenario: Ready state and recovery
+
+- **WHEN** all backend edited-write preconditions are satisfied
+- **THEN** the reason is null and subsequent snapshots update it atomically as readiness changes without sending a write
+
+#### Scenario: Riding Tune compatibility
+
+- **WHEN** riding blocks a general configuration write on a release supporting riding Tune application
+- **THEN** the edited-write reason identifies riding without changing eligibility for that Tune application
+
+### Requirement: Visible persistent configuration write feedback
+
+The editor SHALL show actionable write-block guidance in its fixed footer and open confirmation. Failed-write feedback SHALL remain visible in the footer after dismissal until a successful write or explicit read replaces it. Feedback SHALL preserve edits, scroll position, focus behavior, and guarded pointer/keyboard activation, without automatic mutation retries.
+
+#### Scenario: Scrolled blocked editor
+
+- **WHEN** writing is blocked while the user is scrolled through fields
+- **THEN** the reason and disabled write action remain visible together without scrolling to the start
+
+#### Scenario: Readiness changes inside confirmation
+
+- **WHEN** a backend blocker appears while confirmation is open
+- **THEN** the confirmation displays its actionable reason beside the disabled confirm action and remains dismissible
+
+#### Scenario: Failed write dismissed
+
+- **WHEN** a write cannot be confirmed and the user closes its confirmation
+- **THEN** the footer retains the failure and recovery guidance without claiming that the write did not reach the board or clearing the draft
+
+#### Scenario: Successful recovery
+
+- **WHEN** a subsequent write succeeds or an explicit read succeeds
+- **THEN** the previous failed-write feedback clears without being replayed as a mutation

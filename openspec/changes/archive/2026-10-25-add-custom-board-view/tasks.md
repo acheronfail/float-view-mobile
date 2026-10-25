@@ -109,8 +109,8 @@
 Verified on 2026-10-23 in the uncommitted working tree based on `fae15048`.
 The browser checks used frontend bundle `bundle.6732a029.js` built from this
 implementation. Source owners are documented in the
-[frontend guide](../../../frontend/src/lib/README.md) and
-[backend guide](../../../backends/README.md).
+[frontend guide](../../../../frontend/src/lib/README.md) and
+[backend guide](../../../../backends/README.md).
 
 - Frontend: all 491 tests across 89 files passed; Svelte/TypeScript reported zero
   errors and warnings; ESLint and production build passed. Loopback-dependent
