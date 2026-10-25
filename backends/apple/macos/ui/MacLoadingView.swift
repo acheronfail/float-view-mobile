@@ -12,12 +12,6 @@ final class MacLoadingView: NSView {
 
   override init(frame: NSRect) {
     super.init(frame: frame)
-    if let url = MacResources.url(forResource: "LoadingSymbol", withExtension: "png"),
-       let image = NSImage(contentsOf: url)
-    {
-      image.isTemplate = true
-      symbol.image = image
-    }
     updateAppearance()
     symbol.setAccessibilityElement(false)
     message.font = .systemFont(ofSize: 15)
@@ -56,11 +50,16 @@ final class MacLoadingView: NSView {
 
   private func updateAppearance() {
     let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-    // Resolve the template tint for this view and refresh it after window or
-    // system appearance changes, including while startup is still pending.
+    let name = dark ? "LoadingSymbol" : "LoadingSymbol-Light"
+    if let url = MacResources.url(forResource: name, withExtension: "png"),
+       let image = NSImage(contentsOf: url)
+    {
+      image.isTemplate = dark
+      symbol.image = image
+    }
     symbol.contentTintColor = dark
       ? NSColor(srgbRed: 45 / 255, green: 212 / 255, blue: 191 / 255, alpha: 1)
-      : NSColor(srgbRed: 20 / 255, green: 184 / 255, blue: 166 / 255, alpha: 1)
+      : nil
   }
 
   func showFailure(_ failure: StartupFailure, onRetry: @escaping () -> Void) {

@@ -81,7 +81,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               assert.equal(await loading.innerText(), 'Loading…');
               assert.equal(await loadingColor(page), symbolColors[initial]);
               const position = await loading.evaluate((element) => {
-                const symbol = element.querySelector('svg')!.getBoundingClientRect();
+                const symbol = element.querySelector('#loading-symbol')!.getBoundingClientRect();
                 const message = element.querySelector('p')!.getBoundingClientRect();
                 return {
                   centerX: (symbol.left + symbol.right) / 2,

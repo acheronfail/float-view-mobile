@@ -19,11 +19,13 @@ for the macOS ICNS; otherwise the generator falls back to a valid 512px ICNS
 written by `sips`. The output includes the iOS light/default and dark AppIcon PNGs, macOS ICNS, and
 Android density/adaptive-icon WebP assets used by the native targets.
 
-The centered loading screen uses only the rider silhouette, without the icon
-background. Native and early HTML loading screens tint it Fresh teal (`#14b8a6`) in light mode and
-bright teal (`#2dd4bf`) in dark mode using the app loading palette. Regenerate its early HTML,
-iOS/macOS PNG and Android vector assets
-and the frontend map’s SVG symbol independently on any platform with Python 3 and ImageMagick:
+The centered loading screen uses the rider without the icon background. Native
+and early HTML loading screens use the same Fresh teal (`#14b8a6`) artwork,
+outline and shadow as the light app icon. The dark loading screen retains its
+bright teal (`#2dd4bf`) silhouette. Light loading PNGs retain their original
+colours rather than being tinted as template images. Regenerate the early HTML,
+iOS/macOS PNGs, Android light PNG and dark vector, and the frontend map's
+separate SVG silhouette with Python 3, ImageMagick and `rsvg-convert`:
 
 ```sh
 python3 tools/icon/generate-loading-symbol.py
@@ -60,8 +62,8 @@ intact; the contrasting outline extends 0.6 SVG units beyond that edge. The
 shadow uses a 1.1-unit downward offset, 0.9-unit blur and 26% opacity.
 Android's adaptive foreground retains the shadow's transparency. The source
 artwork supplies the unchanged bright teal (`#2dd4bf`) rider on charcoal
-(`#121418`) for dark appearance, without the added outline or shadow. Loading,
-map and Android monochrome symbols retain their existing silhouettes.
+(`#121418`) for dark appearance, without the added outline or shadow. Dark
+loading, map and Android monochrome symbols retain their existing silhouettes.
 Regenerate only these iOS assets with `tools/icon/generate.sh --ios-only`.
 On iOS 18 and later, Home Screen appearance set to Automatic selects the variant
 with the system appearance. An explicit Light, Dark or Tinted Home Screen choice

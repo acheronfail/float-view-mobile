@@ -4,6 +4,7 @@ import UIKit
 struct ContentView: View {
   @StateObject private var backend = AppBackend()
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.colorScheme) private var colorScheme
   @State private var loadedGeneration: Int?
   @State private var failedGeneration: Int?
 
@@ -48,8 +49,9 @@ struct ContentView: View {
         }
       } else if backend.frontend == nil || loadedGeneration != backend.frontend?.generation {
         VStack(spacing: 20) {
-          Image("LoadingSymbol")
+          Image(colorScheme == .dark ? "LoadingSymbol" : "LoadingSymbol-Light")
             .resizable()
+            .renderingMode(colorScheme == .dark ? .template : .original)
             .frame(width: 72, height: 96)
             .foregroundStyle(Color(uiColor: .loadingSymbol))
             .accessibilityHidden(true)

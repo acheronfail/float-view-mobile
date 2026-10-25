@@ -61,7 +61,9 @@ class LoadingPresentation(context: Context) : LinearLayout(context) {
 
     fun applyTheme(dark: Boolean) {
         this.dark = dark
-        symbol.setColorFilter(Color.parseColor(if (dark) "#2DD4BF" else "#14B8A6"))
+        symbol.setImageResource(if (dark) R.drawable.loading_symbol else R.drawable.loading_symbol_light)
+        if (dark) symbol.setColorFilter(Color.parseColor("#2DD4BF"))
+        else symbol.clearColorFilter()
         detail.setTextColor(Color.parseColor(if (dark) "#CBD5E1" else "#334155"))
         message.setTextColor(Color.parseColor(
             if (failed) { if (dark) "#E2E8F0" else "#0F172A" }
