@@ -12,6 +12,7 @@ it('resumes repeated breaks and rejects stale completion without affecting the r
   const b = new MockBackend();
   connect(b);
   b.publishTelemetry();
+  b.publishTelemetry();
   const before = state(b).activeConnection!.latestSample!;
   const id = state(b).activeConnection!.activeSession!.sessionId;
   b.handle({ id: 4, method: 'device.disconnect', params: {} });
@@ -24,8 +25,12 @@ it('resumes repeated breaks and rejects stale completion without affecting the r
   expect(after.sequence).toBeGreaterThan(before.sequence);
   expect(after.elapsedMs).toBeGreaterThan(before.elapsedMs + 29 * 60_000);
   expect(after.ridingElapsedMs).toBe(before.ridingElapsedMs);
+  expect(before.distanceM).toBeGreaterThan(0);
+  expect(after.distanceM).toBe(before.distanceM);
   expect(after.maxSpeedKph).toBe(before.maxSpeedKph);
   expect(after.maxSpeedKph).toBe(24.3);
+  b.publishTelemetry();
+  expect(state(b).activeConnection!.latestSample!.distanceM).toBeGreaterThan(after.distanceM!);
   expect(b.handle({ id: 5, method: 'session.end', params: { sessionId: 'stale' } })).toMatchObject({
     error: { code: 'invalid_state' },
   });
@@ -35,6 +40,8 @@ it('resumes repeated breaks and rejects stale completion without affecting the r
   expect(state(b).pausedRide).toBeNull();
   connect(b);
   expect(state(b).activeConnection!.activeSession!.sessionId).not.toBe(id);
+  b.publishTelemetry();
+  expect(state(b).activeConnection!.latestSample!.distanceM).toBe(0);
 });
 it('expires the paused ride and accepts only whole minute settings', () => {
   vi.useFakeTimers();

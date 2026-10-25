@@ -501,10 +501,17 @@ impl ConnectionApplicationCoordinator {
         elapsed_ms: u64,
         sequence: u64,
         riding_ms: u64,
+        distance_m: Option<f64>,
         max_speed_kph: Option<f64>,
     ) {
-        self.telemetry
-            .restore_recording(now_ms, elapsed_ms, sequence, riding_ms, max_speed_kph);
+        self.telemetry.restore_recording(
+            now_ms,
+            elapsed_ms,
+            sequence,
+            riding_ms,
+            distance_m,
+            max_speed_kph,
+        );
     }
 
     pub fn take_request_timings(&mut self) -> Vec<RequestTiming> {

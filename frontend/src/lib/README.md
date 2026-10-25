@@ -340,11 +340,15 @@ for each saved board by the Rust product store for both native hosts. The comple
 active snapshot projects the effective layout; unconfigured boards use defaults.
 `Settings.liveWidgetSlots` is the separate guest layout. Repeated fields are
 allowed. Defaults are Empty (Hold to set), Wattage, Ride time, Odometer,
-and centre Trip distance. The timer displays the native-owned `LiveSample.ridingElapsedMs`
+and centre Ride distance. The timer displays the native-owned `LiveSample.ridingElapsedMs`
 through the `elapsedMs` widget slot. Only consecutive riding observations advance it; idle,
 unknown and disconnected intervals pause it. Reconnect preserves the accumulated time,
 a new session resets it, and WebView recreation cannot affect it. The sample `elapsedMs`
-remains the full session timeline for charts and events. Empty, Headlights and LEDs are selectable alongside
+remains the full session timeline for charts and events. Live `distanceM` is the
+shared current-ride total, integrated from observed absolute speed and restored
+from saved distance when resuming. Reconnects and missing speed break integration;
+a new ride starts at zero. Live Activity, Dynamic Island and Android ride notifications
+consume the same total. Recorded `distanceM` columns retain the raw board trip counter. Empty, Headlights and LEDs are selectable alongside
 readings. Short taps on lighting request runtime changes through the existing
 native control path; a hold only configures. Movement over 10 px, cancellation,
 lost capture, hidden pages and disposal cancel the gesture. Keyboard activation

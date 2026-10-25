@@ -649,6 +649,7 @@ export class MockBackend {
                 state: 'active' as const,
                 sampleCount: 0,
                 ridingElapsedMs: 0,
+                distanceM: 0,
                 maxSpeedMps: null,
                 totalElapsedMs: 0,
               }
@@ -1404,7 +1405,12 @@ export class MockBackend {
       remoteSetpointDeg: 0,
       atrAccelerationDifferenceErpmPerSecond: 180,
       atrSpeedBoost: 0.05,
-      distanceM: sequence * 0.675,
+      distanceM:
+        (active.latestSample?.distanceM ?? active.activeSession?.distanceM ?? 0) +
+        (active.latestSample?.speedKph == null
+          ? 0
+          : ((Math.abs(active.latestSample.speedKph) + 24.3) * 0.5 * this.state.settings.ridingPersistIntervalMs) /
+            3600),
       odometerM: 12_345 + sequence * 0.675,
       ampHoursDrawnAh: 18.4,
       ampHoursChargedAh: 2.7,
@@ -1421,6 +1427,7 @@ export class MockBackend {
           ...active.activeSession,
           sampleCount: sequence,
           ridingElapsedMs: latestSample.ridingElapsedMs,
+          distanceM: latestSample.distanceM,
           totalElapsedMs: elapsedMs,
           maxSpeedMps: latestSample.maxSpeedKph / 3.6,
           maxDutyCycle: latestSample.dutyCycle,

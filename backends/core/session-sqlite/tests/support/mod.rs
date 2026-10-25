@@ -45,6 +45,7 @@ pub fn sample(sequence: u64, elapsed_ms: u64) -> NormalizedSample {
         slow_observed_at_epoch_ms: None,
         elapsed_ms,
         riding_elapsed_ms: 0,
+        ride_distance_m: 0.0,
         max_speed_kph: None,
         ride_state: RideState::Idle,
         package_state: None,

@@ -160,7 +160,7 @@ impl BackendService {
             observed_at: sample.map(|s| s.observed_at_epoch_ms),
             source: source.map(str::to_owned),
             percentage,
-            distance_meters: sample.and_then(|s| s.distance_m),
+            distance_meters: sample.map(|s| s.ride_distance_m),
             battery_percent: level.map(|v| (v * 100.).round()),
             battery_voltage: sample
                 .and_then(|s| s.pack_voltage_v)

@@ -180,7 +180,7 @@
     <TelemetrySection
       title="Accumulated and charging"
       items={[
-        ['Trip distance', distance(sample?.distanceM)],
+        ['Ride distance', distance(sample?.distanceM)],
         ['Odometer', distance(sample?.odometerM)],
         ['Amp-hours drawn', measured(sample?.ampHoursDrawnAh, 'Ah', 2)],
         ['Amp-hours charged', measured(sample?.ampHoursChargedAh, 'Ah', 2)],

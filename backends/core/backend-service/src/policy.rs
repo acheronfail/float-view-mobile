@@ -1745,6 +1745,7 @@ impl BackendService {
                     elapsed,
                     session.committed_sequence,
                     session.riding_elapsed_ms,
+                    session.distance_m,
                     session.max_speed_mps.map(|v| v * 3.6),
                 );
             }
@@ -2447,7 +2448,8 @@ mod tests {
                 sample.footpad_state =
                     Some(float_view_application_runtime::telemetry::FootpadState::Left);
                 sample.speed_kph = Some(3.);
-                sample.distance_m = Some(sequence as f64);
+                sample.distance_m = Some(0.); // Board trip counter restarted.
+                sample.ride_distance_m = sequence as f64;
                 sample.battery_level = Some(0.67);
                 sample.pack_voltage_v = Some(75.56);
                 sample.controller_temp_c = Some(42.);
@@ -2477,6 +2479,16 @@ mod tests {
                 crate::live_activity::FootpadIndicator::Warning
             );
             assert_eq!(state.distance_meters, Some(100.));
+            assert_eq!(
+                t.service
+                    .published_snapshot()
+                    .active
+                    .unwrap()
+                    .latest_sample
+                    .unwrap()
+                    .distance_m,
+                state.distance_meters
+            );
             assert_eq!(state.battery_percent, if saved { Some(67.) } else { None });
             assert_eq!(state.battery_voltage, Some(75.56));
             assert_eq!(state.highest_temperature_c, Some(54.));
@@ -3892,6 +3904,16 @@ mod tests {
         let id = t.service.policy.ride.as_ref().unwrap().session_id.clone();
         t.riding_sample(100);
         t.riding_sample(1100);
+        let distance = t
+            .service
+            .published_snapshot()
+            .active
+            .unwrap()
+            .latest_sample
+            .unwrap()
+            .distance_m
+            .unwrap();
+        assert!(distance > 0.0);
         let peak = t
             .service
             .published_snapshot()
@@ -3905,6 +3927,10 @@ mod tests {
         assert_eq!(
             t.service.store.session(&id).unwrap().max_speed_mps,
             Some(peak / 3.6)
+        );
+        assert_eq!(
+            t.service.store.session(&id).unwrap().distance_m,
+            Some(distance)
         );
         t.service.disconnect("explicit_disconnect").unwrap();
         assert!(t.service.policy.active.is_none());
@@ -3945,7 +3971,15 @@ mod tests {
         t.riding_sample(10_000);
         let snapshot = t.service.published_snapshot().active.unwrap();
         let latest = snapshot.latest_sample.unwrap();
+        assert_eq!(latest.distance_m, Some(distance));
         assert_eq!(latest.max_speed_kph, Some(peak));
+        assert_eq!(
+            t.service.live_activity().unwrap().distance_meters,
+            Some(distance)
+        );
+        t.riding_sample(11_000);
+        let snapshot = t.service.published_snapshot().active.unwrap();
+        assert!(snapshot.latest_sample.unwrap().distance_m.unwrap() > distance);
         let mut reader =
             session::SessionReader::open(t.service.store.session_path(&id).unwrap()).unwrap();
         let boundary = reader.marker().unwrap();

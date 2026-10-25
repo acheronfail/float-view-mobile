@@ -1122,6 +1122,7 @@ async function createCompletedSession(
     const sample = connected.activeConnection.latestSample;
     assert.ok(Number.isSafeInteger(sample.ridingElapsedMs) && sample.ridingElapsedMs >= 0);
     assert.ok(sample.ridingElapsedMs <= sample.elapsedMs);
+    assert.ok(sample.distanceM != null && Number.isFinite(sample.distanceM) && sample.distanceM >= 0);
     assert.ok(sample.maxSpeedKph != null && Number.isFinite(sample.maxSpeedKph));
     assert.ok(sample.maxSpeedKph >= Math.abs(sample.speedKph ?? 0));
     assert.deepEqual(Object.keys(connected.activeConnection.latestSample).sort(), [
@@ -2264,9 +2265,11 @@ export async function runRideContinuityConformance(target: Target) {
     const travelled = await client.waitForState((s) => (s.activeConnection?.activeSession?.sampleCount ?? 0) >= 2, {
       timeoutMs: 20000,
     });
+    const distance = travelled.activeConnection!.latestSample!.distanceM!;
     const peak = travelled.activeConnection!.latestSample!.maxSpeedKph!;
     assert.ok(Number.isFinite(peak) && peak >= Math.abs(travelled.activeConnection!.latestSample!.speedKph ?? 0));
     assert.ok(Math.abs(peak / 3.6 - travelled.activeConnection!.activeSession!.maxSpeedMps!) < 1e-8);
+    assert.ok(Math.abs(distance - travelled.activeConnection!.activeSession!.distanceM!) < 1e-8);
     await client.request('session.marker.add', { sessionId, operationId: '00000000-0000-4000-8000-000000000099' });
     await client.request('device.disconnect', {});
     const paused = await client.request('state.get', {});
@@ -2283,7 +2286,10 @@ export async function runRideContinuityConformance(target: Target) {
     assert.equal(resumed.activeConnection?.activeSession?.sessionId, sessionId);
     assert.equal(resumed.pausedRide, null);
     const continuing = await client.waitForState((s) => s.activeConnection?.latestSample != null, { timeoutMs: 20000 });
+    const continuedDistance = continuing.activeConnection!.latestSample!.distanceM!;
+    assert.ok(continuedDistance >= distance, 'Resuming retains accumulated ride distance');
     assert.ok(continuing.activeConnection!.latestSample!.maxSpeedKph! >= peak, 'Resuming retains peak speed');
+    assert.ok(Math.abs(continuedDistance - continuing.activeConnection!.activeSession!.distanceM!) < 1e-8);
     await expectError(client.request('session.end', { sessionId: 'stale' }), 'invalid_state');
     await client.request('device.disconnect', {});
     await client.request('session.end', { sessionId });

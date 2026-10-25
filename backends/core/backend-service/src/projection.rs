@@ -499,7 +499,7 @@ pub(crate) fn sample(
         remote_setpoint_deg: v.remote_setpoint_deg,
         atr_acceleration_difference_erpm_per_second: v.atr_acceleration_difference_erpm_per_second,
         atr_speed_boost: v.atr_speed_boost,
-        distance_m: v.distance_m,
+        distance_m: Some(v.ride_distance_m),
         odometer_m: v.odometer_m,
         amp_hours_drawn_ah: v.amp_hours_drawn_ah,
         amp_hours_charged_ah: v.amp_hours_charged_ah,

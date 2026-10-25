@@ -18,7 +18,7 @@ export const liveValueCatalog = {
   batteryLevel: { name: 'Controller-reported battery level', label: 'Raw batt.', unit: '%', digits: 0 },
   speedKph: { name: 'Speed', label: 'Speed', unit: 'km/h', digits: 1 },
   maxSpeedKph: { name: 'Max speed', label: 'Max speed', unit: 'km/h', digits: 1 },
-  distanceM: { name: 'Trip distance', label: 'Distance', unit: 'km', digits: 2 },
+  distanceM: { name: 'Ride distance', label: 'Distance', unit: 'km', digits: 2 },
   odometerM: { name: 'Odometer', label: 'Odometer', unit: 'km', digits: 2 },
   elapsedMs: { name: 'Ride time', label: 'Ride time', unit: '', digits: 0 },
   erpm: { name: 'Electrical RPM', label: 'ERPM', unit: 'ERPM', digits: 0 },

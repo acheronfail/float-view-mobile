@@ -6,6 +6,7 @@ public struct LiveActivityState: Codable, Hashable, Sendable {
   public let observedAt: Int64?
   public let source: String?
   public let percentage: Double?
+  /// Shared current-ride total, including saved distance restored on resume.
   public let distanceMeters: Double?
   public let batteryPercent: Double?
   public let batteryVoltage: Double?

@@ -8,6 +8,7 @@ data class LiveActivityState(
     val observedAt: Long?,
     val source: String?,
     val percentage: Double?,
+    /** Shared current-ride total, including saved distance restored on resume. */
     val distanceMeters: Double?,
     val batteryPercent: Double?,
     val batteryVoltage: Double?,

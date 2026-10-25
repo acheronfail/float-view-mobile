@@ -304,6 +304,8 @@ export interface LiveSample {
   remoteSetpointDeg: number | null;
   atrAccelerationDifferenceErpmPerSecond: number | null;
   atrSpeedBoost: number | null;
+  /** Accumulated current-ride distance from observed speed; restored on resume, excluding offline gaps.
+   * Historical distanceM sample columns retain the raw board trip counter. */
   distanceM: number | null;
   odometerM: number | null;
   ampHoursDrawnAh: number | null;
