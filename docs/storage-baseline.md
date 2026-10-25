@@ -93,3 +93,10 @@ settings and saved-board preservation across process launches. Never manipulate
 real user databases to provoke failure. Keep detailed execution and device
 results local; public build-linked outcomes belong in the release verification
 summary. Real BLE/background behavior requires its separately scoped device check.
+
+Footpad announcement settings are additive within baseline 100's existing settings
+JSON: absent `footpadEnabled` and `footpadDelaySeconds` default to false and 1.
+Present invalid values fail validation; all existing announcement preferences and
+recordings are preserved. New complete settings updates persist both fields,
+with whole-second delay validation from 1 through 5. This adds no storage marker,
+archive version, reset or schema transition. Frozen baseline fixtures remain unchanged.

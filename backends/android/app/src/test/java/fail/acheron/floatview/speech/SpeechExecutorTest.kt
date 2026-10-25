@@ -78,7 +78,9 @@ class SpeechExecutorTest {
     }
     @Test fun completionErrorStopCancelFocusLossAndTimeoutReleaseExactlyOnce() {
         for (terminal in listOf("finished", "unavailable", "interrupted", "cancel", "focus", "route", "timeout", "close")) {
-            val r = Rig(); val e = r.ready(); r.executor.speak(r.request())
+            val r = Rig(); val e = r.ready()
+            r.executor.speak(r.request().copy(load = null, speed = null, footpad = SpeechRequest.Footpad.BOTH))
+            assertEquals("both footpads off", e.requests.single().phrase)
             when (terminal) {
                 "cancel" -> r.executor.cancel(1)
                 "focus" -> r.losses.single()()

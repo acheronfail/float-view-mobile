@@ -28,6 +28,25 @@ struct SpeechRequestTests {
     #expect(try !request(#"{"source":"battery","percent":101}"#).valid)
   }
 
+  @Test func footpadWordingAndOrdering() throws {
+    for (wire, phrase) in [("left", "left footpad off"), ("right", "right footpad off"), ("both", "both footpads off")] {
+      for combined in [false, true] {
+        let value = try JSONDecoder().decode(SpeechRequest.self, from: Data("""
+        {"id":1,"expires_at_ms":10000,"footpad":"\(wire)","load":\(combined ? #"{"source":"motor","percent":78}"# : "null"),"speed":\(combined ? "32" : "null"),"imperial":false,"volume":42,"lower_other_audio":true}
+        """.utf8))
+        #expect(value.valid)
+        #expect(value.phrase == phrase + (combined ? ", motor 78 percent, 32 kilometres per hour" : ""))
+      }
+    }
+    for raw in [#""unknown""#, #""LEFT""#, "1", "true"] {
+      #expect(throws: (any Error).self) {
+        _ = try JSONDecoder().decode(SpeechRequest.self, from: Data("""
+        {"id":1,"expires_at_ms":10000,"footpad":\(raw),"load":null,"speed":null,"imperial":false,"volume":42,"lower_other_audio":true}
+        """.utf8))
+      }
+    }
+  }
+
   @Test func missingTypedFieldsCannotDecode() {
     #expect(throws: (any Error).self) {
       _ = try JSONDecoder().decode(SpeechRequest.self, from: Data(#"{"id":1,"text":"arbitrary"}"#.utf8))

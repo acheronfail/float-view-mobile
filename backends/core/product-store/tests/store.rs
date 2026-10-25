@@ -148,6 +148,8 @@ fn frozen_public_baseline_catalog_opens_and_preserves_user_settings() {
     let settings = store.settings().unwrap();
     assert_eq!(settings.minimum_session_distance, 42.);
     assert!(settings.safety_disclaimer_accepted);
+    assert!(!settings.announcements.footpad_enabled);
+    assert_eq!(settings.announcements.footpad_delay_seconds, 1);
     assert_eq!(store.boards().unwrap().len(), 1);
     let updated = store
         .update_settings(settings.revision, r#"{"minimumSessionDistance":100}"#)
@@ -1357,6 +1359,8 @@ fn announcement_preferences_validate_atomically_and_reopen() {
     let mut a = Settings::default().announcements;
     a.speed_enabled = true;
     a.load_enabled = true;
+    a.footpad_enabled = true;
+    a.footpad_delay_seconds = 3;
     a.volume_percent = 42;
     let updated = store
         .update_settings(0, &serde_json::json!({"announcements":a}).to_string())
@@ -1365,6 +1369,11 @@ fn announcement_preferences_validate_atomically_and_reopen() {
     let mut store = root.open();
     assert_eq!(store.settings().unwrap(), updated);
     for invalid in [
+        serde_json::json!({"footpadDelaySeconds":0}),
+        serde_json::json!({"footpadDelaySeconds":6}),
+        serde_json::json!({"footpadDelaySeconds":1.5}),
+        serde_json::json!({"footpadDelaySeconds":null}),
+        serde_json::json!({"footpadEnabled":"true"}),
         serde_json::json!({"volumePercent":101}),
         serde_json::json!({"repeatIntervalSeconds":0}),
         serde_json::json!({"speedThresholdKph":0}),
@@ -1691,4 +1700,62 @@ fn dashboard_explicit_spans_are_bounded_and_preserve_existing_named_sizes() {
         reopened.values["customDashboard"]["widgets"][16]["size"],
         "compact"
     );
+}
+
+#[test]
+fn old_announcement_settings_default_only_absent_fields_and_preserve_preferences() {
+    let root = Root::new();
+    let store = root.open();
+    let mut expected = store.settings().unwrap();
+    expected.announcements.speed_enabled = true;
+    expected.announcements.load_enabled = true;
+    expected.announcements.speed_threshold_kph = 33.;
+    expected.announcements.load_threshold_percent = 77.;
+    expected.announcements.volume_percent = 42;
+    expected.announcements.repeat_interval_seconds = 9;
+    let mut old = serde_json::to_value(&expected).unwrap();
+    let a = old["announcements"].as_object_mut().unwrap();
+    a.remove("footpadEnabled");
+    a.remove("footpadDelaySeconds");
+    drop(store);
+    let db = Connection::open(root.0.join("catalog.sqlite")).unwrap();
+    db.execute("UPDATE settings SET json=?", [old.to_string()])
+        .unwrap();
+    let mut store = root.open();
+    assert_eq!(store.settings().unwrap(), expected);
+    for delay in 1..=5 {
+        let mut a = expected.announcements.clone();
+        a.footpad_enabled = true;
+        a.footpad_delay_seconds = delay;
+        expected = store
+            .update_settings(
+                expected.revision,
+                &serde_json::json!({"announcements":a}).to_string(),
+            )
+            .unwrap();
+    }
+    assert!(matches!(
+        store.update_settings(0, "{}"),
+        Err(Error::Conflict { .. })
+    ));
+    drop(store);
+    assert_eq!(root.open().settings().unwrap(), expected);
+    // A present invalid value is corruption, never a request to reset or default.
+    for bad in [
+        serde_json::json!(null),
+        serde_json::json!(0),
+        serde_json::json!(6),
+        serde_json::json!(1.5),
+        serde_json::json!("1"),
+    ] {
+        let mut value = old.clone();
+        value["announcements"]["footpadDelaySeconds"] = bad;
+        db.execute("UPDATE settings SET json=?", [value.to_string()])
+            .unwrap();
+        assert!(matches!(ProductStore::open(&root.0), Err(Error::Corrupt)));
+        let stored: String = db
+            .query_row("SELECT json FROM settings", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(stored, value.to_string());
+    }
 }

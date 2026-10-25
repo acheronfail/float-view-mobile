@@ -62,9 +62,9 @@ struct SpeechAdapterTests {
       adapter.report = { [reports] kind, id, reason in reports.values.append((kind, id, reason)) }
     }
 
-    func request(_ id: UInt64 = 1, lower: Bool = true, volume: UInt64 = 50, expiry: UInt64 = 10000) -> SpeechRequest {
-      SpeechRequest(expires_at_ms: expiry, id: id, load: .init(source: "motor", percent: 72), speed: 25,
-                    imperial: false, volume: volume, lower_other_audio: lower)
+    func request(_ id: UInt64 = 1, lower: Bool = true, volume: UInt64 = 50, expiry: UInt64 = 10000, footpadOnly: Bool = false) -> SpeechRequest {
+      SpeechRequest(expires_at_ms: expiry, id: id, load: footpadOnly ? nil : .init(source: "motor", percent: 72), speed: footpadOnly ? nil : 25,
+                    imperial: false, volume: volume, lower_other_audio: lower, footpad: footpadOnly ? .both : nil)
     }
 
     func outcomes(_ id: UInt64) -> [String?] {
@@ -97,8 +97,9 @@ struct SpeechAdapterTests {
 
   @Test func allTerminalPathsReleaseExactlyOnce() async {
     for terminal in ["finished", "interrupted", "cancel", "route", "reset", "timeout", "close"] {
-      let r = Rig(); let d = r.addDriver(); r.adapter.speakOnMain(r.request())
+      let r = Rig(); let d = r.addDriver(); r.adapter.speakOnMain(r.request(footpadOnly: true))
       let utterance = d.utterances[0]
+      #expect(utterance.speechString == "both footpads off")
       switch terminal {
       case "cancel": r.adapter.cancelOnMain(1)
       case "route": r.adapter.handleOnMain(.routeRemoved)

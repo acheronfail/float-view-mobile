@@ -11,8 +11,13 @@
   let testing = $state(false);
   let openingVoiceSettings = $state(false);
   let message = $state('');
-  type NumericField = 'speedThresholdKph' | 'loadThresholdPercent' | 'repeatIntervalSeconds';
-  const numericFields: NumericField[] = ['speedThresholdKph', 'loadThresholdPercent', 'repeatIntervalSeconds'];
+  type NumericField = 'speedThresholdKph' | 'loadThresholdPercent' | 'repeatIntervalSeconds' | 'footpadDelaySeconds';
+  const numericFields: NumericField[] = [
+    'speedThresholdKph',
+    'loadThresholdPercent',
+    'repeatIntervalSeconds',
+    'footpadDelaySeconds',
+  ];
   let validated = $state<Partial<Record<NumericField, boolean>>>({});
   let editVersion = 0;
   let submittedVersion = -1;
@@ -24,6 +29,10 @@
   const factor = $derived(imperial ? 0.621371192237334 : 1);
   const inputClass = 'mt-1 block w-full rounded border bg-surface px-3 py-2 text-foreground';
   const fieldErrors = $derived({
+    footpadDelaySeconds:
+      Number.isInteger(draft.footpadDelaySeconds) && draft.footpadDelaySeconds >= 1 && draft.footpadDelaySeconds <= 5
+        ? ''
+        : 'Choose a whole number from 1 to 5 seconds.',
     speedThresholdKph:
       Number.isFinite(draft.speedThresholdKph) &&
       draft.speedThresholdKph * factor >= 0.001 &&
@@ -146,15 +155,25 @@
     class="mt-3 space-y-3 rounded-lg border border-outline bg-elevated p-3 text-sm"
   >
     <p class="text-muted">
-      Hear readings above your thresholds. Speed and load can be enabled together; load speaks only the highest of duty,
-      motor or battery utilisation.
+      Hear footpad contact alerts and readings above your thresholds. Load speaks only the highest of duty, motor or
+      battery utilisation. Footpad alerts speak first when rules qualify together.
     </p>
-    {#each ['speedEnabled', 'loadEnabled'] as key (key)}
-      {@const field = key as 'speedEnabled' | 'loadEnabled'}
+    {#each ['speedEnabled', 'loadEnabled', 'footpadEnabled'] as key (key)}
+      {@const field = key as 'speedEnabled' | 'loadEnabled' | 'footpadEnabled'}
       <div>
-        <p>{field === 'speedEnabled' ? 'Speed announcements' : 'Load announcements'}</p>
+        <p>
+          {field === 'speedEnabled'
+            ? 'Speed announcements'
+            : field === 'loadEnabled'
+              ? 'Load announcements'
+              : 'Footpad announcements'}
+        </p>
         <SegmentedControl
-          label={field === 'speedEnabled' ? 'Speed announcements' : 'Load announcements'}
+          label={field === 'speedEnabled'
+            ? 'Speed announcements'
+            : field === 'loadEnabled'
+              ? 'Load announcements'
+              : 'Footpad announcements'}
           options={[
             { value: false, label: 'Off' },
             { value: true, label: 'On' },
@@ -164,6 +183,31 @@
         />
       </div>
     {/each}
+    <label class="block">
+      Footpad delay: {draft.footpadDelaySeconds}
+      {draft.footpadDelaySeconds === 1 ? 'second' : 'seconds'}
+      <input
+        aria-label="Footpad delay"
+        aria-valuetext={`${draft.footpadDelaySeconds} seconds`}
+        aria-describedby="announcement-footpad-description"
+        class="mt-2 w-full touch-pan-y"
+        type="range"
+        min="1"
+        max="5"
+        step="1"
+        value={draft.footpadDelaySeconds}
+        oninput={(e) => edit({ footpadDelaySeconds: e.currentTarget.valueAsNumber })}
+        onpointerup={(e) => {
+          if (e.isPrimary && e.button === 0) commit('footpadDelaySeconds');
+        }}
+        onchange={() => commit('footpadDelaySeconds')}
+        onblur={() => commit('footpadDelaySeconds')}
+      />
+      <span id="announcement-footpad-description" class="text-xs text-muted">
+        Announces sustained contact loss while speed is above 5 km/h{imperial ? ' (3.1 mph)' : ''}, including in
+        reverse. The delay is retained while alerts are off.
+      </span>
+    </label>
     <div>
       <label class="block"
         >Speed threshold ({imperial ? 'mph' : 'km/h'})
@@ -234,6 +278,7 @@
       >Announcement volume: {draft.volumePercent}%{draft.volumePercent === 0 ? ' (muted)' : ''}
       <input
         class="mt-2 w-full touch-pan-y"
+        aria-label="Announcement volume"
         type="range"
         min="0"
         max="100"

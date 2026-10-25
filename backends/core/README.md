@@ -95,11 +95,22 @@ recorded motor/battery fractions, sample-scoped live load, native presentation
 and announcement policy. Frontend consumers format these results; session review
 keeps raw duty and captured current-load fields without present-day limits.
 
-`backend-service::announcements` owns both enable flags, thresholds, one shared
+`backend-service::announcements` owns all three enable flags, thresholds, one shared
 monotonic cooldown for automatic announcements and one ten-second speech operation.
 Manual tests can repeat as soon as playback finishes and still advance the
 automatic cooldown to keep automatic speech from following a test immediately. Typed native effects
-carry the highest load source, optional speed, speech gain and admission expiry.
+carry optional closed left/right/both footpad release, the highest load source,
+optional speed, speech gain and admission expiry, in that spoken order.
+Footpad alerts default off with a one-second delay, configurable from 1–5 whole
+seconds. Two monotonic timestamps qualify released sides independently only
+with fresh known contact and finite speed magnitude >5 and ≤200 km/h, in saved
+or guest mode. `left` means left pressed/right released. The speech timer stays
+armed while a side accumulates its delay. Contact recovery clears only that side;
+invalid evidence, speed gate loss, a gap ≥2 seconds (checked before replacing the
+previous observation), controller/connection changes and footpad settings edits
+clear both. Resets retain cooldown. WebView replacement preserves service-owned
+timing; process restart discards it. Recovery lets admitted speech finish;
+invalid context and rule edits cancel it. No release samples or warnings queue.
 Missing/stale telemetry cancels automatic speech; unavailable audio drops an
 attempt without a backlog. Test waiters belong to their requesting client.
 

@@ -5,14 +5,19 @@ import org.json.JSONObject
 internal data class SpeechRequest(
     val id: Long, val expires: Long, val load: Pair<String, Int>?, val speed: Int?,
     val imperial: Boolean, val volume: Int,
+    val footpad: Footpad? = null,
 ) {
+    enum class Footpad(val wire: String, val phrase: String) {
+        LEFT("left", "left footpad off"), RIGHT("right", "right footpad off"), BOTH("both", "both footpads off")
+    }
     val phrase: String get() = buildList {
+        footpad?.let { add(it.phrase) }
         load?.let { add("${it.first} ${it.second} percent") }
         speed?.let { add("$it ${if (imperial) "miles per hour" else "kilometres per hour"}") }
     }.joinToString(", ")
     companion object {
         fun decode(value: JSONObject): SpeechRequest? = runCatching {
-            require(value.keys().asSequence().toSet() == setOf("id", "expires_at_ms", "load", "speed", "imperial", "volume", "lower_other_audio"))
+            require(value.keys().asSequence().toSet() == setOf("id", "expires_at_ms", "footpad", "load", "speed", "imperial", "volume", "lower_other_audio"))
             fun integer(objectValue: JSONObject, key: String, max: Long): Long {
                 val raw = objectValue.get(key)
                 require(raw is Number)
@@ -30,9 +35,14 @@ internal data class SpeechRequest(
                 source to integer(it, "percent", 100).toInt()
             }
             val speed = if (value.isNull("speed")) null else integer(value, "speed", 200).toInt()
-            require(load != null || speed != null)
+            val footpad = if (value.isNull("footpad")) null else {
+                val raw = value.get("footpad")
+                require(raw is String)
+                requireNotNull(Footpad.entries.firstOrNull { it.wire == raw })
+            }
+            require(footpad != null || load != null || speed != null)
             SpeechRequest(id, integer(value, "expires_at_ms", Long.MAX_VALUE), load, speed,
-                value.getBoolean("imperial"), integer(value, "volume", 100).toInt())
+                value.getBoolean("imperial"), integer(value, "volume", 100).toInt(), footpad)
         }.getOrNull()
     }
 }

@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import type { TelemetrySource } from './telemetry.ts';
 import { SoftwarePeripheral } from './software.ts';
 
 export const LIMITS = { sessions: 4, commands: 64, events: 128, bytes: 65_536, message: 65_536, payload: 8_192 };
@@ -42,7 +43,7 @@ export function checkEventCapacity(count: number, bytes: number) {
 
 export class FixtureSession {
   readonly id = identity();
-  private model = new SoftwarePeripheral();
+  private model: SoftwarePeripheral;
   private operation = 0;
   private generation = 0;
   private sequence = 0;
@@ -51,7 +52,8 @@ export class FixtureSession {
   private events: FixtureEvent[] = [];
   private byteCount = 0;
   readonly run: string;
-  constructor(run: string) {
+  constructor(run: string, telemetry?: TelemetrySource) {
+    this.model = new SoftwarePeripheral(telemetry);
     this.run = run;
   }
 
@@ -195,9 +197,9 @@ export class FixtureRun {
   readonly id = identity();
   readonly token = identity();
   private sessions = new Map<string, FixtureSession>();
-  create() {
+  create(telemetry?: TelemetrySource) {
     if (this.sessions.size >= LIMITS.sessions) throw new Error('Fixture session capacity exceeded');
-    const session = new FixtureSession(this.id);
+    const session = new FixtureSession(this.id, telemetry);
     this.sessions.set(session.id, session);
     return session;
   }

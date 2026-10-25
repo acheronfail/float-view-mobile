@@ -2,6 +2,16 @@ import AVFoundation
 import Foundation
 
 struct SpeechRequest: Decodable, Sendable {
+  enum Footpad: String, Decodable, Sendable {
+    case left, right, both
+    var phrase: String {
+      switch self {
+      case .left: "left footpad off"
+      case .right: "right footpad off"
+      case .both: "both footpads off"
+      }
+    }
+  }
   struct Load: Decodable, Sendable { let source: String; let percent: UInt64 }
   let expires_at_ms: UInt64
   let id: UInt64
@@ -10,14 +20,16 @@ struct SpeechRequest: Decodable, Sendable {
   let imperial: Bool
   let volume: UInt64
   let lower_other_audio: Bool
+  var footpad: Footpad? = nil
   var valid: Bool {
-    id > 0 && volume <= 100 && (load != nil || speed != nil)
+    id > 0 && volume <= 100 && (footpad != nil || load != nil || speed != nil)
       && (load.map { ["duty", "motor", "battery"].contains($0.source) && $0.percent <= 100 } ?? true)
       && (speed.map { $0 <= 200 } ?? true)
   }
 
   var phrase: String {
     var parts: [String] = []
+    if let footpad { parts.append(footpad.phrase) }
     if let load {
       parts.append("\(load.source) \(load.percent) percent")
     }

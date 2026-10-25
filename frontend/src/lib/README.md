@@ -516,6 +516,10 @@ and first/recovered telemetry values change immediately; ordinary continuous
 readings use short interpolation.
 
 Ride announcement controls belong to `features/settings/Announcements.svelte`.
+Speed, load and footpad rules have independent switches. Footpad alerts default
+off with a one-second delay; the labelled native slider offers whole seconds
+1–5 and remains editable while disabled. The fixed >5 km/h gate also displays
+its 3.1 mph equivalent in imperial units. Footpad wording precedes load and speed.
 They automatically submit complete revision-checked announcement preferences on
 control changes or numeric-input blur, and authenticated
 test requests. Saves are serialized, newer edits survive delayed responses, and

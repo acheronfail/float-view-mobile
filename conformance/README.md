@@ -238,3 +238,20 @@ window/activation behavior and first-use OS permission presentation remain
 separate physical observations; headless software targets do not establish them.
 
 `test/last-live-view.browser.ts` covers saved view restoration without a process checkpoint, reconnects, failed preference writes and dashboard editor revision consistency in Chromium and WebKit. Board independence and durable reopen are also covered by product-store tests.
+
+## Focused announcement coverage
+
+`FLOAT_VIEW_CONFORMANCE_SCENARIOS=announcements npm run direct` (or `mock`,
+`macos`, `ios`, `android`) checks the complete announcement settings contract,
+new disabled/one-second footpad defaults, invalid delay atomicity and existing
+manual previews on each host. `node --strip-types --test test/announcements.test.ts`
+uses the existing interactive telemetry source and Refloat codec through the
+direct OS relay to check automatic footpad-only speech, shared repeats, combined
+effects, contact recovery and full requalification after reconnect. It observes
+typed speech effects and simulates completion; it does not establish audibility.
+
+Build the frontend before running `test/announcements.browser.ts` as described
+in CONTRIBUTING.md. Chromium and WebKit cover guarded toggles, native delay
+slider mouse/touch/keyboard edits, retained disabled delay, frontend reload and
+failed/serialized autosaves. Native Swift/Kotlin speech tests check exact
+left/right/both wording, footpad-first ordering and the existing audio lifecycle.

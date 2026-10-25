@@ -40,9 +40,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.keyboard.press('Enter');
       await client.waitForState((s) => s.settings.announcements.loadEnabled);
       await page.getByLabel('Repeat interval (seconds)', { exact: true }).fill('1');
-      await page.getByRole('slider').focus();
+      await page.getByRole('slider', { name: 'Announcement volume', exact: true }).focus();
       await page.keyboard.press('Home');
-      await page.getByRole('slider').blur();
+      await page.getByRole('slider', { name: 'Announcement volume', exact: true }).blur();
       await client.waitForState(
         (s) => s.settings.announcements.volumePercent === 0 && s.settings.announcements.repeatIntervalSeconds === 1
       );
@@ -52,6 +52,43 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(state.settings.announcements.loadEnabled, true);
       assert.equal(state.settings.announcements.volumePercent, 0);
       assert.equal(requests.filter((x) => x === 'settings.update').length, 4);
+      const footpad = page.getByRole('group', { name: 'Footpad announcements', exact: true });
+      const delay = page.getByRole('slider', { name: 'Footpad delay', exact: true });
+      assert.equal(await delay.inputValue(), '1');
+      await footpad
+        .getByRole('button', { name: 'On', exact: true })
+        .dispatchEvent('pointerdown', { isPrimary: false, button: 0, pointerId: 2 });
+      await footpad
+        .getByRole('button', { name: 'On', exact: true })
+        .dispatchEvent('pointerup', { isPrimary: false, button: 0, pointerId: 2 });
+      await footpad.getByRole('button', { name: 'On', exact: true }).click({ button: 'right' });
+      assert.equal(
+        await footpad.getByRole('button', { name: 'Off', exact: true }).getAttribute('aria-pressed'),
+        'true'
+      );
+      await footpad.getByRole('button', { name: 'On', exact: true }).tap();
+      await client.waitForState((s) => s.settings.announcements.footpadEnabled);
+      await delay.focus();
+      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('ArrowRight');
+      await delay.blur();
+      await client.waitForState((s) => s.settings.announcements.footpadDelaySeconds === 3);
+      await footpad.getByRole('button', { name: 'Off', exact: true }).focus();
+      await page.keyboard.press('Enter');
+      await client.waitForState((s) => !s.settings.announcements.footpadEnabled);
+      await page.reload();
+      await delay.waitFor();
+      assert.equal(await delay.inputValue(), '3');
+      await footpad.getByRole('button', { name: 'On', exact: true }).click();
+      await client.waitForState((s) => s.settings.announcements.footpadEnabled);
+      // Native slider mouse and touch changes stay within whole-second steps.
+      await delay.scrollIntoViewIfNeeded();
+      const bounds = (await delay.boundingBox())!;
+      await page.mouse.click(bounds.x + bounds.width - 8, bounds.y + bounds.height / 2);
+      await client.waitForState((s) => s.settings.announcements.footpadDelaySeconds === 5);
+      await page.touchscreen.tap(bounds.x + 8, bounds.y + bounds.height / 2);
+      await delay.blur();
+      await client.waitForState((s) => s.settings.announcements.footpadDelaySeconds === 1);
       const control = page.getByRole('group', { name: 'Lower other audio while speaking', exact: true });
       assert.equal(await control.count(), 1);
       const button = page.getByRole('button', { name: 'Test combined', exact: true });
@@ -129,11 +166,20 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       });
       await automatic.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
       await automatic.goto(`${endpoint.origin}/#/settings`);
-      await automatic.getByRole('slider').waitFor();
+      await automatic.getByRole('slider', { name: 'Announcement volume', exact: true }).waitFor();
       assert.equal(
         await automatic.getByRole('group', { name: 'Lower other audio while speaking', exact: true }).count(),
         0
       );
+      const failedDelay = automatic.getByRole('slider', { name: 'Footpad delay', exact: true });
+      await failedDelay.focus();
+      await automatic.keyboard.press('End');
+      await failedDelay.blur();
+      await automatic
+        .getByText('Could not save announcement settings. Your edits are kept; try again.', { exact: true })
+        .waitFor();
+      assert.equal(await failedDelay.inputValue(), '5');
+      assert.equal((await client.request('state.get', {})).settings.announcements.footpadDelaySeconds, 1);
       await automatic.getByLabel('Load threshold (%)', { exact: true }).fill('77');
       await automatic.getByLabel('Load threshold (%)', { exact: true }).blur();
       await automatic

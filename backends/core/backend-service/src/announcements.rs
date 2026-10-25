@@ -8,7 +8,7 @@ use crate::{
 };
 use float_view_application_runtime::{
     load::{self, Source, Winner},
-    telemetry::NormalizedSample,
+    telemetry::{FootpadState, NormalizedSample},
 };
 use serde::{Deserialize, Serialize};
 
@@ -64,11 +64,19 @@ impl Default for AudioState {
         }
     }
 }
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Footpad {
+    Left,
+    Right,
+    Both,
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Speech {
     pub id: u64,
     pub expires_at_ms: u64,
+    pub footpad: Option<Footpad>,
     pub load: Option<SpokenLoad>,
     pub speed: Option<u64>,
     pub imperial: bool,
@@ -93,14 +101,32 @@ pub(crate) struct State {
     last_attempt: Option<u64>,
     active: Option<Active>,
     observation: Option<(u64, u64, load::Load, Option<f64>)>,
+    released_at: [Option<u64>; 2],
 }
 impl State {
+    pub(crate) fn reset_footpads(&mut self) {
+        self.released_at = [None; 2];
+    }
     pub(crate) fn invalidate(&mut self) {
         self.observation = None;
+        self.reset_footpads();
     }
 }
 impl BackendService {
     pub(crate) fn observe_announcement(&mut self, sample: &NormalizedSample) {
+        // Check the previous sample before replacing its freshness evidence.
+        if self.speech_values().2.is_none() {
+            self.policy.announcements.reset_footpads();
+            if self
+                .policy
+                .announcements
+                .active
+                .as_ref()
+                .is_some_and(|a| !a.test)
+            {
+                self.cancel_speech(Outcome::Interrupted);
+            }
+        }
         if let Some(a) = &self.policy.active {
             self.policy.announcements.observation = Some((
                 a.generation,
@@ -111,6 +137,36 @@ impl BackendService {
                 ),
                 sample.speed_kph,
             ));
+            let released = match sample.footpad_state {
+                Some(FootpadState::Left) => Some([false, true]),
+                Some(FootpadState::Right) => Some([true, false]),
+                Some(FootpadState::None) => Some([true, true]),
+                Some(FootpadState::Both) => Some([false, false]),
+                _ => None,
+            };
+            if self.policy.settings.announcements.footpad_enabled
+                && self.speech_values().2.is_some()
+                && sample
+                    .speed_kph
+                    .is_some_and(|v| v.is_finite() && v.abs() > 5. && v.abs() <= 200.)
+                && let Some(released) = released
+            {
+                for (start, released) in self
+                    .policy
+                    .announcements
+                    .released_at
+                    .iter_mut()
+                    .zip(released)
+                {
+                    if released {
+                        start.get_or_insert(self.policy.exchange.now);
+                    } else {
+                        *start = None;
+                    }
+                }
+            } else {
+                self.policy.announcements.reset_footpads();
+            }
         }
     }
     pub(crate) fn cancel_speech(&mut self, outcome: Outcome) {
@@ -204,6 +260,7 @@ impl BackendService {
             speech: Speech {
                 id,
                 expires_at_ms: self.policy.exchange.now.saturating_add(10_000),
+                footpad: if test { None } else { self.qualified_footpad() },
                 load: load.map(|w| SpokenLoad {
                     source: w.source,
                     percent: (w.fraction * 100.).round() as u64,
@@ -276,9 +333,30 @@ impl BackendService {
         }
         Ok(Dispatch::Pending(receiver))
     }
+    fn qualified_footpad(&self) -> Option<Footpad> {
+        let settings = &self.policy.settings.announcements;
+        if !settings.footpad_enabled {
+            return None;
+        }
+        let qualified = self.policy.announcements.released_at.map(|start| {
+            start.is_some_and(|at| {
+                self.policy.exchange.now.saturating_sub(at) >= settings.footpad_delay_seconds * 1000
+            })
+        });
+        match qualified {
+            [true, true] => Some(Footpad::Both),
+            [true, false] => Some(Footpad::Left),
+            [false, true] => Some(Footpad::Right),
+            _ => None,
+        }
+    }
     pub(crate) fn step_announcements(&mut self) -> Result<(), Failure> {
         let (winner, speed, generation) = self.speech_values();
         let now = self.policy.exchange.now;
+        if generation.is_none() {
+            self.policy.announcements.reset_footpads();
+        }
+        let footpad = self.qualified_footpad();
         // Threshold crossings stop future attempts, not an admitted phrase.
         // Invalid or stale board context still interrupts automatic speech.
         if let Some(a) = &self.policy.announcements.active {
@@ -288,7 +366,7 @@ impl BackendService {
                 self.cancel_speech(Outcome::Interrupted);
             }
         }
-        if (winner.is_some() || speed.is_some()) && self.speech_ready() {
+        if (footpad.is_some() || winner.is_some() || speed.is_some()) && self.speech_ready() {
             self.policy.announcements.last_attempt = Some(now);
             if self.policy.announcements.active.is_none()
                 && self.policy.settings.announcements.volume_percent > 0
@@ -298,8 +376,15 @@ impl BackendService {
                 let _ = self.emit_speech(id, winner, speed, generation, false);
             }
         }
-        let needed =
-            self.policy.announcements.active.is_some() || winner.is_some() || speed.is_some();
+        let needed = self.policy.announcements.active.is_some()
+            || winner.is_some()
+            || speed.is_some()
+            || self
+                .policy
+                .announcements
+                .released_at
+                .iter()
+                .any(Option::is_some);
         if needed
             && !self.policy.timers.values().any(|t| t.kind == Timer::Speech)
             && self.arm_timer(Timer::Speech, 100, None).is_err()

@@ -32,6 +32,10 @@ pub struct Settings {
 pub struct AnnouncementSettings {
     pub speed_enabled: bool,
     pub load_enabled: bool,
+    #[serde(default)]
+    pub footpad_enabled: bool,
+    #[serde(default = "default_footpad_delay")]
+    pub footpad_delay_seconds: u64,
     pub speed_threshold_kph: f64,
     pub load_threshold_percent: f64,
     pub repeat_interval_seconds: u64,
@@ -43,6 +47,8 @@ impl Default for AnnouncementSettings {
         Self {
             speed_enabled: false,
             load_enabled: false,
+            footpad_enabled: false,
+            footpad_delay_seconds: 1,
             speed_threshold_kph: 25.,
             load_threshold_percent: 65.,
             repeat_interval_seconds: 5,
@@ -61,6 +67,7 @@ impl AnnouncementSettings {
             && self.load_threshold_percent <= 100.
             && (1..=60).contains(&self.repeat_interval_seconds)
             && self.volume_percent <= 100
+            && (1..=5).contains(&self.footpad_delay_seconds)
     }
 }
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -137,8 +144,10 @@ impl ProductStore {
                     }
                 }
                 "announcements"
-                    if serde_json::from_value::<AnnouncementSettings>(value.clone())
-                        .is_ok_and(|v| v.valid()) => {}
+                    if value.get("footpadEnabled").is_some()
+                        && value.get("footpadDelaySeconds").is_some()
+                        && serde_json::from_value::<AnnouncementSettings>(value.clone())
+                            .is_ok_and(|v| v.valid()) => {}
                 "idleProbeIntervalMs" => clamp_integer(&mut value, 100, 10_000)?,
                 "idlePersistIntervalMs" => clamp_integer(&mut value, 100, 60_000)?,
                 "ridingPersistIntervalMs" => clamp_integer(&mut value, 50, 10_000)?,
@@ -310,4 +319,8 @@ pub(crate) fn valid_live_widget_slots(value: &Value) -> bool {
 
 fn default_resume_window() -> u64 {
     60
+}
+
+fn default_footpad_delay() -> u64 {
+    1
 }

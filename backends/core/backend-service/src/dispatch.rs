@@ -455,6 +455,11 @@ impl BackendService {
                 let mut current = self.policy.settings.announcements.clone();
                 current.volume_percent = previous.volume_percent;
                 current.lower_other_audio = previous.lower_other_audio;
+                if current.footpad_enabled != previous.footpad_enabled
+                    || current.footpad_delay_seconds != previous.footpad_delay_seconds
+                {
+                    self.policy.announcements.reset_footpads();
+                }
                 if current != previous {
                     self.cancel_speech(crate::announcements::Outcome::Interrupted);
                 }

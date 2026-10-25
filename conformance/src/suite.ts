@@ -2205,10 +2205,21 @@ async function exerciseAnnouncements(client: ConformanceClient, initial: AppStat
     await expectError(client.request('announcements.openVoiceSettings', {}), 'unavailable');
   const updated = await client.request('settings.update', {
     expectedRevision: initial.settings.revision,
-    patch: { announcements: { ...original, speedEnabled: true, loadEnabled: true, volumePercent: 0 } },
+    patch: {
+      announcements: {
+        ...original,
+        speedEnabled: true,
+        loadEnabled: true,
+        footpadEnabled: true,
+        footpadDelaySeconds: 3,
+        volumePercent: 0,
+      },
+    },
   });
   assert.equal(updated.announcements.speedEnabled, true);
   assert.equal(updated.announcements.loadEnabled, true);
+  assert.equal(updated.announcements.footpadEnabled, true);
+  assert.equal(updated.announcements.footpadDelaySeconds, 3);
   assert.deepEqual(await client.request('announcements.test', { kind: 'combined' }), { outcome: 'finished' });
   assert.deepEqual(await client.request('announcements.test', { kind: 'speed' }), { outcome: 'finished' });
   assert.deepEqual(await client.request('announcements.test', { kind: 'load' }), { outcome: 'finished' });
@@ -2220,6 +2231,15 @@ async function exerciseAnnouncements(client: ConformanceClient, initial: AppStat
     }),
     'invalid_request'
   );
+  for (const footpadDelaySeconds of [0, 6, 1.5]) {
+    await expectError(
+      client.request('settings.update', {
+        expectedRevision: updated.revision,
+        patch: { announcements: { ...updated.announcements, footpadDelaySeconds } },
+      }),
+      'invalid_request'
+    );
+  }
   if (initial.announcementAudio.loweringControl === 'automatic') {
     await expectError(
       client.request('settings.update', {
@@ -2298,6 +2318,23 @@ export async function runRideContinuityConformance(target: Target) {
     assert.equal(ended.pausedRide, null);
     assert.equal((await client.request('session.get', { sessionId })).summary.state, 'completed');
     return { target: target.name, revision: ended.revision };
+  } finally {
+    client?.close();
+    await target.stop();
+  }
+}
+
+/** Focused public settings coverage for each native/shared integration. */
+export async function runAnnouncementsConformance(target: Target) {
+  let client: ConformanceClient | undefined;
+  try {
+    const endpoint = await target.start();
+    client = await ConformanceClient.open(endpoint.url, endpoint.origin);
+    const initial = await client.request('state.get', {});
+    assert.equal(initial.settings.announcements.footpadEnabled, false);
+    assert.equal(initial.settings.announcements.footpadDelaySeconds, 1);
+    await exerciseAnnouncements(client, initial);
+    return { target: target.name, revision: (await client.request('state.get', {})).revision };
   } finally {
     client?.close();
     await target.stop();

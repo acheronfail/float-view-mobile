@@ -1135,6 +1135,44 @@ describe('deterministic mock backend', () => {
 });
 
 describe('announcement mock contract', () => {
+  it('defaults footpad settings and validates complete updates without changing saved values', () => {
+    const backend = new MockBackend();
+    const state = () => (backend.handle({ id: 1, method: 'state.get', params: {} }) as { result: AppState }).result;
+    expect(state().settings.announcements).toMatchObject({ footpadEnabled: false, footpadDelaySeconds: 1 });
+    for (const footpadDelaySeconds of [1, 2, 3, 4, 5]) {
+      const current = state().settings;
+      const announcements = { ...current.announcements, footpadEnabled: true, footpadDelaySeconds };
+      expect(
+        backend.handle({
+          id: 2,
+          method: 'settings.update',
+          params: { expectedRevision: current.revision, patch: { announcements } },
+        })
+      ).toMatchObject({ result: { announcements } });
+    }
+    const current = state().settings;
+    for (const footpadDelaySeconds of [0, 6, 1.5, null, '1']) {
+      expect(
+        backend.handle({
+          id: 3,
+          method: 'settings.update',
+          params: {
+            expectedRevision: current.revision,
+            patch: { announcements: { ...current.announcements, footpadDelaySeconds } },
+          },
+        })
+      ).toMatchObject({ error: { code: 'invalid_request' } });
+      expect(state().settings).toEqual(current);
+    }
+    expect(
+      backend.handle({
+        id: 4,
+        method: 'settings.update',
+        params: { expectedRevision: 0, patch: { announcements: current.announcements } },
+      })
+    ).toMatchObject({ error: { code: 'conflict' } });
+  });
+
   it('exposes the mandatory voice settings method and rejects unsupported or extra input', () => {
     const backend = new MockBackend();
     const initial = (backend.handle({ id: 1, method: 'state.get', params: {} }) as { result: AppState }).result;
@@ -1146,7 +1184,7 @@ describe('announcement mock contract', () => {
       backend.handle({ id: 3, method: 'announcements.openVoiceSettings', params: { uri: 'other' } })
     ).toMatchObject({ error: { code: 'invalid_request' } });
   });
-  it('accepts both rules, validates atomically and permits successive completed tests', () => {
+  it('accepts all rules, validates atomically and permits successive completed tests', () => {
     const backend = new MockBackend();
     const initial = (backend.handle({ id: 1, method: 'state.get', params: {} }) as { result: AppState }).result;
     const announcements = {

@@ -1067,9 +1067,13 @@ export class MockBackend {
           const a = patch.announcements as import('../src/lib/backend/contract.ts').AnnouncementSettings;
           if (
             !a ||
-            Object.keys(a).length !== 7 ||
+            Object.keys(a).length !== 9 ||
             typeof a.speedEnabled !== 'boolean' ||
             typeof a.loadEnabled !== 'boolean' ||
+            typeof a.footpadEnabled !== 'boolean' ||
+            !Number.isInteger(a.footpadDelaySeconds) ||
+            a.footpadDelaySeconds < 1 ||
+            a.footpadDelaySeconds > 5 ||
             typeof a.lowerOtherAudio !== 'boolean' ||
             !Number.isFinite(a.speedThresholdKph) ||
             !(a.speedThresholdKph > 0 && a.speedThresholdKph <= 200) ||

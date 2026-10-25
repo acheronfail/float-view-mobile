@@ -220,6 +220,8 @@ export interface DriveLoad {
 export interface AnnouncementSettings {
   speedEnabled: boolean;
   loadEnabled: boolean;
+  footpadEnabled: boolean;
+  footpadDelaySeconds: number;
   speedThresholdKph: number;
   loadThresholdPercent: number;
   repeatIntervalSeconds: number;
@@ -229,6 +231,8 @@ export interface AnnouncementSettings {
 export const defaultAnnouncements: AnnouncementSettings = {
   speedEnabled: false,
   loadEnabled: false,
+  footpadEnabled: false,
+  footpadDelaySeconds: 1,
   speedThresholdKph: 25,
   loadThresholdPercent: 65,
   repeatIntervalSeconds: 5,

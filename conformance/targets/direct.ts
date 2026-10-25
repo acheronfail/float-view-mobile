@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import type { TelemetrySource } from '../fixture/telemetry.ts';
 import { FixtureRun, type FixtureCommand } from '../fixture/session.ts';
 import type { Target } from '../src/suite.ts';
 
 type Effect = {
   effect: string;
+  speech?: SpeechEffect;
   id?: number;
   delay_ms?: number;
   connection?: boolean;
@@ -19,7 +21,16 @@ type Effect = {
   device_id?: string;
   bytes?: number[];
 };
-export function makeDirectTarget(): Target {
+export type SpeechEffect = {
+  id: number;
+  footpad: 'left' | 'right' | 'both' | null;
+  load: { source: 'duty' | 'motor' | 'battery'; percent: number } | null;
+  speed: number | null;
+};
+export function makeDirectTarget(options?: {
+  telemetry: TelemetrySource;
+  onSpeech(speech: SpeechEffect): void;
+}): Target {
   let child: ChildProcessWithoutNullStreams | undefined;
   let root: string | undefined;
   let endpoint: { url: string; origin: string } | undefined;
@@ -34,7 +45,7 @@ export function makeDirectTarget(): Target {
   let polling: NodeJS.Timeout | undefined;
   let busy = false;
   let fixture = new FixtureRun();
-  let session = fixture.create();
+  let session = fixture.create(options?.telemetry);
   let fixtureDevice: string | undefined;
   let operation = 0,
     generation = 0;
@@ -110,6 +121,12 @@ export function makeDirectTarget(): Target {
   }
   async function effect(e: Effect) {
     switch (e.effect) {
+      case 'speak':
+        if (options && e.speech) {
+          options.onSpeech(e.speech);
+          await fact({ fact: 'speech_finished', id: e.speech.id, outcome: 'finished' });
+        }
+        break;
       case 'scan':
         await simulate('scan', e);
         break;
@@ -190,7 +207,7 @@ export function makeDirectTarget(): Target {
       request = 0;
       fixture.close();
       fixture = new FixtureRun();
-      session = fixture.create();
+      session = fixture.create(options?.telemetry);
       operation = 0;
       generation = 0;
       fixtureDevice = undefined;
@@ -248,6 +265,16 @@ export function makeDirectTarget(): Target {
       });
       await fact({ fact: 'storage', available_bytes: 1_000_000_000 });
       await fact({ fact: 'foreground', foreground: true });
+      if (options)
+        await fact({
+          fact: 'speech_ready',
+          state: {
+            status: 'ready',
+            reason: null,
+            loweringControl: 'adjustable',
+            voiceSettingsAvailable: false,
+          },
+        });
       polling = setInterval(() => {
         if (busy) return;
         busy = true;
