@@ -279,12 +279,12 @@ impl BackendService {
     pub(crate) fn step_announcements(&mut self) -> Result<(), Failure> {
         let (winner, speed, generation) = self.speech_values();
         let now = self.policy.exchange.now;
+        // Threshold crossings stop future attempts, not an admitted phrase.
+        // Invalid or stale board context still interrupts automatic speech.
         if let Some(a) = &self.policy.announcements.active {
             if now >= a.deadline {
                 self.cancel_speech(Outcome::Unavailable);
-            } else if !a.test
-                && (a.generation != generation || (winner.is_none() && speed.is_none()))
-            {
+            } else if !a.test && a.generation != generation {
                 self.cancel_speech(Outcome::Interrupted);
             }
         }

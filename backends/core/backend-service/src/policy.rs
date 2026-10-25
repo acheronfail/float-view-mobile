@@ -4187,6 +4187,9 @@ mod tests {
                 .any(|e| matches!(e, Effect::Disconnect { generation: g } if *g == generation))
         );
     }
+    mod announcement_playback {
+        include!("../tests/policy/announcements.rs");
+    }
     #[test]
     fn announcements_combine_fresh_values_keep_cooldown_and_cancel_stale_speech() {
         #[allow(dead_code)]
