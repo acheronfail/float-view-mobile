@@ -479,6 +479,7 @@ pub(crate) fn sample(
         battery_current_a: v.battery_current_a,
         erpm: v.erpm,
         speed_kph: v.speed_kph,
+        max_speed_kph: v.max_speed_kph,
         pitch_deg: v.pitch_deg,
         balance_pitch_deg: v.balance_pitch_deg,
         roll_deg: v.roll_deg,

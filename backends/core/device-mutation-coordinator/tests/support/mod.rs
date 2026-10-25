@@ -122,6 +122,7 @@ pub fn sample_with(
         slow_observed_at_epoch_ms: None,
         elapsed_ms: sequence,
         riding_elapsed_ms: 0,
+        max_speed_kph: None,
         ride_state,
         package_state: Some(package_state),
         package_mode: Some(package_mode),

@@ -1745,6 +1745,7 @@ impl BackendService {
                     elapsed,
                     session.committed_sequence,
                     session.riding_elapsed_ms,
+                    session.max_speed_mps.map(|v| v * 3.6),
                 );
             }
             let operation_id = match &a.context_activation {
@@ -2103,6 +2104,79 @@ mod tests {
             )
             .unwrap();
             self.identify();
+        }
+        fn riding_sample(&mut self, now_ms: u64) {
+            let generation = self.service.runtime.snapshot().application.generation;
+            if self
+                .service
+                .runtime
+                .snapshot()
+                .application
+                .current_limits
+                .is_none()
+            {
+                let mut payload = vec![14];
+                payload.extend_from_slice(&0x2EFD_0142_u32.to_be_bytes());
+                payload.extend_from_slice(&[0; 4]);
+                for value in [100_f32, -100., 50., -20.] {
+                    payload.extend_from_slice(&value.to_be_bytes());
+                }
+                self.service
+                    .runtime_command(Command::Application(c::Command::Receive {
+                        generation,
+                        payload,
+                        now_ms,
+                        observed_at_epoch_ms: 1_700_000_000_000 + now_ms as i64,
+                    }))
+                    .unwrap();
+            }
+            if self
+                .service
+                .policy
+                .active
+                .as_ref()
+                .unwrap()
+                .latest
+                .is_some()
+            {
+                let id = self
+                    .service
+                    .policy
+                    .timers
+                    .iter()
+                    .find_map(|(id, timer)| {
+                        matches!(timer.kind, Timer::Kernel(c::TimerToken::Refloat(_)))
+                            .then_some(*id)
+                    })
+                    .unwrap();
+                self.fact(Fact::Timer { id }, now_ms).unwrap();
+            }
+            let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+                "../../../fixtures/refloat/protocol-1.0.0.json"
+            ))
+            .unwrap();
+            let hex = fixtures["cases"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|case| case["name"] == "legacy-riding-all-data")
+                .unwrap()["frameHex"]
+                .as_str()
+                .unwrap();
+            let bytes = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                .collect();
+            let generation = self.service.runtime.snapshot().application.generation;
+            self.service
+                .runtime_command(Command::ReceiveBytes {
+                    generation,
+                    bytes,
+                    now_ms,
+                    observed_at_epoch_ms: 1_700_000_000_000 + now_ms as i64,
+                })
+                .unwrap();
+            self.service.changed().unwrap();
         }
         fn identify(&mut self) {
             let mut payload = vec![0, 6, 6];
@@ -3816,6 +3890,22 @@ mod tests {
         let mut t = Test::new();
         t.activate(true);
         let id = t.service.policy.ride.as_ref().unwrap().session_id.clone();
+        t.riding_sample(100);
+        t.riding_sample(1100);
+        let peak = t
+            .service
+            .published_snapshot()
+            .active
+            .unwrap()
+            .latest_sample
+            .unwrap()
+            .max_speed_kph
+            .unwrap();
+        assert!(peak > 0.0);
+        assert_eq!(
+            t.service.store.session(&id).unwrap().max_speed_mps,
+            Some(peak / 3.6)
+        );
         t.service.disconnect("explicit_disconnect").unwrap();
         assert!(t.service.policy.active.is_none());
         assert_eq!(
@@ -3852,6 +3942,10 @@ mod tests {
             id
         );
         assert!(t.service.published_snapshot().paused_ride.is_none());
+        t.riding_sample(10_000);
+        let snapshot = t.service.published_snapshot().active.unwrap();
+        let latest = snapshot.latest_sample.unwrap();
+        assert_eq!(latest.max_speed_kph, Some(peak));
         let mut reader =
             session::SessionReader::open(t.service.store.session_path(&id).unwrap()).unwrap();
         let boundary = reader.marker().unwrap();

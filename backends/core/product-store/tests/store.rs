@@ -1124,12 +1124,12 @@ fn live_widget_slots_are_validated_and_persisted() {
     let updated = store
         .update_settings(
             0,
-            r#"{"liveWidgetSlots":["empty","headlights","leds","powerW","powerW"]}"#,
+            r#"{"liveWidgetSlots":["maxSpeedKph","headlights","leds","powerW","powerW"]}"#,
         )
         .unwrap();
     assert_eq!(
         updated.live_widget_slots,
-        ["empty", "headlights", "leds", "powerW", "powerW"]
+        ["maxSpeedKph", "headlights", "leds", "powerW", "powerW"]
     );
     assert!(matches!(
         store.update_settings(
@@ -1153,7 +1153,7 @@ fn custom_dashboard_is_atomic_bounded_independent_and_survives_reopen() {
         .ensure_board("dash-second", Some("Second"), None, 0)
         .unwrap();
     let id = &first.saved_device_id;
-    let dashboard = serde_json::json!({"version":1,"widgets":[{"id":"a","kind":"reading","field":"motorCurrentA","presentation":"gauge","size":"large","range":{"min":-100,"max":100}}]});
+    let dashboard = serde_json::json!({"version":1,"widgets":[{"id":"a","kind":"reading","field":"motorCurrentA","presentation":"gauge","size":"large","range":{"min":-100,"max":100}},{"id":"peak","kind":"reading","field":"maxSpeedKph","presentation":"gauge","size":"compact","range":{"min":0,"max":60}}]});
     for invalid in [
         serde_json::json!({"version":2,"widgets":[]}),
         serde_json::json!({"version":1,"widgets":[],"extra":true}),

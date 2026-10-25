@@ -35,7 +35,7 @@ export function dashboardDomain(field: DashboardReading): { bounds: DashboardRan
   ) {
     bounds = [0, 100];
     initial = [0, 100];
-  } else if (field === 'speedKph') {
+  } else if (field === 'speedKph' || field === 'maxSpeedKph') {
     bounds = [0, 500];
     initial = [0, 60];
   } else if (field.endsWith('Deg')) {
@@ -56,7 +56,12 @@ export function dashboardRangeValue(
 ): number {
   if (units === 'metric') return value;
   if (field.endsWith('TempC')) return inverse ? (value - 32) / 1.8 : value * 1.8 + 32;
-  const factor = field === 'speedKph' ? 0.621371 : field === 'distanceM' || field === 'odometerM' ? 1000 / 1609.344 : 1;
+  const factor =
+    field === 'speedKph' || field === 'maxSpeedKph'
+      ? 0.621371
+      : field === 'distanceM' || field === 'odometerM'
+        ? 1000 / 1609.344
+        : 1;
   return inverse ? value / factor : value * factor;
 }
 

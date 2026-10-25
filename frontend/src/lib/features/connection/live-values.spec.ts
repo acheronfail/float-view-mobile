@@ -22,6 +22,13 @@ describe('live value selection', () => {
     }
     expect(liveValue('elapsedMs', null, 'metric').value).toBeNull();
   });
+  it('formats the authoritative ride peak independently of instantaneous speed', () => {
+    const peak = { ...sample, speedKph: 5, maxSpeedKph: 32.18688 };
+    expect(liveValue('maxSpeedKph', peak, 'metric')).toMatchObject({ value: 32.18688, unit: 'km/h', digits: 1 });
+    expect(liveValue('maxSpeedKph', peak, 'imperial').value).toBeCloseTo(20, 4);
+    expect(liveValue('maxSpeedKph', null, 'metric').value).toBeNull();
+    expect(liveValueText('maxSpeedKph', 32.18688, 1)).toBe('32.2');
+  });
   it('keeps sign, units and missing values', () => {
     expect(liveValue('powerW', sample, 'metric').value).toBe(-300);
     expect(liveValue('powerW', { ...sample, packVoltageV: null }, 'metric').value).toBeNull();

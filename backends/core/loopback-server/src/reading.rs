@@ -314,6 +314,7 @@ mod tests {
             slow_observed_at_epoch_ms: None,
             elapsed_ms,
             riding_elapsed_ms: 0,
+            max_speed_kph: None,
             ride_state: RideState::Idle,
             package_state: None,
             package_mode: None,

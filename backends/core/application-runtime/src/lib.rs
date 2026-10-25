@@ -361,9 +361,10 @@ impl ApplicationRuntime {
         elapsed_ms: u64,
         sequence: u64,
         riding_ms: u64,
+        max_speed_kph: Option<f64>,
     ) {
         self.application
-            .restore_recording(now_ms, elapsed_ms, sequence, riding_ms);
+            .restore_recording(now_ms, elapsed_ms, sequence, riding_ms, max_speed_kph);
         self.mark_recording_gap();
     }
 
@@ -540,6 +541,7 @@ mod tests {
             slow_observed_at_epoch_ms: None,
             elapsed_ms: sequence * 100,
             riding_elapsed_ms: 0,
+            max_speed_kph: None,
             ride_state: RideState::Idle,
             package_state: Some(PackageState::Ready),
             package_mode: Some(PackageMode::Normal),

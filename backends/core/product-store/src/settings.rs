@@ -255,6 +255,7 @@ pub(crate) const LIVE_WIDGET_FIELDS: &[&str] = &[
     "estimatedBatteryLevel",
     "batteryLevel",
     "speedKph",
+    "maxSpeedKph",
     "distanceM",
     "odometerM",
     "elapsedMs",

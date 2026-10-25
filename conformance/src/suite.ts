@@ -646,10 +646,10 @@ async function exerciseProductMethods(
           {
             id: 'current',
             kind: 'reading',
-            field: 'motorCurrentA',
+            field: 'maxSpeedKph',
             presentation: 'gauge',
             size: 'large',
-            range: { min: -100, max: 100 },
+            range: { min: 0, max: 60 },
           },
           { id: 'battery', kind: 'visual', visual: 'battery', size: { columns: 4, rows: 1 } },
           { id: 'lights', kind: 'control', control: 'leds', size: { columns: 1, rows: 4 } },
@@ -660,7 +660,7 @@ async function exerciseProductMethods(
         'bmsStateOfCharge',
         'bmsHighestCellTempC',
         'bmsCellVoltageSpreadV',
-        'distanceM',
+        'maxSpeedKph',
       ],
     },
   });
@@ -1122,6 +1122,8 @@ async function createCompletedSession(
     const sample = connected.activeConnection.latestSample;
     assert.ok(Number.isSafeInteger(sample.ridingElapsedMs) && sample.ridingElapsedMs >= 0);
     assert.ok(sample.ridingElapsedMs <= sample.elapsedMs);
+    assert.ok(sample.maxSpeedKph != null && Number.isFinite(sample.maxSpeedKph));
+    assert.ok(sample.maxSpeedKph >= Math.abs(sample.speedKph ?? 0));
     assert.deepEqual(Object.keys(connected.activeConnection.latestSample).sort(), [
       'alertReason',
       'ampHoursChargedAh',
@@ -1155,6 +1157,7 @@ async function createCompletedSession(
       'footpadState',
       'lastFirmwareFault',
       'load',
+      'maxSpeedKph',
       'motorCurrentA',
       'motorTempC',
       'observedAt',
@@ -2258,6 +2261,12 @@ export async function runRideContinuityConformance(target: Target) {
     await client.request('device.connect', { deviceId, trackingMode: 'saved' });
     const ready = await client.waitForState((s) => s.activeConnection?.state === 'ready', { timeoutMs: 20000 });
     const sessionId = required(ready.activeConnection?.activeSession?.sessionId, 'saved session');
+    const travelled = await client.waitForState((s) => (s.activeConnection?.activeSession?.sampleCount ?? 0) >= 2, {
+      timeoutMs: 20000,
+    });
+    const peak = travelled.activeConnection!.latestSample!.maxSpeedKph!;
+    assert.ok(Number.isFinite(peak) && peak >= Math.abs(travelled.activeConnection!.latestSample!.speedKph ?? 0));
+    assert.ok(Math.abs(peak / 3.6 - travelled.activeConnection!.activeSession!.maxSpeedMps!) < 1e-8);
     await client.request('session.marker.add', { sessionId, operationId: '00000000-0000-4000-8000-000000000099' });
     await client.request('device.disconnect', {});
     const paused = await client.request('state.get', {});
@@ -2273,6 +2282,8 @@ export async function runRideContinuityConformance(target: Target) {
     const resumed = await client.waitForState((s) => s.activeConnection?.state === 'ready', { timeoutMs: 20000 });
     assert.equal(resumed.activeConnection?.activeSession?.sessionId, sessionId);
     assert.equal(resumed.pausedRide, null);
+    const continuing = await client.waitForState((s) => s.activeConnection?.latestSample != null, { timeoutMs: 20000 });
+    assert.ok(continuing.activeConnection!.latestSample!.maxSpeedKph! >= peak, 'Resuming retains peak speed');
     await expectError(client.request('session.end', { sessionId: 'stale' }), 'invalid_state');
     await client.request('device.disconnect', {});
     await client.request('session.end', { sessionId });

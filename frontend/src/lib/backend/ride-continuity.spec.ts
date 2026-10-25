@@ -24,6 +24,8 @@ it('resumes repeated breaks and rejects stale completion without affecting the r
   expect(after.sequence).toBeGreaterThan(before.sequence);
   expect(after.elapsedMs).toBeGreaterThan(before.elapsedMs + 29 * 60_000);
   expect(after.ridingElapsedMs).toBe(before.ridingElapsedMs);
+  expect(after.maxSpeedKph).toBe(before.maxSpeedKph);
+  expect(after.maxSpeedKph).toBe(24.3);
   expect(b.handle({ id: 5, method: 'session.end', params: { sessionId: 'stale' } })).toMatchObject({
     error: { code: 'invalid_state' },
   });

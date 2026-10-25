@@ -172,7 +172,7 @@ record!(LiveSample {
     charging: Option<bool>, alert_reason: Option<String>, firmware_fault: Option<String>,
     fatal_error_latched: Option<bool>, last_firmware_fault: Option<ReportedFirmwareFault>, fault_history: Vec<RecoveredFirmwareFault>,
     pack_voltage_v: Option<f64>, duty_cycle: Option<f64>, controller_temp_c: Option<f64>, motor_temp_c: Option<f64>,
-    motor_current_a: Option<f64>, battery_current_a: Option<f64>, erpm: Option<f64>, speed_kph: Option<f64>,
+    motor_current_a: Option<f64>, battery_current_a: Option<f64>, erpm: Option<f64>, speed_kph: Option<f64>, max_speed_kph: Option<f64>,
     pitch_deg: Option<f64>, balance_pitch_deg: Option<f64>, roll_deg: Option<f64>, directional_motor_current_a: Option<f64>,
     filtered_motor_current_a: Option<f64>, requested_balance_current_a: Option<f64>, booster_current_a: Option<f64>,
     field_weakening_current_a: Option<f64>, footpad_adc1_v: Option<f64>, footpad_adc2_v: Option<f64>, remote_input: Option<f64>,

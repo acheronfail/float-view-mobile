@@ -649,6 +649,7 @@ export class MockBackend {
                 state: 'active' as const,
                 sampleCount: 0,
                 ridingElapsedMs: 0,
+                maxSpeedMps: null,
                 totalElapsedMs: 0,
               }
             : null);
@@ -1383,6 +1384,7 @@ export class MockBackend {
       batteryCurrentA: 8.4,
       erpm: 3240,
       speedKph: 24.3,
+      maxSpeedKph: Math.max(active.latestSample?.maxSpeedKph ?? (active.activeSession?.maxSpeedMps ?? 0) * 3.6, 24.3),
       pitchDeg: 1.4,
       balancePitchDeg: 1.1,
       rollDeg: 0.6,
@@ -1420,7 +1422,7 @@ export class MockBackend {
           sampleCount: sequence,
           ridingElapsedMs: latestSample.ridingElapsedMs,
           totalElapsedMs: elapsedMs,
-          maxSpeedMps: latestSample.speedKph / 3.6,
+          maxSpeedMps: latestSample.maxSpeedKph / 3.6,
           maxDutyCycle: latestSample.dutyCycle,
         }
       : null;

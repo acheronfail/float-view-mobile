@@ -283,6 +283,8 @@ export interface LiveSample {
   batteryCurrentA: number | null;
   erpm: number | null;
   speedKph: number | null;
+  /** Greatest absolute speed observed in the current ride; restored from committed summary on resume. */
+  maxSpeedKph: number | null;
   pitchDeg: number | null;
   balancePitchDeg: number | null;
   rollDeg: number | null;
@@ -939,6 +941,7 @@ export const liveWidgetFields = [
   'estimatedBatteryLevel',
   'batteryLevel',
   'speedKph',
+  'maxSpeedKph',
   'distanceM',
   'odometerM',
   'elapsedMs',

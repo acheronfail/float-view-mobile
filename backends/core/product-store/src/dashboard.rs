@@ -29,7 +29,7 @@ fn domain(field: &str) -> Option<(f64, f64)> {
     .contains(&field)
     {
         Some((0., 100.))
-    } else if field == "speedKph" {
+    } else if field == "speedKph" || field == "maxSpeedKph" {
         Some((0., 500.))
     } else if field.ends_with("Deg") {
         Some((-360., 360.))

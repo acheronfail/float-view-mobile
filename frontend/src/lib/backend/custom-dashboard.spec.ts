@@ -77,6 +77,11 @@ describe('dashboard contract', () => {
   it('keeps signed domains and converts ranges without changing physical meaning', () => {
     expect(dashboardDomain('motorCurrentA')?.initial).toEqual({ min: -100, max: 100 });
     expect(dashboardDomain('elapsedMs')).toBeNull();
+    expect(dashboardDomain('maxSpeedKph')).toEqual(dashboardDomain('speedKph'));
+    expect(dashboardRangeValue('maxSpeedKph', 60, 'imperial')).toBeCloseTo(37.28226);
+    expect(
+      validCustomDashboard({ version: 1, widgets: [{ ...reading, field: 'maxSpeedKph', range: { min: 0, max: 60 } }] })
+    ).toBe(true);
     expect(dashboardRangeValue('motorTempC', 100, 'imperial')).toBe(212);
     expect(dashboardRangeValue('motorTempC', 212, 'imperial', true)).toBe(100);
     expect(

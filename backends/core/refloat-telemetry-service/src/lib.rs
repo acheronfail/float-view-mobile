@@ -320,6 +320,7 @@ pub struct NormalizedSample {
     pub slow_observed_at_epoch_ms: Option<i64>,
     pub elapsed_ms: u64,
     pub riding_elapsed_ms: u64,
+    pub max_speed_kph: Option<f64>,
     pub ride_state: RideState,
     pub package_state: Option<PackageState>,
     pub package_mode: Option<PackageMode>,
@@ -600,6 +601,7 @@ pub struct RefloatTelemetryService {
     elapsed_offset_ms: u64,
     last_sample_at_ms: Option<u64>,
     riding_elapsed_ms: u64,
+    max_speed_kph: Option<f64>,
     sequence: u64,
     previous_ride_state: RideState,
     post_ride_probe_until_ms: Option<u64>,
@@ -652,6 +654,7 @@ impl Default for RefloatTelemetryService {
             elapsed_offset_ms: 0,
             last_sample_at_ms: None,
             riding_elapsed_ms: 0,
+            max_speed_kph: None,
             sequence: 0,
             previous_ride_state: RideState::Unknown,
             post_ride_probe_until_ms: None,
@@ -685,11 +688,13 @@ impl RefloatTelemetryService {
         elapsed_ms: u64,
         sequence: u64,
         riding_ms: u64,
+        max_speed_kph: Option<f64>,
     ) {
         self.started_at_ms = Some(now_ms);
         self.elapsed_offset_ms = elapsed_ms;
         self.sequence = sequence;
         self.riding_elapsed_ms = riding_ms;
+        self.max_speed_kph = max_speed_kph.filter(|v| v.is_finite()).map(f64::abs);
         self.last_sample_at_ms = None;
         self.previous_ride_state = RideState::Unknown;
     }
@@ -1182,6 +1187,10 @@ impl RefloatTelemetryService {
                 .saturating_add(now_ms.saturating_sub(started_at_ms)),
         );
 
+        if let Some(speed) = sample.speed_kph.filter(|v| v.is_finite()).map(f64::abs) {
+            self.max_speed_kph = Some(self.max_speed_kph.map_or(speed, |peak| peak.max(speed)));
+        }
+        sample.max_speed_kph = self.max_speed_kph;
         sample.riding_elapsed_ms = next_riding_elapsed_ms;
         self.riding_elapsed_ms = next_riding_elapsed_ms;
         self.last_sample_at_ms = Some(now_ms);
@@ -1209,6 +1218,7 @@ impl RefloatTelemetryService {
         self.started_at_ms = None;
         self.elapsed_offset_ms = 0;
         self.riding_elapsed_ms = 0;
+        self.max_speed_kph = None;
         self.sequence = 0;
         self.previous_fault_code = 0;
         self.fault_history.clear();
@@ -1496,6 +1506,7 @@ impl RefloatTelemetryService {
             slow_observed_at_epoch_ms: slow.as_ref().map(|value| value.observed_at_epoch_ms),
             elapsed_ms,
             riding_elapsed_ms: self.riding_elapsed_ms,
+            max_speed_kph: self.max_speed_kph,
             ride_state: value.ride_state,
             package_state: value.package_state,
             package_mode: value.package_mode,
@@ -2896,7 +2907,7 @@ mod tests {
     #[test]
     fn recovered_recording_restores_all_clocks_and_sequence_without_integrating_gap() {
         let mut service = RefloatTelemetryService::default();
-        service.restore_recording(100, 3_600_000, 200, 5000);
+        service.restore_recording(100, 3_600_000, 200, 5000, Some(80.0));
         start(
             &mut service,
             TelemetryFamily::LegacyFixed,
@@ -2916,7 +2927,59 @@ mod tests {
         assert_eq!(sample.sequence, 201);
         assert_eq!(sample.elapsed_ms, 3_600_000);
         assert_eq!(sample.riding_elapsed_ms, 5000);
+        assert_eq!(sample.max_speed_kph, Some(80.0));
     }
+    #[test]
+    fn ride_peak_preserves_absolute_finite_observations_across_reconnect_and_resume() {
+        let mut service = RefloatTelemetryService::default();
+        start(&mut service, TelemetryFamily::LegacyFixed, Route::Direct, 0);
+        let observe = |service: &mut RefloatTelemetryService, at, speed: Option<f64>| {
+            service
+                .apply(Command::Refresh {
+                    service_generation: 7,
+                    now_ms: at,
+                })
+                .unwrap();
+            let decoded = if let Some(speed) = speed {
+                let mut value = legacy_sample(legacy::PackageState::Running, 0.0);
+                value.speed_kph = speed;
+                DecodedTelemetry::Legacy(legacy::LegacyTelemetry::Sample(value))
+            } else {
+                DecodedTelemetry::Legacy(legacy::LegacyTelemetry::ActiveFirmwareFault(
+                    legacy::ActiveFirmwareFault {
+                        raw_code: 255,
+                        fault: legacy::FirmwareFault::Unknown,
+                    },
+                ))
+            };
+            published(&receive(service, decoded, at, at as i64)).max_speed_kph
+        };
+        assert_eq!(observe(&mut service, 0, None), None);
+        assert_eq!(observe(&mut service, 1000, Some(20.0)), Some(20.0));
+        assert_eq!(observe(&mut service, 2000, Some(-30.0)), Some(30.0));
+        assert_eq!(observe(&mut service, 3000, Some(10.0)), Some(30.0));
+        assert_eq!(observe(&mut service, 4000, None), Some(30.0));
+        service.apply(Command::ResetConnection).unwrap();
+        start(
+            &mut service,
+            TelemetryFamily::LegacyFixed,
+            Route::Direct,
+            5000,
+        );
+        assert_eq!(observe(&mut service, 5000, Some(5.0)), Some(30.0));
+        service.restore_recording(6000, 5000, 10, 3000, Some(80.0));
+        assert_eq!(observe(&mut service, 6000, Some(5.0)), Some(80.0));
+        service.apply(Command::Reset).unwrap();
+        start(
+            &mut service,
+            TelemetryFamily::LegacyFixed,
+            Route::Direct,
+            7000,
+        );
+        assert_eq!(observe(&mut service, 7000, None), None);
+        assert_eq!(observe(&mut service, 8000, Some(10.0)), Some(10.0));
+    }
+
     #[test]
     fn ride_clock_pauses_for_idle_unknown_and_reconnect_and_resets_for_new_session() {
         let mut service = RefloatTelemetryService::default();

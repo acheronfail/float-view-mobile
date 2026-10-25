@@ -639,3 +639,8 @@ the footer after dismissal and reopening; only a successful write or explicit
 read clears it. Reads deliberately replace the draft with their selected source;
 status changes and error dismissal preserve edits and scroll and never retry a
 mutation automatically.
+
+Live slots and Custom reading widgets offer Max speed (`maxSpeedKph`), the shared
+current-ride maximum absolute observed speed. Reconnect and view recreation retain
+it; saved ride resume restores the committed session peak. A new ride clears it.
+Both views format the same peak in km/h or mph; offline speeds are not inferred.
