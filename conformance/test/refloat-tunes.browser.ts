@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, type Locator } from 'playwright';
 import { startMockServer, stopMockServer, getMockBootstrap } from '../../frontend/backend-mock/index.ts';
 import { ConformanceClient } from '../src/client.ts';
 
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(
-    `${name}: Tune presets save reliably and confirm non-idle switches by touch or keyboard`,
+    `${name}: Tune presets save reliably and confirm all switches with differences by touch or keyboard`,
     { timeout: 60000 },
     async () => {
       const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
@@ -33,12 +33,56 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         let creates = 0;
         let applies = 0;
         let updates = 0;
+        let changedBoardRead = false;
+        let changedHeadlightRead = false;
+        let routeChanged = false;
+        let manyDifferences = false;
         const reads: Array<{ source: string; refresh?: boolean }> = [];
         await context.routeWebSocket('**/api/ws?*', (socket) => {
           const server = socket.connectToServer();
           server.onMessage((raw) => {
             const message = JSON.parse(String(raw));
+            if (changedBoardRead && message.result?.source === 'current' && message.result.values?.['leds.on']) {
+              message.result.values['leds.on'] = { type: 'boolean', value: true };
+            }
+            if (changedHeadlightRead && message.result?.source === 'current') {
+              message.result.values['leds.headlights_on'] = { type: 'boolean', value: false };
+            }
+            if (manyDifferences && message.result?.tuneId && message.result.values) {
+              for (const value of Object.values(message.result.values) as Array<{ type: string; value: unknown }>) {
+                if (typeof value.value === 'number') value.value += 1;
+                else if (typeof value.value === 'boolean') value.value = !value.value;
+              }
+            }
+            // The standard mock has two tunable fields. Expand only this preview
+            // fixture to exercise long comparisons without persisting synthetic settings.
+            if (manyDifferences && message.result?.fields) {
+              message.result.fields = message.result.fields.flatMap(
+                (field: { tunable: boolean; name: string; label: string }) =>
+                  field.tunable
+                    ? [
+                        field,
+                        ...Array.from({ length: 12 }, (_, index) => ({
+                          ...field,
+                          name: `${field.name}.preview-${index}`,
+                          label: `${field.label} ${index + 1}`,
+                        })),
+                      ]
+                    : [field]
+              );
+            }
+            if (manyDifferences && message.result?.values) {
+              for (const key of ['leds.on', 'leds.headlights_on']) {
+                if (!message.result.values[key]) continue;
+                for (let index = 0; index < 12; index++) {
+                  message.result.values[`${key}.preview-${index}`] = message.result.values[key];
+                }
+              }
+            }
             const state = message.event === 'state.changed' ? message.data : message.result;
+            if (routeChanged && state?.activeConnection) {
+              state.activeConnection.controllerConnection = { kind: 'can', canId: 127 };
+            }
             if (state?.activeConnection?.latestSample) {
               state.activeConnection.latestSample.rideState = rideState;
               state.activeConnection.latestSample.packageState = rideState === 'riding' ? 'running' : 'ready';
@@ -153,6 +197,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.keyboard.press('Enter');
         const applyDialog = page.getByRole('alertdialog', { name: 'Apply Cruise?', exact: true });
         await applyDialog.getByText(/cut out momentarily/).waitFor();
+        await applyDialog.getByText('1 setting will change', { exact: true }).waitFor();
+        assert.match(
+          (await applyDialog.getByRole('list', { name: 'Tune differences' }).textContent()) ?? '',
+          /On\s*→\s*Off/s
+        );
         await page.screenshot({
           animations: 'disabled',
           path: fileURLToPath(new URL(`${name}-apply-confirmation.png`, screenshots)),
@@ -187,38 +236,74 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.deepEqual(applied.values['leds.on'], { type: 'boolean', value: false });
         await cruise.tap();
         await page.getByRole('button', { name: /^Cruise.*Active/ }).waitFor();
+        await applyDialog.getByText(/No differences\./).waitFor();
+        assert.equal(await confirmApply.isDisabled(), true);
         assert.equal(applies, 1, 'tapping the active Tune must not rewrite it');
+        await page.keyboard.press('Escape');
+        await applyDialog.waitFor({ state: 'hidden' });
+        assert.equal(await cruise.evaluate((element) => element === document.activeElement), true);
         await page.getByRole('button', { name: /^Base/ }).tap();
         const baseApply = page.getByRole('alertdialog', { name: 'Apply Base?', exact: true });
         await baseApply.getByRole('button', { name: 'Apply tune', exact: true }).tap();
         await baseApply.waitFor({ state: 'hidden' });
         await page.getByRole('status').filter({ hasText: 'Base applied.' }).waitFor();
         rideState = 'idle';
-        await page.waitForFunction(() =>
-          Array.from(document.querySelectorAll('[data-tune-id] > button')).every(
-            (button) => !button.hasAttribute('aria-haspopup')
-          )
-        );
-        assert.equal(applies, 2, 'one touch must switch back to the saved Tune');
-        failMethod = 'refloat.tune.apply';
+        assert.equal(applies, 2, 'confirmed touch must switch back to the saved Tune');
+        failMethod = 'refloat.configuration.read';
         await cruise.tap();
-        await page.getByRole('dialog', { name: 'Tunes', exact: true }).getByRole('alert').waitFor();
+        await applyDialog.getByRole('alert').filter({ hasText: 'Preset test failure' }).waitFor();
+        assert.equal(applies, 2, 'failed preview reads must not apply');
+        failMethod = null;
+        await applyDialog.getByRole('button', { name: 'Retry read', exact: true }).tap();
+        await applyDialog.getByText('1 setting will change', { exact: true }).waitFor();
+        assert.equal(
+          await applyDialog.getByText(/cut out momentarily/).count(),
+          0,
+          'idle confirmation needs no riding warning'
+        );
+        changedHeadlightRead = true;
+        await confirmApply.tap();
+        await applyDialog.getByRole('alert').filter({ hasText: 'Review the updated differences' }).waitFor();
+        await applyDialog.getByText('2 settings will change', { exact: true }).waitFor();
+        assert.equal(applies, 2, 'changed board values must be reviewed without a write');
+        changedHeadlightRead = false;
+        await confirmApply.tap();
+        await applyDialog.getByText('1 setting will change', { exact: true }).waitFor();
+        assert.equal(applies, 2);
+        failMethod = 'refloat.tune.apply';
+        await confirmApply.tap();
+        await applyDialog.getByRole('alert').filter({ hasText: 'Preset test failure' }).waitFor();
         assert.equal(applies, 3);
-        assert.equal(await page.getByRole('alertdialog').count(), 0, 'idle switches need no confirmation');
         assert.equal(await page.getByRole('button', { name: /^Cruise.*Active/ }).count(), 0);
         failMethod = null;
-        await cruise.tap();
+        await confirmApply.tap();
+        await applyDialog.waitFor({ state: 'hidden' });
         await page.getByRole('status').filter({ hasText: 'Cruise applied.' }).waitFor();
-        assert.equal(applies, 4, 'a failed switch must be retryable with one tap');
+        assert.equal(applies, 4, 'an explicit retry must apply once');
         await page.getByRole('button', { name: 'Options for Base', exact: true }).tap();
         await page.getByRole('button', { name: 'Overwrite', exact: true }).tap();
         const overwrite = page.getByRole('alertdialog', { name: 'Overwrite Base?', exact: true });
+        await overwrite.getByText('1 setting will change', { exact: true }).waitFor();
+        const differences = overwrite.getByRole('list', { name: 'Tune differences' });
+        assert.match((await differences.textContent()) ?? '', /On\s*→\s*Off/s);
         await overwrite.getByRole('button', { name: 'Cancel', exact: true }).tap();
         await overwrite.waitFor({ state: 'hidden' });
         assert.equal(updates, 0);
         await page.getByRole('button', { name: 'Options for Base', exact: true }).tap();
         await page.getByRole('button', { name: 'Overwrite', exact: true }).tap();
         const confirmOverwrite = overwrite.getByRole('button', { name: 'Overwrite', exact: true });
+        await overwrite.getByText('1 setting will change', { exact: true }).waitFor();
+        changedBoardRead = true;
+        await confirmOverwrite.tap();
+        await overwrite.getByRole('alert').filter({ hasText: 'Review the updated differences' }).waitFor();
+        await overwrite.getByText(/No differences\./).waitFor();
+        assert.equal(updates, 0, 'changed board values must be reviewed before saving');
+        await overwrite.getByRole('button', { name: 'Cancel', exact: true }).tap();
+        await overwrite.waitFor({ state: 'hidden' });
+        changedBoardRead = false;
+        await page.getByRole('button', { name: 'Options for Base', exact: true }).tap();
+        await page.getByRole('button', { name: 'Overwrite', exact: true }).tap();
+        await overwrite.getByText('1 setting will change', { exact: true }).waitFor();
         await confirmOverwrite.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
         await confirmOverwrite.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
         assert.equal(updates, 0);
@@ -257,6 +342,68 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           animations: 'disabled',
           path: fileURLToPath(new URL(`${name}-overwrite-saved.png`, screenshots)),
         });
+        await page.getByRole('button', { name: 'Options for Base', exact: true }).tap();
+        await page.getByRole('button', { name: 'Overwrite', exact: true }).tap();
+        await overwrite.getByText(/No differences\./).waitFor();
+        await overwrite.getByRole('button', { name: 'Cancel', exact: true }).tap();
+        await overwrite.waitFor({ state: 'hidden' });
+        manyDifferences = true;
+        await page.reload();
+        await page.getByRole('button', { name: 'Options for Base', exact: true }).tap();
+        await page.getByRole('button', { name: 'Overwrite', exact: true }).tap();
+        await differences.waitFor();
+        const checkScrolling = async (modal: Locator, label: string, prefix: string) => {
+          const comparison = modal.getByRole('region', { name: label });
+          for (const viewport of [
+            { width: 320, height: 420 },
+            { width: 900, height: 700 },
+          ]) {
+            await page.setViewportSize(viewport);
+            await comparison.focus();
+            await page.keyboard.press('End');
+            await page.waitForFunction(() => {
+              const region = document.querySelector('[role="alertdialog"] [role="region"]')!;
+              return region.scrollTop > 0;
+            });
+            const layout = await comparison.evaluate((region) => {
+              const dialog = region.closest('[role="alertdialog"]')!;
+              const buttons = Array.from(dialog.querySelectorAll('button'));
+              return {
+                overflows: region.scrollHeight > region.clientHeight,
+                horizontalOverflow: region.scrollWidth > region.clientWidth,
+                actionsVisible: buttons.every((button) => {
+                  const rect = button.getBoundingClientRect();
+                  return rect.top >= region.getBoundingClientRect().bottom && rect.bottom <= innerHeight;
+                }),
+              };
+            });
+            assert.equal(layout.overflows, true);
+            assert.equal(layout.horizontalOverflow, false);
+            assert.equal(layout.actionsVisible, true);
+            await page.screenshot({
+              animations: 'disabled',
+              path: fileURLToPath(new URL(`${name}-${prefix}-diff-${viewport.width}.png`, screenshots)),
+            });
+          }
+        };
+        await checkScrolling(overwrite, 'Overwrite tune comparison', 'overwrite');
+        await overwrite.getByRole('button', { name: 'Cancel', exact: true }).tap();
+        await overwrite.waitFor({ state: 'hidden' });
+        await page.getByRole('button', { name: /^Base/ }).tap();
+        const longApply = page.getByRole('alertdialog', { name: 'Apply Base?', exact: true });
+        await longApply.getByRole('list', { name: 'Tune differences' }).waitFor();
+        await checkScrolling(longApply, 'Apply tune comparison', 'apply');
+        assert.equal(applies, 4, 'scrolling the apply preview must not write');
+        routeChanged = true;
+        await longApply.getByRole('alert').filter({ hasText: 'The board connection changed' }).waitFor();
+        assert.equal(await longApply.getByRole('button', { name: 'Apply tune', exact: true }).isDisabled(), true);
+        await page.evaluate(() => window.dispatchEvent(new Event('floatview:back', { cancelable: true })));
+        await longApply.waitFor({ state: 'hidden' });
+        assert.equal(applies, 4, 'native Back after route replacement must not write');
+        routeChanged = false;
+        manyDifferences = false;
+        await page.setViewportSize({ width: 390, height: 700 });
+        await page.reload();
         await page.getByRole('button', { name: 'Options for Cruise', exact: true }).tap();
         await page.getByRole('button', { name: 'Rename', exact: true }).tap();
         const renameDialog = page.getByRole('alertdialog', { name: 'Rename tune', exact: true });

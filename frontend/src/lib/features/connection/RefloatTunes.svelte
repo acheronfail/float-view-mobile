@@ -6,6 +6,7 @@
     RefloatConfigurationIdentity,
     RefloatConfigurationSchemaPage,
     RefloatConfigurationValues,
+    RefloatConfigurationValue,
     RefloatTune,
     RefloatTuneSummary,
   } from '$lib/backend/contract';
@@ -18,6 +19,7 @@
   import { sameRefloatIdentity, sameRefloatValue } from './refloat-configuration.svelte';
   import { captureCurrentRefloatTune, overwriteCurrentRefloatTune } from './refloat-tunes';
   import { refloatConfigurationWriteUnavailableReason } from './live';
+  import RefloatConfigurationDiff from './RefloatConfigurationDiff.svelte';
 
   let { connection }: { connection: ActiveConnection } = $props();
   let tunes = $state<RefloatTuneSummary[]>([]);
@@ -65,10 +67,56 @@
   let loading = $state(false);
   let switchError = $state<{ tuneId: string; message: string } | null>(null);
   let switchingTuneId = $state<string | null>(null);
-  let pendingApply = $state<{ summary: RefloatTuneSummary; trigger: HTMLElement } | null>(null);
+  let pendingApply = $state<{
+    tune: RefloatTune;
+    current: RefloatConfigurationValues | null;
+    deviceId: string;
+    route: string;
+    invalidated: boolean;
+    trigger: HTMLElement;
+  } | null>(null);
+  let applyError = $state<string | null>(null);
+  $effect(() => {
+    if (
+      pendingApply &&
+      !pendingApply.invalidated &&
+      (connection.state !== 'ready' ||
+        connection.deviceId !== pendingApply.deviceId ||
+        JSON.stringify(connection.controllerConnection) !== pendingApply.route ||
+        !connection.refloatConfiguration?.currentLoaded)
+    )
+      pendingApply.invalidated = true;
+  });
+  const applyUnavailableReason = $derived(
+    refloatConfigurationWriteUnavailableReason(connection, connection.refloatConfiguration, 'applyTune')
+  );
+  const pendingApplyReason = $derived(
+    pendingApply?.invalidated
+      ? 'The board connection changed. Close this dialog and select the tune again.'
+      : pendingApply
+        ? (incompatibility(pendingApply.tune.identity) ?? applyUnavailableReason)
+        : null
+  );
+  function tuneChanges(
+    before: Record<string, RefloatConfigurationValue>,
+    after: Record<string, RefloatConfigurationValue>
+  ) {
+    return fields.flatMap((field) => {
+      const previous = before[field.name];
+      const next = after[field.name];
+      return previous && next && sameRefloatValue(previous, next)
+        ? []
+        : [{ name: field.name, label: field.label, before: previous, after: next }];
+    });
+  }
+  const applyChanges = $derived(
+    pendingApply?.current ? tuneChanges(pendingApply.current.values, pendingApply.tune.values) : []
+  );
+  const applyHasChanges = $derived(applyChanges.length > 0);
   let saveConfirmation = $state(false);
   let saving = $state(false);
   let overwriteConfirmation = $state(false);
+  let overwritePreview = $state<RefloatConfigurationValues | null>(null);
   let overwriting = $state(false);
   let overwriteError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
@@ -80,9 +128,6 @@
   let description = $state('');
   let status = $state<string | null>(null);
 
-  const applyUnavailableReason = $derived(
-    refloatConfigurationWriteUnavailableReason(connection, connection.refloatConfiguration, 'applyTune')
-  );
   const selectedIsActive = $derived(
     !!selected &&
       !!current &&
@@ -165,7 +210,7 @@
     }
   }
 
-  async function selectTune(summary: RefloatTuneSummary, trigger: HTMLElement, confirmed = false) {
+  async function selectTune(summary: RefloatTuneSummary, trigger: HTMLElement) {
     if (switchingTuneId || managing || loading || listLoading || backendState.busy) return;
     const reason = incompatibility(summary.identity) ?? applyUnavailableReason;
     if (reason) {
@@ -175,26 +220,78 @@
     }
     switchingTuneId = summary.tuneId;
     switchError = null;
+    applyError = null;
     status = null;
+    const deviceId = connection.deviceId;
+    const route = JSON.stringify(connection.controllerConnection);
     try {
       const tune = await backendState.getRefloatTune(summary.tuneId);
       if (!tune) {
         switchError = { tuneId: summary.tuneId, message: backendState.error ?? 'Could not load tune. Try again.' };
         return;
       }
-      selected = tune;
-      if (!current || selectedIsActive) return;
-      if (!confirmed && connection.latestSample?.rideState !== 'idle') {
-        pendingApply = { summary, trigger };
+      pendingApply = {
+        tune,
+        current: null,
+        deviceId,
+        route,
+        invalidated: false,
+        trigger,
+      };
+      const loaded = await readCurrent(true);
+      if (!loaded) {
+        applyError = backendState.error ?? 'Could not read the current tune. Try again.';
         return;
       }
-      const result = await backendState.applyRefloatTune(tune.tuneId, tune.revision, current.revision);
+      pendingApply.current = loaded;
+      if (!applyHasChanges) selected = tune;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load tune. Try again.';
+      if (pendingApply) applyError = message;
+      else switchError = { tuneId: summary.tuneId, message };
+    } finally {
+      switchingTuneId = null;
+    }
+  }
+
+  async function confirmApply() {
+    const pending = pendingApply;
+    if (!pending || pendingApplyReason || switchingTuneId || backendState.busy) return;
+    switchingTuneId = pending.tune.tuneId;
+    applyError = null;
+    try {
+      const reviewed = pending.current;
+      const loaded = await readCurrent(true);
+      if (!loaded) {
+        applyError = backendState.error ?? 'Could not read the current tune. Try again.';
+        return;
+      }
+      pending.current = loaded;
+      if (pendingApplyReason) return;
+      if (
+        !reviewed ||
+        fields.some((field) => {
+          const before = reviewed.values[field.name];
+          const after = loaded.values[field.name];
+          return !before || !after || !sameRefloatValue(before, after);
+        })
+      ) {
+        applyError = 'Review the updated differences before applying this tune.';
+        return;
+      }
+      if (!applyHasChanges) return;
+      const tune = pending.tune;
+      const result = await backendState.applyRefloatTune(tune.tuneId, tune.revision, loaded.revision);
       if (result) {
         current = result;
+        selected = tune;
+        pendingApply = null;
         status = `${tune.name} applied.`;
       } else {
-        switchError = { tuneId: tune.tuneId, message: backendState.error ?? 'Could not apply tune. Try again.' };
+        applyError = backendState.error ?? 'Could not apply tune. Try again.';
       }
+    } catch (error) {
+      applyError = error instanceof Error ? error.message : 'Could not apply tune. Try again.';
     } finally {
       switchingTuneId = null;
     }
@@ -210,7 +307,20 @@
       else if (action === 'overwrite') {
         if (incompatibility(managedTune.identity)) return;
         overwriteError = null;
+        overwritePreview = null;
         overwriteConfirmation = true;
+        try {
+          const loaded = await readCurrent(true);
+          if (!loaded) {
+            overwriteError = backendState.error ?? 'Could not read the current tune. Close this dialog and try again.';
+          } else if (incompatibility(managedTune.identity)) {
+            overwriteError = incompatibility(managedTune.identity);
+          } else {
+            overwritePreview = loaded;
+          }
+        } catch (error) {
+          overwriteError = error instanceof Error ? error.message : 'Could not read the current tune. Try again.';
+        }
       } else {
         deleteError = null;
         deleteConfirmation = true;
@@ -255,12 +365,31 @@
   }
 
   async function overwrite() {
-    if (!managedTune || overwriting) return;
+    if (!managedTune || !overwritePreview || overwriting) return;
     overwriting = true;
     overwriteError = null;
     try {
       const captured = await overwriteCurrentRefloatTune(
-        backendState,
+        {
+          updateRefloatTune: (...args) => backendState.updateRefloatTune(...args),
+          readRefloatConfiguration: async () => {
+            const reviewed = overwritePreview;
+            const loaded = await readCurrent(true);
+            if (loaded && reviewed && sameRefloatIdentity(loaded.identity, reviewed.identity)) {
+              overwritePreview = loaded;
+              if (
+                fields.some((field) => {
+                  const before = reviewed.values[field.name];
+                  const after = loaded.values[field.name];
+                  return !before || !after || !sameRefloatValue(before, after);
+                })
+              ) {
+                throw new Error('The board’s tune changed. Review the updated differences before overwriting.');
+              }
+            }
+            return loaded;
+          },
+        },
         managedTune,
         fields.map((field) => field.name)
       );
@@ -326,7 +455,7 @@
   }
 </script>
 
-{#if backendState.error && !switchError && !saveConfirmation && !renameConfirmation && !deleteConfirmation && !overwriteConfirmation}
+{#if backendState.error && !switchError && !saveConfirmation && !renameConfirmation && !deleteConfirmation && !overwriteConfirmation && !pendingApply}
   <p role="alert" class="text-warning">{backendState.error}</p>
   <button
     type="button"
@@ -367,9 +496,7 @@
             class="min-w-0 flex-1 touch-pan-y rounded-l-xl p-4 text-left disabled:opacity-50"
             class:text-muted={!!reason}
             class:opacity-60={!!reason}
-            aria-haspopup={reason || applyUnavailableReason || connection.latestSample?.rideState !== 'idle'
-              ? 'dialog'
-              : undefined}
+            aria-haspopup="dialog"
             onpointerdown={(event) => {
               const trigger = event.currentTarget;
               activateFromPointer(event, () => selectTune(tune, trigger), { scrollable: true });
@@ -391,8 +518,9 @@
             </span>
             {#if tune.description}<span class="mt-1 block text-sm">{tune.description}</span>{/if}
             <span class="mt-2 block text-xs" id={`tune-${tune.tuneId}-compatibility`}>
-              {#if switchingTuneId === tune.tuneId}Applying…{:else if active}Active{:else if reason}Unavailable{:else}Tap
-                to apply{/if}
+              {#if switchingTuneId === tune.tuneId}{pendingApply
+                  ? 'Working…'
+                  : 'Loading…'}{:else if active}Active{:else if reason}Unavailable{:else}Tap to review{/if}
             </span>
           </button>
           <Menu
@@ -458,22 +586,36 @@
 <ConfirmDialog
   open={pendingApply !== null}
   titleId="refloat-tune-apply-title"
-  title="Apply {pendingApply?.summary.name ?? 'tune'}?"
-  description="The board is not idle. Applying a tune can cause the board to cut out momentarily. Continue?"
-  confirmLabel="Apply tune"
-  appearance="warning"
-  confirmDisabled={!!applyUnavailableReason}
-  error={applyUnavailableReason}
-  onconfirm={() => {
-    const pending = pendingApply;
-    if (!pending) return;
-    pendingApply = null;
-    return selectTune(pending.summary, pending.trigger, true);
-  }}
+  contentLabel="Apply tune comparison"
+  returnFocus={pendingApply?.trigger}
+  title="Apply {pendingApply?.tune.name ?? 'tune'}?"
+  description={connection.latestSample?.rideState !== 'idle'
+    ? 'The board is not idle. Applying a tune can cause the board to cut out momentarily. Review the changes before applying.'
+    : 'Replace the board’s current tune with this saved tune.'}
+  confirmLabel={pendingApply?.current ? 'Apply tune' : 'Retry read'}
+  appearance={connection.latestSample?.rideState !== 'idle' ? 'warning' : 'normal'}
+  busy={!!switchingTuneId || backendState.busy}
+  confirmDisabled={!!pendingApplyReason || (!!pendingApply?.current && !applyHasChanges)}
+  error={pendingApplyReason ?? applyError}
+  onconfirm={confirmApply}
   oncancel={() => {
     pendingApply = null;
+    applyError = null;
   }}
-/>
+>
+  {#if pendingApply?.current}
+    <RefloatConfigurationDiff
+      {fields}
+      changes={applyChanges}
+      label="Tune differences"
+      emptyMessage="No differences. This saved tune already matches the board’s current tune."
+      beforeLabel="Current board"
+      afterLabel="Saved tune"
+    />
+  {:else if switchingTuneId}
+    <p role="status" class="text-sm text-muted">Reading current tune…</p>
+  {/if}
+</ConfirmDialog>
 
 <ConfirmDialog
   open={saveConfirmation}
@@ -553,13 +695,28 @@
 <ConfirmDialog
   open={overwriteConfirmation}
   titleId="refloat-tune-overwrite-title"
+  contentLabel="Overwrite tune comparison"
   title="Overwrite {managedTune?.name ?? 'tune'}?"
   description="Replace this saved tune with the board’s current tune."
   confirmLabel="Overwrite"
-  busy={overwriting || backendState.busy}
+  busy={managing || overwriting || backendState.busy}
+  confirmDisabled={!overwritePreview}
   error={overwriteError}
   onconfirm={overwrite}
   oncancel={() => {
     overwriteConfirmation = false;
   }}
-/>
+>
+  {#if overwritePreview}
+    <RefloatConfigurationDiff
+      {fields}
+      changes={tuneChanges(managedTune?.values ?? {}, overwritePreview.values)}
+      label="Tune differences"
+      emptyMessage="No differences. This saved tune already matches the board’s current tune."
+      beforeLabel="Saved"
+      afterLabel="Current board"
+    />
+  {:else if managing}
+    <p role="status" class="text-sm text-muted">Reading current tune…</p>
+  {/if}
+</ConfirmDialog>

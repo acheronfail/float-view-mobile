@@ -286,9 +286,10 @@ saved board.
 Supported Refloat 1.1.0+ boards can apply Tunes while riding in normal mode.
 Refloat 1.0.x still requires idle, ready state with both footpads released.
 Unknown board state, special modes, read-only connections and competing board
-operations keep application unavailable. Tapping a saved preset applies it
-immediately when idle, with progress and verified success feedback. When the board
-is not idle, confirmation warns that applying a tune can cause a momentary cutout. Pointer activation waits for release and cancels on scroll;
+operations keep application unavailable. Tapping a saved preset opens a compact
+current-to-saved comparison and requires confirmation before applying, with progress
+and verified success feedback. When the board is not idle, confirmation also warns
+that applying a tune can cause a momentary cutout. Pointer activation waits for release and cancels on scroll;
 keyboard activation follows the same path. Preset details remain available for
 renaming and deletion when switching is unavailable.
 
@@ -576,11 +577,22 @@ for payload and read bounds.
 ## Saved tune library
 
 The Tunes sheet shows all saved tunes in one list, with compatible tunes first.
+Tapping a compatible tune opens an Apply confirmation with a fresh current-board
+comparison and current/saved values. Every application requires confirmation;
+matching tunes show no differences and disable Apply. The riding warning remains
+visible when applicable. A fresh read before confirmation refreshes changed
+differences for another review; failed reads and applies keep the modal open for
+explicit retry. Disconnect or route replacement invalidates an open preview.
 Every card shows its Refloat version. Incompatible cards are muted; tapping one
 explains why it cannot be applied. A separate full-height card menu opens rename
 and delete actions without applying the tune. Compatible cards also offer
 Overwrite: a confirmed fresh board read replaces the existing preset values while
 preserving its ID, name, description and exact identity, using its saved revision.
+The overwrite confirmation compares a fresh board read with the saved tune,
+showing only changed settings with their labels, units and saved/current values.
+Long comparisons scroll with keyboard or touch while the title and actions stay
+visible. Configuration writes, tune application and overwrite share the compact `RefloatConfigurationDiff.svelte` renderer: one labelled old → new row per setting, with direction shown once above the list. If board values change before confirmation, the differences refresh and
+require another review before saving.
 Save tune is the only list action.
 
 `refloat.tune.list` requires an identity object for exact matches or explicit

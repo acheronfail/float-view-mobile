@@ -301,6 +301,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const open = page.getByRole('button', { name: 'Write configuration', exact: true });
       await open.tap();
       const dialog = page.getByRole('alertdialog', { name: 'Write persistent Refloat configuration?' });
+      await dialog.getByText('Current → New', { exact: true }).waitFor();
+      assert.match(
+        (await dialog.getByRole('list', { name: 'Configuration differences' }).textContent()) ?? '',
+        /Duty Tiltback:\s*0\.8\s*→\s*0\.85/
+      );
       const confirm = dialog.getByRole('button', { name: 'Write and verify', exact: true });
       injectedBlockReason = 'riding';
       await dialog

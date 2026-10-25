@@ -8,6 +8,7 @@
   import InformationDialog from '$lib/ui/InformationDialog.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import RefloatConfigurationField from './RefloatConfigurationField.svelte';
+  import RefloatConfigurationDiff from './RefloatConfigurationDiff.svelte';
   import {
     formatRefloatValue,
     refloatConfigurationFieldHelp,
@@ -296,6 +297,7 @@
 <ConfirmDialog
   open={writeConfirmation}
   titleId="refloat-write-confirmation-title"
+  contentLabel="Configuration comparison"
   title="Write persistent Refloat configuration?"
   description="This writes one complete configuration and verifies every value by reading it back."
   confirmLabel="Write and verify"
@@ -308,9 +310,10 @@
     writeConfirmation = false;
   }}
 >
-  <ul class="mt-3 max-h-48 overflow-y-auto text-sm">
-    {#each controller.diff as item (item.name)}
-      <li><strong>{item.label}:</strong> {formatRefloatValue(item.before)} → {formatRefloatValue(item.after)}</li>
-    {/each}
-  </ul>
+  <RefloatConfigurationDiff
+    changes={controller.diff}
+    fields={controller.fields}
+    beforeLabel="Current"
+    afterLabel="New"
+  />
 </ConfirmDialog>

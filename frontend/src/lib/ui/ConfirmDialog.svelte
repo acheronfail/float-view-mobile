@@ -26,6 +26,8 @@
     ondismiss = oncancel,
     dismissLabel = cancelLabel,
     children,
+    contentLabel,
+    returnFocus,
   }: {
     open: boolean;
     titleId: string;
@@ -43,6 +45,9 @@
     ondismiss?: Activation;
     dismissLabel?: string;
     children?: Snippet;
+    /** Makes long confirmation content a labelled keyboard-scrollable region. */
+    contentLabel?: string;
+    returnFocus?: HTMLElement;
   } = $props();
 
   let dialog = $state<HTMLElement>();
@@ -50,9 +55,12 @@
 
   $effect(() => {
     if (!open || typeof document === 'undefined') return;
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    const previouslyFocused =
+      returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
     void tick().then(() => cancelButton?.focus());
-    return () => previouslyFocused?.focus();
+    return () => {
+      void tick().then(() => previouslyFocused?.focus());
+    };
   });
 
   function cancel() {
@@ -110,8 +118,15 @@
       aria-describedby={description ? `${titleId}-description` : undefined}
       class="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col rounded-2xl border border-outline bg-surface p-5 shadow-2xl"
     >
-      <h2 id={titleId} class="shrink-0 text-xl font-semibold">{title}</h2>
-      <div class="min-h-0 overflow-y-auto">
+      <h2 id={titleId} class="shrink-0 text-xl font-semibold break-words">{title}</h2>
+      <!-- Scrollable confirmation content needs keyboard access. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div
+        class="min-h-0 overflow-y-auto overscroll-contain"
+        role={contentLabel ? 'region' : undefined}
+        aria-label={contentLabel}
+        tabindex={contentLabel ? 0 : undefined}
+      >
         {#if description}<p id={`${titleId}-description`} class="mt-2 text-sm leading-6 text-muted">
             {description}
           </p>{/if}
