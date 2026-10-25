@@ -94,7 +94,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await liveMenu.tap();
       const backToApp = page
         .getByRole('dialog', { name: 'Board actions', exact: true })
-        .getByRole('button', { name: 'Go to Sessions', exact: true });
+        .getByRole('button', { name: 'Back to app', exact: true });
       await backToApp.dispatchEvent('pointerdown', { pointerId: 70, isPrimary: false, button: 0 });
       await backToApp.dispatchEvent('pointerup', { pointerId: 70, isPrimary: false, button: 0 });
       assert.match(page.url(), /#\/live$/);
@@ -207,7 +207,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await tabs.count(), 0, 'standalone BMS also reserves the full screen');
       const bmsMenu = page.getByRole('button', { name: 'BMS actions', exact: true });
       await bmsMenu.tap();
-      await page.getByRole('button', { name: 'Go to Sessions', exact: true }).tap();
+      await page.getByRole('button', { name: 'Back to app', exact: true }).tap();
       await page.waitForURL(/#\/sessions$/);
       await boardTab.focus();
       await page.keyboard.press('Enter');

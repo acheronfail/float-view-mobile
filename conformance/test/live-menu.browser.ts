@@ -172,12 +172,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const appSection = actionOverlay
         .locator('section')
         .filter({ has: page.getByRole('heading', { name: 'App', exact: true }) });
-      assert.equal(await appSection.getByRole('button', { name: 'Go to Sessions', exact: true }).count(), 1);
+      assert.equal(await appSection.getByRole('button', { name: 'Back to app', exact: true }).count(), 1);
       assert.equal(
         await actionOverlay
           .locator('section')
           .first()
-          .getByRole('button', { name: 'Go to Sessions', exact: true })
+          .getByRole('button', { name: 'Back to app', exact: true })
           .count(),
         0
       );

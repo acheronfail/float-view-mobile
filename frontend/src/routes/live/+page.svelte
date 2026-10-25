@@ -475,8 +475,8 @@
             ]
           : []),
         {
-          label: 'Go to Sessions',
-          icon: 'list',
+          label: 'Back to app',
+          icon: 'arrow-left',
           group: 'App',
           onactivate: (closeMenu: () => void) => {
             closeMenu();

@@ -429,7 +429,7 @@ inputs remain unavailable; load fractions are saturated at 100%.
 
 ## Navigation
 
-Live and standalone BMS use the full screen without primary tabs. Go to Sessions in
+Live and standalone BMS use the full screen without primary tabs. Back to app in
 the header dots menu returns to Sessions without disconnecting. In Board actions,
 it sits in a separate App section after the board controls; Done closes the menu
 and returns to the ride view. Groups with three actions use three columns. The primary tabs
