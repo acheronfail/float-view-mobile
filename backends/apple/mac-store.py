@@ -211,7 +211,7 @@ def package(args):
     require(int(tools["macSDK"].split(".")[0]) >= 26 and re.search(r"Xcode (?:2[6-9]|[3-9]\d)\.", tools["xcode"]),
             "Mac store preparation requires Xcode/macOS SDK 26+")
     output.mkdir(parents=True)
-    app = build_app(output, version, number, ["arm64", "x86_64"], STORE_ID, "Float View")
+    app = build_app(output, version, number, ["arm64", "x86_64"], STORE_ID, "Float View Desktop")
     if profile_bytes:
         (app / "Contents/embedded.provisionprofile").write_bytes(profile_bytes)
         (app / "Contents/embedded.provisionprofile").chmod(0o644)

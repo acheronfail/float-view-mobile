@@ -60,7 +60,7 @@ Choose the affected tests and packages using the root
 presentation checks need connected hardware only when the changed behavior
 cannot be established in software; unrelated platforms need no regression run.
 
-`just run macos` assembles and launches `/tmp/float-view-swift-build/FloatView.app`
+`just run macos` assembles and launches `/tmp/float-view-swift-build/Float View Desktop.app`
 with `package-macos.sh`, also used by physical macOS conformance. The app bundle
 includes the permission usage descriptions and bundle identity needed by Core
 Location; launching the bare executable with `swift run` omits that metadata.
@@ -425,7 +425,7 @@ FLOAT_VIEW_VERSION=YOUR_VERSION FLOAT_VIEW_BUILD_NUMBER=YOUR_BUILD_NUMBER \
   bash backends/apple/build-macos-release.sh
 ```
 
-This produces an ad-hoc signed `FloatView.app` under
+This produces an ad-hoc signed `Float View Desktop.app` under
 `${FLOAT_VIEW_MACOS_BUILD_ROOT:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/float-view-macos-build}`.
 Distribution signing and ZIP creation run in CI through the shared Action.
 

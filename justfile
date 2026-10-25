@@ -214,7 +214,7 @@ run platform target="": build
           # SwiftPM does not track the externally linked Rust archive as a build input.
           rm -f "$binary_root/FloatViewMac"
           swift build --scratch-path /tmp/float-view-swift-build --product FloatViewMac
-          app_bundle="/tmp/float-view-swift-build/FloatView.app"
+          app_bundle="/tmp/float-view-swift-build/Float View Desktop.app"
           bash package-macos.sh "$binary_root/FloatViewMac" "$app_bundle"
           FLOAT_VIEW_FRONTEND_HTML="$frontend_html" \
             "$app_bundle/Contents/MacOS/FloatViewMac")

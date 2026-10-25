@@ -70,7 +70,7 @@ Allow installation from this source if Android asks.
 
 Requires macOS 14 or later. Supports Apple Silicon and Intel.
 
-1. Download the macOS `.zip`, extract it, and move `FloatView.app` to Applications.
+1. Download the macOS `.zip`, extract it, and move `Float View Desktop.app` to Applications.
 
 ## Contributing
 

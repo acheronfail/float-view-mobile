@@ -12,13 +12,13 @@
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleDisplayName</key>
-  <string>Float View</string>
+  <string>Float View Desktop</string>
   <key>CFBundleIconName</key>
   <string>FloatView</string>
   <key>CFBundleIconFile</key>
   <string>FloatView.icns</string>
   <key>CFBundleName</key>
-  <string>Float View</string>
+  <string>Float View Desktop</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

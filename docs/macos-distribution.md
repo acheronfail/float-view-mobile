@@ -14,7 +14,9 @@ Developer ID signing/notarization route. Store work must not replace that ZIP.
 2. In [App Store Connect Apps](https://appstoreconnect.apple.com/apps), use
    **New App**, macOS only, that bundle ID, an English primary language and
    an internal SKU such as `float-view-macos`. If the existing iOS record
-   prevents reusing the name, use `Float View for Mac`. Do not add macOS to the
+   prevents reusing the name, use `Float View Desktop`. Keep Apple platform names
+   out of the store title, following the App Review naming feedback. The native
+   bundle display name is `Float View Desktop`. Do not add macOS to the
    iOS record when separate purchases are intended. See
    [Apple's app-record guide](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app/).
 3. Create a **Mac App Store Connect** distribution profile for the identifier,
@@ -38,6 +40,15 @@ GitHub. The protected signing job is selected only by explicit stable/candidate
 release tags and retains the existing cross-platform CI build-number allocation.
 It is disabled until the repository variable `MACOS_STORE_SIGNING_ENABLED` is
 `true`. Upload has its own readiness switch and does not run on ordinary master/nightly builds.
+
+## Main-window review check
+
+The app stays running when its main window closes. **Window → Show Float View**
+(`Command-0`) must remain enabled without an open window and reopen the shared
+frontend using the existing runtime. It must also restore a minimized window or
+bring the existing window forward without creating a duplicate. Dock reopening
+remains supported. Check close/reopen and minimize/restore on the submitted Mac
+build; closing the window is not the same as quitting the application.
 
 ## Store packaging and protected CI
 
