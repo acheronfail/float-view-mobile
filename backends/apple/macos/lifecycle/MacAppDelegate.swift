@@ -27,6 +27,10 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     NSWorkspace.shared.open(URL(string: "https://github.com/acheronfail/float-view-mobile#readme")!)
   }
 
+  @objc func showMainWindow(_: Any?) {
+    showFrontend()
+  }
+
   func applicationDidBecomeActive(_: Notification) {
     runtime?.setForeground(true)
   }
@@ -169,8 +173,12 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   }
 
   private func showFrontend() {
-    guard window == nil else {
-      window?.makeKeyAndOrderFront(nil)
+    if let window {
+      if window.isMiniaturized {
+        window.deminiaturize(nil)
+      }
+      window.makeKeyAndOrderFront(nil)
+      NSApplication.shared.activate(ignoringOtherApps: true)
       return
     }
     var startupStage = StartupFailure.interface

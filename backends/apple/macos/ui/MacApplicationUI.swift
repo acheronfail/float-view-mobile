@@ -96,6 +96,14 @@ func installMainMenu(on application: NSApplication) {
   fullScreenItem.keyEquivalentModifierMask = [.command, .control]
 
   let windowMenu = NSMenu(title: "Window")
+  let showWindowItem = windowMenu.addItem(
+    withTitle: "Show Float View",
+    action: #selector(MacAppDelegate.showMainWindow(_:)),
+    keyEquivalent: "0"
+  )
+  // Keep this command available even after the window/responder chain is gone.
+  showWindowItem.target = application.delegate
+  windowMenu.addItem(.separator())
   windowMenu.addItem(
     withTitle: "Minimize",
     action: #selector(NSWindow.performMiniaturize(_:)),
