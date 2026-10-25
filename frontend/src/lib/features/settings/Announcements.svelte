@@ -204,8 +204,7 @@
         onblur={() => commit('footpadDelaySeconds')}
       />
       <span id="announcement-footpad-description" class="text-xs text-muted">
-        Announces sustained contact loss while speed is above 5 km/h{imperial ? ' (3.1 mph)' : ''}, including in
-        reverse. The delay is retained while alerts are off.
+        Announces footpad contact loss above {imperial ? '3 mph' : '5 km/h'}, after the selected delay.
       </span>
     </label>
     <div>
