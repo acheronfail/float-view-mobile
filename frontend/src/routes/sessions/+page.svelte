@@ -71,7 +71,7 @@
   <LastRideSubtitle />
 {/snippet}
 
-<section aria-labelledby="app-title" class="space-y-4">
+<section aria-labelledby="app-title" class="flex flex-col gap-4 py-4">
   <input
     bind:this={importInput}
     class="hidden"

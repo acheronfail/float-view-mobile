@@ -137,6 +137,18 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const shortcut = page.getByRole('link', { name: /^Most recent ride/ });
       assert.equal(await shortcut.count(), 0);
       assert.deepEqual(requestedBoards, []);
+      const boardList = page.getByRole('region', { name: 'Saved boards', exact: true });
+      for (const width of [320, 390, 768]) {
+        await page.setViewportSize({ width, height: 844 });
+        const headerBox = await page.locator('header').boundingBox();
+        const firstBoardBox = await boardList.getByRole('link').first().boundingBox();
+        assert.ok(headerBox && firstBoardBox);
+        assert.equal(
+          firstBoardBox.y - (headerBox.y + headerBox.height),
+          16,
+          `header gap without shortcut at ${width}px`
+        );
+      }
 
       hasRides = true;
       await page.reload();
@@ -149,10 +161,15 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         requestedBoards.every((id) => id !== 'older-board'),
         'only query the latest board'
       );
-      const boardList = page.getByRole('region', { name: 'Saved boards', exact: true });
-      const shortcutBox = await shortcut.boundingBox();
-      const boardBox = await boardList.boundingBox();
-      assert.ok(shortcutBox && boardBox && shortcutBox.y + shortcutBox.height <= boardBox.y);
+      for (const width of [320, 390, 768]) {
+        await page.setViewportSize({ width, height: 844 });
+        const headerBox = await page.locator('header').boundingBox();
+        const shortcutBox = await shortcut.boundingBox();
+        const firstBoardBox = await boardList.getByRole('link').first().boundingBox();
+        assert.ok(headerBox && shortcutBox && firstBoardBox);
+        assert.equal(shortcutBox.y - (headerBox.y + headerBox.height), 16, `header gap at ${width}px`);
+        assert.equal(firstBoardBox.y - (shortcutBox.y + shortcutBox.height), 16, `board gap at ${width}px`);
+      }
       await shortcut.click({ button: 'right' });
       assert.ok(page.url().endsWith('#/sessions'));
       await shortcut.focus();

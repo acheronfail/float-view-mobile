@@ -13,7 +13,7 @@
   }
 </script>
 
-<section aria-label="Saved boards" class="flex flex-col gap-4 py-2">
+<section aria-label="Saved boards" class="flex flex-col gap-4">
   {#if backendState.savedDevices.length}
     <ul class="flex flex-col gap-2">
       {#each backendState.savedDevices as device (device.savedDeviceId)}
