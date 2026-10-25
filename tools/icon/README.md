@@ -35,9 +35,11 @@ The mask and padding are applied before generating every ICNS resolution,
 including the `sips` fallback. This light ICNS also gives unbundled SwiftPM launches
 an icon. iOS and Android use their existing platform shapes.
 
-`FloatView.icon/` provides the macOS 26 appearance variants. Its rider SVG is
-generated from `icon.svg`; `icon.json` sets the pale/Fresh teal default and the
-charcoal/bright teal dark appearance. `backends/apple/package-macos.sh` requires Xcode 26
+`FloatView.icon/` provides the macOS 26 appearance variants. Its dark rider SVG
+and transparent light rider PNG are generated from `icon.svg`. The light PNG
+preserves the outline and soft shadow without relying on Icon Composer's SVG
+filter support. `icon.json` selects the matching layer for the pale/Fresh teal
+default and charcoal/bright teal dark appearance. `backends/apple/package-macos.sh` requires Xcode 26
 or later and compiles it into `Assets.car` plus a light ICNS fallback before
 signing. Packaged apps let macOS select the icon appearance, including system
 tinting; they do not replace it with a static Dock image. macOS 14/15 and bare
@@ -50,10 +52,16 @@ the displayed icon. The existing monochrome layer supports Android 13+ themed
 icons, whose colours follow the launcher's wallpaper/theme settings instead of
 our teal palettes. No launcher aliases or component switching are used.
 
-All platforms use teal as their bundled icon colour. iOS derives its light icon
-from the same SVG geometry: a Fresh teal (`#14b8a6`) rider on pale (`#f1f5f9`);
-the source artwork supplies the bright teal (`#2dd4bf`) rider on charcoal
-(`#121418`) for dark appearance.
+All platforms use teal as their bundled icon colour. `generate-light-artwork.py`
+derives the light artwork from the same SVG geometry: a Fresh teal (`#14b8a6`)
+rider on pale (`#f1f5f9`), with a thin ink teal (`#073832`) outline and a small
+dark teal (`#052e2b`) shadow. The original silhouette and its teal stroke stay
+intact; the contrasting outline extends 0.6 SVG units beyond that edge. The
+shadow uses a 1.1-unit downward offset, 0.9-unit blur and 26% opacity.
+Android's adaptive foreground retains the shadow's transparency. The source
+artwork supplies the unchanged bright teal (`#2dd4bf`) rider on charcoal
+(`#121418`) for dark appearance, without the added outline or shadow. Loading,
+map and Android monochrome symbols retain their existing silhouettes.
 Regenerate only these iOS assets with `tools/icon/generate.sh --ios-only`.
 On iOS 18 and later, Home Screen appearance set to Automatic selects the variant
 with the system appearance. An explicit Light, Dark or Tinted Home Screen choice

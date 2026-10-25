@@ -53,17 +53,7 @@ rsvg-convert -w 1024 -h 1024 "$source_svg" -o "$master_png"
 # iOS uses the light artwork by default and the original artwork in Dark Mode.
 # Derive the variant from the same geometry so future artwork edits stay in sync.
 magick "$master_png" -alpha off -define png:exclude-chunk=all "$ios_icon_dir/AppIcon-Dark.png"
-python3 - "$source_svg" "$temporary_dir/icon-light.svg" <<'PYTHON'
-import pathlib
-import sys
-
-source = pathlib.Path(sys.argv[1]).read_text()
-# Derive the approved light teal palette from the dark source artwork.
-import re
-palette = {"#121418": "#f1f5f9", "#2dd4bf": "#14b8a6"}
-source = re.sub("|".join(palette), lambda match: palette[match.group()], source)
-pathlib.Path(sys.argv[2]).write_text(source)
-PYTHON
+python3 "$script_dir/generate-light-artwork.py" "$temporary_dir"
 rsvg-convert -w 1024 -h 1024 "$temporary_dir/icon-light.svg" -o "$temporary_dir/light.png"
 magick "$temporary_dir/light.png" -alpha off -define png:exclude-chunk=all "$ios_icon_dir/AppIcon.png"
 
@@ -73,6 +63,9 @@ if [[ "${1:-}" == "--ios-only" ]]; then
 fi
 
 # The layered macOS icon is compiled by package-macos.sh for system appearances.
+# Rasterize the light mark so Icon Composer preserves its SVG filter shadow.
+rsvg-convert -w 1024 -h 1024 "$temporary_dir/icon-light-mark.svg" \
+  -o "$script_dir/FloatView.icon/Assets/rider-light.png"
 python3 - "$source_svg" "$script_dir/FloatView.icon/Assets/rider.svg" <<'PYTHON'
 import pathlib
 import sys
@@ -150,8 +143,14 @@ for appearance in light dark; do
   drawable_dir="$android_resources_dir/drawable${night_qualifier}-nodpi"
   mkdir -p "$drawable_dir"
   icon_background="$(magick "$android_master_png" -format '%[pixel:p{0,0}]' info:)"
-  magick "$android_master_png" -alpha on -fuzz 1% -transparent "$icon_background" \
-    "$transparent_mark_png"
+  if [[ "$appearance" == light ]]; then
+    # Preserve the soft shadow's alpha without baking in the pale background.
+    rsvg-convert -w 1024 -h 1024 "$temporary_dir/icon-light-mark.svg" \
+      -o "$transparent_mark_png"
+  else
+    magick "$android_master_png" -alpha on -fuzz 1% -transparent "$icon_background" \
+      "$transparent_mark_png"
+  fi
   magick -size 1024x1024 canvas:none \
     -fill "$icon_background" -draw 'circle 512,512 512,0' \
     "$transparent_mark_png" -compose over -composite "$round_master_png"

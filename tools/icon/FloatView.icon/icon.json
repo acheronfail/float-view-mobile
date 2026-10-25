@@ -16,6 +16,20 @@
     {
       "layers": [
         {
+          "image-name": "rider-light.png",
+          "name": "Light rider",
+          "glass": false,
+          "hidden-specializations": [
+            {
+              "value": false
+            },
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
+        },
+        {
           "image-name": "rider.svg",
           "name": "Rider",
           "fill-specializations": [
@@ -31,7 +45,16 @@
               }
             }
           ],
-          "glass": false
+          "glass": false,
+          "hidden-specializations": [
+            {
+              "value": true
+            },
+            {
+              "appearance": "dark",
+              "value": false
+            }
+          ]
         }
       ],
       "shadow": {
