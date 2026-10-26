@@ -16,8 +16,8 @@ see [NOTICE](../../NOTICE) and [licensing details](../../docs/licensing.md).
 The generator requires `rsvg-convert`, ImageMagick's `magick`, and Apple's
 `sips` (supplied by macOS), plus Python 3. When a working `iconutil` is available, it is used
 for the macOS ICNS; otherwise the generator falls back to a valid 512px ICNS
-written by `sips`. The output includes the iOS default AppIcon PNG, macOS ICNS, and
-Android density/adaptive-icon WebP assets used by the native targets.
+written by `sips`. The output includes the shared Apple icon layer, macOS ICNS, and Android
+density/adaptive-icon WebP assets used by the native targets.
 
 The centered loading screen uses the rider without the icon background. Native
 and early HTML loading screens use the same stroke-free silhouette as the app
@@ -41,8 +41,10 @@ All platforms default to the original bright teal (`#2dd4bf`) rider on charcoal
 (`#121418`), regardless of system light/dark appearance. The app icon uses
 filled paths without a stroke so all platform silhouettes have the same weight.
 
-`FloatView.icon/` provides the layered macOS 26 icon. Its rider SVG is generated
+`FloatView.icon/` provides the shared layered iOS/macOS 26 and later icon. Its rider SVG is generated
 from `icon.svg`, and `icon.json` applies the dark palette as the default.
+Glass and specular highlights let Apple render reflective edges and lighting;
+these effects are not baked into the source artwork.
 `backends/apple/package-macos.sh` requires Xcode 26 or later and compiles it
 into `Assets.car` plus an ICNS fallback before signing. Packaged apps retain
 system icon tinting. macOS 14/15 and bare SwiftPM launches use the dark fallback.
@@ -52,6 +54,7 @@ The monochrome layer supports Android 13+ themed icons, whose colours follow
 the launcher's wallpaper/theme settings. No launcher aliases or component
 switching are used.
 
-iOS uses one default AppIcon without a separate dark variant. Regenerate only
-this asset with `tools/icon/generate.sh --ios-only`. System Home Screen tinting
-remains under the user's control.
+The iOS target includes the same `FloatView.icon` document as a resource and
+selects `FloatView` as its app icon. Xcode compiles the layered icon and
+generates compatibility images for older iOS versions; no separate AppIcon PNG
+is maintained. System Home Screen tinting remains under the user's control.

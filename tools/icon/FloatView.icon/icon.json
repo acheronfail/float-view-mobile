@@ -19,14 +19,14 @@
               }
             }
           ],
-          "glass": false
+          "glass": true
         }
       ],
       "shadow": {
         "kind": "neutral",
         "opacity": 0
       },
-      "specular": false,
+      "specular": true,
       "translucency": {
         "enabled": false,
         "value": 0

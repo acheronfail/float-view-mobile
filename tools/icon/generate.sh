@@ -24,16 +24,13 @@ require_command magick
 require_command python3
 require_command sips
 
-if [[ "${1:-}" != "--ios-only" ]]; then
-  python3 "$script_dir/generate-loading-symbol.py"
-fi
+python3 "$script_dir/generate-loading-symbol.py"
 
 if [[ ! -f "$source_svg" ]]; then
   printf 'tools/icon: source SVG not found: %s\n' "$source_svg" >&2
   exit 1
 fi
 
-ios_icon_dir="$project_root/backends/apple/ios/float-view/Assets.xcassets/AppIcon.appiconset"
 mac_resources_dir="$project_root/backends/apple/macos/Resources"
 android_resources_dir="$project_root/backends/android/app/src/main/res"
 master_png="$temporary_dir/FloatView.png"
@@ -44,21 +41,12 @@ adaptive_monochrome_png="$temporary_dir/ic_launcher_monochrome.png"
 round_master_png="$temporary_dir/FloatView-round.png"
 
 mkdir -p \
-  "$ios_icon_dir" \
   "$mac_resources_dir" \
   "$android_resources_dir/drawable-nodpi"
 
 rsvg-convert -w 1024 -h 1024 "$source_svg" -o "$master_png"
 
-# Use the original dark artwork as the default on every platform.
-magick "$master_png" -alpha off -define png:exclude-chunk=all "$ios_icon_dir/AppIcon.png"
-
-if [[ "${1:-}" == "--ios-only" ]]; then
-  printf 'Generated iOS icon from %s\n' "$source_svg"
-  exit 0
-fi
-
-# The layered macOS icon is compiled by package-macos.sh.
+# Xcode and package-macos.sh compile the shared layered Apple icon.
 python3 - "$source_svg" "$script_dir/FloatView.icon/Assets/rider.svg" <<'PYTHON'
 import pathlib
 import sys
