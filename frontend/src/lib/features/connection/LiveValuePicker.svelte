@@ -13,7 +13,7 @@
     type UnitPreference,
   } from '$lib/backend/contract';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
-  import { liveValue, liveValueColor, liveValueText, liveValueStatus } from './live-values';
+  import { liveValue, liveValueCatalog, liveValueColor, liveValueText, liveValueStatus } from './live-values';
 
   const motion = createMotion();
 
@@ -44,6 +44,18 @@
     onselect: (field: LiveWidgetField, keyboard: boolean) => void;
     onclose: (keyboard: boolean) => void;
   } = $props();
+  let query = $state('');
+  const fields = $derived(
+    liveWidgetFields.filter((field) => {
+      const { name, label } = liveValueCatalog[field];
+      const text = `${name} ${label}`.toLowerCase();
+      return query
+        .trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .every((word) => text.includes(word));
+    })
+  );
   let dialog: HTMLDialogElement;
   onMount(() => {
     dialog.showModal();
@@ -84,11 +96,26 @@
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onclose(true))}>Cancel</button
       >
     </header>
+    <label class="mt-4 block shrink-0 text-sm font-semibold"
+      >Find a value or control
+      <input
+        type="search"
+        maxlength="128"
+        class="mt-2 min-h-11 w-full rounded-lg border border-outline bg-surface px-3"
+        aria-label="Search values"
+        placeholder="Search speed, battery, voltage…"
+        disabled={busy}
+        bind:value={query}
+      />
+    </label>
     {#if error}<p role="alert" class="mt-3 text-sm text-danger">{error}</p>{/if}
     {#if busy}<p role="status" class="mt-3 text-sm text-muted">Saving…</p>{/if}
     <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-4">
+      {#if !fields.length}<p role="status" class="py-6 text-center text-muted">
+          No matching values. Try another value or clear the search.
+        </p>{/if}
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {#each liveWidgetFields as field (field)}
+        {#each fields as field (field)}
           {@const reading = liveValue(
             field,
             sample,
