@@ -20,9 +20,9 @@ written by `sips`. The output includes the iOS default AppIcon PNG, macOS ICNS, 
 Android density/adaptive-icon WebP assets used by the native targets.
 
 The centered loading screen uses the rider without the icon background. Native
-and early HTML loading screens use the same Fresh teal (`#14b8a6`) artwork,
-outline and shadow derived by `generate-light-artwork.py`. The dark loading screen retains its
-bright teal (`#2dd4bf`) silhouette. Light loading PNGs retain their original
+and early HTML loading screens use the same stroke-free silhouette as the app
+icon, without an outline or shadow. Light loading screens use Fresh teal
+(`#14b8a6`); dark loading screens use bright teal (`#2dd4bf`). Light loading PNGs retain their original
 colours rather than being tinted as template images. Regenerate the early HTML,
 iOS/macOS PNGs, Android light PNG and dark vector, and the frontend map's
 separate SVG silhouette with Python 3, ImageMagick and `rsvg-convert`:
@@ -38,7 +38,8 @@ including the `sips` fallback. This dark ICNS also gives unbundled SwiftPM launc
 an icon. iOS and Android use their existing platform shapes.
 
 All platforms default to the original bright teal (`#2dd4bf`) rider on charcoal
-(`#121418`), regardless of system light/dark appearance.
+(`#121418`), regardless of system light/dark appearance. The app icon uses
+filled paths without a stroke so all platform silhouettes have the same weight.
 
 `FloatView.icon/` provides the layered macOS 26 icon. Its rider SVG is generated
 from `icon.svg`, and `icon.json` applies the dark palette as the default.
@@ -54,8 +55,3 @@ switching are used.
 iOS uses one default AppIcon without a separate dark variant. Regenerate only
 this asset with `tools/icon/generate.sh --ios-only`. System Home Screen tinting
 remains under the user's control.
-
-`generate-light-artwork.py` remains in use for light loading screens. It derives
-a Fresh teal (`#14b8a6`) rider with a thin ink teal (`#073832`) outline and a
-small dark teal (`#052e2b`) shadow. Dark loading, map and Android monochrome
-symbols retain their existing silhouettes.

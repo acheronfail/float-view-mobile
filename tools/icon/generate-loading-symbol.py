@@ -31,27 +31,12 @@ with tempfile.TemporaryDirectory(prefix='float-view-symbol-') as directory:
         'magick', '-background', 'none', '-density', '288', str(source_path),
         '-resize', '216x288!', '-define', 'png:exclude-chunk=all', str(output_path),
     ], check=True)
-    # Keep the existing template symbol for dark appearance. Light appearance
-    # uses the exact icon treatment, rasterized with transparent shadow pixels.
-    subprocess.run([
-        'python3', str(root / 'tools/icon/generate-light-artwork.py'), directory,
-    ], check=True)
-    artwork = ET.parse(Path(directory) / 'icon-light-mark.svg').getroot()
-    namespace = '{http://www.w3.org/2000/svg}'
-    ET.register_namespace('', namespace[1:-1])
-    light = ET.Element(namespace + 'svg')
-    light.extend(child for child in artwork if child.tag in (namespace + 'defs', namespace + 'g'))
-    for group in light.iter(namespace + 'g'):
-        group.attrib.pop('transform', None)
-    # Include space for the outline and shadow instead of clipping at the old
-    # tightly cropped silhouette bounds. Keep the dark viewport unchanged.
-    light.set('viewBox', '10 -3 83 110')
-    light.set('width', '72')
-    light.set('height', '96')
-    light.set('aria-hidden', 'true')
-    light.set('class', 'loading-symbol-light')
+    # Use the same stroke-free geometry and viewport in both appearances.
+    light_svg = svg.replace('currentColor', '#14b8a6').replace(
+        '<svg ', '<svg class="loading-symbol-light" ', 1,
+    )
     light_path = Path(directory) / 'loading-light.svg'
-    ET.ElementTree(light).write(light_path, encoding='unicode')
+    light_path.write_text(light_svg)
     light_png = Path(directory) / 'loading-light.png'
     subprocess.run([
         'rsvg-convert', '-w', '216', '-h', '288', str(light_path),
@@ -72,7 +57,7 @@ with tempfile.TemporaryDirectory(prefix='float-view-symbol-') as directory:
     # The inline artwork paints before frontend scripts or asset requests.
     symbol = (
         '<span id="loading-symbol" aria-hidden="true">'
-        + ET.tostring(light, encoding='unicode') + dark_svg + '</span>'
+        + light_svg + dark_svg + '</span>'
     )
     html, count = re.subn(
         r'<span id="loading-symbol"[^>]*>[\s\S]*?</span>',
