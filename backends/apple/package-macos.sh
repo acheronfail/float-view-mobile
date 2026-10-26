@@ -17,7 +17,7 @@ rm -f "$contents/MacOS/FloatViewMac"
 cp "$executable" "$contents/MacOS/FloatViewMac"
 # Put SwiftPM resources in the standard app location for signing and discovery.
 cp -R "$resources/." "$contents/Resources/"
-# Compile appearance variants into Assets.car, with a light ICNS fallback for
+# Compile the dark artwork into Assets.car, with an ICNS fallback for
 # systems before macOS 26. Keep this before either ad-hoc or distribution signing.
 xcrun actool "$apple_root/../../tools/icon/FloatView.icon" \
   --compile "$contents/Resources" --platform macosx \

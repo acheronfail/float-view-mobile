@@ -2,7 +2,7 @@ import AppKit
 
 @MainActor
 func installApplicationIcon(on application: NSApplication) {
-  // Packaged apps let macOS choose the compiled light/dark/tinted appearance.
+  // Packaged apps let macOS choose the compiled icon and system tinting.
   // A manual NSImage override would pin the Dock icon to one appearance.
   if Bundle.main.bundleURL.pathExtension == "app",
      Bundle.main.object(forInfoDictionaryKey: "CFBundleIconName") != nil

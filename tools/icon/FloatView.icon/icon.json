@@ -2,12 +2,6 @@
   "fill-specializations": [
     {
       "value": {
-        "solid": "srgb:0.94510,0.96078,0.97647,1.00000"
-      }
-    },
-    {
-      "appearance": "dark",
-      "value": {
         "solid": "srgb:0.07059,0.07843,0.09412,1.00000"
       }
     }
@@ -16,45 +10,16 @@
     {
       "layers": [
         {
-          "image-name": "rider-light.png",
-          "name": "Light rider",
-          "glass": false,
-          "hidden-specializations": [
-            {
-              "value": false
-            },
-            {
-              "appearance": "dark",
-              "value": true
-            }
-          ]
-        },
-        {
           "image-name": "rider.svg",
           "name": "Rider",
           "fill-specializations": [
             {
               "value": {
-                "solid": "srgb:0.07843,0.72157,0.65098,1.00000"
-              }
-            },
-            {
-              "appearance": "dark",
-              "value": {
                 "solid": "srgb:0.17647,0.83137,0.74902,1.00000"
               }
             }
           ],
-          "glass": false,
-          "hidden-specializations": [
-            {
-              "value": true
-            },
-            {
-              "appearance": "dark",
-              "value": false
-            }
-          ]
+          "glass": false
         }
       ],
       "shadow": {
