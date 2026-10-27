@@ -34,6 +34,8 @@ pub struct AnnouncementSettings {
     pub load_enabled: bool,
     #[serde(default)]
     pub footpad_enabled: bool,
+    #[serde(default = "default_battery_charge_enabled")]
+    pub battery_charge_enabled: bool,
     #[serde(default = "default_footpad_delay")]
     pub footpad_delay_seconds: u64,
     pub speed_threshold_kph: f64,
@@ -48,6 +50,7 @@ impl Default for AnnouncementSettings {
             speed_enabled: false,
             load_enabled: false,
             footpad_enabled: false,
+            battery_charge_enabled: true,
             footpad_delay_seconds: 1,
             speed_threshold_kph: 25.,
             load_threshold_percent: 65.,
@@ -144,7 +147,8 @@ impl ProductStore {
                     }
                 }
                 "announcements"
-                    if value.get("footpadEnabled").is_some()
+                    if value.get("batteryChargeEnabled").is_some()
+                        && value.get("footpadEnabled").is_some()
                         && value.get("footpadDelaySeconds").is_some()
                         && serde_json::from_value::<AnnouncementSettings>(value.clone())
                             .is_ok_and(|v| v.valid()) => {}
@@ -319,6 +323,10 @@ pub(crate) fn valid_live_widget_slots(value: &Value) -> bool {
 
 fn default_resume_window() -> u64 {
     60
+}
+
+fn default_battery_charge_enabled() -> bool {
+    true
 }
 
 fn default_footpad_delay() -> u64 {

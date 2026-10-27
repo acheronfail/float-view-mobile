@@ -156,24 +156,28 @@
   >
     <p class="text-muted">
       Hear footpad contact alerts and readings above your thresholds. Load speaks only the highest of duty, motor or
-      battery utilisation. Footpad alerts speak first when rules qualify together.
+      battery utilisation.
     </p>
-    {#each ['speedEnabled', 'loadEnabled', 'footpadEnabled'] as key (key)}
-      {@const field = key as 'speedEnabled' | 'loadEnabled' | 'footpadEnabled'}
+    {#each ['speedEnabled', 'loadEnabled', 'footpadEnabled', 'batteryChargeEnabled'] as key (key)}
+      {@const field = key as 'speedEnabled' | 'loadEnabled' | 'footpadEnabled' | 'batteryChargeEnabled'}
       <div>
         <p>
           {field === 'speedEnabled'
             ? 'Speed announcements'
             : field === 'loadEnabled'
               ? 'Load announcements'
-              : 'Footpad announcements'}
+              : field === 'footpadEnabled'
+                ? 'Footpad announcements'
+                : 'Battery announcements'}
         </p>
         <SegmentedControl
           label={field === 'speedEnabled'
             ? 'Speed announcements'
             : field === 'loadEnabled'
               ? 'Load announcements'
-              : 'Footpad announcements'}
+              : field === 'footpadEnabled'
+                ? 'Footpad announcements'
+                : 'Battery announcements'}
           options={[
             { value: false, label: 'Off' },
             { value: true, label: 'On' },
@@ -183,6 +187,9 @@
         />
       </div>
     {/each}
+    <p class="text-xs text-muted">
+      Warns you about low or high battery voltage while riding. Each warning repeats at most once a minute.
+    </p>
     <label class="block">
       Footpad delay: {draft.footpadDelaySeconds}
       {draft.footpadDelaySeconds === 1 ? 'second' : 'seconds'}
@@ -253,7 +260,7 @@
     </div>
     <div>
       <label class="block"
-        >Repeat interval (seconds)
+        >Speed, load and footpad repeat interval (seconds)
         <input
           class={`${inputClass} ${intervalError ? 'border-danger' : 'border-outline'}`}
           aria-invalid={intervalError ? 'true' : undefined}

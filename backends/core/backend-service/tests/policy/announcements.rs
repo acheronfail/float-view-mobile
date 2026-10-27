@@ -1,5 +1,5 @@
 use super::*;
-use crate::announcements::{Outcome, Readiness, Speech, TestKind};
+use crate::announcements::{Battery, Outcome, Readiness, Speech, TestKind};
 use float_view_application_runtime::telemetry::NormalizedSample;
 
 #[allow(dead_code)]
@@ -469,4 +469,245 @@ fn footpad_contact_recovery_is_per_side_and_missing_contact_does_not_suppress_ot
     assert_eq!(fallback.footpad, None);
     assert_eq!(fallback.speed, Some(32));
     assert_eq!(fallback.load.as_ref().unwrap().percent, 78);
+}
+
+fn battery_board() -> (Test, NormalizedSample) {
+    let mut t = Test::new();
+    t.discover();
+    t.service.connect("test-device", false).unwrap();
+    let generation = t.service.policy.active.as_ref().unwrap().generation;
+    t.fact(
+        Fact::Link {
+            generation,
+            state: LinkState::Ready,
+        },
+        5,
+    )
+    .unwrap();
+    let generation = t.service.runtime.snapshot().application.generation;
+    let mut firmware = vec![0, 6, 6];
+    firmware.extend_from_slice(b"THOR300\0");
+    firmware.extend_from_slice(&[7; 12]);
+    firmware.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 0]);
+    firmware.extend_from_slice(b"Float\0");
+    for payload in [firmware, vec![36, 101, 0, 10]] {
+        t.service
+            .runtime_command(Command::Application(c::Command::Receive {
+                generation,
+                payload,
+                now_ms: 6,
+                observed_at_epoch_ms: 1_700_000_000_006,
+            }))
+            .unwrap();
+    }
+    t.drain();
+    let schema =
+        include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.0.0.qcompress");
+    let receive = |t: &mut Test, payload| {
+        t.service
+            .runtime_command(Command::Application(c::Command::Receive {
+                generation,
+                payload,
+                now_ms: 10,
+                observed_at_epoch_ms: 1_700_000_000_010,
+            }))
+            .unwrap();
+        t.drain();
+    };
+    let mut limits = vec![14];
+    limits.extend_from_slice(&0x2EFD_0142_u32.to_be_bytes());
+    limits.extend_from_slice(&[0; 4]);
+    for value in [100_f32, -100., 50., -20.] {
+        limits.extend_from_slice(&value.to_be_bytes());
+    }
+    let mut current = vec![93, 0];
+    current.extend_from_slice(include_bytes!(
+        "../../../../fixtures/refloat-configuration/values/1.0.0-current.bin"
+    ));
+    for _ in 0..100 {
+        let snapshot = t.service.runtime.snapshot().application;
+        if snapshot.configuration.current.is_some() {
+            break;
+        }
+        let request = snapshot.scheduler.in_flight.expect("configuration request");
+        let response = match request.expected_response.command {
+            14 => limits.clone(),
+            92 => {
+                let offset =
+                    i32::from_be_bytes(request.payload[6..10].try_into().unwrap()) as usize;
+                let mut payload = vec![92, 0];
+                payload.extend_from_slice(&(schema.len() as i32).to_be_bytes());
+                payload.extend_from_slice(&(offset as i32).to_be_bytes());
+                payload.extend_from_slice(&schema[offset..(offset + 400).min(schema.len())]);
+                payload
+            }
+            93 => current.clone(),
+            62 => vec![62, 42],
+            36 => {
+                t.riding_sample(10);
+                continue;
+            }
+            _ => panic!("unexpected request: {request:?}"),
+        };
+        receive(&mut t, response);
+    }
+    assert!(
+        t.service
+            .runtime
+            .snapshot()
+            .application
+            .configuration
+            .current
+            .is_some()
+    );
+    t.service.policy.announcements.audio.status = Readiness::Ready;
+    let mut sample = samples::sample(1, 100);
+    sample.package_state = Some(float_view_application_runtime::telemetry::PackageState::Running);
+    sample.speed_kph = None;
+    sample.pack_voltage_v = Some(40.);
+    (t, sample)
+}
+
+#[test]
+fn battery_priority_busy_mute_and_context_cancellation_use_one_slot() {
+    use crate::announcements::Battery;
+    let (mut t, mut sample) = battery_board();
+    let effects = observe(&mut t, &sample, 100);
+    let first = spoken(&effects).unwrap();
+    assert_eq!(first.battery, Some(Battery::Low));
+    assert!(first.footpad.is_none() && first.load.is_none() && first.speed.is_none());
+    let id = first.id;
+    sample.pack_voltage_v = Some(100.);
+    assert!(spoken(&observe(&mut t, &sample, 200)).is_none());
+    t.service.complete_speech(id, Outcome::Finished);
+    let effects = observe(&mut t, &sample, 300);
+    let high = spoken(&effects).unwrap();
+    assert_eq!(high.battery, Some(Battery::OverVoltage));
+    t.service.complete_speech(high.id, Outcome::Finished);
+    // Each kind has its own interval; stop/start and WebView changes cannot clear it.
+    sample.package_state = Some(float_view_application_runtime::telemetry::PackageState::Ready);
+    assert!(spoken(&observe(&mut t, &sample, 400)).is_none());
+    sample.package_state = Some(float_view_application_runtime::telemetry::PackageState::Running);
+    sample.pack_voltage_v = Some(40.);
+    t.service.policy.settings.announcements.volume_percent = 0;
+    assert!(spoken(&observe(&mut t, &sample, 60_100)).is_none());
+    t.service.policy.settings.announcements.volume_percent = 100;
+    assert!(spoken(&observe(&mut t, &sample, 60_200)).is_none());
+    let effects = observe(&mut t, &sample, 120_100);
+    let next = spoken(&effects).unwrap();
+    sample.pack_voltage_v = None;
+    assert!(
+        observe(&mut t, &sample, 120_200)
+            .iter()
+            .any(|e| matches!(e, Effect::CancelSpeech { id } if *id == next.id))
+    );
+}
+
+#[test]
+fn battery_running_exit_finishes_admitted_phrase_and_disable_cancels_it() {
+    let (mut t, mut sample) = battery_board();
+    t.service.policy.settings.announcements.load_enabled = true;
+    sample.duty_cycle = Some(0.9);
+    let effects = observe(&mut t, &sample, 100);
+    let first = spoken(&effects).unwrap();
+    assert!(first.battery.is_some());
+    assert!(
+        first.load.is_none(),
+        "battery gets priority over qualifying routine load"
+    );
+    sample.package_state = Some(float_view_application_runtime::telemetry::PackageState::Ready);
+    assert_no_playback_change(&observe(&mut t, &sample, 200));
+    t.service
+        .policy
+        .settings
+        .announcements
+        .battery_charge_enabled = false;
+    t.service.reset_battery_announcements();
+    assert!(
+        t.service
+            .drain_os()
+            .effects
+            .iter()
+            .any(|e| matches!(e,Effect::CancelSpeech{id} if *id == first.id))
+    );
+    t.service.complete_speech(first.id, Outcome::Finished);
+    sample.package_state = Some(float_view_application_runtime::telemetry::PackageState::Running);
+    t.service
+        .policy
+        .settings
+        .announcements
+        .battery_charge_enabled = true;
+    assert!(spoken(&observe(&mut t, &sample, 300)).is_none());
+}
+
+#[test]
+fn host_playback_flag_includes_battery_and_footpad_only_settings() {
+    let mut t = Test::new();
+    t.drain();
+    for (battery, footpad, volume, expected) in [
+        (false, false, 100, false),
+        (true, false, 100, true),
+        (false, false, 100, false),
+        (false, true, 100, true),
+        (true, true, 0, false),
+    ] {
+        let settings = &mut t.service.policy.settings.announcements;
+        settings.speed_enabled = false;
+        settings.load_enabled = false;
+        settings.battery_charge_enabled = battery;
+        settings.footpad_enabled = footpad;
+        settings.volume_percent = volume;
+        t.service.changed().unwrap();
+        let effects = t.service.drain_os().effects;
+        assert!(effects.iter().any(|e| matches!(e, Effect::HostState { speech_enabled, .. } if *speech_enabled == expected)), "missing playback flag for battery={battery}, footpad={footpad}, volume={volume}");
+    }
+}
+
+#[test]
+fn battery_visual_state_survives_speech_settings_and_cooldown_but_not_stopped_or_stale() {
+    let (mut t, mut sample) = battery_board();
+    t.service
+        .policy
+        .settings
+        .announcements
+        .battery_charge_enabled = false;
+    assert!(spoken(&observe(&mut t, &sample, 100)).is_none());
+    assert_eq!(
+        t.service
+            .published_snapshot()
+            .active
+            .unwrap()
+            .battery_warning,
+        Some(Battery::Low)
+    );
+    t.service
+        .policy
+        .settings
+        .announcements
+        .battery_charge_enabled = true;
+    let effects = observe(&mut t, &sample, 200);
+    let speech = spoken(&effects).unwrap();
+    t.service.complete_speech(speech.id, Outcome::Finished);
+    assert!(spoken(&observe(&mut t, &sample, 300)).is_none());
+    assert_eq!(t.service.battery_warning(), Some(Battery::Low));
+    sample.package_state = Some(float_view_application_runtime::telemetry::PackageState::Ready);
+    observe(&mut t, &sample, 400);
+    assert_eq!(t.service.battery_warning(), None);
+    sample.package_state = Some(float_view_application_runtime::telemetry::PackageState::Running);
+    observe(&mut t, &sample, 500);
+    assert_eq!(t.service.battery_warning(), Some(Battery::Low));
+    t.service.changed().unwrap();
+    let revision = t.service.service_revision();
+    // A timer/clock freshness transition must publish even without new telemetry.
+    t.fact(Fact::Clock {}, 2500).unwrap();
+    assert_eq!(t.service.battery_warning(), None);
+    assert!(t.service.service_revision() > revision);
+    assert_eq!(
+        t.service
+            .published_snapshot()
+            .active
+            .unwrap()
+            .battery_warning,
+        None
+    );
 }

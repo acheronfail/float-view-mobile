@@ -302,6 +302,14 @@ that applying a tune can cause a momentary cutout. Pointer activation waits for 
 keyboard activation follows the same path. Preset details remain available for
 renaming and deletion when switching is unavailable.
 
+Battery widgets consume nullable `activeConnection.batteryWarning` from the shared
+confirmed voltage gates. Low/high warnings use an amber label, voltage and a slow
+full-track outline; high voltage also adds diagonal hatching. The warning replaces
+charging animation without changing charge fill or percentage. Reduced motion keeps
+steady cues. Speech preferences and cooldowns do not hide these visuals; stopped,
+stale or invalid board context clears the authoritative warning. No frontend voltage
+threshold calculation or firmware-fault presentation is used.
+
 The live battery percentage is the shared service's temporal estimate. Optional
 full-pack capacity (Ah) enables signed charge tracking; otherwise it follows
 bounded, smoothed voltage observations. Saved cell profile, series/parallel counts
@@ -525,7 +533,13 @@ and first/recovered telemetry values change immediately; ordinary continuous
 readings use short interpolation.
 
 Ride announcement controls belong to `features/settings/Announcements.svelte`.
-Speed, load and footpad rules have independent switches. Footpad alerts default
+Speed, load, footpad and battery charge rules have independent switches. Battery
+charge defaults on and speaks only “Battery low” or “Over voltage” while fresh
+Refloat state reports running, without a speed gate. It derives advance headroom
+from current board voltage thresholds, confirms crossings and recovery, and
+repeats each phrase at most once per minute independently of the routine interval.
+Advance high warnings require regen. Shared policy owns these decisions; hosts
+reuse the existing voice, volume and audio lifecycle handling. Footpad alerts default
 off with a one-second delay; the labelled native slider offers whole seconds
 1–5 and remains editable while disabled. The fixed >5 km/h gate displays as
 5 km/h in metric units or a rounded 3 mph in imperial units. Footpad wording precedes load and speed.

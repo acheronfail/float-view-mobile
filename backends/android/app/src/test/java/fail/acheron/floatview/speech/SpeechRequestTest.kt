@@ -3,7 +3,7 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 class SpeechRequestTest {
-    private fun value() = JSONObject("""{"id":1,"expires_at_ms":10000,"footpad":null,"load":{"source":"motor","percent":78},"speed":32,"imperial":false,"volume":42,"lower_other_audio":true}""")
+    private fun value() = JSONObject("""{"id":1,"expires_at_ms":10000,"battery":null,"footpad":null,"load":{"source":"motor","percent":78},"speed":32,"imperial":false,"volume":42,"lower_other_audio":true}""")
     @Test fun combinedPhrasePreservesRustWinnerAndGain() {
         val request = SpeechRequest.decode(value())!!
         assertEquals("motor 78 percent, 32 kilometres per hour", request.phrase)
@@ -27,5 +27,14 @@ class SpeechRequestTest {
         for (raw in listOf("none", "unknown", "LEFT", 1, true)) assertNull(SpeechRequest.decode(value().put("footpad", raw)))
         assertNull(SpeechRequest.decode(value().also { it.remove("footpad") }))
         assertNull(SpeechRequest.decode(value().put("load", JSONObject.NULL).put("speed", JSONObject.NULL)))
+    }
+    @Test fun batteryPhrasesAreClosedAndStandalone() {
+        for ((wire, phrase) in listOf("low" to "Battery low", "overVoltage" to "Over voltage")) {
+            val json = value().put("battery", wire).put("load", JSONObject.NULL).put("speed", JSONObject.NULL)
+            assertEquals(phrase, SpeechRequest.decode(json)!!.phrase)
+            assertNull(SpeechRequest.decode(json.put("footpad", "left")))
+        }
+        for (raw in listOf("unknown", "LOW", 1, true)) assertNull(SpeechRequest.decode(value().put("battery", raw)))
+        assertNull(SpeechRequest.decode(value().also { it.remove("battery") }))
     }
 }

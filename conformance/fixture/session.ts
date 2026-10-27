@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { TelemetrySource } from './telemetry.ts';
+import type { RefloatVersion } from './refloat.ts';
 import { SoftwarePeripheral } from './software.ts';
 
 export const LIMITS = { sessions: 4, commands: 64, events: 128, bytes: 65_536, message: 65_536, payload: 8_192 };
@@ -9,7 +10,15 @@ export type FixtureCommand = {
   operation: number;
   generation: number;
   command:
-    'scan' | 'stopScan' | 'connect' | 'disconnect' | 'write' | 'enableNotifications' | 'poll' | 'reset' | 'close';
+    | 'scan'
+    | 'stopScan'
+    | 'connect'
+    | 'disconnect'
+    | 'write'
+    | 'enableNotifications'
+    | 'poll'
+    | 'reset'
+    | 'close';
   transport_operation?: number;
   response?: boolean;
   device?: string;
@@ -52,8 +61,8 @@ export class FixtureSession {
   private events: FixtureEvent[] = [];
   private byteCount = 0;
   readonly run: string;
-  constructor(run: string, telemetry?: TelemetrySource) {
-    this.model = new SoftwarePeripheral(telemetry);
+  constructor(run: string, telemetry?: TelemetrySource, refloatVersion?: RefloatVersion) {
+    this.model = new SoftwarePeripheral(telemetry, refloatVersion);
     this.run = run;
   }
 
@@ -197,9 +206,9 @@ export class FixtureRun {
   readonly id = identity();
   readonly token = identity();
   private sessions = new Map<string, FixtureSession>();
-  create(telemetry?: TelemetrySource) {
+  create(telemetry?: TelemetrySource, refloatVersion?: RefloatVersion) {
     if (this.sessions.size >= LIMITS.sessions) throw new Error('Fixture session capacity exceeded');
-    const session = new FixtureSession(this.id, telemetry);
+    const session = new FixtureSession(this.id, telemetry, refloatVersion);
     this.sessions.set(session.id, session);
     return session;
   }

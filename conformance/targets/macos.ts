@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startFixtureRelay, type FixtureRelay } from '../fixture/relay.ts';
+import { observeSpeechReplay, type SpeechReplayOptions } from './speech-replay.ts';
 import type { PhysicalTarget, Target } from '../src/suite.ts';
 
 export const MACOS_BACKEND_PORT = 11010;
@@ -17,10 +18,13 @@ export const macosPhysicalTarget: PhysicalTarget = {
   productionBluetooth: true,
 };
 
-function makeMacosTarget(
-  physical: boolean
+export function makeMacosTarget(
+  physical: boolean,
+  replay?: SpeechReplayOptions
 ): Target & Partial<Pick<PhysicalTarget, 'finishSuite' | 'verifyFilePresentation'>> {
+  if (physical && replay) throw new Error('Speech replay is software-only');
   let child: ChildProcess | undefined;
+  let stopObserving: (() => void) | undefined;
   let fixture: FixtureRelay | undefined;
   let logRoot: string | undefined;
   let uiRoot: string | undefined;
@@ -48,7 +52,7 @@ function makeMacosTarget(
       };
       if (physical) Object.assign(env, unreachableFixtureEnvironment);
       if (!physical) {
-        fixture = await startFixtureRelay();
+        fixture = await startFixtureRelay(replay);
         Object.assign(env, {
           FLOAT_VIEW_FIXTURE_ENDPOINT: fixture.endpoint,
           FLOAT_VIEW_FIXTURE_TOKEN: fixture.token,
@@ -59,8 +63,9 @@ function makeMacosTarget(
       child = spawn(executable, macosLaunchArguments(physical), {
         cwd: root,
         env,
-        stdio: ['ignore', 'pipe', 'inherit'],
+        stdio: ['ignore', 'pipe', replay ? 'pipe' : 'inherit'],
       });
+      if (replay) stopObserving = observeSpeechReplay(child.stderr!, 'FLOAT_VIEW_SPEECH_REPLAY ', replay.onSpeech);
       const readiness = await firstLine(child.stdout!);
       const value = JSON.parse(readiness) as {
         webSocketUrl: string;
@@ -81,6 +86,8 @@ function makeMacosTarget(
       return currentEndpoint;
     },
     async stop() {
+      stopObserving?.();
+      stopObserving = undefined;
       child?.kill('SIGTERM');
       await fixture?.close();
       fixture = undefined;

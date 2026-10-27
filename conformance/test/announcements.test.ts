@@ -111,3 +111,111 @@ test(
     }
   }
 );
+
+for (const perCell of [false, true])
+  test(
+    `direct: battery charge warnings use ${perCell ? 'per-cell' : 'pack'} limits and running state without a speed gate`,
+    { timeout: 35_000 },
+    async () => {
+      const telemetry = new InteractiveTelemetrySource();
+      telemetry.setScene('idle');
+      telemetry.pin('packageState', 'ready');
+      telemetry.pin('rideState', 'idle');
+      telemetry.pin('speedKph', 0);
+      telemetry.pin('packVoltageV', 75);
+      const speech: SpeechEffect[] = [];
+      const target = makeDirectTarget({
+        telemetry,
+        refloatVersion: perCell ? '1.2.3' : '1.0.0',
+        onSpeech: (value) => speech.push(value),
+      });
+      let client: ConformanceClient | undefined;
+      try {
+        const endpoint = await target.start();
+        client = await ConformanceClient.open(endpoint.url, endpoint.origin);
+        let state = await client.request('state.get', {});
+        assert.equal(state.settings.announcements.batteryChargeEnabled, true);
+        await client.request('settings.update', {
+          expectedRevision: state.settings.revision,
+          patch: { safetyDisclaimerAccepted: true },
+        });
+        await client.request('bluetooth.requestPermission', {});
+        const connect = async () => {
+          await client!.request('bluetooth.scan', { timeoutMs: 10000 });
+          const scanned = await client!.waitForState((s) => s.discoveredDevices.length > 0);
+          await client!.request('device.connect', {
+            deviceId: scanned.discoveredDevices[0]!.deviceId,
+            trackingMode: 'guest',
+          });
+          await client!.waitForState((s) => s.activeConnection?.state === 'ready');
+        };
+        await connect();
+        await client.waitForState((s) => s.activeConnection?.refloatConfiguration?.currentLoaded === true, {
+          timeoutMs: 15_000,
+        });
+        const current = await client.request('refloat.configuration.read', { source: 'current', refresh: false });
+        await client.request('refloat.configuration.write', {
+          packageVersion: current.identity.packageVersion,
+          schemaFingerprint: current.identity.schemaFingerprint,
+          wireSignature: current.identity.wireSignature,
+          baseRevision: current.revision,
+          values: {
+            ...current.values,
+            tiltback_lv: { type: 'double', value: perCell ? 3 : 60 },
+            tiltback_hv: { type: 'double', value: perCell ? 4.3 : 86 },
+          },
+        });
+        const waitBattery = async (kind: 'low' | 'overVoltage') => {
+          const deadline = performance.now() + 7000;
+          while (!speech.some((s) => s.battery === kind) && performance.now() < deadline) await pause(25);
+          const value = speech.find((s) => s.battery === kind);
+          assert.ok(value, `Expected ${kind} announcement`);
+          assert.equal(value.footpad, null);
+          assert.equal(value.load, null);
+          assert.equal(value.speed, null);
+        };
+        telemetry.pin('packVoltageV', 62);
+        await pause(2300);
+        assert.equal(speech.length, 0, 'non-running state suppresses low warning');
+        telemetry.pin('packageState', 'running');
+        telemetry.pin('rideState', 'riding');
+        await waitBattery('low');
+        await client.waitForState((s) => s.activeConnection?.batteryWarning === 'low');
+        telemetry.pin('packageState', 'ready');
+        telemetry.pin('rideState', 'idle');
+        telemetry.pin('packVoltageV', 85);
+        telemetry.pin('batteryCurrentA', -5);
+        await pause(1000);
+        assert.equal(speech.length, 1, 'non-running state suppresses high warning');
+        telemetry.pin('packageState', 'running');
+        telemetry.pin('rideState', 'riding');
+        telemetry.pin('batteryCurrentA', 5);
+        await pause(1000);
+        assert.equal(speech.length, 1, 'advance high warning requires regen');
+        telemetry.pin('batteryCurrentA', -5);
+        await waitBattery('overVoltage');
+        await client.waitForState((s) => s.activeConnection?.batteryWarning === 'overVoltage');
+        await pause(1200);
+        assert.equal(speech.length, 2, 'battery repeats do not use routine five-second interval');
+        state = await client.request('state.get', {});
+        await client.request('settings.update', {
+          expectedRevision: state.settings.revision,
+          patch: {
+            announcements: { ...state.settings.announcements, batteryChargeEnabled: false },
+          },
+        });
+        telemetry.pin('packVoltageV', 59);
+        await client.request('device.disconnect', {});
+        await connect();
+        assert.equal((await client.request('state.get', {})).settings.announcements.batteryChargeEnabled, false);
+        await pause(2300);
+        assert.equal(speech.length, 2, 'explicit off persists through reconnect');
+        await client.waitForState((s) => s.activeConnection?.batteryWarning === 'low');
+        telemetry.pin('packageState', 'ready');
+        await client.waitForState((s) => s.activeConnection?.batteryWarning === null);
+      } finally {
+        client?.close();
+        await target.stop();
+      }
+    }
+  );

@@ -6,18 +6,23 @@ internal data class SpeechRequest(
     val id: Long, val expires: Long, val load: Pair<String, Int>?, val speed: Int?,
     val imperial: Boolean, val volume: Int,
     val footpad: Footpad? = null,
+    val battery: Battery? = null,
 ) {
+    enum class Battery(val wire: String, val phrase: String) {
+        LOW("low", "Battery low"), OVER_VOLTAGE("overVoltage", "Over voltage")
+    }
     enum class Footpad(val wire: String, val phrase: String) {
         LEFT("left", "left footpad off"), RIGHT("right", "right footpad off"), BOTH("both", "both footpads off")
     }
     val phrase: String get() = buildList {
+        battery?.let { add(it.phrase) }
         footpad?.let { add(it.phrase) }
         load?.let { add("${it.first} ${it.second} percent") }
         speed?.let { add("$it ${if (imperial) "miles per hour" else "kilometres per hour"}") }
     }.joinToString(", ")
     companion object {
         fun decode(value: JSONObject): SpeechRequest? = runCatching {
-            require(value.keys().asSequence().toSet() == setOf("id", "expires_at_ms", "footpad", "load", "speed", "imperial", "volume", "lower_other_audio"))
+            require(value.keys().asSequence().toSet() == setOf("id", "expires_at_ms", "battery", "footpad", "load", "speed", "imperial", "volume", "lower_other_audio"))
             fun integer(objectValue: JSONObject, key: String, max: Long): Long {
                 val raw = objectValue.get(key)
                 require(raw is Number)
@@ -40,9 +45,15 @@ internal data class SpeechRequest(
                 require(raw is String)
                 requireNotNull(Footpad.entries.firstOrNull { it.wire == raw })
             }
-            require(footpad != null || load != null || speed != null)
+            val battery = if (value.isNull("battery")) null else {
+                val raw = value.get("battery")
+                require(raw is String)
+                requireNotNull(Battery.entries.firstOrNull { it.wire == raw })
+            }
+            require(battery != null || footpad != null || load != null || speed != null)
+            require(battery == null || (footpad == null && load == null && speed == null))
             SpeechRequest(id, integer(value, "expires_at_ms", Long.MAX_VALUE), load, speed,
-                value.getBoolean("imperial"), integer(value, "volume", 100).toInt(), footpad)
+                value.getBoolean("imperial"), integer(value, "volume", 100).toInt(), footpad, battery)
         }.getOrNull()
     }
 }

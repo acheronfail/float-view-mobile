@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
-  import type { LiveSample, BatteryEstimate } from '../../backend/contract';
+  import type { LiveSample, BatteryEstimate, BatteryWarning } from '../../backend/contract';
   import { colorForBattery } from './gauge-colors';
   import { batteryPresentation } from './battery';
   import BatterySetupWarning from './BatterySetupWarning.svelte';
@@ -12,6 +12,7 @@
     idPrefix = 'power',
     estimate,
     charging = sample?.charging === true,
+    warning = null,
     savedBoard = false,
     dashboard = false,
     expanded = false,
@@ -20,6 +21,7 @@
   }: {
     idPrefix?: string;
     charging?: boolean;
+    warning?: BatteryWarning | null;
     savedBoard?: boolean;
     dashboard?: boolean;
     expanded?: boolean;
@@ -46,6 +48,8 @@
 
   const labelValues = Array.from({ length: 6 }, (_, index) => index * 20);
 
+  const warningLabel = $derived(warning === 'low' ? 'Battery low' : warning === 'overVoltage' ? 'Over voltage' : null);
+  const showCharging = $derived(charging && !warning);
   const battery = $derived(batteryPresentation(estimate, sample?.batteryLevel, savedBoard));
   const batteryPercent = $derived(battery.percent);
   const batterySeriesCells = $derived(estimate?.seriesCount);
@@ -53,11 +57,18 @@
 </script>
 
 {#if dashboard}
-  <section class="dashboard-power h-full min-h-0 w-full" aria-labelledby={`${idPrefix}-title`}>
+  <section
+    class:battery-warning={!!warning}
+    class:over-voltage={warning === 'overVoltage'}
+    class="dashboard-power h-full min-h-0 w-full"
+    aria-labelledby={`${idPrefix}-title`}
+  >
     <div class="power-content" class:expanded>
       <div class="power-labels">
-        <h2 id={`${idPrefix}-title`} class="live-widget-title" class:text-warning={charging}>
-          {charging ? 'Charging' : 'Battery'}
+        <h2 id={`${idPrefix}-title`} class="live-widget-title" class:text-warning={showCharging || !!warning}>
+          {#if warningLabel}<span class="battery-alert-label" role="status"
+              ><span class="i-lucide-triangle-alert shrink-0" aria-hidden="true"></span>{warningLabel}</span
+            >{:else}{showCharging ? 'Charging' : 'Battery'}{/if}
         </h2>
         <span class="pack-voltage"
           >Pack {sample?.packVoltageV == null ? '—' : `${sample.packVoltageV.toFixed(1)} V`}</span
@@ -75,7 +86,7 @@
           showLabels={false}
           showTicks={false}
           heightClass="h-full min-h-[6px]"
-          fillClass={charging ? 'bg-warning' : 'bg-[var(--battery-color)]'}
+          fillClass={warning || showCharging ? 'bg-warning' : 'bg-[var(--battery-color)]'}
           fillStyle={`--battery-color: ${batteryColor}`}
         />
       </div>
@@ -83,7 +94,12 @@
     </div>
   </section>
 {:else}
-  <section class="relative flex h-full min-h-0 flex-col overflow-hidden" aria-labelledby={`${idPrefix}-title`}>
+  <section
+    class:battery-warning={!!warning}
+    class:over-voltage={warning === 'overVoltage'}
+    class="relative flex h-full min-h-0 flex-col overflow-hidden"
+    aria-labelledby={`${idPrefix}-title`}
+  >
     {#if onbms}
       <button
         type="button"
@@ -97,13 +113,15 @@
           })}
       ></button>
     {/if}
-    <div class="power-heading mb-3 flex shrink-0 items-baseline justify-between gap-3">
+    <div class="power-heading mb-3 flex shrink-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
       <h2
         id={`${idPrefix}-title`}
         class="text-xs font-semibold tracking-[0.16em] text-muted uppercase tall:text-sm taller:text-base"
       >
-        Battery
-        {#if charging}
+        {#if warningLabel}<span class="battery-alert-label" role="status"
+            ><span class="i-lucide-triangle-alert shrink-0" aria-hidden="true"></span>{warningLabel}</span
+          >{:else}Battery{/if}
+        {#if showCharging}
           <span class="mt-2 text-right text-[0.625rem] font-semibold tracking-[0.14em] text-warning uppercase">
             Charging
           </span>
@@ -142,9 +160,11 @@
           tickValues={labelValues}
           format={(value) => `${value}%`}
           heightClass="h-5"
-          fillClass={charging
-            ? 'animate-[battery-charging-pulse_1s_ease-in-out_infinite_alternate] bg-linear-to-r from-orange-600 via-amber-500 to-orange-600 bg-[length:200%_100%] motion-reduce:animate-none'
-            : 'bg-[var(--battery-color)]'}
+          fillClass={warning
+            ? 'bg-warning'
+            : showCharging
+              ? 'animate-[battery-charging-pulse_1s_ease-in-out_infinite_alternate] bg-linear-to-r from-orange-600 via-amber-500 to-orange-600 bg-[length:200%_100%] motion-reduce:animate-none'
+              : 'bg-[var(--battery-color)]'}
           fillStyle={`--battery-color: ${batteryColor}`}
         />
       </div>
@@ -156,6 +176,51 @@
 {/if}
 
 <style>
+  .battery-alert-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    color: var(--color-warning);
+  }
+  .battery-warning .pack-voltage,
+  .battery-warning .power-heading > span,
+  .battery-warning .power-heading > span :global(span) {
+    color: var(--color-warning) !important;
+  }
+  .battery-warning :global([role='progressbar']) {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-warning) 45%, transparent);
+  }
+  .battery-warning :global([role='progressbar'])::after {
+    content: '';
+    animation: battery-warning-breathe 3s ease-in-out infinite;
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 2px var(--color-warning);
+  }
+  .over-voltage :global([role='progressbar'])::after {
+    background: repeating-linear-gradient(
+      135deg,
+      transparent 0 6px,
+      color-mix(in srgb, var(--color-on-warning) 40%, transparent) 6px 10px
+    );
+  }
+  @keyframes battery-warning-breathe {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .battery-warning :global([role='progressbar'])::after {
+      animation: none;
+    }
+  }
   .dashboard-power {
     container: dashboard-power / size;
   }

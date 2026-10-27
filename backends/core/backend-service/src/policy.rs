@@ -687,6 +687,7 @@ impl BackendService {
             && !inactive_timer
             && !unchanged_discovery
             && !same_foreground)
+            || self.battery_warning() != self.policy.announcements.last_published_battery_warning
             || first_discovery
             || scan_before != self.policy.scan
             || connection_before != self.policy.active.as_ref().map(|a| (a.generation, a.state))
@@ -704,6 +705,8 @@ impl BackendService {
         }
     }
     pub(crate) fn changed(&mut self) -> Result<(), Failure> {
+        self.refresh_battery_context();
+        self.policy.announcements.last_published_battery_warning = self.battery_warning();
         self.refresh_battery()?;
         let runtime = self.runtime.snapshot().application;
         if let Some(active) = self.policy.active.as_mut()
@@ -739,7 +742,9 @@ impl BackendService {
             self.policy.saved_device_ids.clone(),
             self.policy.settings.announcements.volume_percent > 0
                 && (self.policy.settings.announcements.speed_enabled
-                    || self.policy.settings.announcements.load_enabled),
+                    || self.policy.settings.announcements.load_enabled
+                    || self.policy.settings.announcements.footpad_enabled
+                    || self.policy.settings.announcements.battery_charge_enabled),
         );
         if self.policy.host_status.as_ref() != Some(&status) {
             self.policy.exchange.status = Some(Effect::HostState {

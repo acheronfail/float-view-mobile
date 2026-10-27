@@ -220,6 +220,7 @@ export interface DriveLoad {
 export interface AnnouncementSettings {
   speedEnabled: boolean;
   loadEnabled: boolean;
+  batteryChargeEnabled: boolean;
   footpadEnabled: boolean;
   footpadDelaySeconds: number;
   speedThresholdKph: number;
@@ -231,6 +232,7 @@ export interface AnnouncementSettings {
 export const defaultAnnouncements: AnnouncementSettings = {
   speedEnabled: false,
   loadEnabled: false,
+  batteryChargeEnabled: true,
   footpadEnabled: false,
   footpadDelaySeconds: 1,
   speedThresholdKph: 25,
@@ -566,6 +568,8 @@ export interface BatteryCellProfile {
   id: string;
   label: string;
 }
+export type BatteryWarning = 'low' | 'overVoltage';
+
 export interface ActiveConnection extends Device {
   deviceKind: 'board' | 'bms' | null;
   firmware: FirmwareInfo | null;
@@ -588,6 +592,8 @@ export interface ActiveConnection extends Device {
   activeSession: SessionSummary | null;
   latestSample: LiveSample | null;
   batteryEstimate: BatteryEstimate;
+  /** Confirmed fresh riding voltage warning; independent of speech settings/cooldown. */
+  batteryWarning: BatteryWarning | null;
   /** Saved board layout, or the separate guest layout. */
   liveWidgetSlots: LiveWidgetSlots;
   latestLocation: LiveLocation | null;

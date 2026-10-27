@@ -257,6 +257,7 @@
         expanded={!compact}
         {sample}
         estimate={connection.batteryEstimate}
+        warning={connection.state === 'ready' ? connection.batteryWarning : null}
         savedBoard
         idPrefix={`custom-${widget.id}`}
       />

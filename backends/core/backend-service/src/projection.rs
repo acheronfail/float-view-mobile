@@ -196,6 +196,7 @@ impl BackendService {
                 active_session: a.session.as_ref().map(session),
                 latest_sample: a.latest.as_ref().map(|v| sample(v, a.latest_load)),
                 battery_estimate: a.battery.estimate.clone(),
+                battery_warning: self.battery_warning(),
                 live_widget_slots: a.live_widget_slots.clone(),
                 latest_location: p.latest_location.clone(),
                 current_limits: runtime.current_limits.as_ref().map(|v| f::CurrentLimits {

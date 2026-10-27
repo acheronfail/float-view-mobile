@@ -67,7 +67,17 @@ rustup target add --toolchain 1.93.0 \
 ```
 
 Keep `ANDROID_HOME` set when building, or put `sdk.dir=<absolute SDK path>` in
-the ignored `backends/android/local.properties`. Build the frontend assets first
+the ignored `backends/android/local.properties`. Android Studio can provide the
+SDK and emulator, but its bundled Java runtime can be newer than this project's
+Gradle supports. For a Homebrew Java 21 installation, select it explicitly:
+
+```sh
+export JAVA_HOME="$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home"
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export PATH="$ANDROID_HOME/platform-tools:$PATH"
+```
+
+Build the frontend assets first
 with `cd frontend && npm run build`. From `backends/android`, full software
 compilation, all JVM test variants and lint run with:
 

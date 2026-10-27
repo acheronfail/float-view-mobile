@@ -47,6 +47,23 @@ struct SpeechRequestTests {
     }
   }
 
+  @Test func batteryPhrasesAreClosedAndStandalone() throws {
+    for (wire, phrase) in [("low", "Battery low"), ("overVoltage", "Over voltage")] {
+      let data = Data("""
+      {"id":1,"expires_at_ms":10000,"battery":"\(wire)","footpad":null,"load":null,"speed":null,"imperial":false,"volume":42,"lower_other_audio":true}
+      """.utf8)
+      let value = try JSONDecoder().decode(SpeechRequest.self, from: data)
+      #expect(value.valid)
+      #expect(value.phrase == phrase)
+      var mixed = value
+      mixed.footpad = .left
+      #expect(!mixed.valid)
+    }
+    #expect(throws: (any Error).self) {
+      _ = try JSONDecoder().decode(SpeechRequest.self, from: Data(#"{"id":1,"expires_at_ms":10000,"battery":"unknown","load":null,"speed":null,"imperial":false,"volume":42,"lower_other_audio":true}"#.utf8))
+    }
+  }
+
   @Test func missingTypedFieldsCannotDecode() {
     #expect(throws: (any Error).self) {
       _ = try JSONDecoder().decode(SpeechRequest.self, from: Data(#"{"id":1,"text":"arbitrary"}"#.utf8))

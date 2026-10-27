@@ -694,6 +694,7 @@ export class MockBackend {
               activeSession,
               latestSample: null,
               batteryEstimate: emptyEstimate(),
+              batteryWarning: null,
               liveWidgetSlots: [...defaultLiveWidgetSlots],
               latestLocation: null,
               currentLimits: {
@@ -1067,9 +1068,10 @@ export class MockBackend {
           const a = patch.announcements as import('../src/lib/backend/contract.ts').AnnouncementSettings;
           if (
             !a ||
-            Object.keys(a).length !== 9 ||
+            Object.keys(a).length !== 10 ||
             typeof a.speedEnabled !== 'boolean' ||
             typeof a.loadEnabled !== 'boolean' ||
+            typeof a.batteryChargeEnabled !== 'boolean' ||
             typeof a.footpadEnabled !== 'boolean' ||
             !Number.isInteger(a.footpadDelaySeconds) ||
             a.footpadDelaySeconds < 1 ||
@@ -1610,6 +1612,7 @@ export class MockBackend {
           activeSession: null,
           latestSample: null,
           batteryEstimate: emptyEstimate(),
+          batteryWarning: null,
           liveWidgetSlots: [...defaultLiveWidgetSlots],
           latestLocation: null,
           currentLimits: null,

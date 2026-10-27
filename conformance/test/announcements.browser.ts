@@ -39,7 +39,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         .focus();
       await page.keyboard.press('Enter');
       await client.waitForState((s) => s.settings.announcements.loadEnabled);
-      await page.getByLabel('Repeat interval (seconds)', { exact: true }).fill('1');
+      await page.getByLabel('Speed, load and footpad repeat interval (seconds)', { exact: true }).fill('1');
       await page.getByRole('slider', { name: 'Announcement volume', exact: true }).focus();
       await page.keyboard.press('Home');
       await page.getByRole('slider', { name: 'Announcement volume', exact: true }).blur();
@@ -52,6 +52,39 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(state.settings.announcements.loadEnabled, true);
       assert.equal(state.settings.announcements.volumePercent, 0);
       assert.equal(requests.filter((x) => x === 'settings.update').length, 4);
+      const battery = page.getByRole('group', { name: 'Battery announcements', exact: true });
+      const on = battery.getByRole('button', { name: 'On', exact: true });
+      const off = battery.getByRole('button', { name: 'Off', exact: true });
+      assert.equal(await on.getAttribute('aria-pressed'), 'true');
+      const beforeBattery = requests.filter((x) => x === 'settings.update').length;
+      await off.click({ button: 'right' });
+      await off.dispatchEvent('pointerdown', { isPrimary: false, button: 0, pointerId: 2 });
+      await off.dispatchEvent('pointerup', { isPrimary: false, button: 0, pointerId: 2 });
+      await off.evaluate((el) =>
+        el.addEventListener('pointerdown', (event) =>
+          el.setAttribute('data-pointer-id', String((event as PointerEvent).pointerId))
+        )
+      );
+      await off.hover();
+      await page.mouse.down();
+      await off.dispatchEvent('pointercancel', {
+        isPrimary: true,
+        pointerId: Number(await off.getAttribute('data-pointer-id')),
+      });
+      await page.mouse.up();
+      assert.equal(await on.getAttribute('aria-pressed'), 'true');
+      assert.equal(requests.filter((x) => x === 'settings.update').length, beforeBattery);
+      await off.tap();
+      await client.waitForState((s) => !s.settings.announcements.batteryChargeEnabled);
+      assert.equal(requests.filter((x) => x === 'settings.update').length, beforeBattery + 1);
+      await on.focus();
+      await page.keyboard.press('Enter');
+      await client.waitForState((s) => s.settings.announcements.batteryChargeEnabled);
+      await off.dispatchEvent('click', { detail: 0 });
+      await client.waitForState((s) => !s.settings.announcements.batteryChargeEnabled);
+      await on.click();
+      await client.waitForState((s) => s.settings.announcements.batteryChargeEnabled);
+      assert.equal(requests.filter((x) => x === 'settings.update').length, beforeBattery + 4);
       const footpad = page.getByRole('group', { name: 'Footpad announcements', exact: true });
       const delay = page.getByRole('slider', { name: 'Footpad delay', exact: true });
       assert.equal(await delay.inputValue(), '1');
@@ -227,7 +260,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(loadAtTest, 81);
       assert.equal((await client.request('state.get', {})).settings.announcements.loadThresholdPercent, 81);
       const beforeInvalid = automaticSaves;
-      const interval = automatic.getByLabel('Repeat interval (seconds)', { exact: true });
+      const interval = automatic.getByLabel('Speed, load and footpad repeat interval (seconds)', { exact: true });
       await interval.fill('0');
       await interval.blur();
       assert.equal(automaticSaves, beforeInvalid);
@@ -281,7 +314,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByText('Enter a speed from 0.001 to 124.274 mph.', { exact: true }).waitFor();
       assert.match(await speedHint.innerText(), /124\.274 mph/);
       const load = page.getByLabel('Load threshold (%)', { exact: true });
-      const repeat = page.getByLabel('Repeat interval (seconds)', { exact: true });
+      const repeat = page.getByLabel('Speed, load and footpad repeat interval (seconds)', { exact: true });
       await load.fill('101');
       await load.blur();
       await page.locator('#announcement-load-error').waitFor();

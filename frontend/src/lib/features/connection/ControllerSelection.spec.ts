@@ -38,6 +38,7 @@ const connection: ActiveConnection = {
   controllerActions: { shutdownAvailable: false, pendingAction: null },
   firmware: null,
   latestSample: null,
+  batteryWarning: null,
   batteryEstimate: emptyEstimate(),
   liveWidgetSlots: ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM'],
   latestLocation: null,

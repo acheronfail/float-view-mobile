@@ -1361,6 +1361,7 @@ fn announcement_preferences_validate_atomically_and_reopen() {
     a.load_enabled = true;
     a.footpad_enabled = true;
     a.footpad_delay_seconds = 3;
+    a.battery_charge_enabled = false;
     a.volume_percent = 42;
     let updated = store
         .update_settings(0, &serde_json::json!({"announcements":a}).to_string())
@@ -1374,6 +1375,8 @@ fn announcement_preferences_validate_atomically_and_reopen() {
         serde_json::json!({"footpadDelaySeconds":1.5}),
         serde_json::json!({"footpadDelaySeconds":null}),
         serde_json::json!({"footpadEnabled":"true"}),
+        serde_json::json!({"batteryChargeEnabled":"true"}),
+        serde_json::json!({"batteryChargeEnabled":null}),
         serde_json::json!({"volumePercent":101}),
         serde_json::json!({"repeatIntervalSeconds":0}),
         serde_json::json!({"speedThresholdKph":0}),
@@ -1715,6 +1718,7 @@ fn old_announcement_settings_default_only_absent_fields_and_preserve_preferences
     expected.announcements.repeat_interval_seconds = 9;
     let mut old = serde_json::to_value(&expected).unwrap();
     let a = old["announcements"].as_object_mut().unwrap();
+    a.remove("batteryChargeEnabled");
     a.remove("footpadEnabled");
     a.remove("footpadDelaySeconds");
     drop(store);
@@ -1755,6 +1759,30 @@ fn old_announcement_settings_default_only_absent_fields_and_preserve_preferences
         assert!(matches!(ProductStore::open(&root.0), Err(Error::Corrupt)));
         let stored: String = db
             .query_row("SELECT json FROM settings", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(stored, value.to_string());
+    }
+}
+
+#[test]
+fn invalid_present_battery_charge_setting_preserves_supported_storage() {
+    let root = Root::new();
+    let store = root.open();
+    let original = serde_json::to_value(store.settings().unwrap()).unwrap();
+    drop(store);
+    let db = Connection::open(root.0.join("catalog.sqlite")).unwrap();
+    for bad in [
+        serde_json::json!(null),
+        serde_json::json!(1),
+        serde_json::json!("true"),
+    ] {
+        let mut value = original.clone();
+        value["announcements"]["batteryChargeEnabled"] = bad;
+        db.execute("UPDATE settings SET json=?", [value.to_string()])
+            .unwrap();
+        assert!(matches!(ProductStore::open(&root.0), Err(Error::Corrupt)));
+        let stored: String = db
+            .query_row("SELECT json FROM settings", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stored, value.to_string());
     }

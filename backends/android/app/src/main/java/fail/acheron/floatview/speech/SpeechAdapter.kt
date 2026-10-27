@@ -24,7 +24,7 @@ class SpeechAdapter(private val context: Context, report: (String, Long, String?
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
     private var closed = false
     private val executor = SpeechExecutor(
-        createEngine = { AndroidSpeechEngine() },
+        createEngine = { replaySpeechEngine() ?: AndroidSpeechEngine() },
         acquireFocus = { onLoss ->
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                 .setAudioAttributes(attributes).setAcceptsDelayedFocusGain(false)

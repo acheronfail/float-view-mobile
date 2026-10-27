@@ -76,3 +76,44 @@ it('renders reported fill and an actionable warning for missing configuration', 
   expect(body).toContain('Battery setup required');
   expect(body).toContain('3.60 V');
 });
+
+for (const dashboard of [false, true]) {
+  it(`shows a low warning around the full track at 1% (dashboard=${dashboard})`, () => {
+    const { body } = render(GaugePower, {
+      props: {
+        dashboard,
+        warning: 'low',
+        sample: { packVoltageV: 60.1, charging: true } as LiveSample,
+        estimate: { ...emptyEstimate(), level: 0.01, seriesCount: 20 },
+      },
+    });
+    expect(body).toContain('Battery low');
+    expect(body).toContain('role="status"');
+    expect(body).toContain('battery-warning');
+    expect(body).toContain('aria-valuenow="1"');
+    expect(body).toContain('width: 1%');
+    expect(body).not.toContain('Charging');
+    expect(body).not.toContain('battery-charging-pulse');
+  });
+  it(`shows over voltage without changing full charge (dashboard=${dashboard})`, () => {
+    const { body } = render(GaugePower, {
+      props: {
+        dashboard,
+        warning: 'overVoltage',
+        sample: { packVoltageV: 85, charging: true } as LiveSample,
+        estimate: { ...emptyEstimate(), level: 1, seriesCount: 20 },
+      },
+    });
+    expect(body).toContain('Over voltage');
+    expect(body).toContain('over-voltage');
+    expect(body).toContain('width: 100%');
+    expect(body).toContain('aria-valuenow="100"');
+    expect(body).not.toContain('Charging');
+  });
+}
+it('does not invent charge when a voltage warning has no charge estimate', () => {
+  const { body } = render(GaugePower, { props: { warning: 'low', sample: null, estimate: emptyEstimate() } });
+  expect(body).toContain('Battery low');
+  expect(body).toContain('aria-valuetext="Unavailable"');
+  expect(body).not.toContain('aria-valuenow=');
+});

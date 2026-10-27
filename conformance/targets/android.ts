@@ -1,6 +1,7 @@
 import { unreachableFixture } from '../fixture/selection.ts';
 import { startFixtureRelay, type FixtureRelay } from '../fixture/relay.ts';
-import { execFileSync, execFile } from 'node:child_process';
+import { observeSpeechReplay, type SpeechReplayOptions } from './speech-replay.ts';
+import { execFileSync, execFile, spawn, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import type { PhysicalTarget, Target } from '../src/suite.ts';
@@ -110,8 +111,10 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
   };
 }
 
-function makeAndroidTarget(configuredSerial?: string): Target {
+export function makeAndroidTarget(configuredSerial?: string, replay?: SpeechReplayOptions): Target {
   let serial = '';
+  let speechLog: ChildProcess | undefined;
+  let stopObserving: (() => void) | undefined;
   let fixture: FixtureRelay | undefined;
   return {
     name: 'android',
@@ -136,7 +139,7 @@ function makeAndroidTarget(configuredSerial?: string): Target {
       }
       adb(serial, 'forward', `tcp:${hostPort}`, `tcp:${devicePort}`);
       adb(serial, 'shell', 'am', 'force-stop', 'com.android.intentresolver');
-      fixture = await startFixtureRelay();
+      fixture = await startFixtureRelay(replay);
       const port = new URL(fixture.endpoint).port;
       adb(serial, 'reverse', `tcp:${port}`, `tcp:${port}`);
       execFileSync(
@@ -161,7 +164,18 @@ function makeAndroidTarget(configuredSerial?: string): Target {
         }
       );
       await promisify(execFile)('adb', ['-s', serial, ...androidLaunchArguments(false)]);
-      return bootstrap();
+      const endpoint = await bootstrap();
+      if (replay) {
+        const pid = adbOutput(serial, 'shell', 'pidof', applicationId).trim();
+        if (!/^\d+$/.test(pid)) throw new Error('Missing conformance app process');
+        speechLog = spawn(
+          'adb',
+          ['-s', serial, 'logcat', '--pid', pid, '-T', '1', '-v', 'raw', '-s', 'FloatViewSpeechReplay:I', '*:S'],
+          { stdio: ['ignore', 'pipe', 'inherit'] }
+        );
+        stopObserving = observeSpeechReplay(speechLog.stdout!, 'FLOAT_VIEW_SPEECH_REPLAY ', replay.onSpeech);
+      }
+      return endpoint;
     },
     async loseFixture() {
       await fixture?.close();
@@ -189,6 +203,10 @@ function makeAndroidTarget(configuredSerial?: string): Target {
       ]);
     },
     async stop() {
+      stopObserving?.();
+      stopObserving = undefined;
+      speechLog?.kill('SIGTERM');
+      speechLog = undefined;
       if (!serial) return;
       adbBestEffort(serial, 'shell', 'am', 'force-stop', applicationId);
       adbBestEffort(serial, 'forward', '--remove', `tcp:${hostPort}`);

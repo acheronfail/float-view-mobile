@@ -69,6 +69,7 @@
       >
         <WidgetPower
           {charging}
+          warning={dimmed ? null : connection.batteryWarning}
           {onbms}
           {onconfigure}
           savedBoard={!!connection?.savedDeviceId && connection?.deviceKind === 'board'}

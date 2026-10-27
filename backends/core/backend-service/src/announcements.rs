@@ -12,6 +12,15 @@ use float_view_application_runtime::{
 };
 use serde::{Deserialize, Serialize};
 
+mod battery;
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Battery {
+    Low,
+    OverVoltage,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TestKind {
@@ -77,6 +86,7 @@ pub struct Speech {
     pub id: u64,
     pub expires_at_ms: u64,
     pub footpad: Option<Footpad>,
+    pub battery: Option<Battery>,
     pub load: Option<SpokenLoad>,
     pub speed: Option<u64>,
     pub imperial: bool,
@@ -94,14 +104,17 @@ struct Active {
     deadline: u64,
     generation: Option<u64>,
     test: bool,
+    battery: bool,
 }
 #[derive(Default)]
 pub(crate) struct State {
     pub audio: AudioState,
+    pub last_published_battery_warning: Option<Battery>,
     last_attempt: Option<u64>,
     active: Option<Active>,
     observation: Option<(u64, u64, load::Load, Option<f64>)>,
     released_at: [Option<u64>; 2],
+    battery: battery::State,
 }
 impl State {
     pub(crate) fn reset_footpads(&mut self) {
@@ -110,10 +123,12 @@ impl State {
     pub(crate) fn invalidate(&mut self) {
         self.observation = None;
         self.reset_footpads();
+        self.battery.reset();
     }
 }
 impl BackendService {
     pub(crate) fn observe_announcement(&mut self, sample: &NormalizedSample) {
+        self.refresh_battery_context();
         // Check the previous sample before replacing its freshness evidence.
         if self.speech_values().2.is_none() {
             self.policy.announcements.reset_footpads();
@@ -137,6 +152,23 @@ impl BackendService {
                 ),
                 sample.speed_kph,
             ));
+            if sample
+                .pack_voltage_v
+                .is_none_or(|v| !v.is_finite() || v <= 0.)
+                || matches!(
+                    sample.package_state,
+                    None | Some(float_view_application_runtime::telemetry::PackageState::Unknown)
+                )
+            {
+                self.reset_battery_announcements();
+            }
+            self.policy.announcements.battery.observe(
+                self.policy.exchange.now,
+                sample.package_state
+                    == Some(float_view_application_runtime::telemetry::PackageState::Running),
+                sample.pack_voltage_v,
+                sample.battery_current_a,
+            );
             let released = match sample.footpad_state {
                 Some(FootpadState::Left) => Some([false, true]),
                 Some(FootpadState::Right) => Some([true, false]),
@@ -252,6 +284,7 @@ impl BackendService {
         speed: Option<f64>,
         generation: Option<u64>,
         test: bool,
+        battery: Option<Battery>,
     ) -> Result<(), Failure> {
         let settings = &self.policy.settings.announcements;
         let imperial = self.policy.settings.unit_preference == "imperial";
@@ -260,7 +293,12 @@ impl BackendService {
             speech: Speech {
                 id,
                 expires_at_ms: self.policy.exchange.now.saturating_add(10_000),
-                footpad: if test { None } else { self.qualified_footpad() },
+                footpad: if test || battery.is_some() {
+                    None
+                } else {
+                    self.qualified_footpad()
+                },
+                battery,
                 load: load.map(|w| SpokenLoad {
                     source: w.source,
                     percent: (w.fraction * 100.).round() as u64,
@@ -277,6 +315,7 @@ impl BackendService {
             deadline: self.policy.exchange.now.saturating_add(10_000),
             generation,
             test,
+            battery: battery.is_some(),
         });
         Ok(())
     }
@@ -323,6 +362,7 @@ impl BackendService {
                 (!matches!(kind, TestKind::Load)).then_some(25.),
                 None,
                 true,
+                None,
             )
             .and_then(|()| self.arm_timer(Timer::Speech, 100, None));
         if let Err(error) = admitted {
@@ -350,11 +390,47 @@ impl BackendService {
             _ => None,
         }
     }
+    pub(crate) fn refresh_battery_context(&mut self) {
+        let snapshot = self.runtime.snapshot().application;
+        let context = battery::resolve(&snapshot)
+            .map(|(revision, limits)| (snapshot.generation.0, revision, limits));
+        if self.policy.announcements.battery.context(context)
+            && self
+                .policy
+                .announcements
+                .active
+                .as_ref()
+                .is_some_and(|a| a.battery)
+        {
+            self.cancel_speech(Outcome::Interrupted);
+        }
+    }
+    pub(crate) fn battery_warning(&self) -> Option<Battery> {
+        self.speech_values().2?;
+        self.policy
+            .announcements
+            .battery
+            .warning(self.policy.exchange.now)
+    }
+    pub(crate) fn reset_battery_announcements(&mut self) {
+        self.policy.announcements.battery.reset();
+        if self
+            .policy
+            .announcements
+            .active
+            .as_ref()
+            .is_some_and(|a| a.battery)
+        {
+            self.cancel_speech(Outcome::Interrupted);
+        }
+    }
     pub(crate) fn step_announcements(&mut self) -> Result<(), Failure> {
+        self.refresh_battery_context();
         let (winner, speed, generation) = self.speech_values();
         let now = self.policy.exchange.now;
         if generation.is_none() {
             self.policy.announcements.reset_footpads();
+            self.policy.announcements.battery.reset();
         }
         let footpad = self.qualified_footpad();
         // Threshold crossings stop future attempts, not an admitted phrase.
@@ -366,6 +442,21 @@ impl BackendService {
                 self.cancel_speech(Outcome::Interrupted);
             }
         }
+        let battery = if self.policy.settings.announcements.battery_charge_enabled {
+            self.policy.announcements.battery.due(now)
+        } else {
+            None
+        };
+        if let Some(battery) = battery.filter(|_| self.policy.announcements.active.is_none()) {
+            self.policy.announcements.battery.attempted(battery, now);
+            self.policy.announcements.last_attempt = Some(now);
+            if self.policy.settings.announcements.volume_percent > 0
+                && self.policy.announcements.audio.status == Readiness::Ready
+                && let Ok(id) = self.policy.exchange.id()
+            {
+                let _ = self.emit_speech(id, None, None, generation, false, Some(battery));
+            }
+        }
         if (footpad.is_some() || winner.is_some() || speed.is_some()) && self.speech_ready() {
             self.policy.announcements.last_attempt = Some(now);
             if self.policy.announcements.active.is_none()
@@ -373,10 +464,11 @@ impl BackendService {
                 && self.policy.announcements.audio.status == Readiness::Ready
                 && let Ok(id) = self.policy.exchange.id()
             {
-                let _ = self.emit_speech(id, winner, speed, generation, false);
+                let _ = self.emit_speech(id, winner, speed, generation, false, None);
             }
         }
-        let needed = self.policy.announcements.active.is_some()
+        let needed = self.policy.announcements.battery.pending()
+            || self.policy.announcements.active.is_some()
             || winner.is_some()
             || speed.is_some()
             || self

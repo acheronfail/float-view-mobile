@@ -53,6 +53,7 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   controllerActions: { shutdownAvailable: false, pendingAction: null },
   activeSession: null,
   latestSample: null,
+  batteryWarning: null,
   batteryEstimate: emptyEstimate(),
   liveWidgetSlots: ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM'],
   latestLocation: null,

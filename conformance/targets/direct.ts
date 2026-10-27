@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import type { RefloatVersion } from '../fixture/refloat.ts';
 import type { TelemetrySource } from '../fixture/telemetry.ts';
 import { FixtureRun, type FixtureCommand } from '../fixture/session.ts';
 import type { Target } from '../src/suite.ts';
@@ -23,12 +24,14 @@ type Effect = {
 };
 export type SpeechEffect = {
   id: number;
+  battery: 'low' | 'overVoltage' | null;
   footpad: 'left' | 'right' | 'both' | null;
   load: { source: 'duty' | 'motor' | 'battery'; percent: number } | null;
   speed: number | null;
 };
 export function makeDirectTarget(options?: {
   telemetry: TelemetrySource;
+  refloatVersion?: RefloatVersion;
   onSpeech(speech: SpeechEffect): void;
 }): Target {
   let child: ChildProcessWithoutNullStreams | undefined;
@@ -45,7 +48,7 @@ export function makeDirectTarget(options?: {
   let polling: NodeJS.Timeout | undefined;
   let busy = false;
   let fixture = new FixtureRun();
-  let session = fixture.create(options?.telemetry);
+  let session = fixture.create(options?.telemetry, options?.refloatVersion);
   let fixtureDevice: string | undefined;
   let operation = 0,
     generation = 0;
@@ -207,7 +210,7 @@ export function makeDirectTarget(options?: {
       request = 0;
       fixture.close();
       fixture = new FixtureRun();
-      session = fixture.create(options?.telemetry);
+      session = fixture.create(options?.telemetry, options?.refloatVersion);
       operation = 0;
       generation = 0;
       fixtureDevice = undefined;

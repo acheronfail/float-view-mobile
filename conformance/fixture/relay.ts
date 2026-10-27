@@ -1,5 +1,7 @@
 import { createServer } from 'node:http';
 import type { Socket } from 'node:net';
+import type { RefloatVersion } from './refloat.ts';
+import type { TelemetrySource } from './telemetry.ts';
 import { FixtureRun, LIMITS, type FixtureCommand } from './session.ts';
 
 export function validateRelayEndpoint(endpoint: string) {
@@ -18,10 +20,10 @@ export function validateRelayEndpoint(endpoint: string) {
   return url;
 }
 
-export async function startFixtureRelay() {
+export async function startFixtureRelay(options?: { telemetry: TelemetrySource; refloatVersion: RefloatVersion }) {
   const run = new FixtureRun();
   let closed = false;
-  const session = run.create();
+  const session = run.create(options?.telemetry, options?.refloatVersion);
   const sockets = new Set<Socket>();
   const active = new Map<string, number>();
   const buffered = new Map<string, number>();
@@ -127,7 +129,7 @@ export async function startFixtureRelay() {
     token: run.token,
     session: session.id,
     createSession() {
-      return run.create().id;
+      return run.create(options?.telemetry, options?.refloatVersion).id;
     },
     async close() {
       if (closed) return;

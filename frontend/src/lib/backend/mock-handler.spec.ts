@@ -1138,10 +1138,19 @@ describe('announcement mock contract', () => {
   it('defaults footpad settings and validates complete updates without changing saved values', () => {
     const backend = new MockBackend();
     const state = () => (backend.handle({ id: 1, method: 'state.get', params: {} }) as { result: AppState }).result;
-    expect(state().settings.announcements).toMatchObject({ footpadEnabled: false, footpadDelaySeconds: 1 });
+    expect(state().settings.announcements).toMatchObject({
+      batteryChargeEnabled: true,
+      footpadEnabled: false,
+      footpadDelaySeconds: 1,
+    });
     for (const footpadDelaySeconds of [1, 2, 3, 4, 5]) {
       const current = state().settings;
-      const announcements = { ...current.announcements, footpadEnabled: true, footpadDelaySeconds };
+      const announcements = {
+        ...current.announcements,
+        batteryChargeEnabled: false,
+        footpadEnabled: true,
+        footpadDelaySeconds,
+      };
       expect(
         backend.handle({
           id: 2,
@@ -1183,6 +1192,26 @@ describe('announcement mock contract', () => {
     expect(
       backend.handle({ id: 3, method: 'announcements.openVoiceSettings', params: { uri: 'other' } })
     ).toMatchObject({ error: { code: 'invalid_request' } });
+  });
+  it('rejects missing and invalid battery charge fields without changing settings', () => {
+    const backend = new MockBackend();
+    const state = () => (backend.handle({ id: 1, method: 'state.get', params: {} }) as { result: AppState }).result;
+    const before = structuredClone(state().settings);
+    for (const batteryChargeEnabled of [undefined, null, 'true', 1]) {
+      const announcements = { ...before.announcements, batteryChargeEnabled };
+      if (batteryChargeEnabled === undefined) delete announcements.batteryChargeEnabled;
+      expect(
+        backend.handle({
+          id: 2,
+          method: 'settings.update',
+          params: {
+            expectedRevision: before.revision,
+            patch: { announcements },
+          },
+        })
+      ).toMatchObject({ error: { code: 'invalid_request' } });
+      expect(state().settings).toEqual(before);
+    }
   });
   it('accepts all rules, validates atomically and permits successive completed tests', () => {
     const backend = new MockBackend();

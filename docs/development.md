@@ -87,6 +87,24 @@ SvelteKit files. The build validates that the embedded app and startup IDs agree
 When running multiple browser files, use `--test-concurrency=1` because their mock
 servers share a port.
 
+Automatic battery announcements also have opt-in native software replay. Build
+the frontend first; for Android, configure Java/SDK tools as described in the
+[Android guide](../backends/android/README.md#local-sdk-and-verification) and start
+an emulator. From the repository root, run either host:
+
+```sh
+FLOAT_VIEW_NATIVE_REPLAY_HOST=macos node --strip-types --test conformance/test/announcements.native.ts
+FLOAT_VIEW_NATIVE_REPLAY_HOST=android node --strip-types --test conformance/test/announcements.native.ts
+```
+
+These cases replay legacy pack and modern per-cell limits through the real
+native host and shared service, then observe decoded phrases at a deterministic
+speech-driver boundary, including a full one-minute repeat on each host. The
+replacement drivers are compiled only into software conformance builds;
+production Apple builds and Android Debug/Release builds retain native speech.
+This does not establish audible output, audio routing or locked-device delivery;
+use production builds for that physical checkpoint.
+
 `just verify` retains the complete software check as an option for broad changes,
 uncertain impact or an explicit full-regression request. `just test all` is also
 available; neither is a default completion gate.

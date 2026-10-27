@@ -12,6 +12,10 @@ struct SpeechRequest: Decodable, Sendable {
       }
     }
   }
+  enum Battery: String, Decodable, Sendable {
+    case low, overVoltage
+    var phrase: String { self == .low ? "Battery low" : "Over voltage" }
+  }
   struct Load: Decodable, Sendable { let source: String; let percent: UInt64 }
   let expires_at_ms: UInt64
   let id: UInt64
@@ -21,13 +25,16 @@ struct SpeechRequest: Decodable, Sendable {
   let volume: UInt64
   let lower_other_audio: Bool
   var footpad: Footpad? = nil
+  var battery: Battery? = nil
   var valid: Bool {
-    id > 0 && volume <= 100 && (footpad != nil || load != nil || speed != nil)
+    id > 0 && volume <= 100 && (battery != nil || footpad != nil || load != nil || speed != nil)
+      && (battery == nil || (footpad == nil && load == nil && speed == nil))
       && (load.map { ["duty", "motor", "battery"].contains($0.source) && $0.percent <= 100 } ?? true)
       && (speed.map { $0 <= 200 } ?? true)
   }
 
   var phrase: String {
+    if let battery { return battery.phrase }
     var parts: [String] = []
     if let footpad { parts.append(footpad.phrase) }
     if let load {
@@ -107,7 +114,11 @@ final class SpeechAdapter: @unchecked Sendable {
   var report: (@Sendable (String, UInt64, String?) -> Void)?
 
   init() {
-    createDriver = { NativeSpeechDriver() }
+    #if FLOAT_VIEW_CONFORMANCE
+      createDriver = { ReplaySpeechDriver() }
+    #else
+      createDriver = { NativeSpeechDriver() }
+    #endif
     now = { ProcessInfo.processInfo.systemUptime }
     schedule = { delay, item in DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item) }
   }

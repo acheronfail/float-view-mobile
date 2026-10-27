@@ -2210,6 +2210,7 @@ async function exerciseAnnouncements(client: ConformanceClient, initial: AppStat
         ...original,
         speedEnabled: true,
         loadEnabled: true,
+        batteryChargeEnabled: false,
         footpadEnabled: true,
         footpadDelaySeconds: 3,
         volumePercent: 0,
@@ -2218,6 +2219,7 @@ async function exerciseAnnouncements(client: ConformanceClient, initial: AppStat
   });
   assert.equal(updated.announcements.speedEnabled, true);
   assert.equal(updated.announcements.loadEnabled, true);
+  assert.equal(updated.announcements.batteryChargeEnabled, false);
   assert.equal(updated.announcements.footpadEnabled, true);
   assert.equal(updated.announcements.footpadDelaySeconds, 3);
   assert.deepEqual(await client.request('announcements.test', { kind: 'combined' }), { outcome: 'finished' });
@@ -2331,6 +2333,7 @@ export async function runAnnouncementsConformance(target: Target) {
     const endpoint = await target.start();
     client = await ConformanceClient.open(endpoint.url, endpoint.origin);
     const initial = await client.request('state.get', {});
+    assert.equal(initial.settings.announcements.batteryChargeEnabled, true);
     assert.equal(initial.settings.announcements.footpadEnabled, false);
     assert.equal(initial.settings.announcements.footpadDelaySeconds, 1);
     await exerciseAnnouncements(client, initial);
