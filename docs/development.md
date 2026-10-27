@@ -36,7 +36,7 @@ and attribution; see [licensing and notice maintenance](licensing.md).
 just setup
 just dev
 just build
-just run android|ios|macos [target]
+just run android|ios|macos [target] [--detach]
 just release patch|minor|major # Tag and push a deliberate stable release.
 just release preview [ref] # Preview next-patch release notes locally (default: HEAD).
 just ipa # Build an IPA for AltStore; see backends/apple/README.md.

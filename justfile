@@ -167,22 +167,49 @@ ipa: build
     mv -f "$staging/FloatView.ipa" "$output"
     printf 'AltStore IPA: %s\n' "$output"
 
-run platform target="": build
+# Build and launch with logs, or return after launch with --detach.
+[positional-arguments]
+run platform *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    case "{{ platform }}" in
+    platform="$1"
+    shift
+    target=""
+    detach=false
+    usage() { echo 'Usage: just run android|ios|macos [target] [--detach]' >&2; exit 2; }
+    for arg in "$@"; do
+      case "$arg" in
+        --detach) detach=true ;;
+        -*) usage ;;
+        *) [[ -z "$target" ]] || usage; target="$arg" ;;
+      esac
+    done
+    case "$platform" in
+      android|ios) ;;
+      macos) [[ -z "$target" ]] || usage ;;
+      *) usage ;;
+    esac
+    console_arg=""
+    if [[ "$detach" == false ]]; then
+      console_arg=--console
+    fi
+    just build
+    case "$platform" in
       android)
         (cd backends/android && ./gradlew assembleDebug)
-        serial="{{ target }}"
-        adb_args=()
-        [[ -z "$serial" ]] || adb_args=(-s "$serial")
-        adb "${adb_args[@]}" install -r backends/android/app/build/outputs/apk/debug/app-debug.apk
-        adb "${adb_args[@]}" shell am start -W \
+        adb_command=(adb)
+        [[ -z "$target" ]] || adb_command+=(-s "$target")
+        "${adb_command[@]}" install -r backends/android/app/build/outputs/apk/debug/app-debug.apk
+        "${adb_command[@]}" shell am start -W \
           -n fail.acheron.floatview/fail.acheron.floatview.ui.MainActivity
+        if [[ "$detach" == false ]]; then
+          process_id="$("${adb_command[@]}" shell pidof -s fail.acheron.floatview | tr -d '\r')"
+          [[ "$process_id" =~ ^[0-9]+$ ]] || { echo 'Float View did not start on Android.' >&2; exit 1; }
+          "${adb_command[@]}" logcat --pid "$process_id" -v color
+        fi
         ;;
       ios)
         project="$PWD/backends/apple/ios/float-view.xcodeproj"
-        target="{{ target }}"
         if [[ -z "$target" ]]; then
           xcodebuild -project "$project" -scheme float-view \
             -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/float-view-ios \
@@ -193,7 +220,7 @@ run platform target="": build
           xcodebuild -project "$project" -scheme float-view -sdk iphonesimulator \
             -destination "id=$target" -derivedDataPath /tmp/float-view-ios CODE_SIGNING_ALLOWED=NO build
           xcrun simctl install "$target" /tmp/float-view-ios/Build/Products/Debug-iphonesimulator/float-view.app
-          xcrun simctl launch --terminate-running-process "$target" fail.acheron.floatview
+          xcrun simctl launch --terminate-running-process ${console_arg:+"$console_arg"} "$target" fail.acheron.floatview
         else
           : "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID to your Apple development team ID (see backends/apple/README.md)}"
           xcodebuild -project "$project" -scheme float-view -configuration Debug \
@@ -203,7 +230,7 @@ run platform target="": build
           xcrun devicectl device install app --device "$target" \
             /tmp/float-view-ios-physical/Build/Products/Debug-iphoneos/float-view.app
           xcrun devicectl device process launch --device "$target" \
-            --terminate-existing --console fail.acheron.floatview
+            --terminate-existing ${console_arg:+"$console_arg"} fail.acheron.floatview
         fi
         ;;
       macos)
@@ -216,10 +243,13 @@ run platform target="": build
           swift build --scratch-path /tmp/float-view-swift-build --product FloatViewMac
           app_bundle="/tmp/float-view-swift-build/Float View Desktop.app"
           bash package-macos.sh "$binary_root/FloatViewMac" "$app_bundle"
-          FLOAT_VIEW_FRONTEND_HTML="$frontend_html" \
-            "$app_bundle/Contents/MacOS/FloatViewMac")
+          if [[ "$detach" == true ]]; then
+            open -n --env "FLOAT_VIEW_FRONTEND_HTML=$frontend_html" "$app_bundle"
+          else
+            FLOAT_VIEW_FRONTEND_HTML="$frontend_html" \
+              "$app_bundle/Contents/MacOS/FloatViewMac"
+          fi)
         ;;
-      *) echo 'Usage: just run android|ios|macos [target]' >&2; exit 2 ;;
     esac
 
 test suite="all":

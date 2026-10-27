@@ -46,6 +46,18 @@ just list android
 just run android DEVICE_SERIAL
 ```
 
+Runs stay attached to app logs by default. Add `--detach` to launch the app and
+return to the terminal without streaming logs, on any platform:
+
+```sh
+just run macos --detach
+just run ios DEVICE_ID --detach
+just run android --detach
+```
+
+The flag can appear before or after the target ID. Build and install output still
+appears when detached.
+
 For an iPhone, sign into Xcode Settings → Accounts, enable Developer Mode on the
 phone and trust the Mac. `APPLE_TEAM_ID` selects your signing team without editing
 the project; you can also export it in your shell. See the
