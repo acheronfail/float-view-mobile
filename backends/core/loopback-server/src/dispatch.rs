@@ -421,6 +421,12 @@ impl Backend {
                     can_id: id as u8,
                 }
             }
+            "session.extendPause" => {
+                p.only(&["sessionId"])?;
+                Operation::ExtendRidePause {
+                    session_id: p.text("sessionId")?,
+                }
+            }
             "session.end" => {
                 p.only(&["sessionId"])?;
                 Operation::EndRide {

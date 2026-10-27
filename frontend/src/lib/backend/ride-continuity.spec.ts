@@ -62,3 +62,54 @@ it('expires the paused ride and accepts only whole minute settings', () => {
   connect(b);
   expect(state(b).activeConnection!.activeSession!.sessionId).not.toBe(id);
 });
+
+it('extends the paused ride repeatedly, replaces expiry and never shortens its window', () => {
+  vi.useFakeTimers();
+  const b = new MockBackend();
+  connect(b);
+  const id = state(b).activeConnection!.activeSession!.sessionId;
+  const extend = (sessionId = id) => b.handle({ id: 10, method: 'session.extendPause', params: { sessionId } });
+  expect(extend()).toMatchObject({ error: { code: 'invalid_state' } });
+  b.handle({ id: 4, method: 'device.disconnect', params: {} });
+  const original = Date.parse(state(b).pausedRide!.resumeUntil);
+  vi.advanceTimersByTime(30 * 60_000);
+  expect(extend('stale')).toMatchObject({ error: { code: 'invalid_state' } });
+  const revision = state(b).revision;
+  expect(extend()).toMatchObject({ result: { accepted: true } });
+  expect(state(b).revision).toBeGreaterThan(revision);
+  expect(Date.parse(state(b).pausedRide!.resumeUntil)).toBe(original + 30 * 60_000);
+  expect(state(b).activeConnection).toBeNull();
+  vi.advanceTimersByTime(30 * 60_000);
+  expect(state(b).pausedRide!.sessionId).toBe(id);
+  expect(extend()).toMatchObject({ result: { accepted: true } });
+  const renewed = state(b).pausedRide!.resumeUntil;
+  b.handle({
+    id: 11,
+    method: 'settings.update',
+    params: { expectedRevision: state(b).settings.revision, patch: { rideResumeWindowMinutes: 1 } },
+  });
+  expect(extend()).toMatchObject({ result: { accepted: true } });
+  expect(state(b).pausedRide!.resumeUntil).toBe(renewed);
+  vi.advanceTimersByTime(60 * 60_000);
+  expect(state(b).pausedRide).toBeNull();
+  expect(extend()).toMatchObject({ error: { code: 'invalid_state' } });
+});
+it('rejects malformed extension and resumes the same ride after its original deadline', () => {
+  vi.useFakeTimers();
+  const b = new MockBackend();
+  connect(b);
+  const id = state(b).activeConnection!.activeSession!.sessionId;
+  b.handle({ id: 4, method: 'device.disconnect', params: {} });
+  for (const params of [{}, { sessionId: 1 }, { sessionId: '' }, { sessionId: id, extra: true }])
+    expect(b.handle({ id: 5, method: 'session.extendPause', params })).toMatchObject({
+      error: { code: 'invalid_request' },
+    });
+  vi.advanceTimersByTime(50 * 60_000);
+  b.handle({ id: 6, method: 'session.extendPause', params: { sessionId: id } });
+  vi.advanceTimersByTime(20 * 60_000);
+  connect(b);
+  expect(state(b).activeConnection!.activeSession!.sessionId).toBe(id);
+  expect(state(b).pausedRide).toBeNull();
+  vi.advanceTimersByTime(60 * 60_000);
+  expect(state(b).activeConnection!.activeSession!.sessionId).toBe(id);
+});

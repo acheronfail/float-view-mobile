@@ -219,3 +219,150 @@ fn disconnect_bypasses_expiry_preflight_and_uses_reserved_cleanup_slots() {
         assert_disconnected(&mut t, generation, revision);
     }
 }
+
+#[test]
+fn extend_pause_replaces_timer_and_old_callbacks_cannot_close_ride() {
+    let (mut t, id) = recorded_ride();
+    assert!(matches!(
+        t.service.dispatch(
+            1,
+            crate::operations::Operation::ExtendRidePause {
+                session_id: id.clone()
+            }
+        ),
+        Err(Failure::InvalidState)
+    ));
+    t.service.disconnect("explicit_disconnect").unwrap();
+    t.drain();
+    let old_timer = *t
+        .service
+        .policy
+        .timers
+        .iter()
+        .find(|(_, v)| v.kind == Timer::RideResume)
+        .unwrap()
+        .0;
+    let old_deadline = t
+        .service
+        .policy
+        .ride
+        .as_ref()
+        .unwrap()
+        .resume_until_ms
+        .unwrap();
+    let now = t.service.policy.exchange.now + 30 * 60_000;
+    t.fact(
+        Fact::Storage {
+            available_bytes: 1_000_000_000,
+        },
+        now,
+    )
+    .unwrap();
+    t.drain();
+    let revision = t.service.service_revision();
+    assert!(matches!(
+        t.service.dispatch(
+            1,
+            crate::operations::Operation::ExtendRidePause {
+                session_id: "stale".into()
+            }
+        ),
+        Err(Failure::InvalidState)
+    ));
+    t.service
+        .dispatch(
+            1,
+            crate::operations::Operation::ExtendRidePause {
+                session_id: id.clone(),
+            },
+        )
+        .unwrap();
+    let renewed = t
+        .service
+        .policy
+        .ride
+        .as_ref()
+        .unwrap()
+        .resume_until_ms
+        .unwrap();
+    assert!(renewed > old_deadline);
+    assert!(t.service.service_revision() > revision);
+    let timers: Vec<_> = t
+        .service
+        .policy
+        .timers
+        .iter()
+        .filter(|(_, v)| v.kind == Timer::RideResume)
+        .collect();
+    assert_eq!(timers.len(), 1);
+    let timer = *timers[0].0;
+    assert_ne!(timer, old_timer);
+    assert!(t.service.drain_os().effects.iter().all(|e| matches!(
+        e,
+        Effect::ArmTimer {
+            connection: false,
+            ..
+        } | Effect::CancelTimer { .. }
+    )));
+    t.fact(
+        Fact::Timer { id: old_timer },
+        (old_deadline - 1_700_000_000_000) as u64,
+    )
+    .unwrap();
+    assert_eq!(t.service.policy.ride.as_ref().unwrap().session_id, id);
+    t.fact(
+        Fact::Timer { id: timer },
+        (renewed - 1_700_000_000_000) as u64,
+    )
+    .unwrap();
+    assert!(t.service.policy.ride.is_none());
+    assert!(matches!(
+        t.service.dispatch(
+            1,
+            crate::operations::Operation::ExtendRidePause { session_id: id }
+        ),
+        Err(Failure::InvalidState)
+    ));
+}
+
+#[test]
+fn failed_pause_extension_does_not_publish_or_replace_timer() {
+    let (mut t, id) = recorded_ride();
+    t.service.disconnect("explicit_disconnect").unwrap();
+    t.drain();
+    let now = t.service.policy.exchange.now + 1000;
+    t.fact(
+        Fact::Storage {
+            available_bytes: 1_000_000_000,
+        },
+        now,
+    )
+    .unwrap();
+    t.drain();
+    let revision = t.service.service_revision();
+    let deadline = t.service.policy.ride.as_ref().unwrap().resume_until_ms;
+    let timer = *t
+        .service
+        .policy
+        .timers
+        .iter()
+        .find(|(_, v)| v.kind == Timer::RideResume)
+        .unwrap()
+        .0;
+    let catalog = rusqlite::Connection::open(t.root.join("catalog.sqlite")).unwrap();
+    catalog.execute_batch("CREATE TRIGGER fail_extend BEFORE UPDATE ON ride_checkpoint BEGIN SELECT RAISE(ABORT,'failure'); END;").unwrap();
+    assert!(
+        t.service
+            .dispatch(
+                1,
+                crate::operations::Operation::ExtendRidePause { session_id: id }
+            )
+            .is_err()
+    );
+    assert_eq!(t.service.service_revision(), revision);
+    assert_eq!(
+        t.service.policy.ride.as_ref().unwrap().resume_until_ms,
+        deadline
+    );
+    assert!(t.service.policy.timers.contains_key(&timer));
+}

@@ -68,6 +68,29 @@ impl ProductStore {
         self.catalog.execute("UPDATE ride_checkpoint SET window_minutes=?,paused_at_ms=?,resume_until_ms=?+?*60000 WHERE singleton=1 AND paused_at_ms IS NULL",params![minutes,at_ms,at_ms,minutes])?;
         Ok(())
     }
+    pub fn extend_ride_pause(&mut self, id: &str, at_ms: i64) -> Result<()> {
+        timestamp(at_ms)?;
+        let ride = self
+            .ride_checkpoint()?
+            .filter(|r| r.session_id == id)
+            .ok_or(Error::ActiveSession)?;
+        let (Some(start), Some(deadline)) = (ride.paused_at_ms, ride.resume_until_ms) else {
+            return Err(Error::ActiveSession);
+        };
+        if at_ms < start || at_ms >= deadline {
+            return Err(Error::ActiveSession);
+        }
+        let minutes = self.settings()?.ride_resume_window_minutes;
+        if at_ms > 253_402_300_799_999 - minutes as i64 * 60_000 {
+            return Err(Error::InvalidInput);
+        }
+        let renewed = at_ms + minutes as i64 * 60_000;
+        if renewed > deadline {
+            // Rebase the window anchor; recording-break provenance is stored separately.
+            self.catalog.execute("UPDATE ride_checkpoint SET window_minutes=?,paused_at_ms=?,resume_until_ms=? WHERE singleton=1 AND session_id=?", params![minutes, at_ms, renewed, id])?;
+        }
+        Ok(())
+    }
     pub(crate) fn recover_ride(&mut self, id: &str) -> Result<bool> {
         let Some(ride) = self.ride_checkpoint()?.filter(|r| r.session_id == id) else {
             return Ok(false);

@@ -221,6 +221,10 @@ export class BackendState {
     return this.run((client) => client.request('device.connect', { deviceId, trackingMode }).then(() => undefined));
   }
 
+  async extendRidePause(sessionId: string): Promise<boolean> {
+    return this.run((client) => client.request('session.extendPause', { sessionId }).then(() => undefined));
+  }
+
   async endRide(sessionId: string): Promise<boolean> {
     return this.run((client) => client.request('session.end', { sessionId }).then(() => undefined));
   }

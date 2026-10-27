@@ -496,6 +496,17 @@ export class MockBackend {
       true
     );
   }
+  private scheduleRideExpiry() {
+    if (this.rideExpiryTimer) clearTimeout(this.rideExpiryTimer);
+    this.rideExpiryTimer = undefined;
+    const ride = this.state.pausedRide;
+    if (!ride) return;
+    this.rideExpiryTimer = setTimeout(
+      () => this.expirePausedRide(),
+      Math.max(1, Date.parse(ride.resumeUntil) - Date.now())
+    );
+    this.rideExpiryTimer.unref?.();
+  }
   private expirePausedRide() {
     const ride = this.state.pausedRide;
     if (ride && Date.now() >= Date.parse(ride.resumeUntil)) this.finishRide(ride.sessionId);
@@ -815,6 +826,19 @@ export class MockBackend {
         );
         return accepted(id);
       }
+      case 'session.extendPause': {
+        if (Object.keys(params).length !== 1 || typeof params.sessionId !== 'string' || !params.sessionId)
+          return failure(id, 'invalid_request', 'Session ID is required');
+        const ride = this.state.pausedRide;
+        if (!ride || ride.sessionId !== params.sessionId)
+          return failure(id, 'invalid_state', 'Ride is no longer paused');
+        const resumeUntil = new Date(
+          Math.max(Date.parse(ride.resumeUntil), Date.now() + this.state.settings.rideResumeWindowMinutes * 60_000)
+        ).toISOString();
+        this.change({ ...this.state, pausedRide: { ...ride, resumeUntil } });
+        this.scheduleRideExpiry();
+        return accepted(id);
+      }
       case 'session.end': {
         if (Object.keys(params).length !== 1 || typeof params.sessionId !== 'string')
           return failure(id, 'invalid_request', 'Session ID is required');
@@ -852,15 +876,7 @@ export class MockBackend {
           },
           Boolean(activeSessionId)
         );
-        if (pausedRide) {
-          this.rideExpiryTimer = setTimeout(
-            () => {
-              if (this.state.pausedRide?.sessionId === pausedRide.sessionId) this.finishRide(pausedRide.sessionId);
-            },
-            Math.max(1, Date.parse(pausedRide.resumeUntil) - Date.now())
-          );
-          this.rideExpiryTimer.unref?.();
-        }
+        this.scheduleRideExpiry();
         return accepted(id);
       }
       case 'controller.shutdown':

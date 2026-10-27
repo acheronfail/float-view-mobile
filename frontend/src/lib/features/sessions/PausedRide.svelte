@@ -15,6 +15,7 @@
     error = '';
   }
   let error = $state('');
+  let successUntil = $state(0);
   const minutes = $derived(Math.max(0, Math.ceil((Date.parse(ride.resumeUntil) - now) / 60_000)));
   onMount(() => {
     const timer = setInterval(() => {
@@ -22,6 +23,19 @@
     }, 1000);
     return () => clearInterval(timer);
   });
+  async function extend() {
+    if (pending || backendState.busy) return;
+    pending = true;
+    error = '';
+    successUntil = 0;
+    if (!(await backendState.extendRidePause(ride.sessionId)))
+      error = backendState.error ?? 'Could not give you more time. Try again.';
+    else {
+      now = Date.now();
+      successUntil = now + 5000;
+    }
+    pending = false;
+  }
   async function end() {
     if (pending) return;
     pending = true;
@@ -34,20 +48,38 @@
 </script>
 
 <aside aria-label="Paused ride" class="space-y-2 rounded-lg border border-outline bg-surface p-3">
-  <p class="font-medium">{ride.displayName} · Ride paused</p>
+  <p class="font-medium">Ride paused · {ride.displayName}</p>
   <p role="status" class="text-sm text-muted">
     {minutes > 0
-      ? `Reconnect within ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} to resume this ride.`
-      : 'Resume window ended.'}
+      ? `Reconnect within ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} to continue this ride.`
+      : 'Ride ended.'}
   </p>
-  <button
-    type="button"
-    bind:this={endButton}
-    class="min-h-11 touch-manipulation rounded border border-outline px-3 text-sm"
-    disabled={pending || backendState.busy}
-    onpointerdown={(event) => activateFromPointer(event, requestEnd)}
-    onclick={(event) => activateFromKeyboardOrAssistiveClick(event, requestEnd)}>End ride</button
-  >
+  {#if minutes > 0}
+    <p class="text-sm text-muted">After that, your next connection starts a new ride.</p>
+  {/if}
+  <div class="flex flex-wrap gap-2">
+    <button
+      type="button"
+      class="min-h-11 touch-manipulation rounded border border-outline px-3 text-sm"
+      disabled={pending || backendState.busy || minutes === 0}
+      onpointerdown={(event) => activateFromPointer(event, extend)}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, extend)}>Give me more time</button
+    >
+    <button
+      type="button"
+      bind:this={endButton}
+      class="min-h-11 touch-manipulation rounded border border-outline px-3 text-sm"
+      disabled={pending || backendState.busy}
+      onpointerdown={(event) => activateFromPointer(event, requestEnd)}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, requestEnd)}>End ride</button
+    >
+  </div>
+  {#if now < successUntil && minutes > 0}
+    <p role="status" class="text-sm text-muted">
+      You now have {minutes}
+      {minutes === 1 ? 'minute' : 'minutes'} to reconnect.
+    </p>
+  {/if}
   {#if error}<p role="alert" class="text-sm text-danger">{error}</p>{/if}
 </aside>
 

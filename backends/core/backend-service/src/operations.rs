@@ -16,6 +16,9 @@ pub enum Failure {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    ExtendRidePause {
+        session_id: String,
+    },
     EndRide {
         session_id: String,
     },

@@ -461,3 +461,56 @@ fn process_loss_uses_last_commit_for_resume_deadline() {
     assert_eq!(checkpoint.resume_until_ms, Some(4_601_000));
     assert_eq!(store.session(&s.session_id).unwrap().committed_sequence, 2);
 }
+
+#[test]
+fn extended_pause_is_atomic_durable_and_never_shortens_or_revives_a_ride() {
+    let (dir, mut store, board) = setup();
+    let s = store.create_session(&board, 1, u64::MAX).unwrap();
+    store.own_ride(&s.session_id, &board, [7; 12], 60).unwrap();
+    assert_eq!(
+        store.extend_ride_pause(&s.session_id, 1000),
+        Err(Error::ActiveSession)
+    );
+    store.pause_ride(1000).unwrap();
+    let old = store.ride_checkpoint().unwrap().unwrap().resume_until_ms;
+    assert_eq!(
+        store.extend_ride_pause("stale", 2000),
+        Err(Error::ActiveSession)
+    );
+    let catalog = Connection::open(dir.path().join("catalog.sqlite")).unwrap();
+    catalog.execute_batch("CREATE TRIGGER fail_extend BEFORE UPDATE ON ride_checkpoint BEGIN SELECT RAISE(ABORT,'failure'); END;").unwrap();
+    assert!(store.extend_ride_pause(&s.session_id, 2000).is_err());
+    assert_eq!(
+        store.ride_checkpoint().unwrap().unwrap().resume_until_ms,
+        old
+    );
+    catalog.execute_batch("DROP TRIGGER fail_extend").unwrap();
+    store.extend_ride_pause(&s.session_id, 2_000_000).unwrap();
+    store.extend_ride_pause(&s.session_id, 3_000_000).unwrap();
+    assert_eq!(
+        store.ride_checkpoint().unwrap().unwrap().resume_until_ms,
+        Some(6_600_000)
+    );
+    store
+        .update_settings(
+            store.settings().unwrap().revision,
+            r#"{"rideResumeWindowMinutes":1}"#,
+        )
+        .unwrap();
+    store.extend_ride_pause(&s.session_id, 3_000_001).unwrap();
+    assert_eq!(
+        store.ride_checkpoint().unwrap().unwrap().resume_until_ms,
+        Some(6_600_000)
+    );
+    assert_eq!(
+        store.extend_ride_pause(&s.session_id, 6_600_000),
+        Err(Error::ActiveSession)
+    );
+    drop(store);
+    let store = ProductStore::open(dir.path()).unwrap();
+    let ride = store.ride_checkpoint().unwrap().unwrap();
+    assert_eq!(ride.session_id, s.session_id);
+    assert_eq!(ride.resume_until_ms, Some(6_600_000));
+    assert_eq!(ride.paused_at_ms, Some(3_000_000));
+    assert_eq!(store.session(&s.session_id).unwrap().state, "active");
+}

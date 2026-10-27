@@ -6,7 +6,7 @@ Define the complete platform-neutral contract implemented by every supported nat
 ## Requirements
 ### Requirement: Complete mandatory contract
 
-Every supported backend SHALL implement the WebSocket control methods `state.get`, `diagnostics.list`, `diagnostics.capture`, `diagnostics.prepare`, `diagnostics.export`, `diagnostics.clear`, `diagnostics.uiError`, `diagnostics.report`, `uiState.get`, `uiState.set`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `announcements.test`, `announcements.openVoiceSettings`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.marker.add`, `session.end`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, `events`, `locations`, `markers`, and `connectionContexts`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities, except that the mandatory announcement audio state SHALL determine visibility of the iOS-only audio-lowering control and supported system voice-settings action.
+Every supported backend SHALL implement the WebSocket control methods `state.get`, `diagnostics.list`, `diagnostics.capture`, `diagnostics.prepare`, `diagnostics.export`, `diagnostics.clear`, `diagnostics.uiError`, `diagnostics.report`, `uiState.get`, `uiState.set`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `announcements.test`, `announcements.openVoiceSettings`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.marker.add`, `session.end`, `session.extendPause`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, `events`, `locations`, `markers`, and `connectionContexts`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities, except that the mandatory announcement audio state SHALL determine visibility of the iOS-only audio-lowering control and supported system voice-settings action.
 
 #### Scenario: Supported backend
 
@@ -1579,3 +1579,27 @@ Saved boards SHALL persist optional nullable `lastLiveView` (`normal`, `detailed
 - **THEN** only the selected-view field may be retried once against a fresh revision, without overwriting dashboard or other fields
 - **WHEN** persistence fails
 - **THEN** the prior view remains selected and the user receives feedback permitting retry
+
+### Requirement: Pause extension command
+
+Authenticated `session.extendPause` SHALL accept only `{ sessionId: string }` and return Accepted for the matching unexpired paused ride. Apple, Android and the mock SHALL publish its renewed deadline in a newer complete snapshot. The deadline SHALL be the greater of its current value and backend time plus the configured resume window. Requests for active, expired, ended or different rides SHALL fail with `invalid_state`; malformed parameters SHALL fail with `invalid_request`.
+
+#### Scenario: Authoritative extension
+
+- **WHEN** a matching paused ride is extended
+- **THEN** the deadline is persisted before success, settings and ride identity are retained, and a replaced frontend sees the renewed deadline
+
+#### Scenario: Invalid or expired request
+
+- **WHEN** the identity is stale, the ride is active, or backend time has reached its deadline
+- **THEN** the request fails with invalid_state and cannot revive or extend another ride
+
+#### Scenario: Persistence failure
+
+- **WHEN** the renewed deadline cannot be stored
+- **THEN** the request fails without publishing an uncommitted deadline or deleting stored data
+
+#### Scenario: Shorter configured window
+
+- **WHEN** the configured window would produce an earlier deadline
+- **THEN** extension preserves the existing later deadline

@@ -53,6 +53,10 @@ impl BackendService {
             self.expire_paused_ride()?;
         }
         let result = match operation {
+            Operation::ExtendRidePause { session_id } => {
+                self.extend_ride_pause(&session_id)?;
+                f::Completion::Unit
+            }
             Operation::EndRide { session_id } => {
                 self.end_ride(&session_id)?;
                 f::Completion::Unit

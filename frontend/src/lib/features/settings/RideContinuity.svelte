@@ -21,7 +21,7 @@
       edited = null;
       error = '';
     } else if (!ok) {
-      error = 'Could not save the resume window.';
+      error = 'Could not save how long to keep rides open.';
       retry = true;
     }
     if (ok && submitted !== edited && edited !== null) void save();
@@ -29,7 +29,7 @@
 </script>
 
 <label class="mt-3 block text-sm text-muted">
-  Resume ride within (minutes)
+  Keep ride open for (minutes)
   <input
     class="mt-1 block w-full rounded border border-outline bg-elevated px-3 py-2 text-foreground"
     type="number"
@@ -48,8 +48,8 @@
   />
 </label>
 <p id="ride-resume-help" class="mt-1 text-xs text-muted">
-  Keep the same ride across disconnects and charging breaks. 1–1,440 minutes (24 hours). Changes apply to the next
-  break.
+  Keep the same ride across disconnects and charging breaks. 1–1,440 minutes (24 hours). Changes apply to your next
+  break or when you choose Give me more time.
 </p>
 <p id="ride-resume-error" role={error ? 'alert' : undefined} class="mt-1 text-sm text-danger">{error}</p>
 
