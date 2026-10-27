@@ -27,6 +27,10 @@
   const label = $derived(refloatConfigurationFieldLabel(field));
   const fieldId = $derived(`refloat-${field.name.replaceAll(/[^a-zA-Z0-9_-]/g, '-')}`);
   const errorId = $derived(`${fieldId}-error`);
+  // Mobile numeric keypads may omit minus, so keep the default keyboard for signed or unbounded fields.
+  const inputMode = $derived(
+    field.minimum !== null && field.minimum >= 0 ? (field.type === 'double' ? 'decimal' : 'numeric') : undefined
+  );
   let helpButton = $state<HTMLButtonElement>();
 </script>
 
@@ -88,6 +92,7 @@
         id={fieldId}
         aria-label={label}
         type="number"
+        inputmode={inputMode}
         class="min-w-0 flex-1 rounded-md border border-outline bg-surface px-3 py-2"
         min={field.minimum ?? undefined}
         max={field.maximum ?? undefined}

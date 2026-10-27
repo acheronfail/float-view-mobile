@@ -143,6 +143,7 @@
         <input
           class={inputClass}
           type="number"
+          inputmode="numeric"
           min="0"
           max="1000000"
           step="10"
@@ -158,6 +159,7 @@
         <input
           class={inputClass}
           type="number"
+          inputmode="decimal"
           min="0.1"
           max="3600"
           step="0.1"
@@ -188,6 +190,7 @@
         <input
           class={inputClass}
           type="number"
+          inputmode="numeric"
           min="0"
           max="60"
           step="1"
@@ -208,6 +211,7 @@
           <input
             class={inputClass}
             type="number"
+            inputmode="decimal"
             min="0.0167"
             max="10"
             step="0.1"
@@ -223,6 +227,7 @@
           <input
             class={inputClass}
             type="number"
+            inputmode="decimal"
             min="0.1"
             max="20"
             step="1"
@@ -238,6 +243,7 @@
           <input
             class={inputClass}
             type="number"
+            inputmode="decimal"
             min="0.1"
             max="10"
             step="0.5"
@@ -253,6 +259,7 @@
           <input
             class={inputClass}
             type="number"
+            inputmode="numeric"
             min="0"
             max="300"
             step="1"

@@ -222,6 +222,7 @@
           aria-invalid={speedError ? 'true' : undefined}
           aria-describedby={speedError ? 'announcement-speed-error' : undefined}
           type="number"
+          inputmode="decimal"
           required
           min="0.001"
           max={200 * factor}
@@ -244,6 +245,7 @@
           aria-invalid={loadError ? 'true' : undefined}
           aria-describedby={loadError ? 'announcement-load-error' : undefined}
           type="number"
+          inputmode="decimal"
           required
           min="0.001"
           max="100"
@@ -266,6 +268,7 @@
           aria-invalid={intervalError ? 'true' : undefined}
           aria-describedby={intervalError ? 'announcement-interval-error' : undefined}
           type="number"
+          inputmode="numeric"
           required
           min="1"
           max="60"
