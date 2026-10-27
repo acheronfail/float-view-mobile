@@ -66,6 +66,62 @@ value must remain reachable by scrolling. Ordinary saved/BMS portrait and modern
 landscape views fit without scrolling. The shortest landscape and short guest layouts retain vertical
 scrolling, with checks that the entire battery section remains reachable.
 
+## On-demand native layout captures
+
+`Capture iOS layout` is a separate simulator diagnostic, not part of release builds
+or the ordinary test matrix. Explicitly dispatch the registered workflow for a
+pushed `apple-duo/*` verification branch (CLI dispatch was verified before default-branch integration):
+
+```sh
+gh workflow run capture-ios-layout.yml --ref apple-duo/side-controls
+```
+
+The workflow has no push, pull-request or schedule trigger. Pushing a branch
+never requests a layout capture automatically. A job-level branch guard skips dispatches
+from main, tags, and branches outside `apple-duo/*` before allocating a runner.
+It is not called by the main checks or distribution workflows.
+The job selects Xcode 27.1 and the installed Duo runtime, starts the simulator while
+building, and captures the real display plus a bounded native/WebView geometry report.
+The diagnostic starts on Sessions to avoid discovery permission prompts. It accepts
+the safety agreement only inside an explicitly opted-in Debug simulator instance.
+No device data, release signing, publishing, or physical BLE run is involved.
+For a one-off device-SDK compilation check, pass `-f verify_device_build=true`;
+this adds an unsigned device build after capture and is disabled by default.
+The iOS distribution jobs also select Xcode 27.1 so shipped builds can use the
+full Duo display; local older-SDK builds retain ordinary navigation.
+
+Download the run's `ios-layout-<run-id>` artifact. It records source, SDK/runtime,
+phase timestamps, native window/WebView bounds and safe-area insets, system status
+and reserved regions, CSS viewport/insets, and control rectangles. Preserve useful
+captures under ignored `.local/physical-testing/ios-layout/`; simulator captures
+establish layout behavior, not physical-device validation.
+
+A reusable unsigned native app artifact is keyed by tracked Apple, core, SQL and toolchain
+content, using Git tree entries rather than scanning generated build directories.
+Frontend dependency artifacts are keyed by tracked lockfile/package contents, OS/architecture
+and exact Node version. Reuse accepts only unexpired artifacts from this branch and repository,
+and checks their embedded input keys before extraction. Frontend-only iterations rebuild and replace the embedded `index.html` in that
+matching diagnostic app, skipping native compilation. Native input changes rebuild
+it; a separate Rust cache retains Rust/toolchain work even if a later diagnostic fails.
+The source and native-cache key accompany every report. Artifact expiration and runner
+startup still cause cold runs: use recorded timestamps rather than assuming a fixed
+duration. No simulator or runner remains allocated after the job ends.
+
+For the fast UI loop, build the frontend and run the focused fixture test:
+
+```sh
+(cd frontend && npm run build)
+(cd conformance && node --strip-types --test test/side-controls.browser.ts)
+```
+
+Both Chromium and WebKit run against the captured native bounds; the focused tests
+measured about three seconds after building. These previews exclude native status UI.
+Use manual CI for occasional native confirmation. The verified artifact-reuse run
+[40470640834](https://github.com/acheronfail/float-view-mobile/actions/runs/40470640834)
+skipped native compilation and dependency installation, but still took 6m55s from
+setup to screenshot because artifact transfers and simulator capture dominated.
+Treat that as a measured sample rather than a guaranteed turnaround.
+
 ## Interactive fixture development
 
 `just fixture dev [port]` starts the development-only SvelteKit controller on

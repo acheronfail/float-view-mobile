@@ -13,7 +13,7 @@
   <nav
     aria-label="Primary"
     data-app-navigation="bottom-tabs"
-    class="fixed inset-x-0 bottom-0 z-10 border-t border-outline bg-surface/95 backdrop-blur"
+    class="app-primary-navigation fixed inset-x-0 bottom-0 z-10 border-t border-outline bg-surface/95 backdrop-blur"
   >
     <div class="bottom-tabs-safe-area mx-auto grid max-w-3xl grid-cols-3">
       {#each bottomTabs as tab (tab.href)}

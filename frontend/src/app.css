@@ -352,3 +352,83 @@ button:disabled {
     --motion-panel: 0ms;
   }
 }
+
+/* The host supplies current usable geometry. Ordinary browsers and hosts keep horizontal controls. */
+:root[data-controls-edge] .app-shell {
+  padding-left: var(--app-controls-space-left);
+  padding-right: var(--app-controls-space-right);
+}
+
+:root[data-controls-edge='right'] .app-shell > .app-content {
+  padding-right: 0;
+}
+
+:root[data-controls-edge='left'] .app-shell > .app-content {
+  padding-left: 0;
+}
+
+:root[data-controls-edge] .app-shell > .app-safe-area-with-tabs {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+:root[data-controls-edge] .app-primary-navigation {
+  left: var(--app-controls-x);
+  right: auto;
+  bottom: calc(100dvh - var(--app-controls-y) - var(--app-controls-height));
+  width: var(--app-controls-width);
+  border: 1px solid var(--app-outline);
+  border-radius: 1rem;
+}
+
+:root[data-controls-edge] .bottom-tabs-safe-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0;
+}
+
+:root[data-controls-edge] .bottom-tabs-safe-area > a {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+:root[data-controls-edge] .app-back-control,
+:root[data-controls-edge] .app-header-actions {
+  position: fixed;
+  left: var(--app-controls-x);
+  top: var(--app-controls-y);
+  width: var(--app-controls-width);
+  flex-direction: column;
+}
+
+:root[data-controls-edge] .app-back-control {
+  min-height: 3.5rem;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  overflow-wrap: anywhere;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.1;
+}
+
+:root[data-controls-edge] .app-back-control > span:first-child {
+  margin-right: 0;
+}
+
+:root[data-controls-edge] .app-page-header:has(.app-back-control) {
+  --app-side-actions-offset: 4rem;
+}
+
+:root[data-controls-edge] .app-shell:has(> .app-primary-navigation) {
+  --app-side-tabs-height: 12rem;
+}
+
+:root[data-controls-edge] .app-header-actions {
+  top: calc(var(--app-controls-y) + var(--app-side-actions-offset, 0px));
+  max-height: calc(var(--app-controls-height) - var(--app-side-actions-offset, 0px) - var(--app-side-tabs-height, 0px));
+}
+
+:root[data-controls-edge] .app-header-actions [data-header-menu] {
+  max-height: calc(var(--app-controls-height) - var(--app-side-actions-offset, 0px) - 3.5rem);
+}

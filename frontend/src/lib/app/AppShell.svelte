@@ -19,6 +19,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import SessionPruneProgress from '$lib/features/sessions/SessionPruneProgress.svelte';
   import BottomTabBar from './BottomTabBar.svelte';
+  import { installHostLayout } from './host-layout';
   import SafetyDisclaimer from './SafetyDisclaimer.svelte';
   import { bottomTabForRoute } from './navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderConfig, type AppHeaderContext, type AppHeaderPatch } from './header';
@@ -225,6 +226,7 @@
   );
 
   onMount(() => {
+    const stopHostLayout = installHostLayout();
     const stopKeyboardNavigation = trackKeyboardNavigation();
     const stopBackNavigation = installBackNavigation(() => {
       const href =
@@ -268,6 +270,7 @@
     if (preference) themeController.reconcile(preference, backendState.settings!.accentPreference);
     void resume();
     return () => {
+      stopHostLayout();
       stopKeyboardNavigation();
       stopBackNavigation();
       window.removeEventListener('floatview:session-import-started', handleNativeImportStarted);
@@ -315,7 +318,7 @@
 
 <main
   inert={safetyGateOpen}
-  class="bg-canvas text-foreground"
+  class="app-shell bg-canvas text-foreground"
   class:min-h-screen={!liveRoute}
   class:h-screen={liveRoute}
   class:overflow-hidden={liveRoute}

@@ -80,7 +80,7 @@
 
 <header
   use:observeHeader
-  class="sticky z-20 flex shrink-0 items-start justify-between gap-4 bg-canvas"
+  class="app-page-header sticky z-20 flex shrink-0 items-start justify-between gap-4 bg-canvas"
   class:border-b={bottomBorder}
   class:border-b-accent-soft={bottomBorder}
   style={`top: ${safeAreaTop}`}
@@ -92,9 +92,13 @@
   ></span>
   <div class="min-w-0 flex-1">
     {#if backHref}
-      <a class="inline-flex min-h-11 touch-manipulation items-center text-accent" href={backHref} use:navigationLink>
+      <a
+        class="app-back-control inline-flex min-h-11 touch-manipulation items-center text-accent"
+        href={backHref}
+        use:navigationLink
+      >
         <Icon name="arrow-left" class="mr-1 text-xl" />
-        {backLabel}
+        <span>{backLabel}</span>
       </a>
     {/if}
     <h1 id={headingId} class={titleClass} {title}>{title}</h1>
@@ -104,7 +108,7 @@
       <p class={subtitleClass}>{subtitle}</p>
     {/if}
   </div>
-  <div class="flex shrink-0 items-center gap-2">
+  <div class="app-header-actions flex shrink-0 items-center gap-2">
     {#if accessory}{@render accessory()}{/if}
     {#if actions?.length && menuLabel}
       {#if menuPresentation === 'overlay'}

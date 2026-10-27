@@ -108,7 +108,7 @@ drag state and chart samples remain transient.
 
 ## Owners
 
-- `app/` owns the persistent application shell, primary navigation, and effective theme.
+- `app/` owns the persistent application shell, primary navigation, effective theme, and adaptive control placement.
 - `backend/` owns bootstrap, transport, authoritative frontend state, and `contract.ts`.
 - `features/connection/` owns Home discovery/connection and the live-board view.
 - `features/faults/` owns shared fault labels, bounded session-event loading and the fault list.
@@ -116,6 +116,15 @@ drag state and chart samples remain transient.
 - `features/boards/` owns saved-board lists and Board Profile configuration.
 - `features/settings/` owns application-wide settings UI.
 - `ui/` is reserved for domain-independent presentation reused by multiple features.
+
+The shell accepts bounded, versioned host layout facts through `floatViewHostLayout`
+and the read-only `floatview:layout` event. This UI-only channel exposes bounds,
+physical vertical edge, safe insets and active occlusions; it cannot invoke native
+operations or replace authenticated product snapshots. A usable side region moves
+existing tabs, header actions and back links without duplicating controls. Resizing,
+reserved-region changes and large text recompute placement; absent, stale, malformed
+or insufficient geometry keeps ordinary bottom/header navigation. Camera/status
+rectangles, not device names or a fixed screen-size breakpoint, determine clearance.
 
 Route files are thin adapters: they read route parameters, coordinate navigation,
 and render their owning feature. Product behavior belongs to the feature.

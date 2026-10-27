@@ -1,0 +1,218 @@
+name: Capture iOS layout
+
+on:
+  workflow_dispatch:
+    inputs:
+      verify_device_build:
+        description: Also compile the unsigned device app for one-off SDK verification
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ios-layout-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    # Dedicated Duo verification branches only; never allocate a runner for main or tags.
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/apple-duo/')
+    runs-on: xcode-27
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - name: Record toolchain and require the Duo runtime
+        id: inputs
+        run: |
+          mkdir -p capture
+          date -u +%FT%TZ > capture/started.txt
+          git rev-parse HEAD > capture/source.txt
+          xcodebuild -version | tee capture/xcode.txt
+          # Fingerprint tracked inputs only; filesystem globs can walk generated build trees.
+          tool_key=$(shasum -a 256 capture/xcode.txt | cut -d ' ' -f 1)
+          native_key=$(git ls-tree -r HEAD -- backends/apple backends/core backends/sql rust-toolchain.toml | shasum -a 256 | cut -d ' ' -f 1)
+          rust_key=$(git ls-tree -r HEAD -- backends/core backends/sql rust-toolchain.toml | shasum -a 256 | cut -d ' ' -f 1)
+          deps_key=$(git ls-tree -r HEAD -- backends/core/Cargo.lock rust-toolchain.toml | shasum -a 256 | cut -d ' ' -f 1)
+          frontend_key=$(git ls-tree -r HEAD -- frontend/package.json frontend/package-lock.json | shasum -a 256 | cut -d ' ' -f 1)
+          echo "native-key=ios-layout-app-v2-$RUNNER_ARCH-$tool_key-$native_key" >> "$GITHUB_OUTPUT"
+          echo "rust-key=ios-layout-rust-v2-$RUNNER_ARCH-$tool_key-$deps_key-$rust_key" >> "$GITHUB_OUTPUT"
+          echo "rust-prefix=ios-layout-rust-v2-$RUNNER_ARCH-$tool_key-$deps_key-" >> "$GITHUB_OUTPUT"
+          echo "frontend-key=ios-layout-node-$RUNNER_OS-$RUNNER_ARCH-$(node --version)-$frontend_key" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available --json > capture/devices.json
+          xcrun simctl list runtimes --json > capture/runtimes.json
+          xcrun simctl io help > capture/simctl-io.txt 2>&1 || true
+          device=$(jq -r '[.devices[][] | select(.name == "iPhone Duo" and .isAvailable == true)][0].udid // empty' capture/devices.json)
+          test -n "$device"
+          echo "LAYOUT_DEVICE=$device" >> "$GITHUB_ENV"
+          xcrun simctl boot "$device"
+      - name: Find matching build artifacts from this branch
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NATIVE_ARTIFACT: native-${{ steps.inputs.outputs.native-key }}
+          FRONTEND_ARTIFACT: deps-${{ steps.inputs.outputs.frontend-key }}
+        run: |
+          for kind in native frontend; do
+            if test "$kind" = native; then name="$NATIVE_ARTIFACT"; else name="$FRONTEND_ARTIFACT"; fi
+            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=100" --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == env.GITHUB_REF_NAME and .workflow_run.head_repository_id == (env.GITHUB_REPOSITORY_ID | tonumber))][0].workflow_run.id // empty')
+            echo "$kind-run=$run_id" >> "$GITHUB_OUTPUT"
+          done
+      - name: Restore matching native simulator app
+        id: native-cache
+        if: steps.reuse.outputs.native-run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NATIVE_KEY: ${{ steps.inputs.outputs.native-key }}
+        run: |
+          gh run download '${{ steps.reuse.outputs.native-run }}' --name "native-$NATIVE_KEY" --dir "$RUNNER_TEMP/native-layout"
+          test "$(cat "$RUNNER_TEMP/native-layout/native-key.txt")" = "$NATIVE_KEY"
+          mkdir -p /tmp/float-view-layout-app
+          ditto -x -k "$RUNNER_TEMP/native-layout/float-view.app.zip" /tmp/float-view-layout-app
+          test -x /tmp/float-view-layout-app/float-view.app/float-view
+          echo 'cache-hit=true' >> "$GITHUB_OUTPUT"
+      - name: Restore matching frontend dependencies
+        id: frontend-cache
+        if: steps.reuse.outputs.frontend-run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FRONTEND_KEY: ${{ steps.inputs.outputs.frontend-key }}
+        run: |
+          gh run download '${{ steps.reuse.outputs.frontend-run }}' --name "deps-$FRONTEND_KEY" --dir "$RUNNER_TEMP/frontend-layout"
+          test "$(cat "$RUNNER_TEMP/frontend-layout/frontend-key.txt")" = "$FRONTEND_KEY"
+          tar -xzf "$RUNNER_TEMP/frontend-layout/frontend-dependencies.tar.gz" -C frontend
+          echo 'cache-hit=true' >> "$GITHUB_OUTPUT"
+      - name: Install frontend dependencies only when their inputs changed
+        id: frontend-install
+        if: steps.frontend-cache.outputs.cache-hit != 'true'
+        run: |
+          npm ci --prefix frontend --prefer-offline --no-audit
+          mkdir -p "$RUNNER_TEMP/frontend-layout"
+          tar -czf "$RUNNER_TEMP/frontend-layout/frontend-dependencies.tar.gz" -C frontend node_modules
+          echo '${{ steps.inputs.outputs.frontend-key }}' > "$RUNNER_TEMP/frontend-layout/frontend-key.txt"
+      - name: Retain matching frontend dependencies
+        if: steps.frontend-install.outcome == 'success'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: deps-${{ steps.inputs.outputs.frontend-key }}
+          path: ${{ runner.temp }}/frontend-layout/
+          compression-level: 0
+          retention-days: 7
+      - name: Build current frontend
+        run: |
+          npm run build --prefix frontend
+          echo '${{ steps.frontend-cache.outputs.cache-hit }}' > capture/frontend-cache-hit.txt
+          date -u +%FT%TZ > capture/frontend-built.txt
+      - name: Restore Rust toolchain and compilation
+        id: rust-cache
+        timeout-minutes: 2
+        continue-on-error: true
+        if: steps.native-cache.outputs.cache-hit != 'true' || inputs.verify_device_build
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.rustup/toolchains/1.93.0-aarch64-apple-darwin
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/float-view-layout/Build/Intermediates.noindex/**/DerivedSources/cargo
+          key: ${{ steps.inputs.outputs.rust-key }}
+          restore-keys: |
+            ${{ steps.inputs.outputs.rust-prefix }}
+      - name: Build native simulator app only when its inputs changed
+        id: native-build
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        run: |
+          brew install ripgrep
+          rustup toolchain install 1.93.0 --profile minimal --target aarch64-apple-ios-sim
+          cargo +1.93.0 fetch --locked --manifest-path backends/core/Cargo.toml --target aarch64-apple-ios-sim
+          xcodebuild -project backends/apple/ios/float-view.xcodeproj -scheme float-view -configuration Debug -sdk iphonesimulator -destination "id=$LAYOUT_DEVICE" -derivedDataPath /tmp/float-view-layout ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build > capture/build.log 2>&1
+          mkdir -p /tmp/float-view-layout-app
+          ditto /tmp/float-view-layout/Build/Products/Debug-iphonesimulator/float-view.app /tmp/float-view-layout-app/float-view.app
+          date -u +%FT%TZ > capture/native-built.txt
+      - name: Package matching native simulator app
+        if: steps.native-build.outcome == 'success'
+        run: |
+          mkdir -p "$RUNNER_TEMP/native-layout"
+          ditto -c -k --sequesterRsrc --keepParent /tmp/float-view-layout-app/float-view.app "$RUNNER_TEMP/native-layout/float-view.app.zip"
+          echo '${{ steps.inputs.outputs.native-key }}' > "$RUNNER_TEMP/native-layout/native-key.txt"
+      - name: Retain matching native simulator app
+        if: steps.native-build.outcome == 'success'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: native-${{ steps.inputs.outputs.native-key }}
+          path: ${{ runner.temp }}/native-layout/
+          compression-level: 0
+          retention-days: 7
+      - name: Embed current frontend in the unsigned diagnostic app
+        run: |
+          test -f /tmp/float-view-layout-app/float-view.app/index.html
+          cp frontend/build/index.html /tmp/float-view-layout-app/float-view.app/index.html
+          echo '${{ steps.inputs.outputs.native-key }}' > capture/native-cache.txt
+          echo '${{ steps.native-cache.outputs.cache-hit }}' > capture/native-cache-hit.txt
+      - name: Capture geometry and actual system display
+        run: |
+          xcrun simctl bootstatus "$LAYOUT_DEVICE" -b
+          xcrun simctl install "$LAYOUT_DEVICE" /tmp/float-view-layout-app/float-view.app
+          SIMCTL_CHILD_FLOAT_VIEW_LAYOUT_CAPTURE=1 xcrun simctl launch "$LAYOUT_DEVICE" fail.acheron.floatview
+          container=$(xcrun simctl get_app_container "$LAYOUT_DEVICE" fail.acheron.floatview data)
+          for attempt in $(seq 1 60); do
+            if test -f "$container/Documents/layout-capture.json"; then break; fi
+            sleep 1
+          done
+          cp "$container/Documents/layout-capture.json" capture/layout.json
+          python3 - <<'LAYOUT_CHECK'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("capture/layout.json").read_text())
+          layout = report["web"]["hostLayout"]
+          assert layout and report["web"]["controlsEdge"] == layout["edge"]
+          assert layout["edge"] in ("left", "right")
+          assert len(report["web"]["navigation"]) == 4, "Expected Sessions and its three tabs"
+          rectangles = report["web"]["navigation"] + report["web"]["header"][1:]
+          for rect in rectangles:
+              if rect["width"] == 0 or rect["height"] == 0:
+                  continue
+              assert rect["width"] >= 44 and rect["height"] >= 44, "Control below minimum target size"
+              assert 0 <= rect["x"] and rect["x"] + rect["width"] <= layout["bounds"]["width"] + 0.01
+              assert 0 <= rect["y"] and rect["y"] + rect["height"] <= layout["bounds"]["height"] - layout["safeArea"]["bottom"] + 0.01
+              for reserved in layout["occlusions"]:
+                  overlaps = (rect["x"] < reserved["x"] + reserved["width"] and rect["x"] + rect["width"] > reserved["x"] and rect["y"] < reserved["y"] + reserved["height"] and rect["y"] + rect["height"] > reserved["y"])
+                  assert not overlaps, "Control overlaps a live system-reserved region"
+          LAYOUT_CHECK
+          xcrun simctl io "$LAYOUT_DEVICE" enumerate > capture/displays.txt
+          xcrun simctl io "$LAYOUT_DEVICE" screenshot --display=primary capture/display.png
+          date -u +%FT%TZ > capture/finished.txt
+      - name: Verify unsigned device compilation only when requested
+        id: device-build
+        if: inputs.verify_device_build
+        run: |
+          if ! command -v rg >/dev/null; then brew install ripgrep; fi
+          rustup toolchain install 1.93.0 --profile minimal --target aarch64-apple-ios
+          cargo +1.93.0 fetch --locked --manifest-path backends/core/Cargo.toml --target aarch64-apple-ios
+          xcodebuild -project backends/apple/ios/float-view.xcodeproj -scheme float-view -configuration Debug -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath /tmp/float-view-layout-device ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build > capture/device-build.log 2>&1
+          date -u +%FT%TZ > capture/device-built.txt
+      - name: Preserve completed Rust work even if capture fails
+        if: always() && steps.native-build.outcome != 'skipped' && steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.rustup/toolchains/1.93.0-aarch64-apple-darwin
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/float-view-layout/Build/Intermediates.noindex/**/DerivedSources/cargo
+          key: ${{ steps.inputs.outputs.rust-key }}
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: ios-layout-${{ github.run_id }}
+          path: capture/
+          retention-days: 7
