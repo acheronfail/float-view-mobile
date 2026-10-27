@@ -159,7 +159,6 @@ def deliver(api, record, bundle, output, prior, check_only=False):
         if edit:
             receipt["editId"] = edit
         (output / "upload-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
-    save("checking")
     previous = []
     if prior.exists():
         for path in sorted(prior.rglob("upload-receipt.json")):
@@ -167,6 +166,14 @@ def deliver(api, record, bundle, output, prior, check_only=False):
             old = json.loads(path.read_text())
             if all(old.get(k) == receipt[k] for k in ("packageId", "track", "version", "buildNumber", "commit", "runURL", "bundleSha256")):
                 previous.append(old)
+    attempt = int(os.environ["GITHUB_RUN_ATTEMPT"])
+    # Only a complete history of explicit pre-upload receipts proves that a
+    # retry can send bytes safely. Legacy/missing receipts remain uncertain.
+    prior_attempts = {int(old["attempt"]) for old in previous}
+    never_uploaded = (prior_attempts == set(range(1, attempt))
+                      and all(old.get("uploadMayHaveStarted") is False for old in previous))
+    receipt["uploadMayHaveStarted"] = not never_uploaded
+    save("checking")
     edit = None
     resumed = False
     # Google permits only one edit per account/app. Inspect the previous edit
@@ -202,10 +209,11 @@ def deliver(api, record, bundle, output, prior, check_only=False):
         api.call("DELETE", "/" + edit)
         save("alreadyDelivered")
         return receipt
-    if not present and int(os.environ["GITHUB_RUN_ATTEMPT"]) > 1:
+    if not present and attempt > 1 and not never_uploaded:
         require(previous, "No matching earlier receipt; check Google or use a fresh run, never blind re-upload")
         raise ValueError("Earlier upload is not observable; inspect Google and use a fresh run")
     if not present:
+        receipt["uploadMayHaveStarted"] = True
         save("uploadStarted", edit)
         uploaded = api.upload(edit, bundle)
         require(str(uploaded.get("versionCode")) == str(record["buildNumber"])

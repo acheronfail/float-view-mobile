@@ -32,6 +32,8 @@ class FakePlay:
 
     def call(self, method, suffix='', body=None):
         self.calls.append((method, suffix, body))
+        if self.fail == 'create' and method == 'POST' and not suffix:
+            raise upload.GoogleError(503)
         if method == 'POST' and not suffix:
             self.counter += 1
             edit = 'edit' + str(self.counter)
@@ -100,9 +102,75 @@ class UploadTests(unittest.TestCase):
         return json.loads((self.output/'upload-receipt.json').read_text())
 
     def retry(self):
-        self.prior.mkdir(exist_ok=True)
-        (self.prior/'upload-receipt.json').write_text(json.dumps(self.receipt()))
-        os.environ['GITHUB_RUN_ATTEMPT'] = '2'
+        attempt = int(os.environ['GITHUB_RUN_ATTEMPT'])
+        directory = self.prior/str(attempt)
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory/'upload-receipt.json').write_text(json.dumps(self.receipt()))
+        os.environ['GITHUB_RUN_ATTEMPT'] = str(attempt + 1)
+
+    def test_repeated_edit_creation_failures_allow_first_upload_on_rerun(self):
+        api = FakePlay(self.record, fail='create')
+        for _ in range(2):
+            with self.assertRaisesRegex(upload.GoogleError, 'HTTP 503'):
+                self.deliver(api)
+            self.assertIs(self.receipt()['uploadMayHaveStarted'], False)
+            self.assertEqual(api.uploads, 0)
+            self.retry()
+        api.fail = None
+        self.assertEqual(self.deliver(api)['status'], 'delivered')
+        self.assertEqual(api.uploads, 1)
+        self.assertIs(self.receipt()['uploadMayHaveStarted'], True)
+
+    def test_failure_after_edit_creation_before_upload_allows_retry(self):
+        api = FakePlay(self.record)
+        with patch.object(api, 'call', side_effect=[{'id': 'lost-edit'}, upload.GoogleError(503)]):
+            with self.assertRaises(upload.GoogleError):
+                self.deliver(api)
+        self.assertIs(self.receipt()['uploadMayHaveStarted'], False)
+        self.retry()
+        self.assertEqual(self.deliver(api)['status'], 'delivered')
+        self.assertEqual(api.uploads, 1)
+
+    def test_upload_uncertainty_survives_later_creation_failure_and_check(self):
+        api = FakePlay(self.record, fail='upload')
+        with self.assertRaisesRegex(ValueError, 'uncertain'):
+            self.deliver(api)
+        self.assertIs(self.receipt()['uploadMayHaveStarted'], True)
+        self.retry()
+        api.edits.clear()  # The uploaded bundle is no longer observable.
+        api.fail = 'create'
+        with self.assertRaisesRegex(upload.GoogleError, 'HTTP 503'):
+            self.deliver(api)
+        self.assertIs(self.receipt()['uploadMayHaveStarted'], True)
+        self.retry()
+        api.fail = None
+        self.assertEqual(self.deliver(api, check_only=True)['status'], 'checkedOnly')
+        self.assertIs(self.receipt()['uploadMayHaveStarted'], True)
+        self.retry()
+        with self.assertRaisesRegex(ValueError, 'not observable'):
+            self.deliver(api)
+        self.assertEqual(api.uploads, 1)
+
+    def test_incomplete_legacy_or_mismatched_history_never_authorizes_upload(self):
+        for history in ('missing', 'legacy', 'mismatched'):
+            with self.subTest(history=history):
+                self.prior = self.root/history
+                os.environ['GITHUB_RUN_ATTEMPT'] = '1'
+                api = FakePlay(self.record, fail='create')
+                with self.assertRaises(upload.GoogleError):
+                    self.deliver(api)
+                old = self.receipt()
+                if history == 'legacy':
+                    del old['uploadMayHaveStarted']
+                elif history == 'mismatched':
+                    old['bundleSha256'] = 'different'
+                self.prior.mkdir()
+                (self.prior/'upload-receipt.json').write_text(json.dumps(old))
+                os.environ['GITHUB_RUN_ATTEMPT'] = '3' if history == 'missing' else '2'
+                api.fail = None
+                with self.assertRaisesRegex(ValueError, 'not observable|No matching earlier receipt'):
+                    self.deliver(api)
+                self.assertEqual(api.uploads, 0)
 
     def test_new_delivery_uploads_once_verifies_hash_and_committed_internal_track(self):
         api = FakePlay(self.record)
@@ -116,6 +184,20 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(self.deliver(api, check_only=True)['status'], 'checkedOnly')
         self.assertEqual(api.uploads, 0)
         self.assertFalse(any(method == 'PUT' or ':commit?' in path for method, path, _ in api.calls))
+
+    def test_check_only_before_upload_allows_later_delivery(self):
+        api = FakePlay(self.record)
+        self.assertEqual(self.deliver(api, check_only=True)['status'], 'checkedOnly')
+        self.assertIs(self.receipt()['uploadMayHaveStarted'], False)
+        self.retry()
+        real_upload = api.upload
+        def send(edit, bundle):
+            self.assertIs(self.receipt()['uploadMayHaveStarted'], True)
+            self.assertEqual(self.receipt()['status'], 'uploadStarted')
+            return real_upload(edit, bundle)
+        with patch.object(api, 'upload', side_effect=send):
+            self.assertEqual(self.deliver(api)['status'], 'delivered')
+        self.assertEqual(api.uploads, 1)
 
     def test_already_delivered_identical_hash_is_idempotent(self):
         api = FakePlay(self.record, present=True, completed=True)

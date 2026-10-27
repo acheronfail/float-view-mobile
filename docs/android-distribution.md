@@ -234,9 +234,14 @@ before sending bytes; a matching completed internal release is already delivered
 A newer internal build or conflicting hash stops the job. Receipts record source,
 run, version code, hash, edit ID and stage, never credentials. An interrupted
 attempt inspects its saved edit before creating another, because creating a new
-edit invalidates the previous edit for that account. If the edit expired or the
-upload cannot be established, stop and inspect Google; use a fresh workflow run
-for a corrected or unobservable consumed build. Do not blindly retry upload POSTs.
+edit invalidates the previous edit for that account. Reruns may upload when every
+earlier attempt has a matching receipt explicitly confirming that uploading never
+started. The receipt marks upload uncertainty before sending bytes and carries
+it through later failures and check-only attempts. Missing or older receipts do
+not establish that an upload is safe. If an earlier upload may have started and
+the edit expired or the upload cannot be established, stop and inspect Google;
+use a fresh workflow run for a corrected or unobservable consumed build. Do not
+blindly retry upload POSTs.
 
 The commit requests `ERROR_IF_IN_REVIEW`, without falling back to cancelling an
 existing review or changing submission flags. Google may reject incomplete policy
