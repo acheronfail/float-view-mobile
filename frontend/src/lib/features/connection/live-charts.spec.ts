@@ -29,6 +29,22 @@ describe('live chart window', () => {
     expect(liveChartReading('motorLoad', sample, 'metric').value).toBe(60);
     expect(liveChartReading('batteryLoad', null, 'metric', null, 0).value).toBeNull();
   });
+  it('keeps remote input centred on zero with fixed signed limits', () => {
+    for (const values of [[], [0], [-0.05, 0.1], [-1, 0, 1]]) {
+      const points = values.map((remoteInput, time) => ({ time, sample: { remoteInput } as LiveSample }));
+      const geometry = liveChartGeometry(points, ['remoteInput'], 'metric', 2, { rawReadings: true });
+      expect(geometry.low).toBe(-1);
+      expect(geometry.high).toBe(1);
+    }
+    const geometry = liveChartGeometry(
+      [-1, 0, 1].map((remoteInput, time) => ({ time, sample: { remoteInput } as LiveSample })),
+      ['remoteInput'],
+      'metric',
+      2,
+      { rawReadings: true }
+    );
+    expect(geometry.paths).toEqual(['M999.93,100.00 L999.97,50.00 L1000.00,0.00']);
+  });
   it('expires old samples and bounds the buffer', () => {
     expect(retainLivePoints([point(0, 1), point(10001, 2)], 40000)).toEqual([point(10001, 2)]);
     expect(

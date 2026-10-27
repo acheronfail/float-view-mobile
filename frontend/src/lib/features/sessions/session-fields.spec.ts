@@ -165,3 +165,14 @@ it('charts the recorded estimate and keeps controller percentage out of charts',
   ]);
   expect(formatSessionFieldValue('estimatedBatteryLevel', 0.61)).toBe('61%');
 });
+
+it('shows both remote input directions on a fixed percentage axis', () => {
+  const group = sessionChartGroups([{ name: 'remoteInput' }])[0]!;
+  expect(group.axis).toEqual({ kind: 'fixed', min: -1, max: 1 });
+  expect([-1, -0.05, 0, 1].map((value) => formatSessionFieldValue('remoteInput', value))).toEqual([
+    '-100%',
+    '-5%',
+    '0%',
+    '100%',
+  ]);
+});

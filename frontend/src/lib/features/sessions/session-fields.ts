@@ -332,7 +332,7 @@ export const sessionFieldMetadata = {
     displayName: 'Remote input',
     unit: '%',
     chart: {
-      axis: { kind: 'fixed', min: 0, max: 1 },
+      axis: { kind: 'fixed', min: -1, max: 1 },
       color: 'var(--app-accent)',
       format: 'percent',
       precision: 0,

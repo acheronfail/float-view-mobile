@@ -29,6 +29,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             controllerTempC: [25, 35],
             motorTempC: [20, 50],
             dutyCycle: [0, 0.42],
+            remoteInput: [-1, 1],
             motorLoad: [0, 0.6],
             batteryLoad: [0, 0.75],
             estimatedBatteryLevel: [0.61, 0.55],
@@ -119,6 +120,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.match(await temperature.innerText(), /Min 20\.0 °C\s+Max 50\.0 °C/);
       const load = page.locator('[aria-label="Load range"]');
       assert.equal(await load.innerText(), 'Max 75%');
+      const remote = page.getByRole('img', { name: 'Remote input over elapsed time', exact: true });
+      await remote.scrollIntoViewIfNeeded();
+      const remoteFrame = remote.locator('..').locator('..');
+      await remoteFrame.getByText('-100%', { exact: true }).first().waitFor();
+      await remoteFrame.getByText('0%', { exact: true }).waitFor();
+      await remoteFrame.getByText('100%', { exact: true }).first().waitFor();
+      assert.match(await page.locator('[aria-label="Remote input range"]').innerText(), /Min -100%\s+Max 100%/);
       const assertChartLayout = async () => {
         for (const chart of await page.getByRole('img', { name: /over elapsed time$/ }).all()) {
           const bounds = (await chart.boundingBox())!;

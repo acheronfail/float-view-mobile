@@ -105,8 +105,9 @@ export function liveChartGeometry(
   const padding = (maximum - minimum) * 0.08;
   const isLoad =
     !options.rawReadings && fields.every((field) => ['dutyCycle', 'motorLoad', 'batteryLoad'].includes(field));
-  const low = isLoad ? 0 : minimum < 0 ? minimum - padding : 0;
-  const high = isLoad ? 100 : maximum + padding;
+  const isRemoteInput = fields.length === 1 && fields[0] === 'remoteInput';
+  const low = isRemoteInput ? -1 : isLoad ? 0 : minimum < 0 ? minimum - padding : 0;
+  const high = isRemoteInput ? 1 : isLoad ? 100 : maximum + padding;
   return {
     low,
     high,
