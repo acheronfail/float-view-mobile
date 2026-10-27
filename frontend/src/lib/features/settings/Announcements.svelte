@@ -287,8 +287,20 @@
         onchange={() => void save()}
         onblur={() => void save()}
       />
-      <span class="text-xs text-muted">Relative to your phone or computer's current volume.</span>
+      <span class="text-xs text-muted">
+        Relative to your {backendState.platform === 'ios' || backendState.platform === 'android'
+          ? "phone's"
+          : backendState.platform === 'macos'
+            ? "computer's"
+            : "device's"} current volume.
+      </span>
     </label>
+    {#if backendState.platform === 'ios'}
+      <p class="text-xs text-muted">
+        Too quiet at 100%? Tap a test button below, then press your iPhone's volume buttons while the voice is speaking.
+        This adjusts the volume used by announcements and Siri, separately from music and ringer volume.
+      </p>
+    {/if}
     {#if audio?.loweringControl === 'adjustable'}
       <div>
         <p>Lower other audio while speaking</p>
