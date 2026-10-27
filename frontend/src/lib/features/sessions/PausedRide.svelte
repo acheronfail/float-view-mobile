@@ -22,6 +22,14 @@
     }, 1000);
     return () => clearInterval(timer);
   });
+  async function extend() {
+    if (pending || backendState.busy) return;
+    pending = true;
+    error = '';
+    if (!(await backendState.extendRidePause(ride.sessionId)))
+      error = backendState.error ?? 'Could not extend the pause. Try again.';
+    pending = false;
+  }
   async function end() {
     if (pending) return;
     pending = true;
@@ -40,14 +48,23 @@
       ? `Reconnect within ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} to resume this ride.`
       : 'Resume window ended.'}
   </p>
-  <button
-    type="button"
-    bind:this={endButton}
-    class="min-h-11 touch-manipulation rounded border border-outline px-3 text-sm"
-    disabled={pending || backendState.busy}
-    onpointerdown={(event) => activateFromPointer(event, requestEnd)}
-    onclick={(event) => activateFromKeyboardOrAssistiveClick(event, requestEnd)}>End ride</button
-  >
+  <div class="flex flex-wrap gap-2">
+    <button
+      type="button"
+      class="min-h-11 touch-manipulation rounded border border-outline px-3 text-sm"
+      disabled={pending || backendState.busy || minutes === 0}
+      onpointerdown={(event) => activateFromPointer(event, extend)}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, extend)}>Extend pause</button
+    >
+    <button
+      type="button"
+      bind:this={endButton}
+      class="min-h-11 touch-manipulation rounded border border-outline px-3 text-sm"
+      disabled={pending || backendState.busy}
+      onpointerdown={(event) => activateFromPointer(event, requestEnd)}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, requestEnd)}>End ride</button
+    >
+  </div>
   {#if error}<p role="alert" class="text-sm text-danger">{error}</p>{/if}
 </aside>
 

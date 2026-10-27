@@ -1210,6 +1210,8 @@ export interface BackendMethods {
     result: Accepted;
   };
   'session.end': { params: { sessionId: string }; result: Accepted };
+  /** Restart the matching unexpired paused ride’s resume window without shortening it. */
+  'session.extendPause': { params: { sessionId: string }; result: Accepted };
   'device.disconnect': { params: EmptyParams; result: Accepted };
   'controller.shutdown': { params: EmptyParams; result: Accepted };
   'refloat.control.set': {

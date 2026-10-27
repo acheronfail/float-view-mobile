@@ -6,11 +6,11 @@ import { startMockServer, stopMockServer, getMockBootstrap } from '../../fronten
 import { ConformanceClient } from '../src/client.ts';
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
-  test(`${name}: resume setting and End ride work by pointer and keyboard`, { timeout: 60_000 }, async () => {
+  test(`${name}: extend and end paused rides by pointer and keyboard`, { timeout: 60_000 }, async () => {
+    const browser = await engine.launch();
     const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
-    const browser = await engine.launch();
     try {
       await client.request('bluetooth.requestPermission', {});
       await client.request('bluetooth.scan', { timeoutMs: 100 });
@@ -21,7 +21,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       });
       const ready = await client.waitForState((s) => s.activeConnection?.state === 'ready');
       const sessionId = ready.activeConnection!.activeSession!.sessionId;
-      const page = await browser.newPage({ hasTouch: true, reducedMotion: 'reduce' });
+      const page = await browser.newPage({
+        hasTouch: true,
+        viewport: { width: 390, height: 844 },
+        reducedMotion: 'reduce',
+      });
       if (name === 'chromium')
         await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
       page.setDefaultTimeout(8000);
@@ -30,12 +34,26 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
       await page.route('https://tile.openstreetmap.org/**', (route) => route.abort());
       const sent: string[] = [];
-      page.on('websocket', (socket) =>
-        socket.on('framesent', ({ payload }) => {
-          const m = JSON.parse(String(payload));
-          sent.push(m.method);
-        })
-      );
+      let failExtension = false;
+      let rejectExtension: (() => void) | undefined;
+      await page.routeWebSocket('**/api/ws?*', (socket) => {
+        const server = socket.connectToServer();
+        socket.onMessage((raw) => {
+          const request = JSON.parse(String(raw));
+          sent.push(request.method);
+          if (request.method === 'session.extendPause' && failExtension) {
+            rejectExtension = () =>
+              socket.send(
+                JSON.stringify({
+                  id: request.id,
+                  error: { code: 'unavailable', message: 'Could not extend the pause. Try again.' },
+                })
+              );
+            return;
+          }
+          server.send(raw);
+        });
+      });
       await page.goto(`${endpoint.origin}/#/live`);
       await page
         .getByRole('button', { name: 'Board actions', exact: true })
@@ -57,6 +75,30 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const card = page.getByRole('complementary', { name: 'Paused ride' });
       await card.waitFor();
       assert.equal((await client.request('state.get', {})).pausedRide?.sessionId, sessionId);
+      const extend = card.getByRole('button', { name: 'Extend pause', exact: true });
+      await extend.dispatchEvent('pointerdown', { pointerId: 3, pointerType: 'touch', isPrimary: false, button: 0 });
+      await extend.dispatchEvent('pointerup', { pointerId: 3, pointerType: 'touch', isPrimary: false, button: 0 });
+      await extend.click({ button: 'right' });
+      assert.equal(sent.filter((m) => m === 'session.extendPause').length, 0);
+      const beforeExtension = (await client.request('state.get', {})).pausedRide!.resumeUntil;
+      failExtension = true;
+      await extend.tap();
+      await page.waitForFunction(() =>
+        document.querySelector('aside[aria-label="Paused ride"] button')?.hasAttribute('disabled')
+      );
+      await extend.dispatchEvent('click', { detail: 0 });
+      assert.equal(sent.filter((m) => m === 'session.extendPause').length, 1);
+      assert.ok(rejectExtension);
+      rejectExtension();
+      await card.getByRole('alert').waitFor();
+      assert.equal((await client.request('state.get', {})).pausedRide!.resumeUntil, beforeExtension);
+      assert.equal(await extend.isEnabled(), true);
+      failExtension = false;
+      await extend.tap();
+      await client.waitForState((s) => Date.parse(s.pausedRide?.resumeUntil ?? '') > Date.parse(beforeExtension));
+      assert.equal(sent.filter((m) => m === 'session.extendPause').length, 2);
+      assert.equal(await card.getByRole('alert').count(), 0);
+      assert.equal((await client.request('state.get', {})).activeConnection, null);
       const homeEnd = card.getByRole('button', { name: 'End ride', exact: true });
       await homeEnd.tap();
       const homeConfirmation = page.getByRole('alertdialog', { name: 'End ride?', exact: true });
@@ -84,6 +126,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         .getByRole('complementary', { name: 'Paused ride' })
         .getByRole('button', { name: 'End ride', exact: true });
       await end.waitFor();
+      const viewerExtend = page
+        .getByRole('complementary', { name: 'Paused ride' })
+        .getByRole('button', { name: 'Extend pause', exact: true });
+      await viewerExtend.focus();
+      await page.keyboard.press('Enter');
+      await client.waitForState((s) => Date.parse(s.pausedRide?.resumeUntil ?? '') > Date.now() + 119 * 60_000);
+      assert.equal(sent.filter((m) => m === 'session.extendPause').length, 3);
+      await page.getByRole('status').filter({ hasText: 'Reconnect within 120 minutes' }).waitFor();
       await end.dispatchEvent('pointerdown', { pointerId: 2, pointerType: 'touch', isPrimary: false, button: 0 });
       assert.equal((await client.request('state.get', {})).pausedRide?.sessionId, sessionId);
       await end.focus();

@@ -90,6 +90,7 @@ vocabulary!(ApiMethod {
     ApiSessionList => "session.list",
     ApiSessionMarkerAdd => "session.marker.add",
     ApiSessionEnd => "session.end",
+    ApiSessionExtendPause => "session.extendPause",
     ApiSessionGet => "session.get",
     ApiSessionExport => "session.export",
     ApiSessionDelete => "session.delete",

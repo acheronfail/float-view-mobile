@@ -73,6 +73,15 @@ impl BackendService {
         self.refresh_boards().map_err(crate::store_failure)?;
         self.changed()
     }
+    pub(crate) fn extend_ride_pause(&mut self, id: &str) -> Result<(), Failure> {
+        self.store
+            .extend_ride_pause(id, self.epoch_ms())
+            .map_err(crate::store_failure)?;
+        self.policy.ride = self.store.ride_checkpoint().map_err(crate::store_failure)?;
+        self.cancel_timer(crate::policy::Timer::RideResume);
+        self.sync_ride_timer()?;
+        self.changed()
+    }
     pub(crate) fn end_ride(&mut self, id: &str) -> Result<(), Failure> {
         if self.policy.ride.as_ref().is_none_or(|r| r.session_id != id) {
             return Err(Failure::InvalidState);

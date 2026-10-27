@@ -2050,6 +2050,7 @@ export const mandatoryMethods: BackendMethod[] = [
   'device.selectController',
   'device.disconnect',
   'session.end',
+  'session.extendPause',
   'refloat.control.set',
   'refloat.fatalError.clear',
   'controller.shutdown',
@@ -2293,14 +2294,34 @@ export async function runRideContinuityConformance(target: Target) {
     assert.ok(Math.abs(peak / 3.6 - travelled.activeConnection!.activeSession!.maxSpeedMps!) < 1e-8);
     assert.ok(Math.abs(distance - travelled.activeConnection!.activeSession!.distanceM!) < 1e-8);
     await client.request('session.marker.add', { sessionId, operationId: '00000000-0000-4000-8000-000000000099' });
+    await expectError(client.request('session.extendPause', { sessionId }), 'invalid_state');
     await client.request('device.disconnect', {});
     const paused = await client.request('state.get', {});
     assert.equal(paused.activeConnection, null);
     assert.equal(paused.pausedRide?.sessionId, sessionId);
     assert.ok(Date.parse(paused.pausedRide!.resumeUntil) > Date.now() + 59 * 60_000);
+    await expectError(client.request('session.extendPause', { sessionId: 'stale' }), 'invalid_state');
+    await expectError(client.request('session.extendPause', { sessionId, extra: true } as never), 'invalid_request');
+    const settings = paused.settings;
+    await client.request('settings.update', {
+      expectedRevision: settings.revision,
+      patch: { rideResumeWindowMinutes: 120 },
+    });
+    await client.request('session.extendPause', { sessionId });
+    const extended = await client.request('state.get', {});
+    assert.equal(extended.activeConnection, null);
+    assert.equal(extended.pausedRide?.sessionId, sessionId);
+    assert.ok(extended.revision > paused.revision);
+    assert.ok(Date.parse(extended.pausedRide!.resumeUntil) > Date.parse(paused.pausedRide!.resumeUntil));
+    assert.ok(Date.parse(extended.pausedRide!.resumeUntil) > Date.now() + 119 * 60_000);
+    await client.request('session.extendPause', { sessionId });
+    const repeated = await client.request('state.get', {});
+    assert.ok(Date.parse(repeated.pausedRide!.resumeUntil) >= Date.parse(extended.pausedRide!.resumeUntil));
     client.close();
     client = await ConformanceClient.open(endpoint.url, endpoint.origin);
-    assert.equal((await client.request('state.get', {})).pausedRide?.sessionId, sessionId);
+    const replaced = await client.request('state.get', {});
+    assert.equal(replaced.pausedRide?.sessionId, sessionId);
+    assert.equal(replaced.pausedRide?.resumeUntil, repeated.pausedRide?.resumeUntil);
     await client.request('bluetooth.scan', { timeoutMs: 10000 });
     await client.waitForState((s) => s.discoveredDevices.some((d) => d.deviceId === deviceId));
     await client.request('device.connect', { deviceId, trackingMode: 'saved' });
@@ -2319,6 +2340,7 @@ export async function runRideContinuityConformance(target: Target) {
     assert.equal(ended.activeConnection, null);
     assert.equal(ended.pausedRide, null);
     assert.equal((await client.request('session.get', { sessionId })).summary.state, 'completed');
+    await expectError(client.request('session.extendPause', { sessionId }), 'invalid_state');
     return { target: target.name, revision: ended.revision };
   } finally {
     client?.close();
