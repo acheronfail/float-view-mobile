@@ -307,7 +307,7 @@ effects, contact recovery and full requalification after reconnect. It observes
 typed speech effects and simulates completion; it does not establish audibility.
 
 Build the frontend before running `test/announcements.browser.ts` as described
-in CONTRIBUTING.md. Chromium and WebKit cover guarded toggles, native delay
+in the [development reference](../docs/development.md#verification). Chromium and WebKit cover guarded toggles, native delay
 slider mouse/touch/keyboard edits, retained disabled delay, frontend reload and
 failed/serialized autosaves. Native Swift/Kotlin speech tests check exact
 left/right/both wording, footpad-first ordering and the existing audio lifecycle.
