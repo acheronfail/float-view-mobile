@@ -2126,7 +2126,11 @@ impl ConnectionApplicationCoordinator {
                     }
                 }
                 mutation::Effect::SubmitObservation(request) => {
-                    self.enqueue(request, now_ms, effects)?;
+                    // Periodic lighting reads are replaceable observations.
+                    // A slow controller must not build a backlog of duplicates.
+                    if !self.scheduler.has_pending(&request.context) {
+                        self.enqueue(request, now_ms, effects)?;
+                    }
                 }
                 mutation::Effect::Lease(token) => {
                     self.configuration_token = Some(token);
@@ -2829,6 +2833,92 @@ mod tests {
             routing_hint: None,
             continuity: discovery::Continuity::default(),
             preferred_bms_can_id: None,
+        }
+    }
+
+    #[test]
+    fn queue_rejection_recovers_on_the_next_telemetry_tick_without_reconnect() {
+        for route in [scheduler::Route::Direct, scheduler::Route::Can(1)] {
+            let mut coordinator = ConnectionApplicationCoordinator::default();
+            let scheduler_generation = coordinator.scheduler.snapshot().generation;
+            // Saturate the real scheduler independently of the periodic poll
+            // deduplication, so rejection recovery remains covered on its own.
+            let lighting = scheduler::RequestFacts {
+                payload: vec![36, 101, 20, 0, 0, 0, 0, 0],
+                expected_response: scheduler::ExpectedResponse {
+                    command: 36,
+                    refloat_command: Some(20),
+                },
+                priority: scheduler::Priority::Auxiliary,
+                context: scheduler::RequestContext::RefloatLighting(route),
+                timeout_ms: 1_000,
+                generation: scheduler_generation,
+                expects_response: true,
+            };
+            for _ in 0..=scheduler::MAX_QUEUED_REQUESTS {
+                coordinator.scheduler.enqueue(lighting.clone(), 0).unwrap();
+            }
+            let child = coordinator
+                .telemetry
+                .apply(telemetry::Command::Start {
+                    configuration: telemetry::Configuration {
+                        service_generation: coordinator.generation.0,
+                        scheduler_generation,
+                        route,
+                        family: telemetry::TelemetryFamily::Selectable,
+                        selectable_gnss: false,
+                        alerts_available: false,
+                        settings: telemetry::Settings::new(500, 5_000).unwrap(),
+                    },
+                    now_ms: 10,
+                })
+                .unwrap();
+            let mut effects = Vec::new();
+            coordinator
+                .process_telemetry(child, 10, &mut effects)
+                .unwrap();
+            assert!(
+                coordinator
+                    .take_request_timings()
+                    .iter()
+                    .any(|timing| timing.kind == "fast" && timing.outcome == "queue_full")
+            );
+            assert_eq!(coordinator.snapshot().telemetry.pending_request, None);
+            let poll = effects
+                .iter()
+                .find_map(|effect| match effect {
+                    Effect::ReplaceTimer {
+                        token: token @ TimerToken::Refloat(_),
+                        ..
+                    } => Some(*token),
+                    _ => None,
+                })
+                .unwrap();
+
+            let cancelled = coordinator
+                .scheduler
+                .cancel_matching(
+                    &scheduler::CancellationSelector::Exact(lighting.context),
+                    false,
+                    20,
+                )
+                .unwrap();
+            coordinator
+                .process_scheduler(cancelled, 20, 20, &mut Vec::new())
+                .unwrap();
+            let retry = coordinator
+                .timer_fired(coordinator.generation, poll, 510)
+                .unwrap();
+            assert!(
+                retry
+                    .iter()
+                    .any(|effect| matches!(effect, Effect::Write(request)
+                if request.context == scheduler::RequestContext::RefloatTelemetry(route)))
+            );
+            assert_eq!(
+                coordinator.snapshot().telemetry.pending_request,
+                Some(telemetry::RequestKind::SelectableFast)
+            );
         }
     }
 

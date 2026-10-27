@@ -210,6 +210,74 @@ fn ready_configuration_with_test_version(
 }
 
 #[test]
+fn lighting_polls_do_not_accumulate_behind_slow_telemetry_or_in_flight_lighting() {
+    let (mut coordinator, lighting_timer) = ready_configuration();
+    let generation = coordinator.snapshot().generation;
+    let telemetry = coordinator
+        .apply(Command::Refresh {
+            generation,
+            now_ms: 1_100,
+        })
+        .unwrap();
+    assert_eq!(write(&telemetry).payload, [36, 101, 10, 4]);
+
+    // A delayed telemetry reply leaves periodic lighting observations queued.
+    // More than the scheduler capacity of ticks must still queue only one.
+    for now_ms in (2_100..=72_100).step_by(1_000) {
+        coordinator
+            .apply(Command::TimerFired {
+                generation,
+                token: lighting_timer,
+                now_ms,
+            })
+            .unwrap();
+        assert_eq!(coordinator.snapshot().scheduler.queued_count, 1);
+    }
+    // The due fault-history probe still runs ahead of lighting.
+    let lighting = receive(&mut coordinator, legacy_idle_payload(), 72_102);
+    assert_eq!(write(&lighting).payload, [36, 101, 35, 0, 0, 0, 0]);
+    let lighting = receive(&mut coordinator, empty_alert_history(), 72_103);
+    assert_eq!(write(&lighting).payload, [36, 101, 10, 4]);
+    let lighting = receive(&mut coordinator, legacy_idle_payload(), 72_104);
+    assert_eq!(write(&lighting).payload, [36, 101, 20, 0, 0, 0, 0, 3]);
+
+    coordinator
+        .apply(Command::TimerFired {
+            generation,
+            token: lighting_timer,
+            now_ms: 73_100,
+        })
+        .unwrap();
+    assert_eq!(coordinator.snapshot().scheduler.queued_count, 0);
+    receive(&mut coordinator, vec![36, 101, 20, 3], 73_101);
+    let next = coordinator
+        .apply(Command::TimerFired {
+            generation,
+            token: lighting_timer,
+            now_ms: 74_100,
+        })
+        .unwrap();
+    assert_eq!(write(&next).payload, [36, 101, 20, 0, 0, 0, 0, 3]);
+
+    // An unanswered observation must release its slot on deadline too.
+    coordinator
+        .apply(Command::DeadlineFired {
+            generation,
+            token: deadline(&next),
+            now_ms: 75_100,
+        })
+        .unwrap();
+    let retry = coordinator
+        .apply(Command::TimerFired {
+            generation,
+            token: lighting_timer,
+            now_ms: 76_100,
+        })
+        .unwrap();
+    assert_eq!(write(&retry).payload, [36, 101, 20, 0, 0, 0, 0, 3]);
+}
+
+#[test]
 fn source_derived_composition_vectors_are_all_covered() {
     let rows = VECTORS
         .lines()

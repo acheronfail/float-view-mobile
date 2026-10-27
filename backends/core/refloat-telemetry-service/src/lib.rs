@@ -928,6 +928,15 @@ impl RefloatTelemetryService {
         if self.service_generation != Some(service_generation) {
             return Vec::new();
         }
+        // These outcomes terminate requests without a usable response.
+        // Release the slot so the ordinary poll timer can try again.
+        if matches!(
+            outcome,
+            RequestOutcome::QueueFull | RequestOutcome::Cancelled | RequestOutcome::StaleGeneration
+        ) && self.pending_request == Some(kind)
+        {
+            self.pending_request = None;
+        }
         if outcome == RequestOutcome::TimedOut {
             if kind == RequestKind::Layout {
                 return vec![Effect::Diagnostic(Diagnostic::LayoutRequestTimeout)];
@@ -2796,6 +2805,74 @@ mod tests {
         assert_eq!(facts.payload, [34, 42, 36, 101, 10, 4]);
         assert_eq!(facts.expected_response.refloat_command, Some(10));
         assert_eq!(service.snapshot().next_compact_due_ms, None);
+    }
+
+    #[test]
+    fn terminal_request_failures_release_pending_work_for_the_next_poll() {
+        for outcome in [
+            RequestOutcome::QueueFull,
+            RequestOutcome::Cancelled,
+            RequestOutcome::StaleGeneration,
+        ] {
+            for (family, kind) in [
+                (TelemetryFamily::LegacyFixed, RequestKind::Legacy),
+                (TelemetryFamily::Dynamic, RequestKind::Realtime),
+                (TelemetryFamily::Dynamic, RequestKind::Compact),
+                (TelemetryFamily::Selectable, RequestKind::SelectableFast),
+                (TelemetryFamily::Selectable, RequestKind::SelectableSlow),
+                (TelemetryFamily::Selectable, RequestKind::SelectableFault),
+                (TelemetryFamily::Selectable, RequestKind::Alerts),
+            ] {
+                let mut service = RefloatTelemetryService::default();
+                let effects = start(&mut service, family, Route::Can(1), 0);
+                let poll = timer(&effects, TimerKind::Poll);
+                // Include the follow-up requests that share the pending slot.
+                service.pending_request = Some(kind);
+                for successful in [RequestOutcome::Response, RequestOutcome::Sent] {
+                    service
+                        .apply(Command::RequestCompleted {
+                            service_generation: 7,
+                            kind,
+                            outcome: successful,
+                        })
+                        .unwrap();
+                    assert_eq!(service.snapshot().pending_request, Some(kind));
+                }
+                for (generation, completed_kind) in [(6, kind), (7, RequestKind::Layout)] {
+                    service
+                        .apply(Command::RequestCompleted {
+                            service_generation: generation,
+                            kind: completed_kind,
+                            outcome,
+                        })
+                        .unwrap();
+                    assert_eq!(service.snapshot().pending_request, Some(kind));
+                }
+                let completion = service
+                    .apply(Command::RequestCompleted {
+                        service_generation: 7,
+                        kind,
+                        outcome,
+                    })
+                    .unwrap();
+                assert!(completion.is_empty(), "failure must not immediately retry");
+                assert_eq!(
+                    service.snapshot().pending_request,
+                    None,
+                    "{kind:?}: {outcome:?}"
+                );
+                let next = service
+                    .apply(Command::TimerFired {
+                        token: poll,
+                        now_ms: 500,
+                    })
+                    .unwrap();
+                assert!(
+                    next.iter()
+                        .any(|effect| matches!(effect, Effect::Enqueue { .. }))
+                );
+            }
+        }
     }
 
     #[test]

@@ -277,6 +277,17 @@ impl Default for VescRequestScheduler {
 }
 
 impl VescRequestScheduler {
+    /// Whether this context already has queued or in-flight work.
+    pub fn has_pending(&self, context: &RequestContext) -> bool {
+        self.in_flight
+            .as_ref()
+            .is_some_and(|(pending, _)| &pending.request.context == context)
+            || self
+                .queue
+                .iter()
+                .any(|pending| &pending.request.context == context)
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             generation: self.generation,
