@@ -135,7 +135,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const widgetBms = structuredClone(chargingBms);
         const chargingLabel = page.locator('#power-title').getByText('Charging', { exact: true });
         await chargingLabel.waitFor();
-        assert.equal(await page.getByText('Charging', { exact: true }).count(), 2);
+        assert.equal(await page.getByText('Charging', { exact: true }).count(), 1);
         await page.locator('#power-title').evaluate((element) => {
           (window as any).chargingDisappeared = false;
           new MutationObserver(() => {
@@ -189,8 +189,40 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           document.querySelector('[aria-label="Battery power"]')?.textContent?.includes('+900')
         );
         assert.match(await field.innerText(), /0\.7/);
-        const distanceBox = page.getByRole('button', { name: 'Choose value for box 5: Trip distance', exact: true });
+        const distanceBox = page.getByRole('button', { name: 'Box 5: Ride distance', exact: true });
         await distanceBox.waitFor();
+        const odometerBox = page.getByRole('button', { name: 'Box 5: Odometer', exact: true });
+        const savesBeforeToggle = saves;
+        await distanceBox.click({ button: 'right' });
+        await distanceBox.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 99 });
+        await distanceBox.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 99 });
+        assert.equal(saves, savesBeforeToggle);
+        const distanceBounds = (await distanceBox.boundingBox())!;
+        await page.mouse.move(distanceBounds.x + 20, distanceBounds.y + 20);
+        await page.mouse.down();
+        await page.mouse.move(distanceBounds.x + 40, distanceBounds.y + 20);
+        await page.mouse.up();
+        assert.equal(saves, savesBeforeToggle, 'movement cancels the tap');
+        await distanceBox.tap();
+        await odometerBox.waitFor();
+        assert.equal(saves, savesBeforeToggle + 1, 'touch switches once despite its synthesized click');
+        assert.equal((await client.request('state.get', {})).activeConnection!.liveWidgetSlots[4], 'odometerM');
+        await page.reload();
+        await odometerBox.waitFor();
+        await odometerBox.click();
+        await distanceBox.waitFor();
+        assert.equal(saves, savesBeforeToggle + 2, 'mouse switches back once');
+        await distanceBox.focus();
+        await page.keyboard.press('Enter');
+        await odometerBox.waitFor();
+        await page.keyboard.press('Space');
+        await distanceBox.waitFor();
+        assert.equal(saves, savesBeforeToggle + 4, 'keyboard activation switches both ways');
+        rejectSelection = true;
+        await distanceBox.tap();
+        await page.getByRole('alert').filter({ hasText: 'Test save failure' }).waitFor();
+        assert.equal(await distanceBox.count(), 1, 'a failed save preserves the current reading');
+        rejectSelection = false;
         const rideTimer = page.getByRole('button', { name: 'Choose value for box 3: Ride time', exact: true });
         await rideTimer.getByText('0:00:12', { exact: true }).waitFor();
         await page.waitForTimeout(1100);
@@ -204,13 +236,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           },
         });
         await page.getByRole('button', { name: 'Choose value for box 3: Battery current', exact: true }).waitFor();
-        assert.equal(await page.getByRole('button', { name: /^Choose value for box/ }).count(), 5);
+        assert.equal(await page.getByRole('button', { name: /^Choose value for box/ }).count(), 4);
         assert.equal(await page.locator('[aria-label="Live number widgets"] button').count(), 4);
         assert.equal(
-          await page
-            .locator('svg + div')
-            .getByRole('button', { name: 'Choose value for box 5: Trip distance', exact: true })
-            .count(),
+          await page.locator('svg + div').getByRole('button', { name: 'Box 5: Ride distance', exact: true }).count(),
           1
         );
         const checkCentreBox = async (target = distanceBox) => {
@@ -246,12 +275,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.setViewportSize({ width: 844, height: 390 });
         await checkCentreBox();
         await page.setViewportSize({ width: 390, height: 844 });
+        const savesBeforeHold = saves;
         await distanceBox.hover();
         await page.mouse.down();
         await page.waitForTimeout(650);
         await page.mouse.up();
         const distancePicker = page.getByRole('dialog', { name: 'Choose a value' });
         await distancePicker.waitFor();
+        assert.equal(saves, savesBeforeHold, 'holding configures without switching');
         // A drag that starts on a choice must leave the scrollable picker open.
         const firstChoice = distancePicker.getByRole('button', { name: 'Empty', exact: true });
         const savesBeforeScroll = saves;
@@ -301,10 +332,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await distancePicker.waitFor({ state: 'hidden' });
         await page.getByRole('button', { name: 'Choose value for box 5: Load', exact: true }).focus();
         await page.keyboard.press('Enter');
-        await distancePicker.getByRole('button', { name: 'Trip distance', exact: true }).tap();
+        await distancePicker.getByRole('button', { name: 'Ride distance', exact: true }).tap();
         await distancePicker.waitFor({ state: 'hidden' });
         await distanceBox.focus();
-        await page.keyboard.press('Enter');
+        await page.keyboard.press('Shift+Enter');
         await distancePicker.waitFor();
         const pickerBounds = await distancePicker.boundingBox();
         assert.ok(pickerBounds && Math.abs(pickerBounds.width - 390) < 0.01);

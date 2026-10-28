@@ -369,10 +369,12 @@ shared current-ride total, integrated from observed absolute speed and restored
 from saved distance when resuming. Reconnects and missing speed break integration;
 a new ride starts at zero. Live Activity, Dynamic Island and Android ride notifications
 consume the same total. Recorded `distanceM` columns retain the raw board trip counter. Empty, Headlights and LEDs are selectable alongside
-readings. Short taps on lighting request runtime changes through the existing
+readings. Short taps on ride distance or odometer switch that box to the other reading
+through the same saved slot selection; Enter/Space does the same. A hold or
+Shift+Enter still configures the box. Short taps on lighting request runtime changes through the existing
 native control path; a hold only configures. Movement over 10 px, cancellation,
 lost capture, hidden pages and disposal cancel the gesture. Keyboard activation
-configures numeric/empty boxes; lighting uses Enter/Space to toggle and
+configures other numeric/empty boxes; lighting uses Enter/Space to toggle and
 Shift+Enter or the context-menu key to configure, with an alternate configure
 button exposed to assistive technology. Unknown/unavailable lighting stays
 configurable without showing a false off switch. Only accepted snapshots replace a slot; save failures leave the picker

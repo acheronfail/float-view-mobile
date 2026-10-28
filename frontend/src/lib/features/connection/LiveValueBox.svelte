@@ -14,6 +14,7 @@
   const connection = $derived(backendState.snapshot?.activeConnection);
   const slots = $derived(connection?.liveWidgetSlots ?? defaultLiveWidgetSlots);
   const field = $derived(slots[slot]);
+  const alternateDistance = $derived(field === 'distanceM' ? 'odometerM' : field === 'odometerM' ? 'distanceM' : null);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
   const lighting = $derived(isLighting(field) ? lightingBox(connection, field) : null);
 
@@ -48,7 +49,18 @@
   }
   function keyboardActivate() {
     if (lighting) void toggleLighting();
+    else if (alternateDistance) void toggleDistance();
     else open(button);
+  }
+  async function toggleDistance() {
+    if (!alternateDistance || toggling || busy || backendState.busy) return;
+    toggling = true;
+    await backendState.updateLiveWidgetSlot(slot, alternateDistance);
+    toggling = false;
+  }
+  function tap() {
+    if (alternateDistance) void toggleDistance();
+    else void toggleLighting();
   }
 
   function open(button: HTMLButtonElement) {
@@ -87,16 +99,22 @@
     use:holdToConfigure={{
       key: `${slot}:${field}:${connectionKey}`,
       onhold: () => open(button),
-      ontap: () => void toggleLighting(),
+      ontap: tap,
     }}
     type="button"
     role={lighting?.checked != null ? 'switch' : undefined}
     aria-checked={lighting?.checked ?? undefined}
-    aria-busy={lighting ? lighting.pending || toggling : undefined}
-    aria-disabled={lighting ? lighting.disabled || toggling || backendState.busy : undefined}
+    aria-busy={lighting ? lighting.pending || toggling : alternateDistance ? toggling : undefined}
+    aria-disabled={lighting
+      ? lighting.disabled || toggling || backendState.busy
+      : alternateDistance
+        ? toggling || busy || backendState.busy
+        : undefined}
     aria-label={lighting
       ? liveValueCatalog[field].name
-      : `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`}
+      : alternateDistance
+        ? `Box ${slot + 1}: ${liveValueCatalog[field].name}`
+        : `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`}
     aria-describedby={`live-number-${slot} live-box-help-${slot}`}
     aria-keyshortcuts="Shift+Enter"
     class="live-value-button flex h-14 w-full min-w-0 touch-pan-y items-center justify-center rounded-lg border border-outline bg-surface px-1 py-1.5 text-center select-none focus-visible:outline-2 focus-visible:outline-accent"
@@ -123,9 +141,13 @@
     </div>
   </button>
   <span id={`live-box-help-${slot}`} class="sr-only"
-    >Hold to configure. Shift+Enter opens configuration.{lighting ? ' Tap or press Enter to toggle.' : ''}</span
+    >Hold to configure. Shift+Enter opens configuration.{alternateDistance
+      ? ` Tap or press Enter to switch to ${liveValueCatalog[alternateDistance].name}.`
+      : lighting
+        ? ' Tap or press Enter to toggle.'
+        : ''}</span
   >
-  {#if lighting}
+  {#if lighting || alternateDistance}
     <button
       type="button"
       class="sr-only focus:not-sr-only focus:bg-surface"
