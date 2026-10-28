@@ -55,6 +55,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 pitchDeg: Math.sin(phase) * 3,
                 rollDeg: Math.cos(phase) * 5,
                 setpointDeg: Math.sin(phase) * 1.5,
+                remoteInput: Math.sin(phase),
               });
               lastSample = sample;
             }
@@ -73,7 +74,18 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await option.tap();
       const charts = page.getByRole('dialog', { name: 'Live charts', exact: true });
       await charts.waitFor();
-      assert.equal(await charts.getByRole('img').count(), 6);
+      assert.equal(await charts.getByRole('img').count(), 7);
+      const remote = charts.getByRole('region', { name: 'Remote input', exact: true });
+      assert.equal(
+        await remote.getByRole('img', { name: 'Remote input, rolling 30-second chart', exact: true }).count(),
+        1
+      );
+      for (const label of ['-1', '0', '1']) {
+        assert.equal(await remote.getByText(label, { exact: true }).count(), 1);
+      }
+      await page.waitForFunction(() =>
+        document.querySelector('section[aria-label="Remote input"] path')?.getAttribute('d')?.includes('L')
+      );
       assert.equal(await charts.getByRole('button', { name: 'Done', exact: true }).count(), 1);
       assert.equal(await charts.getByRole('button', { name: /^Open fault history:/ }).count(), 0);
       assert.equal(await charts.locator('.live-warning-layer').count(), 0);
@@ -109,6 +121,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.setViewportSize({ width: 390, height: 844 });
       frozen = true;
       await charts.getByRole('status').filter({ hasText: 'Waiting for live data' }).waitFor();
+      assert.equal(await remote.getByText('—', { exact: true }).count(), 1);
       assert.equal(
         await charts.getByRole('region', { name: 'Speed', exact: true }).getByText('—', { exact: true }).count(),
         1

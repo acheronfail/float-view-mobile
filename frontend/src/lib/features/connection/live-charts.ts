@@ -28,6 +28,7 @@ export function liveChartGroups(showBmsTemperatures: boolean): { title: string; 
       ],
     },
     { title: 'Board angles', fields: ['pitchDeg', 'rollDeg', 'setpointDeg'] },
+    { title: 'Remote input', fields: ['remoteInput'] },
   ];
 }
 export function retainLivePoints(points: LiveChartPoint[], now: number): LiveChartPoint[] {
