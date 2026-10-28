@@ -65,7 +65,8 @@ Custom readings inherit one semantic colour through labels, values, ranges, bar
 fills, gauge strokes and single-series traces. Load follows the authoritative
 winning source. Shared Live number/chart defaults remain independent.
 
-Hold any widget to create a local draft with Save/Cancel; keep holding to drag
+Hold any widget or the dashboard background to create a local draft with Save/Cancel,
+including when no widgets remain. Keep holding a widget to drag
 the lifted preview. There is no Edit button. Keyboard/assistive users have a
 labelled Arrange action on each widget; empty dashboards offer Add. While editing,
 tap any widget to configure;

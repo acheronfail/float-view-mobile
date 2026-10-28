@@ -20,6 +20,7 @@
   import WidgetPicker from './WidgetPicker.svelte';
   import { defaultDashboard, moveWidget, widgetTitle, type DashboardGridGeometry } from './custom-dashboard';
   import { dashboardGesture } from './dashboard-gesture';
+  import { dashboardBackgroundGesture } from './dashboard-background-gesture';
   import type { LiveHistory } from './live-history';
 
   let { connection, history, nowMs }: { connection: ActiveConnection; history: LiveHistory; nowMs: number } = $props();
@@ -246,14 +247,13 @@
       >
     </div>{/if}
   {#if loading}<p role="status">Loading dashboard…</p>{/if}
-  {#if draft}<p class="sr-only" role="status">Editing dashboard</p>{:else if dashboard?.widgets.length}<p
-      class="sr-only"
-    >
-      Press and hold any widget to arrange your dashboard.
+  {#if draft}<p class="sr-only" role="status">Editing dashboard</p>{:else if dashboard}<p class="sr-only">
+      Press and hold any widget or the background to arrange your dashboard.
     </p>{/if}
   <div
     bind:this={scroll}
-    class="dashboard-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
+    class="dashboard-scroll min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain select-none [-webkit-touch-callout:none]"
+    use:dashboardBackgroundGesture={{ key: boardId, disabled: !accepted || !!draft || loading || saving, onedit: edit }}
     onscroll={(event) => (scrolled = event.currentTarget.scrollTop > 1)}
   >
     <div

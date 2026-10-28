@@ -169,7 +169,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             .click();
         };
         const viewing = () =>
-          custom.getByText('Press and hold any widget to arrange your dashboard.', { exact: true }).waitFor();
+          custom
+            .getByText('Press and hold any widget or the background to arrange your dashboard.', { exact: true })
+            .waitFor();
 
         await custom.locator('[data-dashboard-widget]').first().waitFor();
         assert.equal(await custom.locator('[data-dashboard-widget]').count(), 5);
@@ -1315,6 +1317,83 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           await timingTouch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
           await timingTouch.detach();
         }
+        // Background holds work with widgets and after saving an entirely empty dashboard.
+        await custom.getByRole('button', { name: 'Save dashboard', exact: true }).click();
+        await viewing();
+        await custom.locator('.dashboard-scroll').evaluate((el) => (el.scrollTop = 0));
+        const layout = (await custom.locator('.dashboard-layout').boundingBox())!;
+        await page.mouse.move(layout.x + layout.width / 2, layout.y + 5);
+        await page.mouse.down();
+        await page.clock.runFor(599);
+        assert.equal(await custom.getByRole('toolbar').count(), 0);
+        await page.clock.runFor(1);
+        await custom.getByRole('toolbar', { name: 'Edit dashboard' }).waitFor();
+        await page.mouse.up();
+        assert.equal(await page.locator('[data-dashboard-lifted]').count(), 0, 'background never lifts a widget');
+        while (await custom.locator('[data-dashboard-remove]').count())
+          await custom.locator('[data-dashboard-remove]').first().click();
+        await custom.getByRole('button', { name: 'Save dashboard', exact: true }).click();
+        await viewing();
+        await page.reload();
+        await custom.getByRole('button', { name: 'Add widget', exact: true }).waitFor();
+        assert.equal(await custom.locator('[data-dashboard-widget]').count(), 0);
+        const background = custom.locator('.dashboard-scroll');
+        const bounds = (await background.boundingBox())!;
+        const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+        await page.mouse.click(point.x, point.y);
+        await page.mouse.click(point.x, point.y, { button: 'right' });
+        await page.clock.runFor(600);
+        assert.equal(await custom.getByRole('toolbar').count(), 0, 'short and secondary presses do not edit');
+        await page.mouse.move(point.x, point.y);
+        await page.mouse.down();
+        await page.mouse.move(point.x, point.y + 20);
+        await page.clock.runFor(600);
+        await page.mouse.up();
+        assert.equal(await custom.getByRole('toolbar').count(), 0, 'movement cancels background hold');
+        for (const event of ['pointercancel', 'lostpointercapture']) {
+          await background.dispatchEvent('pointerdown', {
+            pointerId: 42,
+            isPrimary: true,
+            pointerType: 'touch',
+            button: 0,
+            clientX: point.x,
+            clientY: point.y,
+          });
+          await background.dispatchEvent(event, { pointerId: 42 });
+          await page.clock.runFor(600);
+          assert.equal(await custom.getByRole('toolbar').count(), 0, `${event} cancels background hold`);
+        }
+        await background.dispatchEvent('pointerdown', {
+          pointerId: 42,
+          isPrimary: false,
+          pointerType: 'touch',
+          button: 0,
+          clientX: point.x,
+          clientY: point.y,
+        });
+        await page.clock.runFor(600);
+        assert.equal(await custom.getByRole('toolbar').count(), 0, 'non-primary touch does not edit');
+        if (name === 'chromium') {
+          const backgroundTouch = await page.context().newCDPSession(page);
+          await backgroundTouch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+          await page.clock.runFor(600);
+          await backgroundTouch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          await backgroundTouch.detach();
+        } else {
+          await page.mouse.move(point.x, point.y);
+          await page.mouse.down();
+          await page.clock.runFor(600);
+          await page.mouse.up();
+        }
+        await custom.getByRole('toolbar', { name: 'Edit dashboard' }).waitFor();
+        await custom.getByRole('button', { name: 'Add widget', exact: true }).click();
+        await page.getByRole('dialog', { name: 'Add widget', exact: true }).waitFor();
+        await page.keyboard.press('Escape');
+        await custom.getByRole('button', { name: 'Cancel', exact: true }).click();
+        // The empty-state keyboard path remains available too.
+        await custom.getByRole('button', { name: 'Add widget', exact: true }).focus();
+        await page.keyboard.press('Enter');
+        await page.getByRole('dialog', { name: 'Add widget', exact: true }).waitFor();
         assert.deepEqual(errors, []);
         await page.close();
       } finally {
