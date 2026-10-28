@@ -1016,6 +1016,7 @@ export type DashboardWidget = { id: string; size: DashboardSize } & (
   | { kind: 'reading'; field: DashboardReading; presentation: DashboardPresentation; range?: DashboardRange }
   | { kind: 'visual'; visual: 'speedGauge' | 'battery' | 'temperatures' | 'footpads' }
   | { kind: 'control'; control: 'headlights' | 'leds' }
+  | { kind: 'action'; action: 'rideMarker' }
 );
 /** Closed version-1 shape: <=24 widgets, unique 1–64 ASCII identifier IDs, <=8,192 UTF-8 bytes.
  * The complete Board Profile remains bounded to 16,384 bytes. */

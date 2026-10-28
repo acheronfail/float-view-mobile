@@ -48,7 +48,9 @@
       ? `reading:${working.field}`
       : working.kind === 'visual'
         ? `visual:${working.visual}`
-        : `control:${working.control}`
+        : working.kind === 'action'
+          ? `action:${working.action}`
+          : `control:${working.control}`
   );
   const domain = $derived(working.kind === 'reading' ? dashboardDomain(working.field) : null);
   const canRange = $derived(
@@ -71,6 +73,7 @@
     const [kind, selected] = value.split(':');
     const base = { id: working.id, size: working.size };
     if (kind === 'reading') working = { ...base, kind, field: selected as DashboardReading, presentation: 'number' };
+    else if (kind === 'action') working = { ...base, kind, action: 'rideMarker' };
     else if (kind === 'control') working = { ...base, kind, control: selected as 'headlights' | 'leds' };
     else
       working = { ...base, kind: 'visual', visual: selected as 'battery' | 'speedGauge' | 'temperatures' | 'footpads' };
@@ -174,7 +177,9 @@
           ></optgroup
         >
         <optgroup label="Controls"
-          ><option value="control:headlights">Headlights</option><option value="control:leds">LEDs</option></optgroup
+          ><option value="control:headlights">Headlights</option><option value="control:leds">LEDs</option><option
+            value="action:rideMarker">Save ride marker</option
+          ></optgroup
         >
       </select>
     </label>

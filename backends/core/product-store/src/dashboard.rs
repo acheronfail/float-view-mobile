@@ -84,6 +84,9 @@ pub(crate) fn validate(value: &Value) -> Result<()> {
                             &w["visual"],
                             &["speedGauge", "battery", "temperatures", "footpads"],
                         ) => {}
+                "action"
+                    if keys(w, &["id", "size", "kind", "action"])
+                        && one(&w["action"], &["rideMarker"]) => {}
                 "control"
                     if keys(w, &["id", "size", "kind", "control"])
                         && one(&w["control"], &["headlights", "leds"]) => {}

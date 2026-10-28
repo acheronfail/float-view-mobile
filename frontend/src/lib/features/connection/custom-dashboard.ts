@@ -28,6 +28,7 @@ export function readingBarGeometry(value: number | null, range: { min: number; m
 }
 
 export function widgetTitle(widget: DashboardWidget): string {
+  if (widget.kind === 'action') return 'Save ride marker';
   if (widget.kind === 'reading') return liveValueCatalog[widget.field].name;
   if (widget.kind === 'control') return liveValueCatalog[widget.control].name;
   return { speedGauge: 'Speed and load', battery: 'Battery', temperatures: 'Temperatures', footpads: 'Footpads' }[

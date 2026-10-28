@@ -1,5 +1,6 @@
 <script lang="ts">
   import './widget-title.css';
+  import WidgetRideMarker from './WidgetRideMarker.svelte';
   import type { DashboardWidget, ActiveConnection, UnitPreference } from '$lib/backend/contract';
   import { dashboardDomain, dashboardRangeValue, dashboardDimensions } from '$lib/backend/custom-dashboard';
   import { backendState } from '$lib/backend/state.svelte';
@@ -228,6 +229,8 @@
       >
         Unavailable
       </p>{/if}
+  {:else if widget.kind === 'action'}
+    <WidgetRideMarker sessionId={connection.activeSession?.sessionId ?? null} {preview} />
   {:else if widget.kind === 'control' && lighting}
     {#if preview}<LightingDisplay field={widget.control} {lighting} expanded={!compact} />{:else}
       <button

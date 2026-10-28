@@ -653,6 +653,7 @@ async function exerciseProductMethods(
           },
           { id: 'battery', kind: 'visual', visual: 'battery', size: { columns: 4, rows: 1 } },
           { id: 'lights', kind: 'control', control: 'leds', size: { columns: 1, rows: 4 } },
+          { id: 'marker', kind: 'action', action: 'rideMarker', size: { columns: 2, rows: 1 } },
         ],
       },
       liveWidgetSlots: [
@@ -713,9 +714,11 @@ async function exerciseProductMethods(
     );
   }
   assert.deepEqual(await client.request('boardProfile.get', { savedDeviceId: profile.savedDeviceId }), layoutProfile);
-  assert.equal(layoutProfile.values.customDashboard?.widgets.length, 3);
+  assert.equal(layoutProfile.values.customDashboard?.widgets.length, 4);
   assert.deepEqual(layoutProfile.values.customDashboard?.widgets[1]?.size, { columns: 4, rows: 1 });
   for (const customDashboard of [
+    { version: 1, widgets: [{ id: 'mark', kind: 'action', action: 'unknown', size: 'compact' }] },
+    { version: 1, widgets: [{ id: 'mark', kind: 'action', action: 'rideMarker', size: 'compact', control: 'leds' }] },
     ...[
       {},
       { columns: 1 },

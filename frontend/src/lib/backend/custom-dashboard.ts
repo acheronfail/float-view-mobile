@@ -111,6 +111,7 @@ export function validCustomDashboard(value: unknown): value is CustomDashboard {
         keys(w, ['id', 'size', 'kind', 'visual']) &&
         ['speedGauge', 'battery', 'temperatures', 'footpads'].includes(String(w.visual))
       );
+    if (w.kind === 'action') return keys(w, ['id', 'size', 'kind', 'action']) && w.action === 'rideMarker';
     if (w.kind === 'control')
       return keys(w, ['id', 'size', 'kind', 'control']) && ['headlights', 'leds'].includes(String(w.control));
     if (

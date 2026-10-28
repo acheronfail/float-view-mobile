@@ -37,7 +37,10 @@ describe('custom dashboard profiles', () => {
     const request = (method: string, params: object) => backend.handle({ id: 1, method, params });
     const savedDeviceId = 'saved-board';
     const profile = request('boardProfile.get', { savedDeviceId }) as { result: { revision: number; values: object } };
-    const customDashboard = { version: 1, widgets: [{ id: 'a', kind: 'control', control: 'leds', size: 'compact' }] };
+    const customDashboard = {
+      version: 1,
+      widgets: [{ id: 'a', kind: 'action', action: 'rideMarker', size: 'compact' }],
+    };
     expect(
       request('boardProfile.update', {
         savedDeviceId,

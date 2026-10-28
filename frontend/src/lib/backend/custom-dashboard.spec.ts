@@ -16,6 +16,7 @@ describe('dashboard contract', () => {
       validCustomDashboard({
         version: 1,
         widgets: [
+          { id: 'mark', kind: 'action', action: 'rideMarker', size: 'compact' },
           reading,
           { ...reading, id: 'two', presentation: 'trend' },
           { id: 'three', kind: 'control', control: 'headlights', size: 'medium' },
@@ -32,6 +33,8 @@ describe('dashboard contract', () => {
       { version: 1, widgets: [], extra: true },
       ...[
         [reading, reading],
+        [{ id: 'mark', kind: 'action', action: 'unknown', size: 'compact' }],
+        [{ id: 'mark', kind: 'action', action: 'rideMarker', size: 'compact', control: 'leds' }],
         Array.from({ length: 25 }, (_, i) => ({ ...reading, id: `w${i}` })),
         [{ ...reading, id: 'x'.repeat(65) }],
         [{ ...reading, field: 'headlights' }],

@@ -301,6 +301,7 @@
               style:--widget-columns={dashboardDimensions(widget.size).columns}
               style:--widget-rows={dashboardDimensions(widget.size).rows}
               class="dashboard-card relative min-w-0 rounded-lg border border-outline bg-surface"
+              class:action-widget={widget.kind === 'action'}
               class:editing={!!draft}
               aria-label={widgetTitle(widget)}
             >
@@ -499,6 +500,9 @@
   }
   .dashboard-card[data-short='true'] {
     padding: 0.375rem;
+  }
+  .dashboard-card.action-widget {
+    padding: 0;
   }
   .dashboard-card[data-size='medium'],
   .dashboard-card[data-size='large'] {

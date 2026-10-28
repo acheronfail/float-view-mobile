@@ -115,6 +115,13 @@ export const widgetCatalog: WidgetCatalogEntry[] = [
       },
     })
   ),
+  {
+    name: 'Save ride marker',
+    category: 'Controls',
+    section: 'Controls',
+    description: 'Button · 1 × 1 · Mark a moment in your ride',
+    widget: { id: 'action-rideMarker', kind: 'action', action: 'rideMarker', size: { columns: 1, rows: 1 } },
+  },
   ...(['headlights', 'leds'] as const).map(
     (control): WidgetCatalogEntry => ({
       name: liveValueCatalog[control].name,

@@ -28,6 +28,8 @@ describe('widget discovery', () => {
     );
     expect(names('cell voltage spread')).toEqual(['Cell voltage spread']);
     expect(names('battery panel')).toEqual(['Battery panel']);
+    expect(names('ride marker')).toEqual(['Save ride marker']);
+    expect(names('button')).toEqual(['Save ride marker']);
     expect(names('nonexistent reading')).toEqual([]);
     expect(pickerGroups('', false).map((group) => group.name)).toEqual(['Values', 'Visual widgets', 'Controls']);
     expect(pickerGroups('', true).flatMap((group) => group.entries)).toHaveLength(widgetCatalog.length);
