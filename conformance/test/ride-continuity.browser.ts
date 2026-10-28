@@ -84,7 +84,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal((await client.request('state.get', {})).pausedRide?.sessionId, sessionId);
       await card.getByText('After that, your next connection starts a new ride.').waitFor();
       await screenshot('paused-ride');
-      const extend = card.getByRole('button', { name: 'Give me more time', exact: true });
+      const extend = card.getByRole('button', { name: 'Reset time', exact: true });
       await extend.dispatchEvent('pointerdown', { pointerId: 3, pointerType: 'touch', isPrimary: false, button: 0 });
       await extend.dispatchEvent('pointerup', { pointerId: 3, pointerType: 'touch', isPrimary: false, button: 0 });
       await extend.click({ button: 'right' });
@@ -143,7 +143,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await end.waitFor();
       const viewerExtend = page
         .getByRole('complementary', { name: 'Paused ride' })
-        .getByRole('button', { name: 'Give me more time', exact: true });
+        .getByRole('button', { name: 'Reset time', exact: true });
       await viewerExtend.focus();
       await page.keyboard.press('Enter');
       await client.waitForState((s) => Date.parse(s.pausedRide?.resumeUntil ?? '') > Date.now() + 119 * 60_000);

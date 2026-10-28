@@ -165,7 +165,7 @@ Live distance widgets, Live Activity and Dynamic Island SHALL display accumulate
 
 ### Requirement: Extend a paused ride
 
-Home and the paused session viewer SHALL offer Give me more time beside End ride. Each accepted extension SHALL retain the ride identity and restart the configured resume window from backend time without shortening the existing deadline. Extensions SHALL survive process restart and replace expiry scheduling without initiating Bluetooth or recording work.
+Home and the paused session viewer SHALL offer Reset time beside End ride. Each accepted extension SHALL retain the ride identity and restart the configured resume window from backend time without shortening the existing deadline. Extensions SHALL survive process restart and replace expiry scheduling without initiating Bluetooth or recording work.
 
 #### Scenario: Repeated extension and resume
 
@@ -187,6 +187,6 @@ Home and the paused session viewer SHALL offer Give me more time beside End ride
 
 - **WHEN** a paused ride is shown
 - **THEN** the card explains the remaining reconnect time and that reconnecting after expiry starts a new ride
-- **WHEN** Give me more time succeeds
+- **WHEN** Reset time succeeds
 - **THEN** the updated countdown is shown with a brief confirmation of the remaining reconnect time
 - **AND** failed requests show an error without success feedback

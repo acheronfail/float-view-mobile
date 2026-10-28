@@ -63,7 +63,7 @@
       class="min-h-11 touch-manipulation rounded border border-outline px-3 text-sm"
       disabled={pending || backendState.busy || minutes === 0}
       onpointerdown={(event) => activateFromPointer(event, extend)}
-      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, extend)}>Give me more time</button
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, extend)}>Reset time</button
     >
     <button
       type="button"

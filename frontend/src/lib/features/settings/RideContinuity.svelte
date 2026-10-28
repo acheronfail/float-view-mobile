@@ -49,7 +49,7 @@
 </label>
 <p id="ride-resume-help" class="mt-1 text-xs text-muted">
   Keep the same ride across disconnects and charging breaks. 1–1,440 minutes (24 hours). Changes apply to your next
-  break or when you choose Give me more time.
+  break.
 </p>
 <p id="ride-resume-error" role={error ? 'alert' : undefined} class="mt-1 text-sm text-danger">{error}</p>
 
