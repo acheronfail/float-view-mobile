@@ -743,3 +743,195 @@ fn profile_full_voltage_drives_stationary_visuals_without_changing_speech() {
     observe(&mut t, &sample, 400);
     assert_eq!(t.service.battery_warning(), None);
 }
+
+#[test]
+fn flywheel_cancels_each_automatic_phrase_and_suppresses_all_rules() {
+    use float_view_application_runtime::telemetry::{FootpadState, PackageMode};
+    for kind in ["speed", "load", "combined", "footpad", "battery"] {
+        let (mut t, mut sample, speech) = match kind {
+            "battery" => {
+                let (mut t, sample) = battery_board();
+                let speech = spoken(&observe(&mut t, &sample, 100)).unwrap().clone();
+                (t, sample, speech)
+            }
+            "footpad" => {
+                let (mut t, mut sample) = footpads(1);
+                sample.footpad_state = Some(FootpadState::None);
+                observe(&mut t, &sample, 100);
+                let speech = spoken(&observe(&mut t, &sample, 1100)).unwrap().clone();
+                (t, sample, speech)
+            }
+            _ => playing(kind != "load", kind != "speed"),
+        };
+        let now = t.service.policy.exchange.now + 100;
+        sample.package_mode = Some(PackageMode::Flywheel);
+        sample.speed_kph = Some(40.);
+        sample.duty_cycle = Some(0.95);
+        sample.footpad_state = Some(FootpadState::None);
+        let settings = &mut t.service.policy.settings.announcements;
+        settings.speed_enabled = true;
+        settings.load_enabled = true;
+        settings.footpad_enabled = true;
+        let effects = observe(&mut t, &sample, now);
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::CancelSpeech { id } if *id == speech.id)),
+            "missing cancellation for {kind}"
+        );
+        assert!(spoken(&effects).is_none());
+        // Fresh samples across both cooldowns must never qualify a new phrase.
+        for at in (now + 1000..now + 62_000).step_by(1000) {
+            assert_no_playback_change(&observe(&mut t, &sample, at));
+            t.service.policy.exchange.now = at + 100;
+            t.service.step_announcements().unwrap();
+            assert_no_playback_change(&t.service.drain_os().effects);
+        }
+    }
+}
+
+#[test]
+fn flywheel_clears_footpad_duration_and_requires_confirmed_exit() {
+    use float_view_application_runtime::telemetry::{FootpadState, PackageMode};
+    let (mut t, mut sample) = footpads(2);
+    sample.footpad_state = Some(FootpadState::None);
+    observe(&mut t, &sample, 100);
+    sample.package_mode = Some(PackageMode::Flywheel);
+    assert!(spoken(&observe(&mut t, &sample, 1100)).is_none());
+    for (now, mode) in [(2100, None), (3100, Some(PackageMode::Unknown))] {
+        sample.package_mode = mode;
+        assert!(spoken(&observe(&mut t, &sample, now)).is_none());
+    }
+    sample.package_mode = Some(PackageMode::Normal);
+    for now in [4100, 5100, 6099] {
+        assert!(spoken(&observe(&mut t, &sample, now)).is_none());
+    }
+    let effects = observe(&mut t, &sample, 6100);
+    assert_eq!(
+        spoken(&effects).unwrap().footpad,
+        Some(crate::announcements::Footpad::Both)
+    );
+}
+
+#[test]
+fn flywheel_preserves_routine_cooldown_and_ignores_old_audio_completion() {
+    use float_view_application_runtime::telemetry::PackageMode;
+    let (mut t, mut sample, first) = playing(true, true);
+    sample.package_mode = Some(PackageMode::Flywheel);
+    observe(&mut t, &sample, 200);
+    sample.package_mode = Some(PackageMode::Normal);
+    for now in [300, 1300, 2300, 3300, 4300, 5099] {
+        assert!(spoken(&observe(&mut t, &sample, now)).is_none());
+    }
+    let effects = observe(&mut t, &sample, 5100);
+    let next = spoken(&effects).unwrap();
+    assert_ne!(next.id, first.id);
+    t.service.complete_speech(first.id, Outcome::Finished);
+    assert!(matches!(
+        t.service.test_announcement(7, TestKind::Combined),
+        Err(Failure::InvalidState)
+    ));
+}
+
+#[test]
+fn flywheel_preserves_battery_cooldown_and_restarts_battery_qualification() {
+    use float_view_application_runtime::telemetry::PackageMode;
+    let (mut t, mut sample) = battery_board();
+    let speech = spoken(&observe(&mut t, &sample, 100)).unwrap().clone();
+    sample.package_mode = Some(PackageMode::Flywheel);
+    observe(&mut t, &sample, 200);
+    sample.package_mode = Some(PackageMode::Normal);
+    assert!(spoken(&observe(&mut t, &sample, 300)).is_none());
+    let effects = observe(&mut t, &sample, 60_100);
+    let next = spoken(&effects).unwrap();
+    assert_eq!(next.battery, Some(Battery::Low));
+    assert_ne!(next.id, speech.id);
+    t.service.complete_speech(next.id, Outcome::Finished);
+
+    // The fixture thresholds are used directly to choose advance-low evidence.
+    let current = t
+        .service
+        .runtime
+        .snapshot()
+        .application
+        .configuration
+        .current
+        .unwrap();
+    let value = |name: &str| match &current
+        .values
+        .iter()
+        .find(|(key, _)| key == name)
+        .unwrap()
+        .1
+    {
+        c::configuration_codec::ConfigurationValue::Decimal(value) => *value,
+        _ => panic!("expected voltage threshold"),
+    };
+    sample.pack_voltage_v =
+        Some(value("tiltback_lv") + (value("tiltback_hv") - value("tiltback_lv")) * 0.05);
+    sample.package_mode = Some(PackageMode::Flywheel);
+    observe(&mut t, &sample, 120_100);
+    observe(&mut t, &sample, 121_100);
+    sample.package_mode = Some(PackageMode::Normal);
+    for now in [122_100, 123_100, 124_099] {
+        assert!(spoken(&observe(&mut t, &sample, now)).is_none());
+    }
+    let effects = observe(&mut t, &sample, 124_100);
+    assert_eq!(spoken(&effects).unwrap().battery, Some(Battery::Low));
+}
+
+#[test]
+fn flywheel_keeps_manual_previews_and_visual_voltage_evidence() {
+    use float_view_application_runtime::telemetry::PackageMode;
+    let mut t = Test::new();
+    t.activate(true);
+    let id = t
+        .service
+        .policy
+        .active
+        .as_ref()
+        .unwrap()
+        .board
+        .as_ref()
+        .unwrap()
+        .saved_device_id
+        .clone();
+    t.service
+        .store
+        .update_profile(
+            &id,
+            0,
+            r#"{"seriesCount":20,"parallelCount":2,"batteryCellProfileId":"molicel-p45b","batteryMinimumCellVoltageV":3.0}"#,
+            5,
+        )
+        .unwrap();
+    t.service.changed().unwrap();
+    t.service.policy.announcements.audio.status = Readiness::Ready;
+    let mut sample = samples::sample(1, 100);
+    sample.package_mode = Some(PackageMode::Flywheel);
+    sample.pack_voltage_v = Some(85.);
+    assert!(spoken(&observe(&mut t, &sample, 100)).is_none());
+    assert_eq!(t.service.battery_warning(), Some(Battery::OverVoltage));
+    t.service.test_announcement(7, TestKind::Combined).unwrap();
+    let effects = t.service.drain_os().effects;
+    let preview = spoken(&effects).unwrap();
+    assert_eq!(preview.speed, Some(25));
+    assert!(preview.load.is_some());
+    assert_no_playback_change(&observe(&mut t, &sample, 200));
+    t.service.complete_speech(preview.id, Outcome::Finished);
+    assert_no_playback_change(&t.service.drain_os().effects);
+}
+
+#[test]
+fn flywheel_connection_invalidation_requires_new_telemetry() {
+    use float_view_application_runtime::telemetry::PackageMode;
+    let (mut t, mut sample, _) = playing(true, true);
+    sample.package_mode = Some(PackageMode::Flywheel);
+    observe(&mut t, &sample, 200);
+    t.service.policy.announcements.invalidate();
+    t.service.policy.exchange.now = 10_000;
+    t.service.step_announcements().unwrap();
+    assert!(spoken(&t.service.drain_os().effects).is_none());
+    sample.package_mode = Some(PackageMode::Normal);
+    assert!(spoken(&observe(&mut t, &sample, 10_100)).is_some());
+}

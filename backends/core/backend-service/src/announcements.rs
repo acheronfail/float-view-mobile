@@ -8,7 +8,7 @@ use crate::{
 };
 use float_view_application_runtime::{
     load::{self, Source, Winner},
-    telemetry::{FootpadState, NormalizedSample},
+    telemetry::{FootpadState, NormalizedSample, PackageMode},
 };
 use serde::{Deserialize, Serialize};
 
@@ -113,6 +113,7 @@ pub(crate) struct State {
     last_attempt: Option<u64>,
     active: Option<Active>,
     observation: Option<(u64, u64, load::Load, Option<f64>)>,
+    flywheel: bool,
     released_at: [Option<u64>; 2],
     battery: battery::State,
     visual_battery: battery::VisualState,
@@ -123,6 +124,7 @@ impl State {
     }
     pub(crate) fn invalidate(&mut self) {
         self.observation = None;
+        self.flywheel = false;
         self.reset_footpads();
         self.battery.reset();
         self.visual_battery.reset();
@@ -130,6 +132,19 @@ impl State {
 }
 impl BackendService {
     pub(crate) fn observe_announcement(&mut self, sample: &NormalizedSample) {
+        if self.policy.active.as_ref().map(|a| a.generation)
+            != self.policy.announcements.observation.map(|o| o.0)
+        {
+            self.policy.announcements.flywheel = false;
+        }
+        match sample.package_mode {
+            Some(PackageMode::Flywheel) => self.policy.announcements.flywheel = true,
+            Some(PackageMode::Normal | PackageMode::HandTest) => {
+                self.policy.announcements.flywheel = false;
+            }
+            // Missing mode is not confirmation that flywheel has ended.
+            None | Some(PackageMode::Unknown) => {}
+        }
         self.refresh_battery_context();
         self.policy
             .announcements
@@ -170,8 +185,9 @@ impl BackendService {
             }
             self.policy.announcements.battery.observe(
                 self.policy.exchange.now,
-                sample.package_state
-                    == Some(float_view_application_runtime::telemetry::PackageState::Running),
+                !self.policy.announcements.flywheel
+                    && sample.package_state
+                        == Some(float_view_application_runtime::telemetry::PackageState::Running),
                 sample.pack_voltage_v,
                 sample.battery_current_a,
             );
@@ -182,7 +198,8 @@ impl BackendService {
                 Some(FootpadState::Both) => Some([false, false]),
                 _ => None,
             };
-            if self.policy.settings.announcements.footpad_enabled
+            if !self.policy.announcements.flywheel
+                && self.policy.settings.announcements.footpad_enabled
                 && self.speech_values().2.is_some()
                 && sample
                     .speed_kph
@@ -446,9 +463,17 @@ impl BackendService {
         let (winner, speed, generation) = self.speech_values();
         let now = self.policy.exchange.now;
         if generation.is_none() {
+            self.policy.announcements.visual_battery.reset();
+        }
+        // Flywheel excludes automatic speech, not valid electrical observations.
+        let (winner, speed, generation) = if self.policy.announcements.flywheel {
+            (None, None, None)
+        } else {
+            (winner, speed, generation)
+        };
+        if generation.is_none() {
             self.policy.announcements.reset_footpads();
             self.policy.announcements.battery.reset();
-            self.policy.announcements.visual_battery.reset();
         }
         let footpad = self.qualified_footpad();
         // Threshold crossings stop future attempts, not an admitted phrase.

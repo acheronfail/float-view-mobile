@@ -115,6 +115,14 @@ invalid context and rule edits cancel it. No release samples or warnings queue.
 Missing/stale telemetry cancels automatic speech; unavailable audio drops an
 attempt without a backlog. Test waiters belong to their requesting client.
 
+Authoritative flywheel mode suppresses all automatic footpad, speed, load and
+battery speech and cancels an automatic phrase already playing. It clears transient
+qualification while preserving preferences and process-local cooldowns. Missing or
+unknown mode cannot clear this exclusion; fresh known non-flywheel telemetry starts
+qualification again. Manual previews, visual electrical warnings, raw telemetry
+and recording retain their existing behavior. Flywheel handling of ride statistics
+and GPS capture is a separate policy review.
+
 Battery speech uses confirmed current Refloat voltage limits, 10%/5% voltage-window
 headroom, running-state eligibility and regen for advance high alerts, with separate
 one-minute low/high cooldowns. Visual battery qualification shares the service owner
