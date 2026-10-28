@@ -403,7 +403,12 @@ preferences there and in its closed validation/projection, rather than a separat
 WebView store. Both footpad overlays default off; the session menu reuses the
 lighting switches and saves confirmed settings without closing the menu. Exact
 retained speed samples and footpad transitions identify episode starts above
-2 km/h (absolute speed); unknown states never imply a fault. Markers show each
+2 km/h (absolute speed); unknown states never imply a fault. Recorded package-mode
+transitions exclude flywheel intervals from both footpad overlays and break episode
+continuity, including across pages and intervals without retained speed samples.
+Known non-flywheel mode resumes detection; missing or unknown mode cannot clear an
+established flywheel exclusion. Recordings without mode history keep ordinary
+detection. This is derived on review without rewriting stored history. Markers show each
 pad's recorded state and interpolate only within continuous GPS segments in the
 visible time range. The optional read is cancelled on unmount/disable and bounded
 to 100,000 events, 1,000,000 samples and 2,000 fault episodes, with a visible error

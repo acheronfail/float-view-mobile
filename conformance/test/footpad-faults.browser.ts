@@ -23,18 +23,18 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const value = await response.json();
         if (value.kind === 'events') {
           value.page = {
-            elapsedMs: [1000, 4000],
-            sequence: [0, 1],
-            sourceSampleSequence: [1, 2],
-            kinds: ['footpadState', 'footpadState'],
-            values: ['none', 'left'],
+            elapsedMs: [100, 200, 800, 2000, 2100, 3500],
+            sequence: [0, 1, 2, 3, 4, 5],
+            sourceSampleSequence: [1, 2, 4, 6, 7, 9],
+            kinds: ['footpadState', 'packageMode', 'packageMode', 'packageMode', 'footpadState', 'packageMode'],
+            values: ['none', 'flywheel', 'normal', 'flywheel', 'left', 'normal'],
           };
           value.nextCursor = null;
         }
         if (value.kind === 'samples' && value.fields.length === 1 && value.fields[0].name === 'speedKph') {
-          value.elapsedMs = [0, 1000, 4000, 5000, 12000];
-          value.sequence = [0, 1, 2, 3, 4];
-          value.values = { speedKph: [0, 10, 10, 0, 10] };
+          value.elapsedMs = [0, 100, 200, 500, 800, 1000, 2000, 2100, 2200, 3500, 4000, 5000, 12000];
+          value.sequence = value.elapsedMs.map((_: number, i: number) => i);
+          value.values = { speedKph: [0, 0, 0, 10, 0, 10, 0, 0, 10, 0, 10, 0, 10] };
           value.nextCursor = null;
         }
         if (value.kind === 'locations') {
@@ -62,12 +62,16 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await both.tap();
       await page.locator('.footpad-fault-marker').waitFor();
       assert.equal(await both.getAttribute('aria-checked'), 'true');
-      assert.equal(await page.locator('.footpad-fault-marker').count(), 1);
+      assert.equal(await page.locator('.footpad-fault-marker').count(), 1, 'flywheel must not add a both-pad marker');
       assert.equal(await page.locator('.footpad-fault-marker path[fill="#ef4444"]').count(), 2);
       await one.focus();
       await page.keyboard.press('Space');
       await page.getByRole('button', { name: /Right footpad inactive; left active/ }).waitFor();
-      assert.equal(await page.locator('.footpad-fault-marker').count(), 2, 'GPS gap must not acquire a marker');
+      assert.equal(
+        await page.locator('.footpad-fault-marker').count(),
+        2,
+        'flywheel and GPS gaps must not add markers'
+      );
       assert.equal(await page.locator('.footpad-fault-marker path[fill="#22c55e"]').count(), 1);
       await page.getByRole('button', { name: 'Session actions', exact: true }).click();
       const rightFault = page.getByRole('button', { name: /Right footpad inactive; left active/ });

@@ -1,8 +1,8 @@
-import type { FootpadState, SessionMetadata } from '$lib/backend/contract';
+import type { FootpadState, PackageMode, SessionMetadata } from '$lib/backend/contract';
 import type { SessionReviewController } from '$lib/backend/session-controller';
 
 export type FootpadFault = { elapsedMs: number; state: 'none' | 'left' | 'right' };
-type Transition = { elapsedMs: number; sequence: number; state: FootpadState };
+type Transition = { elapsedMs: number; sequence: number } & ({ state: FootpadState } | { mode: PackageMode });
 const MAX_EVENTS = 100_000;
 const MAX_SAMPLES = 1_000_000;
 const MAX_FAULTS = 2_000;
@@ -22,12 +22,14 @@ export async function loadFootpadFaults(controller: SessionReviewController, met
     if (rows > MAX_EVENTS || (result.nextCursor && !result.page.sequence.length))
       throw new Error('Footpad transition history exceeds display limits.');
     result.page.kinds.forEach((kind, i) => {
-      if (kind !== 'footpadState') return;
+      if (kind !== 'footpadState' && kind !== 'packageMode') return;
       const value = result.page.values[i];
       transitions.push({
         elapsedMs: result.page.elapsedMs[i]!,
         sequence: result.page.sourceSampleSequence[i]!,
-        state: value === 'none' || value === 'left' || value === 'right' || value === 'both' ? value : 'unknown',
+        ...(kind === 'footpadState'
+          ? { state: value === 'none' || value === 'left' || value === 'right' || value === 'both' ? value : 'unknown' }
+          : { mode: value === 'normal' || value === 'handTest' || value === 'flywheel' ? value : 'unknown' }),
       });
     });
     cursor = result.nextCursor;
@@ -59,6 +61,7 @@ export class FootpadFaultDetector {
   readonly faults: FootpadFault[] = [];
   private index = 0;
   private state: FootpadState = 'unknown';
+  private flywheel = false;
   private previous: FootpadFault['state'] | null = null;
   private previousElapsedMs: number | null = null;
   constructor(private readonly transitions: readonly Transition[]) {}
@@ -67,11 +70,18 @@ export class FootpadFaultDetector {
     while (this.index < this.transitions.length) {
       const event = this.transitions[this.index]!;
       if (event.elapsedMs > elapsedMs || (event.elapsedMs === elapsedMs && event.sequence > sequence)) break;
-      if (this.state !== event.state) this.previous = null;
-      this.state = event.state;
+      if ('state' in event) {
+        if (this.state !== event.state) this.previous = null;
+        this.state = event.state;
+      } else if (event.mode !== 'unknown') {
+        const flywheel = event.mode === 'flywheel';
+        if (this.flywheel !== flywheel) this.previous = null;
+        this.flywheel = flywheel;
+      }
       this.index++;
     }
     const fault =
+      !this.flywheel &&
       speedKph !== null &&
       Number.isFinite(speedKph) &&
       Math.abs(speedKph) > 2 &&

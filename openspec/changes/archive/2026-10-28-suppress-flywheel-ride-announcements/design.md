@@ -8,6 +8,8 @@ See proposal.md for motivation. One shared backend owner admits speech independe
 
 **Goals:** Apply flywheel exclusion to automatic speech without disabling telemetry freshness or the existing single-slot audio lifecycle.
 
+Also exclude flywheel samples from derived session footpad-off-at-speed markers without altering stored history.
+
 **Non-Goals:** No native adapter, frontend control, protocol, public contract or storage changes. Ride statistics and GPS policy are explicitly deferred by the user.
 
 ## Decisions
@@ -16,6 +18,7 @@ See proposal.md for motivation. One shared backend owner admits speech independe
 - Separate automatic-speech eligibility from valid telemetry context. Keep visual battery observation/freshness intact, but prevent battery/footpad qualification and remove all automatic candidates during flywheel. Reuse existing cancellation, speech completion and timer handling; late completions cannot affect a replacement phrase.
 - Preserve routine and independent battery cooldowns. Exclusion resets qualification rather than advancing or clearing attempt times. Manual previews keep their explicit test behavior and bounded slot.
 - Use focused service policy tests for entry, sustained exclusion, delayed callbacks, exit, reconnect, previews and visual evidence. No dependencies or data upgrades are needed.
+- The shared frontend's bounded footpad-history loader consumes recorded package-mode transitions alongside footpad transitions, ordered by elapsed time and source sample sequence. Flywheel excludes both marker types and breaks episode continuity even when the interval contains no retained speed sample. Known normal/hand-test mode ends exclusion; missing or unknown mode cannot clear it. Sessions without mode history preserve their existing behavior. Unit pagination/ordering tests and the existing Chromium/WebKit overlay test verify this read-time derivation.
 
 ## Risks / Trade-offs
 
@@ -34,5 +37,5 @@ since flywheel temporarily replaces in-memory tuning values.
 For a later change, exclude flywheel intervals from ride distance, riding time and
 ride maxima, and pause ride GPS capture. Retain raw samples for diagnosis and
 place explicit boundaries around those intervals so distance integration cannot
-bridge entry or exit. Review session footpad markers alongside these aggregates.
-This change does not implement those recommendations or rewrite saved recordings.
+bridge entry or exit. Session footpad markers are handled in this change.
+This change does not implement the statistics/GPS recommendations or rewrite saved recordings.
