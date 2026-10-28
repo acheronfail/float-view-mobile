@@ -95,8 +95,9 @@ recorded motor/battery fractions, sample-scoped live load, native presentation
 and announcement policy. Frontend consumers format these results; session review
 keeps raw duty and captured current-load fields without present-day limits.
 
-`backend-service::announcements` owns all three enable flags, thresholds, one shared
-monotonic cooldown for automatic announcements and one ten-second speech operation.
+`backend-service::announcements` owns announcement settings, a shared monotonic
+cooldown for ordinary rules, independent battery cooldowns and one ten-second
+speech operation.
 Manual tests can repeat as soon as playback finishes and still advance the
 automatic cooldown to keep automatic speech from following a test immediately. Typed native effects
 carry optional closed left/right/both footpad release, the highest load source,
@@ -113,6 +114,16 @@ timing; process restart discards it. Recovery lets admitted speech finish;
 invalid context and rule edits cancel it. No release samples or warnings queue.
 Missing/stale telemetry cancels automatic speech; unavailable audio drops an
 attempt without a backlog. Test waiters belong to their requesting client.
+
+Battery speech uses confirmed current Refloat voltage limits, 10%/5% voltage-window
+headroom, running-state eligibility and regen for advance high alerts, with separate
+one-minute low/high cooldowns. Visual battery qualification shares the service owner
+but uses a 25% low margin and immediate high entry above the configured cell profile's
+zero-current full-pack voltage. Visuals need fresh ready-board voltage, including while
+stationary or drawing power; they do not depend on speech settings or eligibility.
+Low recovery uses an additional 2% of the Refloat window; high recovery uses 0.5%
+of full-pack voltage, both for two continuous seconds. Percentages remain capped at 100. Missing Refloat limits and invalid estimation configuration independently disable
+low and high visuals respectively. No frontend or native adapter computes thresholds.
 
 The closed `voiceSettingsAvailable` OS fact controls the shared Settings button.
 `announcements.openVoiceSettings` requires the foreground and one bounded native

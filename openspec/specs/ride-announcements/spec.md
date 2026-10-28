@@ -2,19 +2,21 @@
 
 ## Purpose
 
-Let riders hear sustained footpad contact loss and current board speed or load above a chosen threshold, with consistent timing and graceful audio failure across native hosts.
+Let riders hear board-derived battery voltage warnings, sustained footpad contact loss and current board speed or load above a chosen threshold, with consistent timing and graceful audio failure across native hosts.
 
 ## Requirements
 
 ### Requirement: Global announcement configuration
 
-Speed and load SHALL have independent enable switches, both off by default, and retain independent thresholds. Users SHALL set a shared whole-second repeat interval from 1 through 60 seconds, defaulting to 5. Speed thresholds SHALL be finite and greater than zero through 200 km/h, defaulting to 25 km/h; load thresholds SHALL be finite and greater than zero through 100 percent, defaulting to 65 percent.
+Speed and load SHALL have independent enable switches, both off by default, and retain independent thresholds. Battery charge SHALL have one independent switch, on by default. Users SHALL set a shared speed/load/footpad whole-second repeat interval from 1 through 60 seconds, defaulting to 5. Speed thresholds SHALL be finite and greater than zero through 200 km/h, defaulting to 25 km/h; load thresholds SHALL be finite and greater than zero through 100 percent, defaulting to 65 percent.
 
 #### Scenario: Disabled by default
+
 - **WHEN** the application starts with default settings
-- **THEN** no automatic announcement is spoken and the default thresholds and interval are available for editing
+- **THEN** speed, load and footpad announcements are disabled, battery charge announcements are enabled subject to their eligibility rules, and the default thresholds and interval are available for editing
 
 #### Scenario: Change units or enable flags
+
 - **WHEN** users change speed units or enable/disable either rule
 - **THEN** the physical speed threshold is preserved, its display converts to the selected units, and both independently saved thresholds remain available
 
@@ -23,10 +25,12 @@ Speed and load SHALL have independent enable switches, both off by default, and 
 Users SHALL configure a shared whole-number announcement volume from 0 through 100 percent, defaulting to 100, relative to current device output volume. It SHALL apply to automatic and test speech without changing device volume or another app's volume setting. Zero SHALL mute speech without acquiring audio focus or ducking. Volume edits SHALL affect the next utterance; tests at zero SHALL finish without playback.
 
 #### Scenario: Reduced speech volume
+
 - **WHEN** users set announcement volume to 50 percent and test speech
 - **THEN** the host uses half-scale speech gain relative to current output volume, without promising half the perceived loudness or raising muted device audio
 
 #### Scenario: Muted announcements
+
 - **WHEN** announcement volume is zero
 - **THEN** automatic speech is skipped without taking audio resources, tests finish silently, and Settings clearly identifies the muted volume
 
@@ -35,30 +39,36 @@ Users SHALL configure a shared whole-number announcement volume from 0 through 1
 Both rules SHALL be enableable together. At each eligible attempt the service SHALL include the highest qualifying enabled load component, followed by qualifying enabled speed with its selected units, in one utterance. Both rules SHALL share one repeat cooldown and speech slot. No rule SHALL be delayed to another interval solely because the other qualifies. An unavailable or below-threshold rule SHALL not suppress the other.
 
 #### Scenario: Speed and load qualify together
+
 - **WHEN** both rules are enabled and motor is 78 percent, battery is 70 percent and speed is 32 km/h, each above its threshold, with duty below threshold
 - **THEN** one utterance says “motor 78 percent, 32 kilometres per hour” and advances the shared cooldown once
 
 #### Scenario: Second rule qualifies during cooldown
+
 - **WHEN** speed exceeds its threshold during cooldown from a load announcement
 - **THEN** it waits for the next shared eligible attempt, which includes the current qualifying load winner and/or speed without replaying the previous phrase
 
 #### Scenario: Only one rule remains eligible
+
 - **WHEN** enabled load readings become unavailable or drop below threshold while enabled speed remains eligible
 - **THEN** automatic speech remains eligible and the next utterance includes speed only
 
 ### Requirement: Current board reading eligibility
 
-Automatic announcements SHALL use only finite readings received less than two seconds ago from the ready active board and selected controller, in saved or guest mode. Speed SHALL use magnitude in the selected speed units. A reading SHALL qualify only when its unrounded value strictly exceeds the threshold. Standalone BMS, missing and out-of-range readings SHALL not qualify.
+Automatic announcements SHALL use only finite readings received less than two seconds ago from the ready active board and selected controller, in saved or guest mode. Speed SHALL use magnitude in the selected speed units. Speed and load SHALL qualify only when their unrounded values strictly exceed their thresholds; battery charge SHALL use its specified voltage comparisons and qualification rules. Standalone BMS, missing and out-of-range readings SHALL not qualify.
 
 #### Scenario: Duty component exceeds load threshold
+
 - **WHEN** fresh duty is 66 percent with a 65 percent threshold
 - **THEN** the announcement says the current whole-number percentage and says “duty” before the percentage
 
 #### Scenario: Equality and missing readings
+
 - **WHEN** a component equals the threshold, is unavailable, or is two seconds old
 - **THEN** it does not trigger an announcement
 
 #### Scenario: Reverse speed
+
 - **WHEN** a fresh reverse speed has a magnitude exceeding the speed threshold
 - **THEN** it qualifies and speech identifies the positive speed and selected unit
 
@@ -67,46 +77,56 @@ Automatic announcements SHALL use only finite readings received less than two se
 The enabled load rule SHALL use the live gauge component calculations and one shared percentage threshold. Each announcement SHALL name only the highest available component before its rounded percentage, provided it exceeds the threshold. Equal percentages SHALL use gauge tie order: duty, then motor, then battery. Missing components SHALL be omitted. Speech SHALL remain eligible while any enabled reading qualifies.
 
 #### Scenario: Multiple components exceed threshold
+
 - **WHEN** the threshold is 65 percent and fresh duty, motor and battery loads are 68, 74 and 60 percent
 - **THEN** one announcement says “motor 74 percent”, omitting duty and battery even though duty also exceeds the threshold
 
 #### Scenario: Equal load components
+
 - **WHEN** duty and motor tie for highest available load above threshold
 - **THEN** the announcement names duty only; when motor and battery tie above duty, it names motor only, matching the gauge even for saturated 100 percent readings
 
 #### Scenario: Winner changes
+
 - **WHEN** motor replaces duty as the highest component during cooldown
 - **THEN** the next eligible announcement names the current motor percentage without resetting cooldown or replaying the old duty value
 
 #### Scenario: Battery utilisation
+
 - **WHEN** battery current utilisation exceeds the threshold
 - **THEN** speech says “battery” and that utilisation percentage, not battery state of charge
 
 #### Scenario: Limits unavailable or regenerated
+
 - **WHEN** current limits are missing or zero for a component, or a current changes sign
 - **THEN** unavailable components are omitted, valid duty can still announce, and available current components use the same signed-limit and filtered-current rules as the gauge
 
 #### Scenario: Gauge saturation
+
 - **WHEN** a finite component's utilisation exceeds its limit
 - **THEN** it saturates at 100 percent as on the gauge and remains eligible below a 100 percent threshold
 
 #### Scenario: Component set changes
+
 - **WHEN** duty drops below threshold but motor remains above it
 - **THEN** repeat eligibility remains active and the next attempt names the current highest component only
 
 ### Requirement: Repeat cadence without backlog
 
-The first qualifying reading SHALL trigger an immediate attempt when cooldown permits. Subsequent attempts SHALL be separated by at least the configured interval using monotonic time and SHALL use the latest eligible value. Below-threshold crossings, settings edits and failed attempts SHALL not bypass cooldown. Busy playback SHALL cause due announcements to be skipped, not queued. Missed intervals SHALL not produce catch-up speech.
+For speed, load and footpad rules, the first qualifying reading SHALL trigger an immediate attempt when cooldown permits. Subsequent speed/load/footpad attempts SHALL be separated by at least the configured interval using monotonic time and SHALL use the latest eligible value. Below-threshold crossings, settings edits and failed attempts SHALL not bypass cooldown. Busy playback SHALL cause due announcements to be skipped, not queued. Missed intervals SHALL not produce catch-up speech. Battery charge SHALL use its separate fixed cadence and shared-slot priority rules.
 
 #### Scenario: Continued excess
+
 - **WHEN** duty stays above 65 percent with a five-second interval
 - **THEN** speech attempts occur no more often than every five seconds and each speaks the current value, even when unchanged
 
 #### Scenario: Threshold chatter
+
 - **WHEN** readings repeatedly cross the threshold during cooldown
 - **THEN** they do not produce extra attempts; once cooldown expires a fresh qualifying reading can trigger speech
 
 #### Scenario: Slow speech or delayed worker
+
 - **WHEN** an utterance lasts longer than the interval or execution resumes after missed intervals
 - **THEN** utterances never overlap and old intervals are not replayed
 
@@ -149,26 +169,31 @@ Policy SHALL run independently of the frontend and recording cadence. Disconnect
 Hosts SHALL use native speech with an installed offline-capable voice and request mixing or ducking using the saved supported preference. Audio resources SHALL be released on completion, cancellation, interruption, error and timeout. Unavailable speech, denied focus and calls SHALL skip the attempt without system-volume changes, retry loops, stale playback or disruption to BLE and recording. Successful playback during calls SHALL not be required.
 
 #### Scenario: Music playing
+
 - **WHEN** an announcement plays while compatible music playback is active
 - **THEN** the host requests temporary ducking and releases it after speech so the other playback can return to its normal level
 
 #### Scenario: Focus denied or engine unavailable
+
 - **WHEN** audio focus is denied, a voice is unavailable, or speech initialization fails
 - **THEN** the attempt terminates gracefully, no reading is queued, and later automatic attempts remain interval-bounded
 
 #### Scenario: Interruption or missing completion
+
 - **WHEN** playback is interrupted or its completion callback never arrives
 - **THEN** playback is stopped and resources are released within ten seconds of admission, and obsolete callbacks cannot release a later utterance's resources
 
 ### Requirement: Bounded speech admission and recovery
 
-The service SHALL admit at most one active utterance across automatic and test speech, with no pending utterance queue and a ten-second terminal deadline. A busy automatic attempt SHALL be dropped. A busy test SHALL fail with invalid_state. Manual tests SHALL ignore the automatic repeat interval and MAY repeat immediately after the previous utterance finishes. Each admitted test SHALL advance the automatic cooldown. Audio readiness SHALL refresh at bounded native lifecycle opportunities, allowing recovery without app restart or continuous initialization retries. Normal logs SHALL omit spoken readings and private identity.
+The service SHALL admit at most one active utterance across automatic and test speech, with no pending utterance queue and a ten-second terminal deadline. A busy automatic attempt SHALL be dropped. A busy test SHALL fail with invalid_state. Manual tests SHALL ignore the automatic repeat interval and MAY repeat immediately after the previous utterance finishes. Each admitted test SHALL advance the speed/load/footpad automatic cooldown without advancing battery charge cooldowns. Audio readiness SHALL refresh at bounded native lifecycle opportunities, allowing recovery without app restart or continuous initialization retries. Normal logs SHALL omit spoken readings and private identity.
 
 #### Scenario: Concurrent test and automatic trigger
+
 - **WHEN** automatic speech is active and a test is requested
 - **THEN** the test fails with invalid_state and cannot enqueue or interrupt that speech
 
 #### Scenario: Voice becomes available
+
 - **WHEN** users return from system settings after making an offline voice available
 - **THEN** readiness is re-evaluated and a subsequent eligible attempt can speak without restarting the app
 
@@ -177,14 +202,17 @@ The service SHALL admit at most one active utterance across automatic and test s
 On iOS, users SHALL be able to choose whether announcements request lowering other audio, enabled by default. When disabled, speech SHALL request mixing without ducking or interrupting spoken content. Android and macOS SHALL retain automatic audio handling without exposing this choice. Automatic and test speech SHALL use the same preference, captured at admission; edits SHALL affect the next utterance without changing device volume.
 
 #### Scenario: Lowering enabled
+
 - **WHEN** an iOS announcement plays with lowering enabled and compatible music is active
 - **THEN** the host requests temporary ducking and releases it at the end; other spoken content may pause according to native policy
 
 #### Scenario: Lowering disabled
+
 - **WHEN** an iOS announcement plays with lowering disabled
 - **THEN** it requests mixing without lowering or pausing other playback and still releases its session on all terminal paths
 
 #### Scenario: Edit during speech
+
 - **WHEN** the lowering preference changes while an utterance is active
 - **THEN** the current utterance retains its admitted audio policy and the next automatic or test utterance uses the new preference
 
@@ -197,10 +225,12 @@ deterministic installed offline English fallback MAY be used. Voices requiring
 network or marked not installed SHALL not be selected.
 
 #### Scenario: Concise combined phrase
+
 - **WHEN** motor load is 78 percent and speed is 32 kilometres per hour
 - **THEN** combined speech says “motor 78 percent, 32 kilometres per hour”
 
 #### Scenario: Voice settings return
+
 - **WHEN** a user selects an engine or eligible voice in system settings and returns
 - **THEN** native readiness refreshes and subsequent speech uses the refreshed choice without restarting or disturbing current speech resources
 
@@ -209,46 +239,65 @@ network or marked not installed SHALL not be selected.
 Footpad announcements SHALL have one independent enable switch, off by default, alongside speed and load in Ride announcements. A delay slider SHALL offer whole seconds from 1 through 5, defaulting to 1, show the selected value, and support touch, pointer and keyboard input. The switch and delay SHALL save automatically, survive restart and retain the delay while disabled. Invalid delay values SHALL be rejected without changing saved settings.
 
 #### Scenario: Configure footpad alerts
+
 - **WHEN** a user enables footpad announcements and selects a three-second delay
 - **THEN** the settings save automatically and remain enabled with a three-second delay after restart
 
 #### Scenario: Disable and re-enable
+
 - **WHEN** a user disables and later re-enables footpad announcements
 - **THEN** the selected delay is retained and qualification begins from fresh observations without reusing an earlier elapsed duration
 
 #### Scenario: Accessible slider
+
 - **WHEN** a user adjusts the delay with touch, a primary pointer or keyboard
 - **THEN** the slider selects only 1, 2, 3, 4 or 5 seconds and exposes its label and current value accessibly
 
 #### Scenario: Invalid delay
+
 - **WHEN** an update supplies a fractional delay or a value outside 1 through 5
 - **THEN** the update fails validation and leaves saved settings unchanged
 
 ### Requirement: Preserve existing announcement preferences
 
-Existing supported stored settings missing the footpad fields SHALL open with footpad announcements disabled and a one-second delay, preserving every existing preference and supported recording. New saves SHALL persist both fields. Invalid present values SHALL follow existing validation failures rather than silently defaulting or resetting storage.
+Existing supported stored settings missing the footpad fields SHALL open with footpad announcements disabled and a one-second delay, preserving every existing preference and supported recording. Missing batteryChargeEnabled SHALL default to true; explicit false SHALL remain false. New saves SHALL persist the footpad fields and batteryChargeEnabled. Invalid present values SHALL follow existing validation failures rather than silently defaulting or resetting storage.
 
 #### Scenario: Open supported settings predating footpad alerts
+
 - **WHEN** supported stored settings contain non-default speed, load, volume and repeat preferences but no footpad fields
 - **THEN** those preferences remain unchanged, footpad alerts default off with a one-second delay, and the expanded settings survive save and reopen
+
+#### Scenario: Open supported settings predating battery charge alerts
+
+- **WHEN** supported stored settings omit batteryChargeEnabled and contain customized existing preferences
+- **THEN** battery charge announcements default on, all existing preferences and supported recordings remain intact, and saving persists the new field
+
+#### Scenario: Explicit off and invalid present value
+
+- **WHEN** batteryChargeEnabled is explicitly false or has an invalid present type
+- **THEN** false survives save and restart, while an invalid present value fails validation without defaulting or resetting storage
 
 ### Requirement: Sustained footpad release eligibility
 
 Each side SHALL qualify independently after continuous reported release for at least the configured delay while finite speed magnitude is strictly above 5 km/h and within the existing valid speed range. Eligibility SHALL require fresh known footpad state and speed from the ready active board and selected controller, in saved or guest mode. The fixed speed gate SHALL remain 5 km/h regardless of display units. Unknown or missing state SHALL never mean released.
 
 #### Scenario: Side mapping and delay boundary
+
 - **WHEN** only the right side is reported pressed and fresh speed remains 10 km/h for a configured two-second delay
 - **THEN** the left side qualifies at two seconds, never earlier, and the right side does not qualify
 
 #### Scenario: Independent sides
+
 - **WHEN** the left side has met its delay and the right side subsequently releases
 - **THEN** only the left side qualifies until the right side independently meets the full delay
 
 #### Scenario: Speed boundary and reverse
+
 - **WHEN** speed magnitude is exactly 5 km/h, above 5 km/h in reverse, or displayed in mph
 - **THEN** equality does not qualify, reverse uses magnitude, and changing units does not change the physical gate
 
 #### Scenario: Unsupported or unavailable observations
+
 - **WHEN** footpad state or speed is missing, unknown, stale or invalid, or the connection is a standalone BMS
 - **THEN** no footpad alert qualifies from that observation
 
@@ -257,18 +306,22 @@ Each side SHALL qualify independently after continuous reported release for at l
 Contact returning SHALL reset that side's release duration. Speed at or below 5 km/h, unavailable speed or footpad state, a telemetry gap of at least two seconds, disconnection, controller replacement, or a footpad enable/delay edit SHALL reset both durations. Requalification SHALL require a full new delay. Timers SHALL use monotonic time and remain independent of WebView and recording cadence; reset SHALL retain the shared speech cooldown.
 
 #### Scenario: Brief release and recovered contact
+
 - **WHEN** a side releases for less than the delay and then presses again
 - **THEN** it does not qualify and a later release starts a new full delay for that side
 
 #### Scenario: Speed and freshness resets
+
 - **WHEN** speed reaches 5 km/h or below, known footpad evidence disappears, or no new telemetry arrives for two seconds
 - **THEN** neither side retains elapsed release time across the interruption, even if a worker processes the next sample after the gap
 
 #### Scenario: Reconnection and controller replacement
+
 - **WHEN** a connection is replaced or restored after a release was qualifying
 - **THEN** fresh observations must satisfy the full delay for the new context and cannot bypass the shared cooldown
 
 #### Scenario: Settings and WebView lifecycle
+
 - **WHEN** the delay is edited during release qualification or the WebView is replaced during a ride
 - **THEN** a delay edit restarts both durations while WebView replacement preserves service-owned qualification without creating duplicate timers
 
@@ -277,18 +330,22 @@ Contact returning SHALL reset that side's release duration. Speed at or below 5 
 An utterance SHALL say “left footpad off” for only the left qualifying side, “right footpad off” for only the right qualifying side, and “both footpads off” when both qualify. Footpad wording SHALL precede the existing highest qualifying load component and qualifying speed in a single utterance. Missing or ineligible footpad evidence SHALL not suppress eligible speed or load speech. No recovery phrase SHALL be spoken.
 
 #### Scenario: Both sides meet the delay
+
 - **WHEN** both sides have independently met the release delay
 - **THEN** the next eligible utterance says “both footpads off” once rather than naming each side separately
 
 #### Scenario: Footpad and load and speed qualify
+
 - **WHEN** the right side qualifies, motor load is 78 percent and speed is 32 km/h, with those announcements enabled and above their thresholds
 - **THEN** one utterance says “right footpad off, motor 78 percent, 32 kilometres per hour”
 
 #### Scenario: Only footpad alerts enabled
+
 - **WHEN** speed and load announcements are disabled and the left side qualifies
 - **THEN** the next eligible utterance says “left footpad off”
 
 #### Scenario: Missing footpad evidence
+
 - **WHEN** footpad state is unknown but speed or load qualifies
 - **THEN** the eligible speed or load announcement proceeds without a footpad phrase
 
@@ -297,25 +354,208 @@ An utterance SHALL say “left footpad off” for only the left qualifying side,
 Footpad alerts SHALL share the existing repeat interval, monotonic cooldown, speech slot, volume and native audio preferences with speed, load and tests. Persistent releases SHALL repeat using current eligible sides. Delay completion SHALL not bypass cooldown. Busy or unavailable audio SHALL skip attempts without queueing or catch-up. Contact recovery or slowing with fresh valid board context SHALL prevent new footpad attempts but let admitted speech finish.
 
 #### Scenario: Persistent release repeats
+
 - **WHEN** a side remains qualifying with a five-second repeat interval
 - **THEN** attempts repeat no more often than every five seconds and describe the sides currently qualifying
 
 #### Scenario: Delay completes during cooldown
+
 - **WHEN** a footpad delay completes during cooldown from speed, load or manual test speech
 - **THEN** it waits for the next shared eligible attempt without preempting speech or bypassing cooldown
 
 #### Scenario: Busy, muted or unavailable audio
+
 - **WHEN** an attempt is due while speech is busy, volume is zero or native audio is unavailable
 - **THEN** existing bounded admission and audio failure behavior applies, with no queued warning or catch-up playback
 
 #### Scenario: Recovery during admitted speech
+
 - **WHEN** contact returns or speed falls to 5 km/h or below during footpad speech while board context remains fresh and valid
 - **THEN** the admitted phrase finishes and subsequent attempts omit sides that no longer qualify
 
 #### Scenario: Invalid context during admitted speech
+
 - **WHEN** the board disconnects, its controller changes or board context becomes stale during footpad speech
 - **THEN** automatic speech is cancelled under the existing lifecycle rules and late callbacks cannot affect a replacement utterance
 
 #### Scenario: Disable and process restart
+
 - **WHEN** footpad announcements are disabled during playback or the process restarts
 - **THEN** disabling cancels active automatic speech under existing rule-edit behavior, while restart retains settings and discards speech and transient release durations
+
+### Requirement: Battery charge announcement control
+
+Ride announcements SHALL show one Battery announcements switch alongside existing rule switches, controlling both battery phrases. It SHALL autosave with existing revision/conflict handling, default on, survive restart and support keyboard, assistive technology and guarded primary-pointer activation. No battery threshold or repeat controls SHALL be added.
+
+#### Scenario: Toggle without duplicate activation
+
+- **WHEN** a user activates Battery charge with primary touch, mouse, keyboard or assistive technology
+- **THEN** it changes once and saves; cancelled or non-primary pointer input does not change it
+
+#### Scenario: Disable and re-enable
+
+- **WHEN** the user disables Battery charge during battery speech and later re-enables it
+- **THEN** battery speech is cancelled, other rule preferences remain unchanged, visual qualification is unaffected, and re-enabling uses fresh eligible evidence with retained battery cooldown
+
+#### Scenario: Revision conflict
+
+- **WHEN** an autosave conflicts or fails while newer edits exist
+- **THEN** the existing save/error/retry behavior preserves newer edits without silently presenting an unsaved value as persisted
+
+### Requirement: Authoritative voltage threshold resolution
+
+Battery charge SHALL use current Refloat low/high settings for the selected controller and connection, resolved to pack volts with supported package/firmware semantics. Per-cell conversion SHALL use the controller's series count. Missing, unsupported, non-finite, non-positive, reversed or unresolvable thresholds SHALL disable derived battery warnings, without guessed limits or disruption to other announcements.
+
+#### Scenario: Pack and per-cell settings
+
+- **WHEN** a supported board reports pack thresholds of 60 V and 86 V, or supported per-cell thresholds of 3.0 V and 4.3 V with controller series count 20
+- **THEN** both resolve to the same 60 V and 86 V pack thresholds
+
+#### Scenario: Missing conversion evidence
+
+- **WHEN** per-cell conversion requires an unavailable controller series count, even though an app battery profile supplies one
+- **THEN** derived battery warnings remain unavailable rather than using the app profile, schema defaults or inferred chemistry
+
+#### Scenario: Failed or invalid configuration
+
+- **WHEN** current configuration read fails, semantics are unknown, either limit is invalid, L is at least H, or a derived boundary is not finite and representable
+- **THEN** battery warnings remain unavailable and existing speed/load/footpad rules continue independently
+
+#### Scenario: Current values rather than editor state
+
+- **WHEN** a user edits an unsaved threshold or views schema/default values
+- **THEN** those values cannot change the battery announcement boundaries
+
+### Requirement: Proportional advance voltage boundaries
+
+For resolved pack limits L and H, battery charge SHALL use R = H − L, low entry L + 0.10R and high entry H − 0.05R. Low entry SHALL require voltage strictly below its boundary; high entry SHALL require voltage strictly above its boundary, using unrounded measurements independently of estimated battery percentage and display units.
+
+#### Scenario: Agreed 20S example
+
+- **WHEN** L is 60 V and H is 86 V
+- **THEN** low entry is 62.6 V and high entry is 84.7 V; equality alone does not enter either advance warning
+
+#### Scenario: Scale invariance
+
+- **WHEN** both configured limits and measured voltage scale by the same positive factor
+- **THEN** warning boundaries scale by that factor and eligibility is otherwise unchanged
+
+#### Scenario: Percentage and units
+
+- **WHEN** displayed battery percentage, battery profile or speed display units change without changing authoritative board thresholds or measurements
+- **THEN** the voltage boundaries remain unchanged
+
+### Requirement: Riding state battery eligibility
+
+Battery attempts SHALL require fresh valid voltage and Refloat running state from the ready selected board, saved or guest, without a speed check. Advance high attempts below H SHALL additionally require fresh negative battery current indicating regen. At or above H, regen SHALL not be required. Standalone BMS and non-running, unknown, missing, stale or invalid required observations SHALL not qualify.
+
+#### Scenario: Board is not riding
+
+- **WHEN** voltage is in either warning range but Refloat is not running, or its package state is missing, unknown or stale, even if speed indicates motion
+- **THEN** no battery attempt starts, including beyond a board threshold, and riding qualification resets without clearing cooldown
+
+#### Scenario: Riding without a speed gate
+
+- **WHEN** fresh Refloat running state and required electrical observations qualify while speed is zero, low, reverse or unavailable
+- **THEN** battery eligibility is unchanged by speed or display units and all other battery confirmation/cooldown rules still apply
+
+#### Scenario: Full pack under draw versus regen
+
+- **WHEN** voltage while Refloat is running is above high entry but below H
+- **THEN** high qualification requires negative battery current; zero, positive, missing or stale current suppresses it and resets high qualification
+
+#### Scenario: Critical high boundary
+
+- **WHEN** Refloat is running with fresh voltage at or above H and valid resolved thresholds
+- **THEN** high eligibility does not require regen evidence
+
+### Requirement: Battery confirmation and recovery hysteresis
+
+Advance low entry SHALL require 2 continuous seconds of eligible evidence; advance high entry SHALL require 500 ms. At or below L or at or above H SHALL bypass entry delay. Active low/high warnings SHALL recover only after 2 continuous seconds at or beyond low-entry + 0.02R / high-entry − 0.02R respectively. Interrupted conditions SHALL reset their confirmation timers.
+
+#### Scenario: Brief sag or spike
+
+- **WHEN** eligible voltage crosses low entry for less than 2 seconds or high entry for less than 500 ms without reaching L or H
+- **THEN** no battery warning qualifies and a later crossing starts a new full confirmation
+
+#### Scenario: Confirmation boundary and critical entry
+
+- **WHEN** eligible evidence persists for exactly the specified confirmation or fresh voltage while Refloat is running reaches L or H first
+- **THEN** the matching warning qualifies at that point, still subject to its cooldown and shared speech slot
+
+#### Scenario: Recovery example
+
+- **WHEN** L is 60 V and H is 86 V and a battery warning is active
+- **THEN** low clears after 2 seconds at or above 63.12 V, and high clears after 2 seconds at or below 84.18 V; brief recoveries reset recovery duration without clearing an otherwise eligible latch
+
+#### Scenario: Hysteresis band
+
+- **WHEN** voltage lies between an entry boundary and its recovery boundary
+- **THEN** an otherwise eligible active warning remains active, while an inactive warning does not begin qualifying
+
+### Requirement: Battery phrase cadence and priority
+
+Battery attempts SHALL speak only “Battery low” or “Over voltage” as standalone phrases, with independent monotonic 60-second cooldowns. Due battery attempts SHALL take priority when the shared speech slot is free, without waiting for routine cooldown or preempting admitted speech. Over voltage SHALL win conflicting battery evidence. Ordinary attempts SHALL retain existing internal phrase ordering.
+
+#### Scenario: One-minute low repeat
+
+- **WHEN** low remains eligible after an attempt at time T
+- **THEN** no further low attempt occurs before T + 60 seconds, and the next attempt uses fresh current eligibility
+
+#### Scenario: Independent high cooldown
+
+- **WHEN** high becomes eligible during a low or routine cooldown
+- **THEN** it can attempt immediately when the slot is free and its own confirmation/cooldown permits; sustained high repeats no more often than once per minute
+
+#### Scenario: Competing ordinary rules
+
+- **WHEN** battery and footpad/load/speed speech are due with a free slot
+- **THEN** battery speaks alone and advances the routine cooldown to avoid immediately following with routine speech; routine/manual speech never advances battery cooldowns
+
+#### Scenario: Busy slot
+
+- **WHEN** battery is due while automatic or manual speech is playing
+- **THEN** playback is not interrupted and no phrase is queued; a subsequent free-slot opportunity re-evaluates fresh evidence without consuming a battery interval for the busy drop
+
+### Requirement: Battery bounded audio failure behavior
+
+Battery speech SHALL share existing volume, offline voice, audio preference, single-slot and ten-second deadline behavior. A free-slot battery attempt SHALL advance its cooldown even if muted, unavailable or denied audio. Failed attempts SHALL not retry tightly, queue or catch up. Ordinary playback SHALL remain available while battery speech is cooling down.
+
+#### Scenario: Muted or unavailable audio
+
+- **WHEN** a due free-slot battery attempt encounters volume zero, unavailable speech or denied focus
+- **THEN** it consumes that kind's 60-second interval without queued playback; zero volume does not acquire audio resources or change device volume
+
+#### Scenario: Delayed worker and missing completion
+
+- **WHEN** execution resumes after missed battery intervals or native completion never arrives
+- **THEN** missed intervals are not replayed, the existing ten-second deadline bounds admitted playback, and late callbacks cannot affect a replacement utterance
+
+### Requirement: Battery lifecycle and configuration isolation
+
+Battery policy SHALL survive WebView replacement within the existing service. Leaving running state, loss of required fresh observations, configuration invalidation, disconnect or controller replacement SHALL reset transient qualification. Reconnect SHALL require current settings and fresh evidence. Process-local battery cooldowns SHALL survive these resets; process restart SHALL retain settings and discard transient state.
+
+#### Scenario: Telemetry gap
+
+- **WHEN** battery inputs reach two seconds old, or a new sample arrives after a gap of at least two seconds
+- **THEN** elapsed entry/recovery time cannot bridge the gap, new attempts require fresh qualification, and affected battery speech is cancelled on stale context
+
+#### Scenario: Leave and resume riding
+
+- **WHEN** a qualifying board leaves running state and returns to it before 60 seconds has passed since its last battery attempt
+- **THEN** no battery speech starts while non-running, an admitted phrase can finish with otherwise fresh valid context, and returning to running requires qualification without bypassing cooldown
+
+#### Scenario: Threshold replacement and reconnect
+
+- **WHEN** configuration is invalidated for a read/write or the controller reconnects or changes
+- **THEN** prior thresholds and qualification cannot trigger speech; affected battery speech is cancelled and confirmed current thresholds plus fresh measurements are required before new attempts
+
+#### Scenario: Frontend and native lifecycle
+
+- **WHEN** the WebView is recreated or the host backgrounds or locks while its existing execution/audio support remains available
+- **THEN** the same service-owned battery policy continues without duplicate timers or cooldown reset, subject to fresh telemetry and existing native audio restrictions
+
+#### Scenario: Process restart
+
+- **WHEN** the application process restarts
+- **THEN** the saved battery switch is retained and old readings, qualification, utterances and cooldown timestamps are discarded

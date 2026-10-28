@@ -592,7 +592,7 @@ export interface ActiveConnection extends Device {
   activeSession: SessionSummary | null;
   latestSample: LiveSample | null;
   batteryEstimate: BatteryEstimate;
-  /** Confirmed fresh riding voltage warning; independent of speech settings/cooldown. */
+  /** Fresh visual voltage warning; independent of riding, regen and speech policy. */
   batteryWarning: BatteryWarning | null;
   /** Saved board layout, or the separate guest layout. */
   liveWidgetSlots: LiveWidgetSlots;

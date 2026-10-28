@@ -145,13 +145,21 @@ for (const perCell of [false, true])
           const scanned = await client!.waitForState((s) => s.discoveredDevices.length > 0);
           await client!.request('device.connect', {
             deviceId: scanned.discoveredDevices[0]!.deviceId,
-            trackingMode: 'guest',
+            trackingMode: 'saved',
           });
           await client!.waitForState((s) => s.activeConnection?.state === 'ready');
         };
         await connect();
         await client.waitForState((s) => s.activeConnection?.refloatConfiguration?.currentLoaded === true, {
           timeoutMs: 15_000,
+        });
+        const ready = await client.request('state.get', {});
+        const savedDeviceId = ready.activeConnection!.savedDeviceId!;
+        const profile = await client.request('boardProfile.get', { savedDeviceId });
+        await client.request('boardProfile.update', {
+          savedDeviceId,
+          expectedRevision: profile.revision,
+          patch: { seriesCount: 20, parallelCount: 2, batteryCellProfileId: 'molicel-p45b' },
         });
         const current = await client.request('refloat.configuration.read', { source: 'current', refresh: false });
         await client.request('refloat.configuration.write', {
@@ -174,19 +182,22 @@ for (const perCell of [false, true])
           assert.equal(value.load, null);
           assert.equal(value.speed, null);
         };
+        telemetry.pin('packVoltageV', 66.4);
+        await client.waitForState((s) => s.activeConnection?.batteryWarning === 'low', { timeoutMs: 10_000 });
+        assert.equal(speech.length, 0, 'earlier stationary low visual does not trigger speech');
         telemetry.pin('packVoltageV', 62);
         await pause(2300);
         assert.equal(speech.length, 0, 'non-running state suppresses low warning');
         telemetry.pin('packageState', 'running');
         telemetry.pin('rideState', 'riding');
         await waitBattery('low');
-        await client.waitForState((s) => s.activeConnection?.batteryWarning === 'low');
+        await client.waitForState((s) => s.activeConnection?.batteryWarning === 'low', { timeoutMs: 10_000 });
         telemetry.pin('packageState', 'ready');
         telemetry.pin('rideState', 'idle');
         telemetry.pin('packVoltageV', 85);
         telemetry.pin('batteryCurrentA', -5);
-        await pause(1000);
-        assert.equal(speech.length, 1, 'non-running state suppresses high warning');
+        await client.waitForState((s) => s.activeConnection?.batteryWarning === 'overVoltage');
+        assert.equal(speech.length, 1, 'stationary above-full visual does not trigger speech');
         telemetry.pin('packageState', 'running');
         telemetry.pin('rideState', 'riding');
         telemetry.pin('batteryCurrentA', 5);
@@ -210,9 +221,12 @@ for (const perCell of [false, true])
         assert.equal((await client.request('state.get', {})).settings.announcements.batteryChargeEnabled, false);
         await pause(2300);
         assert.equal(speech.length, 2, 'explicit off persists through reconnect');
-        await client.waitForState((s) => s.activeConnection?.batteryWarning === 'low');
+        await client.waitForState((s) => s.activeConnection?.batteryWarning === 'low', { timeoutMs: 10_000 });
         telemetry.pin('packageState', 'ready');
-        await client.waitForState((s) => s.activeConnection?.batteryWarning === null);
+        await pause(300);
+        assert.equal((await client.request('state.get', {})).activeConnection?.batteryWarning, 'low');
+        telemetry.pin('packVoltageV', 75);
+        await client.waitForState((s) => s.activeConnection?.batteryWarning === null, { timeoutMs: 10_000 });
       } finally {
         client?.close();
         await target.stop();

@@ -186,10 +186,12 @@ Battery policy SHALL survive WebView replacement within the existing service. Le
 Speed and load SHALL have independent enable switches, both off by default, and retain independent thresholds. Battery charge SHALL have one independent switch, on by default. Users SHALL set a shared speed/load/footpad whole-second repeat interval from 1 through 60 seconds, defaulting to 5. Speed thresholds SHALL be finite and greater than zero through 200 km/h, defaulting to 25 km/h; load thresholds SHALL be finite and greater than zero through 100 percent, defaulting to 65 percent.
 
 #### Scenario: Disabled by default
+
 - **WHEN** the application starts with default settings
 - **THEN** speed, load and footpad announcements are disabled, battery charge announcements are enabled subject to their eligibility rules, and the default thresholds and interval are available for editing
 
 #### Scenario: Change units or enable flags
+
 - **WHEN** users change speed units or enable/disable either rule
 - **THEN** the physical speed threshold is preserved, its display converts to the selected units, and both independently saved thresholds remain available
 
@@ -198,14 +200,17 @@ Speed and load SHALL have independent enable switches, both off by default, and 
 Automatic announcements SHALL use only finite readings received less than two seconds ago from the ready active board and selected controller, in saved or guest mode. Speed SHALL use magnitude in the selected speed units. Speed and load SHALL qualify only when their unrounded values strictly exceed their thresholds; battery charge SHALL use its specified voltage comparisons and qualification rules. Standalone BMS, missing and out-of-range readings SHALL not qualify.
 
 #### Scenario: Duty component exceeds load threshold
+
 - **WHEN** fresh duty is 66 percent with a 65 percent threshold
 - **THEN** the announcement says the current whole-number percentage and says “duty” before the percentage
 
 #### Scenario: Equality and missing readings
+
 - **WHEN** a component equals the threshold, is unavailable, or is two seconds old
 - **THEN** it does not trigger an announcement
 
 #### Scenario: Reverse speed
+
 - **WHEN** a fresh reverse speed has a magnitude exceeding the speed threshold
 - **THEN** it qualifies and speech identifies the positive speed and selected unit
 
@@ -214,14 +219,17 @@ Automatic announcements SHALL use only finite readings received less than two se
 For speed, load and footpad rules, the first qualifying reading SHALL trigger an immediate attempt when cooldown permits. Subsequent speed/load/footpad attempts SHALL be separated by at least the configured interval using monotonic time and SHALL use the latest eligible value. Below-threshold crossings, settings edits and failed attempts SHALL not bypass cooldown. Busy playback SHALL cause due announcements to be skipped, not queued. Missed intervals SHALL not produce catch-up speech. Battery charge SHALL use its separate fixed cadence and shared-slot priority rules.
 
 #### Scenario: Continued excess
+
 - **WHEN** duty stays above 65 percent with a five-second interval
 - **THEN** speech attempts occur no more often than every five seconds and each speaks the current value, even when unchanged
 
 #### Scenario: Threshold chatter
+
 - **WHEN** readings repeatedly cross the threshold during cooldown
 - **THEN** they do not produce extra attempts; once cooldown expires a fresh qualifying reading can trigger speech
 
 #### Scenario: Slow speech or delayed worker
+
 - **WHEN** an utterance lasts longer than the interval or execution resumes after missed intervals
 - **THEN** utterances never overlap and old intervals are not replayed
 
@@ -230,10 +238,12 @@ For speed, load and footpad rules, the first qualifying reading SHALL trigger an
 The service SHALL admit at most one active utterance across automatic and test speech, with no pending utterance queue and a ten-second terminal deadline. A busy automatic attempt SHALL be dropped. A busy test SHALL fail with invalid_state. Manual tests SHALL ignore the automatic repeat interval and MAY repeat immediately after the previous utterance finishes. Each admitted test SHALL advance the speed/load/footpad automatic cooldown without advancing battery charge cooldowns. Audio readiness SHALL refresh at bounded native lifecycle opportunities, allowing recovery without app restart or continuous initialization retries. Normal logs SHALL omit spoken readings and private identity.
 
 #### Scenario: Concurrent test and automatic trigger
+
 - **WHEN** automatic speech is active and a test is requested
 - **THEN** the test fails with invalid_state and cannot enqueue or interrupt that speech
 
 #### Scenario: Voice becomes available
+
 - **WHEN** users return from system settings after making an offline voice available
 - **THEN** readiness is re-evaluated and a subsequent eligible attempt can speak without restarting the app
 
@@ -242,6 +252,7 @@ The service SHALL admit at most one active utterance across automatic and test s
 Existing supported stored settings missing the footpad fields SHALL open with footpad announcements disabled and a one-second delay, preserving every existing preference and supported recording. Missing batteryChargeEnabled SHALL default to true; explicit false SHALL remain false. New saves SHALL persist the footpad fields and batteryChargeEnabled. Invalid present values SHALL follow existing validation failures rather than silently defaulting or resetting storage.
 
 #### Scenario: Open supported settings predating footpad alerts
+
 - **WHEN** supported stored settings contain non-default speed, load, volume and repeat preferences but no footpad fields
 - **THEN** those preferences remain unchanged, footpad alerts default off with a one-second delay, and the expanded settings survive save and reopen
 

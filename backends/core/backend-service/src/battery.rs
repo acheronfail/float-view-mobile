@@ -31,6 +31,21 @@ impl Default for State {
     }
 }
 impl State {
+    /// Estimation validation has already checked the profile, counts and controller.
+    /// Missing voltage does not invalidate otherwise confirmed configuration.
+    pub(crate) fn full_charge_voltage(&self) -> Option<f64> {
+        if !matches!(
+            self.estimate.unavailable_reason,
+            None | Some(UnavailableReason::MissingVoltage)
+        ) {
+            return None;
+        }
+        let profile = float_view_product_store::battery_catalog::profile(
+            self.estimate.profile_id.as_deref()?,
+        )?;
+        Some(profile.curves[0].volts[0] * f64::from(self.estimate.series_count?))
+    }
+
     pub fn reconnect(&mut self) {
         self.reset_pending = true;
     }

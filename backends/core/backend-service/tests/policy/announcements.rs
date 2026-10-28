@@ -664,7 +664,7 @@ fn host_playback_flag_includes_battery_and_footpad_only_settings() {
 }
 
 #[test]
-fn battery_visual_state_survives_speech_settings_and_cooldown_but_not_stopped_or_stale() {
+fn battery_visual_state_survives_speech_settings_cooldown_and_stopping_but_not_stale() {
     let (mut t, mut sample) = battery_board();
     t.service
         .policy
@@ -692,7 +692,7 @@ fn battery_visual_state_survives_speech_settings_and_cooldown_but_not_stopped_or
     assert_eq!(t.service.battery_warning(), Some(Battery::Low));
     sample.package_state = Some(float_view_application_runtime::telemetry::PackageState::Ready);
     observe(&mut t, &sample, 400);
-    assert_eq!(t.service.battery_warning(), None);
+    assert_eq!(t.service.battery_warning(), Some(Battery::Low));
     sample.package_state = Some(float_view_application_runtime::telemetry::PackageState::Running);
     observe(&mut t, &sample, 500);
     assert_eq!(t.service.battery_warning(), Some(Battery::Low));
@@ -710,4 +710,36 @@ fn battery_visual_state_survives_speech_settings_and_cooldown_but_not_stopped_or
             .battery_warning,
         None
     );
+}
+
+#[test]
+fn profile_full_voltage_drives_stationary_visuals_without_changing_speech() {
+    let mut t = Test::new();
+    t.activate(true);
+    let id = t.service.policy.active.as_ref().unwrap().board.as_ref().unwrap().saved_device_id.clone();
+    let profile = t.service.store.update_profile(&id, 0,
+        r#"{"seriesCount":20,"parallelCount":2,"batteryCellProfileId":"molicel-p45b","batteryMinimumCellVoltageV":3.0}"#, 5).unwrap();
+    t.service.changed().unwrap();
+    let mut sample = samples::sample(1, 100);
+    sample.package_state = None; // Visuals do not require Refloat running evidence.
+    sample.pack_voltage_v = Some(84.001);
+    sample.battery_current_a = Some(5.);
+    assert!(spoken(&observe(&mut t, &sample, 100)).is_none());
+    assert_eq!(t.service.battery_warning(), Some(Battery::OverVoltage));
+    assert!(t.service.policy.timers.values().any(|timer| timer.kind == Timer::Speech));
+    t.service.changed().unwrap();
+    assert_eq!(t.service.published_snapshot().active.unwrap().battery_warning, Some(Battery::OverVoltage));
+    // A profile edit immediately clears old qualification; no old sample is reused.
+    let profile = t.service.store.update_profile(&id, profile.revision, r#"{"seriesCount":21}"#, 6).unwrap();
+    t.service.changed().unwrap();
+    assert_eq!(t.service.battery_warning(), None);
+    assert!(spoken(&observe(&mut t, &sample, 200)).is_none());
+    assert_eq!(t.service.battery_warning(), None);
+    sample.pack_voltage_v = Some(88.201);
+    observe(&mut t, &sample, 300);
+    assert_eq!(t.service.battery_warning(), Some(Battery::OverVoltage));
+    t.service.store.update_profile(&id, profile.revision, r#"{"batteryCellProfileId":null}"#, 7).unwrap();
+    t.service.changed().unwrap();
+    observe(&mut t, &sample, 400);
+    assert_eq!(t.service.battery_warning(), None);
 }

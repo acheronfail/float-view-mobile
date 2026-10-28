@@ -126,6 +126,82 @@ impl Gate {
     }
 }
 
+/// Visual qualification is independent of riding/regen and the speech gates.
+#[derive(Default)]
+pub(super) struct VisualState {
+    context: Option<(u64, Option<Limits>, Option<f64>)>,
+    observed_at: Option<u64>,
+    gates: [Gate; 2],
+}
+impl VisualState {
+    pub(super) fn reset(&mut self) {
+        self.observed_at = None;
+        self.gates = Default::default();
+    }
+    pub(super) fn context(&mut self, context: Option<(u64, Option<Limits>, Option<f64>)>) {
+        if self.context != context {
+            self.context = context;
+            self.reset();
+        }
+    }
+    pub(super) fn observe(&mut self, now: u64, volts: Option<f64>) {
+        if self
+            .observed_at
+            .is_some_and(|at| now.saturating_sub(at) >= 2000)
+        {
+            self.reset();
+        }
+        let Some((_, limits, full)) = self.context else {
+            self.reset();
+            return;
+        };
+        let Some(v) = volts.filter(|v| v.is_finite() && *v > 0.) else {
+            self.reset();
+            return;
+        };
+        self.observed_at = Some(now);
+        if let Some(limits) = limits {
+            let range = limits.high - limits.low;
+            self.gates[0].observe(
+                now,
+                v < limits.low + 0.25 * range,
+                v <= limits.low,
+                v >= limits.low + 0.27 * range,
+                2000,
+            );
+        } else {
+            self.gates[0] = Gate::default();
+        }
+        if let Some(full) = full.filter(|f| f.is_finite() && *f > 0.) {
+            // Entry has no delay or margin. Recovery uses 0.5% headroom and
+            // two fresh continuous seconds, so full-boundary noise cannot flicker.
+            self.gates[1].observe(now, v > full, true, v <= full * 0.995, 0);
+        } else {
+            self.gates[1] = Gate::default();
+        }
+    }
+    pub(super) fn pending(&self) -> bool {
+        self.gates
+            .iter()
+            .any(|gate| gate.active || gate.entry.is_some())
+    }
+    pub(super) fn warning(&self, now: u64) -> Option<Battery> {
+        if self
+            .observed_at
+            .is_none_or(|at| now.saturating_sub(at) >= 2000)
+        {
+            return None;
+        }
+        if self.gates[1].active {
+            Some(Battery::OverVoltage)
+        } else if self.gates[0].active {
+            Some(Battery::Low)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct State {
     context: Option<(u64, u64, Limits)>,
@@ -228,6 +304,96 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn visual() -> VisualState {
+        let mut state = VisualState::default();
+        state.context(Some((1, Some(Limits::new(60., 86.).unwrap()), Some(84.))));
+        state
+    }
+    #[test]
+    fn visuals_use_earlier_low_margin_and_continuous_recovery() {
+        let mut s = visual();
+        for t in [0, 1000, 2000] {
+            s.observe(t, Some(66.5));
+            assert_eq!(s.warning(t), None);
+        }
+        for t in [2100, 3100, 4099] {
+            s.observe(t, Some(66.4));
+            assert_eq!(s.warning(t), None);
+        }
+        s.observe(4100, Some(66.4));
+        assert_eq!(s.warning(4100), Some(Battery::Low));
+        s.observe(4200, Some(67.02));
+        s.observe(5200, Some(66.9)); // Interrupted recovery restarts the timer.
+        for t in [5300, 6300, 7299] {
+            s.observe(t, Some(67.02));
+            assert_eq!(s.warning(t), Some(Battery::Low));
+        }
+        s.observe(7300, Some(67.02));
+        assert_eq!(s.warning(7300), None);
+        s.observe(7400, Some(60.));
+        assert_eq!(s.warning(7400), Some(Battery::Low));
+    }
+    #[test]
+    fn visual_high_is_immediate_above_full_and_has_recovery_hysteresis() {
+        let mut s = visual();
+        s.observe(0, Some(84.));
+        assert_eq!(s.warning(0), None);
+        s.observe(1, Some(84.000001));
+        assert_eq!(s.warning(1), Some(Battery::OverVoltage));
+        s.observe(2, Some(84.));
+        assert_eq!(s.warning(2), Some(Battery::OverVoltage));
+        for t in [100, 1100, 2099] {
+            s.observe(t, Some(84. * 0.995));
+            assert_eq!(s.warning(t), Some(Battery::OverVoltage));
+        }
+        s.observe(2100, Some(84. * 0.995));
+        assert_eq!(s.warning(2100), None);
+    }
+    #[test]
+    fn visual_context_freshness_and_independent_limits_are_required() {
+        let mut s = visual();
+        s.context(Some((1, None, Some(84.))));
+        s.observe(0, Some(59.));
+        s.observe(1000, Some(59.));
+        assert_eq!(s.warning(1000), None);
+        s.observe(1100, Some(85.));
+        assert_eq!(s.warning(1100), Some(Battery::OverVoltage));
+        s.context(Some((1, Some(Limits::new(60., 86.).unwrap()), None)));
+        s.observe(1200, Some(85.));
+        assert_eq!(s.warning(1200), None);
+        s.observe(1300, Some(59.));
+        assert_eq!(s.warning(1300), Some(Battery::Low));
+        assert_eq!(s.warning(3300), None);
+        s.observe(3300, Some(66.)); // Cannot bridge the gap.
+        assert_eq!(s.warning(3300), None);
+        s.observe(3400, None);
+        s.observe(4400, Some(66.));
+        assert_eq!(s.warning(4400), None);
+        s.context(Some((2, Some(Limits::new(60., 86.).unwrap()), None)));
+        s.observe(5400, Some(66.));
+        assert_eq!(s.warning(5400), None);
+        s.observe(6400, Some(66.));
+        assert_eq!(s.warning(6400), None);
+        s.observe(7400, Some(66.));
+        assert_eq!(s.warning(7400), Some(Battery::Low));
+        for v in [f64::NAN, f64::INFINITY, 0., -1.] {
+            s.observe(7500, Some(v));
+            assert_eq!(s.warning(7500), None);
+        }
+        // Proportional boundaries scale, including profile-derived high.
+        s.context(Some((
+            3,
+            Some(Limits::new(120., 172.).unwrap()),
+            Some(168.),
+        )));
+        for t in [8000, 9000, 10000] {
+            s.observe(t, Some(132.8));
+        }
+        assert_eq!(s.warning(10000), Some(Battery::Low));
+        s.observe(10001, Some(168.001));
+        assert_eq!(s.warning(10001), Some(Battery::OverVoltage));
+    }
 
     fn state() -> State {
         let mut state = State::default();

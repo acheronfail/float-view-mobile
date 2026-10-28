@@ -705,9 +705,9 @@ impl BackendService {
         }
     }
     pub(crate) fn changed(&mut self) -> Result<(), Failure> {
+        self.refresh_battery()?;
         self.refresh_battery_context();
         self.policy.announcements.last_published_battery_warning = self.battery_warning();
-        self.refresh_battery()?;
         let runtime = self.runtime.snapshot().application;
         if let Some(active) = self.policy.active.as_mut()
             && active.live_activity_generation.is_none()

@@ -303,11 +303,14 @@ keyboard activation follows the same path. Preset details remain available for
 renaming and deletion when switching is unavailable.
 
 Battery widgets consume nullable `activeConnection.batteryWarning` from the shared
-confirmed voltage gates. Low/high warnings use an amber label, voltage and a slow
+visual voltage gates: a 25% margin above the configured low limit within the
+Refloat voltage window, and immediate high entry above the configured cell profile’s
+full-charge pack voltage. Speech keeps its separate 10%/5% margins and riding/regen
+gates. Low/high warnings use an amber label, voltage and a slow
 full-track outline; high voltage also adds diagonal hatching. The warning replaces
 charging animation without changing charge fill or percentage. Reduced motion keeps
-steady cues. Speech preferences and cooldowns do not hide these visuals; stopped,
-stale or invalid board context clears the authoritative warning. No frontend voltage
+steady cues. Speech preferences and cooldowns do not hide these visuals; stale
+or invalid board context clears the authoritative warning. No frontend voltage
 threshold calculation or firmware-fault presentation is used.
 
 The live battery percentage is the shared service's temporal estimate. Optional

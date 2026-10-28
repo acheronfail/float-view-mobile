@@ -115,6 +115,7 @@ pub(crate) struct State {
     observation: Option<(u64, u64, load::Load, Option<f64>)>,
     released_at: [Option<u64>; 2],
     battery: battery::State,
+    visual_battery: battery::VisualState,
 }
 impl State {
     pub(crate) fn reset_footpads(&mut self) {
@@ -124,11 +125,16 @@ impl State {
         self.observation = None;
         self.reset_footpads();
         self.battery.reset();
+        self.visual_battery.reset();
     }
 }
 impl BackendService {
     pub(crate) fn observe_announcement(&mut self, sample: &NormalizedSample) {
         self.refresh_battery_context();
+        self.policy
+            .announcements
+            .visual_battery
+            .observe(self.policy.exchange.now, sample.pack_voltage_v);
         // Check the previous sample before replacing its freshness evidence.
         if self.speech_values().2.is_none() {
             self.policy.announcements.reset_footpads();
@@ -394,6 +400,17 @@ impl BackendService {
         let snapshot = self.runtime.snapshot().application;
         let context = battery::resolve(&snapshot)
             .map(|(revision, limits)| (snapshot.generation.0, revision, limits));
+        let visual_context = self.policy.active.as_ref().map(|active| {
+            (
+                active.generation,
+                context.map(|(_, _, limits)| limits),
+                active.battery.full_charge_voltage(),
+            )
+        });
+        self.policy
+            .announcements
+            .visual_battery
+            .context(visual_context);
         if self.policy.announcements.battery.context(context)
             && self
                 .policy
@@ -409,7 +426,7 @@ impl BackendService {
         self.speech_values().2?;
         self.policy
             .announcements
-            .battery
+            .visual_battery
             .warning(self.policy.exchange.now)
     }
     pub(crate) fn reset_battery_announcements(&mut self) {
@@ -431,6 +448,7 @@ impl BackendService {
         if generation.is_none() {
             self.policy.announcements.reset_footpads();
             self.policy.announcements.battery.reset();
+            self.policy.announcements.visual_battery.reset();
         }
         let footpad = self.qualified_footpad();
         // Threshold crossings stop future attempts, not an admitted phrase.
@@ -467,7 +485,8 @@ impl BackendService {
                 let _ = self.emit_speech(id, winner, speed, generation, false, None);
             }
         }
-        let needed = self.policy.announcements.battery.pending()
+        let needed = self.policy.announcements.visual_battery.pending()
+            || self.policy.announcements.battery.pending()
             || self.policy.announcements.active.is_some()
             || winner.is_some()
             || speed.is_some()
