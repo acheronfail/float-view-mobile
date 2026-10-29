@@ -99,6 +99,79 @@ Play's foreground-service form needs descriptions, interruption impact and an
 Android video showing each claimed feature. A phone/Mac Apple review video is
 not evidence of these Android permission and notification flows.
 
+## Precise-location declaration worksheet
+
+Google's [location policy preview](https://support.google.com/googleplay/android-developer/answer/16909972#location-permissions)
+introduces updated requirements effective January 27, 2027. Use the actual Console
+form when available; this draft is not a submitted or approved declaration.
+The Android location button requirement for one-time requests applies when
+targeting API 37+. The current app targets API 36.
+
+Google's [foreground-location declaration guide](https://support.google.com/googleplay/android-developer/answer/17033915)
+says the precise-location form becomes available in November 2026, with mandatory
+compliance on January 27, 2027. In Console's App content section, complete the
+precise-location declaration when offered, selecting Live tracking for continuous
+ride-route capture and using the explanation below. This supplements the existing
+background-location declaration; it does not replace it.
+
+Suggested concise justification (under 500 characters):
+
+> Float View records the route of a ride on a connected VESC board so users can
+> review the path alongside board telemetry. Precise location is needed to
+> distinguish nearby streets and trails; coarse location cannot reliably show
+> the ridden path. A one-time location button cannot supply the continuous points
+> needed during a ride. With route recording enabled and permission granted,
+> recording continues while the screen is locked or another app is open.
+
+Supporting explanation if the form permits more detail:
+
+- Route recording is an optional core ride-history feature, enabled by the user.
+  A saved connected board must have an active session and report riding before
+  the shared service starts location capture. Capture stops when those conditions
+  cease or authorization is lost; background capture also requires background
+  authorization. It is not an always-on location tracker.
+- Continuous coordinates let users review where they rode alongside recorded
+  telemetry. Approximate access can still supply observations, but cannot
+  reliably distinguish adjacent streets/trails or reproduce the route's shape.
+  The justification is route fidelity, not that the app cannot launch without
+  precise location. A one-time fix cannot record a moving route.
+- The Android adapter requests GPS/network updates at a requested 1-second /
+  5-metre cadence; actual accuracy and delivery depend on Android and the device.
+  These settings are not a guarantee of sampling frequency or accuracy.
+- Location is not used for advertising or developer analytics. Ride records are
+  stored locally, with platform backup/device transfer and user-selected exports
+  as described above. Viewing online maps sends the viewed map area and request
+  metadata to OSMF. Do not claim that location-related information never leaves
+  the device.
+- Keep the existing background-location declaration and demonstration aligned
+  with this explanation. Bluetooth discovery's separate location requirements
+  do not replace the route-recording justification. Reassess minimum scope when
+  changing the target SDK, discovery flow or recording lifecycle.
+
+## DEX optimization assessment
+
+Google's [technical quality requirements](https://support.google.com/googleplay/android-developer/answer/17492799)
+introduce optimization thresholds in February 2027 for apps with more than
+10 MB of DEX code. This is DEX size, not the size of the AAB, native Rust
+libraries, frontend assets or installed app.
+
+On October 30, 2026, the latest CI-delivered Play internal bundle was
+`v1.2.1-rc.1`, build 157, source `fae11273`
+([successful delivery run](https://github.com/acheronfail/float-view-mobile/actions/runs/40485809424)).
+Its single `base/dex/classes.dex` entry totals **4,482,692 uncompressed bytes**
+(4.48 MB / 4.27 MiB); ZIP-compressed size is 1,517,850 bytes. The downloaded
+AAB's SHA-256 matches the delivered upload receipt. This is below 10 MB under
+either decimal or binary interpretation, so enabling R8 is not required by
+this threshold for that bundle. Release minification remains disabled.
+
+For later bundles, verify the source/build and receipt hash, then sum the
+uncompressed sizes of every `.dex` ZIP entry across all modules. Recheck after
+dependency growth and confirm the Console's App bundle explorer DEX metric
+before enforcement. This artifact measurement does not establish which build
+the owner has promoted to closed testing, Console optimization percentages,
+memory-vitals compliance or future policy approval. Detailed measurement and
+receipts stay in ignored `.local/android-store/readiness/`.
+
 ## Other Console fields and closed-test preparation
 
 Owner selected ages **13 and up**: 13–15, 16–17 and 18+, excluding under-13 groups.
