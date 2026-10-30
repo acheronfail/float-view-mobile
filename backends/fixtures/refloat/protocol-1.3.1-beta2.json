@@ -1,0 +1,62 @@
+{
+  "source": {
+    "repository": "https://github.com/lukash/refloat",
+    "tag": "v1.3.1-beta2",
+    "commit": "ebe3eb5886b9f7c6247d9a06abeafa8415a94542",
+    "paths": [
+      "src/main.c",
+      "src/rt_data.h",
+      "src/state.h",
+      "src/alert_tracker.h",
+      "src/alert_tracker.c",
+      "src/conf/settings.xml"
+    ]
+  },
+  "identity": "1.3.1-beta2",
+  "infoV2Hex": "24650002005265666c6f617400000000000000000000000000010301626574613200000000000000000000000000000000000000000027100000000000",
+  "imuTimeout": {
+    "stopCode": 7,
+    "alertId": 2,
+    "activeMask": 2,
+    "activationCode": 0,
+    "clearCode": 0,
+    "type": "error"
+  },
+  "mixedAlertsHex": "246523000000030000000004000300000064010104000000006402010000000065020000",
+  "records": [
+    {
+      "ticks": 100,
+      "id": 1,
+      "active": true,
+      "code": 4
+    },
+    {
+      "ticks": 100,
+      "id": 2,
+      "active": true,
+      "code": 0
+    },
+    {
+      "ticks": 101,
+      "id": 2,
+      "active": false,
+      "code": 0
+    }
+  ],
+  "controls": {
+    "package": 12,
+    "flywheel": 22,
+    "lighting": 20,
+    "clearFatal": 36
+  },
+  "telemetry": {
+    "command": 33,
+    "flags": 1,
+    "layoutNegotiation": false
+  },
+  "configuration": {
+    "fingerprint": "6bc6bfa433f8205519bc931723e39252aa71c9f538a0ed7c200d688486c63e73",
+    "signature": 421162011,
+    "serializedFields": 172
+  }
+}

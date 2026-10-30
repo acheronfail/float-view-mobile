@@ -127,6 +127,33 @@ describe('session-data protocol', () => {
     }
   });
 
+  it('validates timeout detail kinds, bounds and nullable occurrence time', () => {
+    const request = validateSessionDataRequest({ kind: 'events', sessionId: 'session-1', snapshot, range, limit: 100 });
+    const page = {
+      elapsedMs: [1000],
+      sequence: [1],
+      sourceSampleSequence: [0],
+      kinds: ['imuTimeoutHistory'],
+      values: [''],
+      timeouts: [{ active: true, sourceTicks: 100, occurredElapsedMs: null }],
+    };
+    const value = { kind: 'events', sessionId: 'session-1', snapshot, range, nextCursor: null, page };
+    expect(validateSessionDataResult(value, request).kind).toBe('events');
+    for (const timeouts of [
+      [],
+      [{ active: true, sourceTicks: 0x100000000, occurredElapsedMs: null }],
+      [{ active: true, sourceTicks: 100, occurredElapsedMs: 1001 }],
+      [{ active: 1, sourceTicks: 100, occurredElapsedMs: null }],
+    ]) {
+      expect(() => validateSessionDataResult({ ...value, page: { ...page, timeouts } }, request)).toThrow(
+        SessionDataProtocolError
+      );
+    }
+    expect(() =>
+      validateSessionDataResult({ ...value, page: { ...page, kinds: ['firmwareFaultHistory'] } }, request)
+    ).toThrow(SessionDataProtocolError);
+  });
+
   it('validates bounded location pages and explicit gaps', () => {
     const request = validateSessionDataRequest({
       kind: 'locations',

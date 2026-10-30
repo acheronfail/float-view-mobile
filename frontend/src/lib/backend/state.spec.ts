@@ -465,6 +465,7 @@ describe('BackendState', () => {
           ledsEnabled: true,
           headlightsEnabled: true,
           fatalErrorClearAvailable: true,
+          imuTimeoutAvailable: false,
           fatalErrorLatched: true,
           fatalErrorActive: false,
           fatalErrorClearable: true,

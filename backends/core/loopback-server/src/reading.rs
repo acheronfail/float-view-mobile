@@ -330,6 +330,8 @@ mod tests {
             fatal_error_latched: None,
             last_firmware_fault: None,
             fault_history: Vec::new(),
+            imu_timeout_active: None,
+            imu_timeout_history: Vec::new(),
             pack_voltage_v: None,
             duty_cycle: None,
             controller_temp_c: None,

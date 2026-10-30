@@ -360,6 +360,43 @@
         "acceptedWrite": "values/1.3.0-write.bin",
         "expectedReadback": "values/1.3.0-readback.bin"
       }
+    },
+    {
+      "version": "1.3.1-beta2",
+      "tag": "v1.3.1-beta2",
+      "commit": "ebe3eb5886b9f7c6247d9a06abeafa8415a94542",
+      "sourcePath": "src/conf/settings.xml",
+      "sourceSha256": "6bc6bfa433f8205519bc931723e39252aa71c9f538a0ed7c200d688486c63e73",
+      "compressedBytes": 28134,
+      "expandedBytes": 375813,
+      "compressedSha256": "03a505274ca073727646934d065c5270f8eca77471146eb483a551d295070eb4",
+      "schemaFingerprintSha256": "6bc6bfa433f8205519bc931723e39252aa71c9f538a0ed7c200d688486c63e73",
+      "normalizedExpectationSha256": "3c0fd16042fbd1b0f70ee5aa9c66e70790659b9f7cf130459eb09dfcd9025fa3",
+      "wireSignature": 421162011,
+      "wireSignatureHex": "191a6c1b",
+      "parameterCount": 174,
+      "serializedFieldCount": 172,
+      "groupCount": 2,
+      "defaultPayloadBytes": 282,
+      "defaultPayloadSha256": "d669664b79b96711c4e1a1ba2550e7b8ac1c60d2eaf7463fbae9f5bf36d5ac19",
+      "representativeWrite": {
+        "field": "kp",
+        "value": 21.0
+      },
+      "writeNormalization": [
+        {
+          "field": "meta.is_default",
+          "value": 0
+        }
+      ],
+      "files": {
+        "schema": "schemas/1.3.1-beta2.qcompress",
+        "values": "values/1.3.1-beta2.json",
+        "default": "values/1.3.1-beta2-default.bin",
+        "current": "values/1.3.1-beta2-current.bin",
+        "acceptedWrite": "values/1.3.1-beta2-write.bin",
+        "expectedReadback": "values/1.3.1-beta2-readback.bin"
+      }
     }
   ],
   "identityCases": [
@@ -383,7 +420,8 @@
         "1.2.1",
         "1.2.2",
         "1.2.3",
-        "1.3.0"
+        "1.3.0",
+        "1.3.1-beta2"
       ],
       "rule": "reported exact version and its audited schema fingerprint must both match"
     }

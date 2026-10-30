@@ -2,7 +2,7 @@ export type PackageState = 'disabled' | 'startup' | 'ready' | 'running' | 'unkno
 export type PackageMode = 'normal' | 'handTest' | 'flywheel' | 'unknown';
 export type FootpadState = 'none' | 'left' | 'right' | 'both' | 'unknown';
 export type StopCondition =
-  'none' | 'pitch' | 'roll' | 'switchHalf' | 'switchFull' | 'reverseStop' | 'quickStop' | 'unknown';
+  'none' | 'pitch' | 'roll' | 'switchHalf' | 'switchFull' | 'reverseStop' | 'quickStop' | 'imuTimeout' | 'unknown';
 export type SetpointAdjustment =
   | 'none'
   | 'centering'
@@ -582,7 +582,17 @@ const telemetryEnumValues: Partial<Record<keyof TelemetrySample, ReadonlySet<str
   packageState: new Set(['disabled', 'startup', 'ready', 'running', 'unknown']),
   packageMode: new Set(['normal', 'handTest', 'flywheel', 'unknown']),
   footpadState: new Set(['none', 'left', 'right', 'both', 'unknown']),
-  stopCondition: new Set(['none', 'pitch', 'roll', 'switchHalf', 'switchFull', 'reverseStop', 'quickStop', 'unknown']),
+  stopCondition: new Set([
+    'none',
+    'pitch',
+    'roll',
+    'switchHalf',
+    'switchFull',
+    'reverseStop',
+    'quickStop',
+    'imuTimeout',
+    'unknown',
+  ]),
   setpointAdjustment: new Set([
     'none',
     'centering',

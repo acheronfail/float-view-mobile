@@ -1,9 +1,10 @@
 mod support;
 
 use float_view_device_mutation_coordinator::{
-    BooleanControl, Command, ConfigurationMutation, ConfigureFacts, DeviceMutationCoordinator,
-    Effect, FailureReason, PendingKind,
+    BooleanControl, Command, ConfigurationBlockReason, ConfigurationMutation, ConfigureFacts,
+    DeviceMutationCoordinator, Effect, FailureReason, PendingKind,
 };
+use float_view_refloat_compatibility::{VersionSuffix, WireVersion, compatibility};
 use float_view_refloat_telemetry_service::{FootpadState, PackageMode, PackageState, RideState};
 use float_view_vesc_request_scheduler::{Generation, Route};
 
@@ -235,5 +236,109 @@ fn kind(effects: &[Effect]) -> &'static str {
         PendingKind::ControllerShutdown => "controller-shutdown",
         PendingKind::ConfigurationWrite => "configuration-write",
         PendingKind::TuneApply => "tune-apply",
+    }
+}
+
+#[test]
+fn imu_timeout_blocks_writes_but_preserves_flywheel_escape() {
+    for route in [Route::Direct, Route::Can(42)] {
+        let mut c = DeviceMutationCoordinator::new();
+        ready(&mut c, route);
+        let mut timed_out = sample(2, RideState::Idle, PackageMode::Normal);
+        timed_out.imu_timeout_active = Some(true);
+        observe(&mut c, timed_out);
+        for control in [BooleanControl::Package, BooleanControl::Flywheel] {
+            assert!(
+                c.apply(Command::SetControl {
+                    generation: Generation(7),
+                    control,
+                    enabled: control == BooleanControl::Flywheel
+                })
+                .is_err()
+            );
+        }
+        for mutation in [
+            ConfigurationMutation::Write,
+            ConfigurationMutation::TuneApply,
+        ] {
+            assert!(
+                c.apply(Command::BeginConfiguration {
+                    generation: Generation(7),
+                    mutation
+                })
+                .is_err()
+            );
+        }
+        assert!(
+            c.apply(Command::ClearFatalError {
+                generation: Generation(7)
+            })
+            .is_err()
+        );
+        let mut flywheel = sample(3, RideState::Idle, PackageMode::Flywheel);
+        flywheel.imu_timeout_active = Some(true);
+        observe(&mut c, flywheel);
+        assert!(
+            c.apply(Command::SetControl {
+                generation: Generation(7),
+                control: BooleanControl::Flywheel,
+                enabled: false
+            })
+            .is_ok()
+        );
+    }
+}
+
+#[test]
+fn beta_guarded_writes_require_confirmed_inactive_timeout() {
+    let version = WireVersion::patched(1, 3, 1).with_suffix(VersionSuffix::new("beta2").unwrap());
+    let profile = compatibility(version).unwrap();
+    for route in [Route::Direct, Route::Can(42)] {
+        for timeout in [None, Some(true), Some(false)] {
+            for mutation in [
+                ConfigurationMutation::Write,
+                ConfigurationMutation::TuneApply,
+            ] {
+                let mut c = DeviceMutationCoordinator::new();
+                configure(&mut c, route, firmware(0), profile);
+                let mut state = sample(1, RideState::Idle, PackageMode::Normal);
+                state.imu_timeout_active = timeout;
+                observe(&mut c, state);
+                observe_lighting(&mut c, 1, &[36, 101, 20, 3]);
+                assert_eq!(
+                    c.configuration_block_reason(Generation(7), mutation),
+                    match timeout {
+                        None => Some(ConfigurationBlockReason::ImuTimeoutUnconfirmed),
+                        Some(true) => Some(ConfigurationBlockReason::ImuTimeoutActive),
+                        Some(false) => None,
+                    }
+                );
+                assert_eq!(
+                    c.apply(Command::BeginConfiguration {
+                        generation: Generation(7),
+                        mutation
+                    })
+                    .is_ok(),
+                    timeout == Some(false)
+                );
+            }
+            for control in [BooleanControl::Package, BooleanControl::Flywheel] {
+                let mut c = DeviceMutationCoordinator::new();
+                configure(&mut c, route, firmware(0), profile);
+                let mut state = sample(1, RideState::Idle, PackageMode::Normal);
+                state.imu_timeout_active = timeout;
+                observe(&mut c, state);
+                observe_lighting(&mut c, 1, &[36, 101, 20, 3]);
+                assert_eq!(
+                    c.apply(Command::SetControl {
+                        generation: Generation(7),
+                        control,
+                        enabled: control == BooleanControl::Flywheel
+                    })
+                    .is_ok(),
+                    timeout == Some(false)
+                );
+            }
+        }
     }
 }

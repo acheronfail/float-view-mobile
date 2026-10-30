@@ -1,7 +1,7 @@
 <script lang="ts">
   import SessionConnectionContext from './SessionConnectionContext.svelte';
   import PausedRide from './PausedRide.svelte';
-  import { loadFirmwareFaults } from '$lib/features/faults/session-faults';
+  import { loadFaultsAndErrors } from '$lib/features/faults/session-faults';
   import FaultList from '$lib/features/faults/FaultList.svelte';
   import type { RideFault } from '$lib/features/faults/faults';
   import { startRideRefresh } from './ride-refresh';
@@ -204,7 +204,7 @@
     const controller = backendState.createSessionReviewController(metadata);
     let active = true;
     firmwareFaultError = '';
-    void loadFirmwareFaults(controller, metadata)
+    void loadFaultsAndErrors(controller, metadata)
       .then((faults) => {
         if (active) firmwareFaults = faults;
       })
@@ -432,10 +432,10 @@
     {#if refreshError}<p role="alert" class="text-sm text-warning">{refreshError}</p>{/if}
     {#if backendState.sessionMetadata}
       {#if firmwareFaults.length}
-        <section class="mb-3 space-y-2" aria-label="Ride faults">
-          <h2 class="font-semibold text-danger">Faults ({firmwareFaults.length})</h2>
+        <section class="mb-3 space-y-2" aria-label="Ride faults and errors">
+          <h2 class="font-semibold text-danger">Faults and errors ({firmwareFaults.length})</h2>
           <FaultList faults={firmwareFaults} onselect={selectFault} />
-          <p class="text-xs text-muted">Times are approximate. Select a timed fault to inspect the ride.</p>
+          <p class="text-xs text-muted">Times are approximate. Select a timed event to inspect the ride.</p>
         </section>
       {/if}
       {#if firmwareFaultError}<p role="alert" class="mb-3 text-sm text-danger">{firmwareFaultError}</p>

@@ -77,7 +77,7 @@ ordinary controller work, and auxiliary BMS traffic has the lowest priority.
 `DeviceMutationCoordinator` is the sole connection-scoped owner of semantic
 package, flywheel, LED, headlight, and fatal-latch mutations. It authorizes only
 the current route and generation, exact audited VESC firmware versions, and exact
-Refloat 1.0.x, 1.1.0–1.1.2, 1.2.0–1.2.3, or the 1.3.0 selectable wire profile. Test builds of audited VESC versions allow the same guarded writes as release builds;
+Refloat 1.0.x, 1.1.0–1.1.2, 1.2.0–1.2.3, or the 1.3.0 selectable wire profile and exact 1.3.1-beta2. Other 1.3.1 suffixes and stable 1.3.1 remain unsupported. Test builds of audited VESC versions allow the same guarded writes as release builds;
 unrecognised VESC and Refloat versions remain blocked by compatibility checks. One action may be pending for at most three seconds;
 the request result and published state change only after matching telemetry or
 lighting confirms it. Disconnect, reconnect, and generation changes cancel the
@@ -290,3 +290,46 @@ foreground visit can search for one locally selected saved board for 15 seconds
 after readiness. This demand shares ordinary discovery without extending its
 automatic eligibility. Manual connection/disconnect suppresses the opportunity
 until the next visit; WebView/listener replacement does not rearm it.
+
+### Refloat 1.3.1-beta2
+
+The audited prerelease is pinned to `ebe3eb5886b9f7c6247d9a06abeafa8415a94542`.
+Against 1.3.0, the source adds alert ID 2, stop code 7, and configuration
+metadata. Against beta1, the relevant source delta is motor-control changes
+in `src/main.c` and `src/motor_control.*` plus one descriptive XML edit;
+INFO, command 33/35 shapes, controls, and stop code are unchanged.
+It reuses the 1.3 command-33 profile and stable controls. Command 35 additionally
+reports package IMU timeout (alert ID 2, code 0), independently of VESC firmware
+faults and fatal latch. Active timeout and retained stop reason are distinct;
+recovered activation/clear records use `imuTimeoutHistory`. Existing firmware
+fault records remain unchanged. Both kinds share the 10,000 recovered-event
+budget per ride and existing bounded retrieval cadence.
+
+Configuration keeps the complete `1.3.1-beta2` identity, fingerprint
+`6bc6bfa433f8205519bc931723e39252aa71c9f538a0ed7c200d688486c63e73`,
+and wire signature `0x191a6c1b`. The 172-field signature matches 1.3.0, but schema
+metadata differs. Cache entries and Tunes do not cross versions. Convert from
+1.2, runtime tuning and automatic support for later releases are excluded.
+
+The added stop literal and JSON event kinds use the existing extensible session
+storage; no SQL layout, owned-storage marker or archive format change is needed.
+Frozen baseline storage and archive fixtures must continue to pass their tests.
+For focused software-host conformance, run:
+
+```sh
+FLOAT_VIEW_FIXTURE_REFLOAT=1.3.1-beta2 FLOAT_VIEW_CONFORMANCE_SCENARIOS=refloat-beta2 npm --prefix conformance run direct
+```
+
+The same scenario can run against the Apple or Android software-host target.
+This exercises simulated timeout records. The [physical checkpoint](../conformance/physical-checkpoints/refloat-1-3-1-beta2.md)
+is pending an exact-beta2 board.
+
+Guarded beta mutations require positively confirmed inactive IMU timeout state;
+unknown state before the first valid command-35 response cannot authorize a write.
+Live snapshots retain a separate bounded `imuTimeoutHistory` collection of
+recovered records. A retained IMU stop is persisted separately from history.
+
+When stable 1.3.1 is released and audited, replace beta2 support and its live
+admission/implementation fixtures with stable 1.3.1 rather than retaining both.
+Supported saved histories and Tunes remain preserved; conversion stays out of
+scope. Stable 1.3.1 remains unsupported until that audit and replacement.

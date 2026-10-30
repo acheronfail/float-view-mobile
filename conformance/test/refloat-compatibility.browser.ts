@@ -13,7 +13,19 @@ import { ConformanceClient } from '../src/client.ts';
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 const compatibility = {
   reportedVersion: '1.3.1-beta',
-  supportedVersions: ['1.0.0', '1.0.1', '1.1.0', '1.1.1', '1.1.2', '1.2.0', '1.2.1', '1.2.2', '1.2.3', '1.3.0'],
+  supportedVersions: [
+    '1.0.0',
+    '1.0.1',
+    '1.1.0',
+    '1.1.1',
+    '1.1.2',
+    '1.2.0',
+    '1.2.1',
+    '1.2.2',
+    '1.2.3',
+    '1.3.0',
+    '1.3.1-beta2',
+  ],
 };
 
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
@@ -82,6 +94,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(await disclosure.getAttribute('aria-expanded'), 'true');
         assert.match(await dialog.innerText(), /1\.0\.0, 1\.0\.1/);
         assert.match(await dialog.innerText(), /1\.3\.0/);
+        assert.match(await dialog.innerText(), /1\.3\.1-beta2/);
         const back = dialog.getByRole('button', { name: 'Back to boards', exact: true });
         const bounds = await back.boundingBox();
         assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= 320 && bounds.y + bounds.height <= 568);

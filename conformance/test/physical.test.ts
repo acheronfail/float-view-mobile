@@ -39,3 +39,13 @@ test('fault checkpoints start idle and the CAN controller is independently disco
     }
   }
 });
+
+test('IMU timeout physical fixture starts from a clean beta2 controller', async () => {
+  const { physicalScenario } = await import('../fixture/scenarios.ts');
+  const scenario = physicalScenario('imu-timeout-beta2');
+  const controller = scenario.board.controllers[0]!;
+  assert.equal(controller.refloatVersion, '1.3.1-beta2');
+  assert.equal(controller.telemetry?.phase(), 'idle');
+  assert.equal(controller.refloatControls?.state.fatalErrorLatched, false);
+  assert.throws(() => physicalScenario('imu-timeout-beta2', '1.3.0'), /requires Refloat 1.3.1-beta2/);
+});

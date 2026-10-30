@@ -7,11 +7,7 @@ import { reduceSeries, type ReferenceSample } from '../../frontend/src/lib/backe
 const SAMPLE_COUNT = 150_000;
 const RUNS = 3;
 const output =
-  process.argv[2] ??
-  resolve(
-    import.meta.dirname,
-    '../../.local/physical-testing/software-measurements.json'
-  );
+  process.argv[2] ?? resolve(import.meta.dirname, '../../.local/physical-testing/software-measurements.json');
 
 const source: ReferenceSample[] = Array.from({ length: SAMPLE_COUNT }, (_, index) => ({
   sequence: index + 1,

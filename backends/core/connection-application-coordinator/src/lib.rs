@@ -92,6 +92,8 @@ pub enum ConfigurationWriteBlockReason {
     ReadOnly,
     Busy,
     Flywheel,
+    ImuTimeoutActive,
+    ImuTimeoutUnconfirmed,
     Riding,
     StateUnknown,
     PackageNotReady,
@@ -258,7 +260,7 @@ pub enum Effect {
     CancelTimer(TimerToken),
     ClearRoutingHint,
     StoreRoutingHint(discovery::RoutedIdentity),
-    PrepareActivation(ActivationFacts),
+    PrepareActivation(Box<ActivationFacts>),
     PublishState(Box<Snapshot>),
     PublishTelemetry(Box<telemetry::NormalizedSample>),
     PublishFaultHistory(telemetry::FaultHistoryObservation),
@@ -430,6 +432,7 @@ pub struct ConnectionApplicationCoordinator {
     refloat_gnss: bool,
     dynamic_layout: Option<dynamic::DynamicLayout>,
     configuration_token: Option<mutation::MutationToken>,
+    last_now_ms: Option<u64>,
     discovery: discovery::ControllerDiscovery,
     scheduler: scheduler::VescRequestScheduler,
     telemetry: telemetry::RefloatTelemetryService,
@@ -463,6 +466,7 @@ impl Default for ConnectionApplicationCoordinator {
             refloat_gnss: false,
             dynamic_layout: None,
             configuration_token: None,
+            last_now_ms: None,
             discovery: discovery::ControllerDiscovery::new(),
             scheduler: scheduler::VescRequestScheduler::default(),
             telemetry: telemetry::RefloatTelemetryService::default(),
@@ -598,6 +602,16 @@ impl ConnectionApplicationCoordinator {
             configuration::Availability::Unavailable => return Some(R::Unavailable),
             configuration::Availability::Ready => {}
         }
+        if self.imu_timeout_available() {
+            match self
+                .telemetry
+                .imu_timeout_state(self.last_now_ms.unwrap_or(0))
+            {
+                Some(true) => return Some(R::ImuTimeoutActive),
+                Some(false) => {}
+                None => return Some(R::ImuTimeoutUnconfirmed),
+            }
+        }
         if let Some(reason) = self.mutations.configuration_block_reason(
             self.scheduler.snapshot().generation,
             mutation::ConfigurationMutation::Write,
@@ -607,6 +621,8 @@ impl ConnectionApplicationCoordinator {
                 M::ReadOnly => R::ReadOnly,
                 M::Busy => R::Busy,
                 M::Flywheel => R::Flywheel,
+                M::ImuTimeoutActive => R::ImuTimeoutActive,
+                M::ImuTimeoutUnconfirmed => R::ImuTimeoutUnconfirmed,
                 M::Riding => R::Riding,
                 M::StateUnknown => R::StateUnknown,
                 M::PackageNotReady => R::PackageNotReady,
@@ -628,6 +644,24 @@ impl ConnectionApplicationCoordinator {
     }
 
     pub fn apply(&mut self, command: Command) -> Result<Vec<Effect>, CoordinatorError> {
+        let now_ms = match &command {
+            Command::Begin(facts) => facts.now_ms,
+            Command::SelectController { now_ms, .. }
+            | Command::Receive { now_ms, .. }
+            | Command::DeadlineFired { now_ms, .. }
+            | Command::TimerFired { now_ms, .. }
+            | Command::Activate { now_ms, .. }
+            | Command::SetControl { now_ms, .. }
+            | Command::ClearFatalError { now_ms, .. }
+            | Command::ShutdownController { now_ms, .. }
+            | Command::ReadConfiguration { now_ms, .. }
+            | Command::WriteConfiguration { now_ms, .. }
+            | Command::UpdateSettings { now_ms, .. }
+            | Command::Refresh { now_ms, .. }
+            | Command::Reset { now_ms } => *now_ms,
+        };
+        validate_now(now_ms)?;
+        self.last_now_ms = Some(now_ms);
         match command {
             Command::Begin(facts) => self.begin(facts),
             Command::SelectController {
@@ -973,6 +1007,7 @@ impl ConnectionApplicationCoordinator {
             family,
             selectable_gnss: self.refloat_gnss,
             alerts_available: activation.compatibility.control.fatal_clear_available,
+            imu_timeout_available: activation.compatibility.imu_timeout_available,
             settings: self.settings,
         };
         configuration.validate()?;
@@ -1060,6 +1095,11 @@ impl ConnectionApplicationCoordinator {
         now_ms: u64,
     ) -> Result<Vec<Effect>, CoordinatorError> {
         let scheduler_generation = self.ready_generation(generation, now_ms)?;
+        if control == mutation::BooleanControl::Package
+            || (control == mutation::BooleanControl::Flywheel && enabled)
+        {
+            self.require_inactive_imu_timeout(now_ms)?;
+        }
         let child = self.mutations.apply(mutation::Command::SetControl {
             generation: scheduler_generation,
             control,
@@ -1126,6 +1166,7 @@ impl ConnectionApplicationCoordinator {
         now_ms: u64,
     ) -> Result<Vec<Effect>, CoordinatorError> {
         let scheduler_generation = self.ready_generation(generation, now_ms)?;
+        self.require_inactive_imu_timeout(now_ms)?;
         let transition = self.configuration.request_write(
             package_version,
             fingerprint,
@@ -1148,6 +1189,19 @@ impl ConnectionApplicationCoordinator {
         self.process_mutation(lease, now_ms, &mut effects)?;
         self.process_configuration(transition, now_ms, &mut effects)?;
         Ok(effects)
+    }
+
+    fn imu_timeout_available(&self) -> bool {
+        self.refloat_version
+            .and_then(compatibility::compatibility)
+            .is_some_and(|profile| profile.imu_timeout_available)
+    }
+
+    fn require_inactive_imu_timeout(&self, now_ms: u64) -> Result<(), CoordinatorError> {
+        if self.imu_timeout_available() && self.telemetry.imu_timeout_state(now_ms) != Some(false) {
+            return Err(mutation::CoordinatorError::InvalidState.into());
+        }
+        Ok(())
     }
 
     fn ready_generation(
@@ -1368,7 +1422,7 @@ impl ConnectionApplicationCoordinator {
         };
         self.phase = Phase::AwaitingActivation;
         self.awaiting_activation = Some(facts.clone());
-        push_effect(effects, Effect::PrepareActivation(facts))?;
+        push_effect(effects, Effect::PrepareActivation(Box::new(facts)))?;
         self.publish_state(effects)
     }
 
@@ -1422,6 +1476,42 @@ impl ConnectionApplicationCoordinator {
                     push_effect(effects, Effect::ArmDeadline { token, timeout_ms })?;
                 }
                 scheduler::Effect::Write(request) => {
+                    // Authorization may have changed while this request waited behind
+                    // an alert read. Check again before emitting any device traffic.
+                    let guarded = match request.context {
+                        scheduler::RequestContext::RefloatConfigurationWrite { .. } => true,
+                        scheduler::RequestContext::RefloatControl(_) => self
+                            .mutations
+                            .pending_control_requires_inactive_imu_timeout(),
+                        _ => false,
+                    };
+                    if guarded && self.require_inactive_imu_timeout(now_ms).is_err() {
+                        let mut cancelled = self.scheduler.cancel_matching(
+                            &scheduler::CancellationSelector::Exact(request.context.clone()),
+                            false,
+                            now_ms,
+                        )?;
+                        if !cancelled.iter().any(|effect| {
+                            matches!(effect,
+                            scheduler::Effect::Complete { request: value, .. }
+                                if value.sequence == request.sequence)
+                        }) {
+                            // No-response controls already have a synthetic Sent
+                            // completion in this batch; replace it with cancellation.
+                            pending.retain(|effect| {
+                                !matches!(effect,
+                                scheduler::Effect::Complete { request: value, .. }
+                                    if value.sequence == request.sequence)
+                            });
+                            cancelled.push(scheduler::Effect::Complete {
+                                request,
+                                outcome: scheduler::Completion::Cancelled,
+                            });
+                        }
+                        self.process_scheduler(cancelled, now_ms, observed_at_epoch_ms, effects)?;
+                        pending.extend(self.scheduler.resume(now_ms)?);
+                        continue;
+                    }
                     self.record_request(&request, "sent", now_ms);
                     push_effect(effects, Effect::Write(request))?;
                 }
@@ -1882,12 +1972,12 @@ impl ConnectionApplicationCoordinator {
                         );
                     }
                 };
-                let version = identity.version;
                 self.reported_refloat_version = Some(identity.to_string());
                 let admitted = compatibility::decode_info(&payload)
                     .ok()
-                    .and_then(compatibility::compatibility)
-                    .map(|profile| (version, profile));
+                    .and_then(|version| {
+                        compatibility::compatibility(version).map(|profile| (version, profile))
+                    });
                 match admitted {
                     Some((version, profile)) => {
                         self.refloat_version = Some(version);
@@ -2010,9 +2100,11 @@ impl ConnectionApplicationCoordinator {
             telemetry::RequestKind::SelectableFault => legacy::decode_fault_only(&payload)
                 .ok()
                 .map(telemetry::DecodedTelemetry::SelectableFault),
-            telemetry::RequestKind::Alerts => dynamic::alerts::decode_alerts(&payload)
-                .ok()
-                .map(telemetry::DecodedTelemetry::Alerts),
+            telemetry::RequestKind::Alerts => {
+                dynamic::alerts::decode_alerts_for_profile(&payload, self.imu_timeout_available())
+                    .ok()
+                    .map(telemetry::DecodedTelemetry::Alerts)
+            }
             telemetry::RequestKind::Layout => None,
         };
         let Some(decoded) = decoded else {
@@ -2868,6 +2960,7 @@ mod tests {
                         family: telemetry::TelemetryFamily::Selectable,
                         selectable_gnss: false,
                         alerts_available: false,
+                        imu_timeout_available: false,
                         settings: telemetry::Settings::new(500, 5_000).unwrap(),
                     },
                     now_ms: 10,

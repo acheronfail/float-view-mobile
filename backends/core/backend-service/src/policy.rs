@@ -1388,7 +1388,7 @@ impl BackendService {
                     }
                     c::Effect::CancelTimer(token) => self.cancel_timer(Timer::Kernel(token)),
                     c::Effect::PrepareActivation(facts) => {
-                        let command = match self.prepare_activation(facts) {
+                        let command = match self.prepare_activation(*facts) {
                             Ok(c) => c,
                             Err(e) => {
                                 self.disconnect("activation_failed")?;

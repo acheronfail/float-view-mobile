@@ -31,6 +31,8 @@ const labels: Record<FirmwareFault, string> = {
   unknown: 'Unknown controller fault',
 };
 export function faultLabel(reason: string, code: number | null): string {
+  if (reason === 'imuTimeout') return 'IMU timeout';
+  if (reason === 'imuTimeoutCleared') return 'IMU timeout cleared';
   return Object.hasOwn(labels, reason) && reason !== 'unknown'
     ? labels[reason as FirmwareFault]
     : code == null

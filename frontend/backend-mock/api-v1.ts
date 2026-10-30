@@ -140,6 +140,7 @@ const readyRefloatControls = (overrides: Partial<RefloatControls> = {}): Refloat
   ledsEnabled: true,
   headlightsEnabled: true,
   fatalErrorClearAvailable: true,
+  imuTimeoutAvailable: false,
   fatalErrorLatched: true,
   fatalErrorActive: false,
   fatalErrorClearable: true,
@@ -1395,6 +1396,8 @@ export class MockBackend {
       charging: false,
       alertReason: 'none' as const,
       firmwareFault: null,
+      imuTimeoutActive: null,
+      imuTimeoutHistory: [],
       fatalErrorLatched: active.refloatControls?.fatalErrorLatched ?? null,
       lastFirmwareFault: null,
       faultHistory: [],
@@ -1439,7 +1442,6 @@ export class MockBackend {
       wattHoursDrawnWh: 812,
       wattHoursChargedWh: 119,
       batteryLevel: 0.68,
-      estimatedBatteryLevel: 0.61,
       chargingCurrentA: 0,
       chargingVoltageV: 0,
       extensions: {},
@@ -1519,6 +1521,7 @@ export class MockBackend {
             ledsEnabled: null,
             headlightsEnabled: null,
             fatalErrorClearAvailable: false,
+            imuTimeoutAvailable: false,
             fatalErrorLatched: null,
             fatalErrorActive: null,
             fatalErrorClearable: null,
@@ -2713,6 +2716,10 @@ function configurationWriteBlockReason(active: ActiveConnection): RefloatConfigu
     return 'busy';
   const sample = active.latestSample;
   if (active.refloatControls?.flywheelEnabled || sample?.packageMode === 'flywheel') return 'flywheel';
+  if (active.refloatControls?.imuTimeoutAvailable) {
+    if (sample?.imuTimeoutActive === true) return 'imuTimeoutActive';
+    if (sample?.imuTimeoutActive !== false) return 'imuTimeoutUnconfirmed';
+  }
   if (!sample || sample.rideState === 'unknown' || !sample.packageState || !sample.packageMode) return 'stateUnknown';
   if (sample.rideState === 'riding') return 'riding';
   if (sample.rideState !== 'idle' || sample.packageState !== 'ready') return 'packageNotReady';

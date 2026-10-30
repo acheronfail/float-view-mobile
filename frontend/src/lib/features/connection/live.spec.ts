@@ -27,6 +27,7 @@ const refloatControls = {
   ledsEnabled: true,
   headlightsEnabled: false,
   fatalErrorClearAvailable: true,
+  imuTimeoutAvailable: false,
   fatalErrorLatched: true,
   fatalErrorActive: false,
   fatalErrorClearable: true,
@@ -307,6 +308,7 @@ describe('live board behavior', () => {
         footpadState: 'both',
         packageState: 'running',
         packageMode: 'normal',
+        imuTimeoutActive: packageVersion === '1.3.1-beta2' ? false : null,
       } as ActiveConnection['latestSample'];
       const modern = packageVersion !== null && !packageVersion.startsWith('1.0.') && packageVersion !== '1.3.1';
       const reason = () => refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration, 'applyTune');
@@ -401,4 +403,41 @@ describe('live board behavior', () => {
       confirmLabel: 'Shut down',
     });
   });
+});
+
+it('requires confirmed inactive beta timeout for configuration and package actions', () => {
+  const ready = connection('ready');
+  ready.refloatControls = { ...refloatControls, imuTimeoutAvailable: true };
+  ready.firmware = {
+    vescVersion: '6.6',
+    packageName: 'refloat',
+    packageVersion: '1.3.1-beta2',
+    accessMode: 'readWrite',
+    supported: true,
+  };
+  const summary = {
+    availability: 'ready',
+    writable: true,
+    packageVersion: '1.3.1-beta2',
+    pendingOperation: null,
+  } as NonNullable<ActiveConnection['refloatConfiguration']>;
+  for (const active of [null, true, false]) {
+    ready.latestSample = {
+      rideState: 'idle',
+      packageState: 'ready',
+      packageMode: 'normal',
+      imuTimeoutActive: active,
+    } as ActiveConnection['latestSample'];
+    expect(refloatConfigurationWriteUnavailableReason(ready, summary) === null).toBe(active === false);
+    const actions = refloatMenuActions(ready);
+    expect(actions.find((action) => action.control === 'package')?.disabled).toBe(active !== false);
+  }
+  ready.latestSample = { ...ready.latestSample!, imuTimeoutActive: false };
+  ready.refloatConfiguration = { ...summary, writeBlockReason: 'imuTimeoutUnconfirmed' };
+  expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration)).toContain('confirm');
+  expect(refloatMenuActions(ready).find((action) => action.control === 'package')?.disabled).toBe(true);
+  ready.latestSample = { ...ready.latestSample!, rideState: 'riding' };
+  expect(refloatConfigurationWriteUnavailableReason(ready, ready.refloatConfiguration, 'applyTune')).toContain(
+    'confirm'
+  );
 });

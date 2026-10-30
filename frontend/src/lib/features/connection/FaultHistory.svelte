@@ -1,7 +1,7 @@
 <script lang="ts">
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import { untrack } from 'svelte';
-  import { loadFirmwareFaults } from '$lib/features/faults/session-faults';
+  import { loadFaultsAndErrors } from '$lib/features/faults/session-faults';
   import { faultLabel, type RideFault } from '$lib/features/faults/faults';
   import FullScreenOverlay from '$lib/ui/FullScreenOverlay.svelte';
   import { backendState } from '$lib/backend/state.svelte';
@@ -38,7 +38,7 @@
         .then(async (metadata) => {
           if (!active) return;
           controller = backendState.createSessionReviewController(metadata);
-          const faults = await loadFirmwareFaults(controller, metadata);
+          const faults = await loadFaultsAndErrors(controller, metadata);
           if (active) recorded = faults;
         })
         .catch((reason) => {
@@ -50,7 +50,20 @@
       controller?.dispose();
     };
   });
-  const faults = $derived(recorded ?? (sessionId ? [] : (sample?.faultHistory ?? [])));
+  const faults = $derived(
+    recorded ??
+      (sessionId
+        ? []
+        : [
+            ...(sample?.faultHistory ?? []),
+            ...(sample?.imuTimeoutHistory ?? []).map((entry) => ({
+              reason: entry.active ? 'imuTimeout' : 'imuTimeoutCleared',
+              code: null,
+              elapsedMs: entry.elapsedMs,
+              observedElapsedMs: entry.observedElapsedMs,
+            })),
+          ].sort((a, b) => (a.elapsedMs ?? a.observedElapsedMs) - (b.elapsedMs ?? b.observedElapsedMs)))
+  );
   const warning = $derived(firmwareFaultWarning(sample));
   const reason = $derived(sample?.firmwareFault ?? sample?.lastFirmwareFault?.reason);
   const latched = $derived(
@@ -67,8 +80,11 @@
   }
 </script>
 
-<FullScreenOverlay title="Fault history" titleId="fault-history-title" {onclose}>
+<FullScreenOverlay title="Faults and errors" titleId="fault-history-title" {onclose}>
   <div class="mx-auto w-full max-w-2xl space-y-4 p-4">
+    {#if sample?.imuTimeoutActive}<div role="alert" class="rounded-lg border border-danger/40 bg-danger/5 p-3 text-sm">
+        IMU timeout active. Step off the board.
+      </div>{/if}
     {#if warning}
       <div role="status" class="rounded-lg border border-danger/40 bg-danger/5 p-3 text-sm">
         <p class="font-semibold text-danger">
@@ -96,7 +112,7 @@
       </div>
     {/if}
     <p class="text-sm text-muted">
-      Recent faults from this ride. Times are approximate; older faults may have no ride time.
+      Recent faults and errors from this ride. Times are approximate; older events may have no ride time.
     </p>
     {#if error}<p role="alert" class="text-sm text-danger">{error}</p>
       <button
@@ -113,12 +129,14 @@
       >{/if}
     {#if faults.length}
       <FaultList faults={[...faults].reverse()} />
-      {#if !sessionId}<p class="text-xs text-muted">Guest history keeps the 20 most recent faults.</p>{/if}
+      {#if !sessionId}<p class="text-xs text-muted">
+          Guest history keeps the 20 most recent firmware faults and IMU timeout transitions.
+        </p>{/if}
     {:else if sessionId && recorded === null && !error}
       <p class="py-6 text-center text-muted" role="status">Loading history…</p>
     {:else if !error}
       <p class="py-6 text-center text-muted">
-        {warning ? 'No fault details recorded for this ride.' : 'No faults recorded.'}
+        {warning || sample?.imuTimeoutActive ? 'No details recorded for this ride.' : 'No faults or errors recorded.'}
       </p>
     {/if}
   </div>

@@ -6,7 +6,7 @@ use support::*;
 
 #[test]
 fn stable_suffix_artifact_uses_canonical_activation_but_prereleases_stay_blocked() {
-    for suffix in ["", "0", "beta1", "0-beta1", "00", "1"] {
+    for suffix in ["", "0", "beta2", "0-beta2", "00", "1"] {
         let mut c = ConnectionApplicationCoordinator::default();
         c.apply(Command::Begin(begin_facts(10))).unwrap();
         receive(&mut c, motor_payload(7), 20);

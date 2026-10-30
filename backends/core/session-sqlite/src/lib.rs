@@ -1135,6 +1135,7 @@ fn stop_condition(value: StopCondition) -> &'static str {
         StopCondition::ReverseStop => "reverseStop",
         StopCondition::QuickStop => "quickStop",
         StopCondition::Unknown => "unknown",
+        StopCondition::ImuTimeout => "imuTimeout",
     }
 }
 

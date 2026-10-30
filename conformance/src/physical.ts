@@ -346,6 +346,8 @@ async function runPhysicalScenario(
       report('  Foreground auto-connect and explicit-disconnect suppression verified');
     } else if (name === 'fault-direct' || name === 'fault-can') {
       await runFaultHistoryCheckpoint(client, runner, ready, report);
+    } else if (name === 'imu-timeout-beta2') {
+      await runImuTimeoutBetaCheckpoint(client, runner, ready, report);
     } else if (name === 'control-direct' || name === 'control-can') {
       await exerciseRefloatConfiguration(client, ready, true);
       await runRefloatControlCheckpoint(client, runner, ready, report);
@@ -430,6 +432,93 @@ async function runPhysicalScenario(
     await target.stop().catch(() => undefined);
     if (!fixtureStopped) await runner.stop(passed);
   }
+}
+
+/** Source-derived timeout activation and recovery through the production BLE adapter. */
+async function runImuTimeoutBetaCheckpoint(
+  client: ConformanceClient,
+  runner: FixtureRunner,
+  ready: AppState,
+  report: Progress
+) {
+  const model = runner.scenario.board.controllers[0]!.refloatControls!;
+  const sessionId = ready.activeConnection!.activeSession!.sessionId;
+  let state = await client.waitForState(
+    (s) =>
+      s.activeConnection?.firmware?.packageVersion === '1.3.1-beta2' &&
+      s.activeConnection.latestSample?.imuTimeoutActive === false &&
+      s.activeConnection.refloatConfiguration?.currentLoaded === true &&
+      s.activeConnection.refloatConfiguration.writeBlockReason === null,
+    { timeoutMs: 90_000 }
+  );
+  const current = await client.request('refloat.configuration.read', { source: 'current' });
+  const requestOffset = runner.simulator.requests.length;
+  model.recordImuTimeout(true);
+  state = await client.waitForState(
+    (s) =>
+      s.activeConnection?.latestSample?.imuTimeoutActive === true &&
+      s.activeConnection.latestSample.imuTimeoutHistory.some((entry) => entry.active) &&
+      s.activeConnection.refloatConfiguration?.writeBlockReason === 'imuTimeoutActive',
+    { afterRevision: state.revision, timeoutMs: 20_000 }
+  );
+  assert.equal(state.activeConnection!.latestSample!.firmwareFault, null);
+  assert.equal(state.activeConnection!.latestSample!.fatalErrorLatched, false);
+  const blocked = (error: unknown) => error instanceof ConformanceError && error.error.code === 'invalid_state';
+  await assert.rejects(
+    client.request('refloat.configuration.write', {
+      packageVersion: current.identity.packageVersion,
+      schemaFingerprint: current.identity.schemaFingerprint,
+      wireSignature: current.identity.wireSignature,
+      baseRevision: current.revision,
+      values: current.values,
+    }),
+    blocked
+  );
+  await assert.rejects(client.request('refloat.control.set', { control: 'package', enabled: false }), blocked);
+  await assert.rejects(client.request('refloat.control.set', { control: 'flywheel', enabled: true }), blocked);
+  assert.equal(model.state.packageEnabled, true);
+  assert.equal(model.state.flywheelEnabled, false);
+  assert.ok(
+    !runner.simulator.requests.slice(requestOffset).some((request) => request.kind === 'refloat-configuration-write'),
+    'Active timeout must block configuration traffic'
+  );
+  report('  Active timeout warning and guarded-write rejection verified over BLE');
+
+  model.recordImuTimeout(false);
+  state = await client.waitForState(
+    (s) =>
+      s.activeConnection?.latestSample?.imuTimeoutActive === false &&
+      s.activeConnection.latestSample.imuTimeoutHistory.map((entry) => entry.active).join(',') === 'true,false' &&
+      s.activeConnection.refloatConfiguration?.writeBlockReason === null,
+    { afterRevision: state.revision, timeoutMs: 20_000 }
+  );
+  model.recordImuTimeout(true);
+  model.recordImuTimeout(false);
+  state = await client.waitForState(
+    (s) =>
+      s.activeConnection?.latestSample?.imuTimeoutActive === false &&
+      s.activeConnection.latestSample.imuTimeoutHistory.map((entry) => entry.active).join(',') ===
+        'true,false,true,false',
+    { afterRevision: state.revision, timeoutMs: 20_000 }
+  );
+  await client.request('device.disconnect', {});
+  await client.waitForState((s) => s.activeConnection === null, { afterRevision: state.revision });
+  const metadata = await client.request('session.get', { sessionId });
+  const events = await client.sessionData({
+    kind: 'events',
+    sessionId,
+    snapshot: metadata.snapshot,
+    range: { startElapsedMs: 0, endElapsedMs: metadata.snapshot.committedElapsedMs },
+    limit: 500,
+  });
+  assert.equal(events.kind, 'events');
+  if (events.kind !== 'events') throw new Error('Expected event history');
+  assert.deepEqual(
+    events.page.timeouts?.filter(Boolean).map((entry) => entry!.active),
+    [true, false, true, false]
+  );
+  assert.equal(events.page.kinds.filter((kind) => kind === 'firmwareFaultHistory').length, 0);
+  report('  Active/clear and transient timeout history persisted without a firmware fault');
 }
 
 async function runRefloatControlCheckpoint(

@@ -71,8 +71,16 @@ export function refloatConfigurationWriteUnavailableReason(
   }
   if (connection.refloatControls?.flywheelEnabled === true) return 'Exit flywheel mode before applying a Tune.';
 
+  if (summary.writeBlockReason === 'imuTimeoutActive')
+    return 'Wait for the IMU timeout to clear before applying a Tune.';
+  if (summary.writeBlockReason === 'imuTimeoutUnconfirmed')
+    return 'Wait for the board to confirm IMU timeout status before applying a Tune.';
+
   const sample = connection.latestSample;
   if (!sample) return 'Wait for live board status before applying a Tune.';
+  if (sample.imuTimeoutActive === true) return 'Wait for the IMU timeout to clear before applying a Tune.';
+  if (connection.refloatControls?.imuTimeoutAvailable && sample.imuTimeoutActive !== false)
+    return 'Wait for the board to confirm IMU timeout status before applying a Tune.';
   if (operation === 'applyTune' && supportsRidingTuneApply(summary.packageVersion)) {
     if (
       (sample.rideState !== 'idle' && sample.rideState !== 'riding') ||
@@ -145,7 +153,11 @@ export function refloatMenuActions(connection: ActiveConnection): RefloatMenuAct
     connection.state === 'ready' &&
     controls.flywheelEnabled !== null &&
     controls.writable &&
-    controls.pendingAction === null;
+    controls.pendingAction === null &&
+    connection.refloatConfiguration?.writeBlockReason !== 'imuTimeoutActive' &&
+    connection.refloatConfiguration?.writeBlockReason !== 'imuTimeoutUnconfirmed' &&
+    connection.latestSample?.imuTimeoutActive !== true &&
+    (!controls.imuTimeoutAvailable || connection.latestSample?.imuTimeoutActive === false);
   const idle = connection.latestSample?.rideState === 'idle';
   const flywheel = controls.flywheelEnabled === true;
 

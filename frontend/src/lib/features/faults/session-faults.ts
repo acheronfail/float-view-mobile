@@ -3,7 +3,7 @@ import type { SessionReviewController } from '$lib/backend/session-controller';
 import type { RideFault } from './faults';
 
 /** Read all event pages with a fixed ceiling. Never display a truncated fault list. */
-export async function loadFirmwareFaults(
+export async function loadFaultsAndErrors(
   controller: Pick<SessionReviewController, 'loadEvents'>,
   metadata: SessionMetadata
 ): Promise<RideFault[]> {
@@ -20,6 +20,19 @@ export async function loadFirmwareFaults(
     });
     const page = result.page;
     for (let i = 0; i < page.sequence.length; i++) {
+      if (page.kinds[i] === 'imuTimeoutHistory') {
+        const details = page.timeouts?.[i];
+        if (!details) throw new Error('Timeout history is incomplete.');
+        recovered.push({
+          sequence: page.sequence[i]!,
+          reason: details.active ? 'imuTimeout' : 'imuTimeoutCleared',
+          code: null,
+          elapsedMs: details.occurredElapsedMs,
+          observedElapsedMs: page.elapsedMs[i]!,
+        });
+        if (recovered.length + observed.length > 10_000) throw new Error('Fault history is too large to display.');
+        continue;
+      }
       const reason = page.values[i]!;
       const kind = page.kinds[i];
       if (reason === 'none' || (kind !== 'firmwareFaultHistory' && kind !== 'firmwareFault')) continue;

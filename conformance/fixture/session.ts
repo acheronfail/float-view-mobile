@@ -10,15 +10,7 @@ export type FixtureCommand = {
   operation: number;
   generation: number;
   command:
-    | 'scan'
-    | 'stopScan'
-    | 'connect'
-    | 'disconnect'
-    | 'write'
-    | 'enableNotifications'
-    | 'poll'
-    | 'reset'
-    | 'close';
+    'scan' | 'stopScan' | 'connect' | 'disconnect' | 'write' | 'enableNotifications' | 'poll' | 'reset' | 'close';
   transport_operation?: number;
   response?: boolean;
   device?: string;

@@ -104,7 +104,7 @@ impl ProductStore {
             [session.committed_sequence],
             |r| r.get(0),
         )?;
-        let important: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM session_event WHERE sequence<=? AND (kind IN ('session_marker','firmwareFaultHistory') OR (kind='firmwareFault' AND json_extract(details_json,'$.value')<>'none') OR (kind='fatalErrorLatched' AND json_extract(details_json,'$.value')='active')))", [session.committed_event_sequence], |r| r.get(0))?;
+        let important: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM session_event WHERE sequence<=? AND (kind IN ('session_marker','firmwareFaultHistory','imuTimeoutHistory') OR (kind='firmwareFault' AND json_extract(details_json,'$.value')<>'none') OR (kind='stopCondition' AND json_extract(details_json,'$.value')='imuTimeout') OR (kind='fatalErrorLatched' AND json_extract(details_json,'$.value')='active')))", [session.committed_event_sequence], |r| r.get(0))?;
         Ok(important
             || (riding
                 && session.distance_m.unwrap_or(0.) >= self.settings()?.minimum_session_distance))

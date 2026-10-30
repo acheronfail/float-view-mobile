@@ -1,4 +1,5 @@
-import { directTarget } from '../targets/direct.ts';
+import { directTarget, makeDirectTarget } from '../targets/direct.ts';
+import { InteractiveTelemetrySource } from '../fixture/telemetry.ts';
 import {
   runConformance,
   runAnnouncementsConformance,
@@ -6,6 +7,7 @@ import {
   runAutoConnectConformance,
   runDiagnosticsConformance,
   runRideContinuityConformance,
+  runRefloatBetaConformance,
 } from './suite.ts';
 import { externalTarget } from '../targets/external.ts';
 import { mockTarget } from '../targets/mock.ts';
@@ -39,7 +41,13 @@ if (name === 'physical') {
 }
 const target =
   name === 'direct'
-    ? directTarget
+    ? process.env.FLOAT_VIEW_FIXTURE_REFLOAT === '1.3.1-beta2'
+      ? makeDirectTarget({
+          telemetry: new InteractiveTelemetrySource(),
+          refloatVersion: '1.3.1-beta2',
+          onSpeech: () => {},
+        })
+      : directTarget
     : name === 'mock'
       ? mockTarget
       : name === 'macos'
@@ -52,15 +60,17 @@ const target =
 const result = await (
   process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'announcements'
     ? runAnnouncementsConformance
-    : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'connection-context'
-      ? runConnectionContextConformance
-      : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'ride-continuity'
-        ? runRideContinuityConformance
-        : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'diagnostics'
-          ? runDiagnosticsConformance
-          : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'auto-connect'
-            ? runAutoConnectConformance
-            : runConformance
+    : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'refloat-beta2'
+      ? runRefloatBetaConformance
+      : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'connection-context'
+        ? runConnectionContextConformance
+        : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'ride-continuity'
+          ? runRideContinuityConformance
+          : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'diagnostics'
+            ? runDiagnosticsConformance
+            : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'auto-connect'
+              ? runAutoConnectConformance
+              : runConformance
 )(target);
 console.log(`Conformance passed: ${result.target} revision=${result.revision}`);
 

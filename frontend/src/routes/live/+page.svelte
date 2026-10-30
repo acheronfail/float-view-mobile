@@ -21,7 +21,7 @@
   import { lightingMenuActions } from '$lib/features/connection/lighting';
   import FaultHistory from '$lib/features/connection/FaultHistory.svelte';
   import LiveCharts from '$lib/features/connection/LiveCharts.svelte';
-  import { hasFirmwareFaults } from '$lib/features/connection/live-status';
+  import { hasFaultHistory } from '$lib/features/connection/live-status';
   import CustomView from '$lib/features/connection/CustomView.svelte';
   import LiveWarnings from '$lib/features/connection/LiveWarnings.svelte';
   import { createLiveHistory } from '$lib/features/connection/live-history.svelte';
@@ -353,10 +353,10 @@
               },
             ]
           : []),
-        ...(hasFirmwareFaults(sample)
+        ...(hasFaultHistory(sample) || connection.refloatControls?.fatalErrorLatched === true
           ? [
               {
-                label: 'Fault history…',
+                label: 'Faults and errors…',
                 icon: 'triangle-alert' as const,
                 group: 'View',
                 appearance: 'danger' as const,
@@ -520,7 +520,7 @@
     }
     refloatConfirmation = null;
     await tick();
-    appHeader.focusMenu();
+    requestAnimationFrame(() => appHeader.focusMenu());
   }
 
   $effect(() => {
@@ -537,7 +537,7 @@
   async function cancelRefloatConfirmation() {
     refloatConfirmation = null;
     await tick();
-    appHeader.focusMenu();
+    requestAnimationFrame(() => appHeader.focusMenu());
   }
 
   async function performControllerShutdown() {

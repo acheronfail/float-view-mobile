@@ -50,6 +50,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         ledsEnabled: true,
         headlightsEnabled: false,
         fatalErrorClearAvailable: false,
+        imuTimeoutAvailable: false,
         fatalErrorLatched: false,
         fatalErrorActive: false,
         fatalErrorClearable: false,
@@ -428,7 +429,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await cancel.tap();
         await dialog.waitFor({ state: 'hidden' });
         assert.equal(requests.length, before);
-        assert.equal(await menu.evaluate((el) => el === document.activeElement), true);
+        await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Board actions');
         await page.keyboard.press('Enter');
         const option = actionOverlay.getByRole('button', { name: label, exact: true });
         await option.focus();

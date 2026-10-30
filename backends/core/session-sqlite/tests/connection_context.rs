@@ -38,11 +38,24 @@ fn writer(path: &std::path::Path) -> SessionWriter {
 fn context_is_closed_and_bounded_without_private_identity() {
     let value = context();
     assert!(value.valid());
+    let mut beta = value.clone();
+    beta.refloat_version = "1.3.1-beta2".into();
+    assert!(beta.valid());
+    beta.refloat_version = "1.3.1-beta3".into();
+    assert!(beta.valid());
     let mut legacy = value.clone();
     legacy.refloat_version = "0.9".into();
     legacy.connection = ContextRoute::Direct;
     assert!(legacy.valid());
-    for invalid in ["1", "1.2.3.4", "1.256", "1.-2", "1.2.foo"] {
+    for invalid in [
+        "1",
+        "1.2.3.4",
+        "1.256",
+        "1.-2",
+        "1.2.foo",
+        "1.3.1-beta2!",
+        "1.3.1-",
+    ] {
         legacy.refloat_version = invalid.into();
         assert!(!legacy.valid());
     }

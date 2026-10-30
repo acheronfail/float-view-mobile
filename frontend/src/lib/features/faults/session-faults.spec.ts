@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { loadFirmwareFaults } from './session-faults';
+import { loadFaultsAndErrors } from './session-faults';
 import { faultLabel, faultTime } from './faults';
 import type { SessionMetadata } from '$lib/backend/contract';
 import type { SessionEventsResult } from '$lib/backend/session-data';
@@ -37,7 +37,7 @@ it('loads every page, keeps unknown times and uses recovered fault times over du
       )
     )
     .mockResolvedValueOnce(page([[4, 'firmwareFaultHistory', 'unknown', 255, null]]));
-  const faults = await loadFirmwareFaults({ loadEvents }, metadata);
+  const faults = await loadFaultsAndErrors({ loadEvents }, metadata);
   expect(faults).toHaveLength(2);
   expect(faults[0]).toMatchObject({ code: 4, elapsedMs: 4800 });
   expect(faults[1]).toMatchObject({ code: 255, elapsedMs: null });
@@ -51,13 +51,31 @@ it('retains older sampled faults and leaves unaligned old history unplaced', asy
       [2, 'firmwareFaultHistory', 'underVoltage', 2, null],
     ])
   );
-  const faults = await loadFirmwareFaults({ loadEvents }, metadata);
+  const faults = await loadFaultsAndErrors({ loadEvents }, metadata);
   expect(faults.map((f) => f.elapsedMs)).toEqual([5000, null]);
+});
+
+it('shows recovered timeout activation and clearing without creating sampled history rows', async () => {
+  const result = page([
+    [1, 'imuTimeoutHistory', 'active', null, null],
+    [2, 'imuTimeoutHistory', 'cleared', null, null],
+    [3, 'stopCondition', 'imuTimeout', null, null],
+  ]);
+  result.page.timeouts = [
+    { active: true, sourceTicks: 100, occurredElapsedMs: null },
+    { active: false, sourceTicks: 101, occurredElapsedMs: 4500 },
+    null,
+  ];
+  const faults = await loadFaultsAndErrors({ loadEvents: vi.fn().mockResolvedValue(result) }, metadata);
+  expect(faults.map((fault) => [fault.reason, fault.elapsedMs])).toEqual([
+    ['imuTimeoutCleared', 4500],
+    ['imuTimeout', null],
+  ]);
 });
 
 it('rejects incomplete pagination instead of presenting a partial history', async () => {
   const loadEvents = vi.fn().mockResolvedValue(page([], 'same-cursor'));
-  await expect(loadFirmwareFaults({ loadEvents }, metadata)).rejects.toThrow('completely');
+  await expect(loadFaultsAndErrors({ loadEvents }, metadata)).rejects.toThrow('completely');
 });
 
 it('uses terse labels and never interprets arbitrary event text as markup', () => {

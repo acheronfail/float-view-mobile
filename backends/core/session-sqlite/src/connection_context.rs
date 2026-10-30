@@ -57,14 +57,7 @@ impl Debug for ConnectionContextEvent {
 impl ConnectionContext {
     pub fn valid(&self) -> bool {
         self.version == 1
-            && self.refloat_version.len() <= 11
-            && (2..=3).contains(&self.refloat_version.split('.').count())
-            && self.refloat_version.split('.').all(|p| {
-                !p.is_empty()
-                    && p.len() <= 3
-                    && p.parse::<u8>().is_ok()
-                    && p.bytes().all(|b| b.is_ascii_digit())
-            })
+            && valid_refloat_version(&self.refloat_version)
             && [&self.controller, &self.transport].iter().all(|f| {
                 [&f.hardware_name, &f.firmware_name]
                     .iter()
@@ -72,6 +65,27 @@ impl ConnectionContext {
             })
             && !matches!(self.connection, ContextRoute::Can {can_id} if can_id > 253)
     }
+}
+
+fn valid_refloat_version(value: &str) -> bool {
+    let (numbers, suffix) = value
+        .split_once('-')
+        .map_or((value, None), |(n, s)| (n, Some(s)));
+    let parts: Vec<_> = numbers.split('.').collect();
+    (2..=3).contains(&parts.len())
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && part.len() <= 3
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+                && part.parse::<u8>().is_ok()
+        })
+        && suffix.is_none_or(|suffix| {
+            parts.len() == 3
+                && (1..=20).contains(&suffix.len())
+                && suffix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'+'))
+        })
 }
 impl ConnectionContextEvent {
     fn valid(&self) -> bool {

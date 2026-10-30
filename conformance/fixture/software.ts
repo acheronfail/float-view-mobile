@@ -3,15 +3,21 @@ import { FrameAssembler, encodeFrame } from './frame.ts';
 import { RefloatControlModel } from './refloat-controls.ts';
 import { motorConfigurationPayload } from './firmware.ts';
 import { refloatCodecs, type RefloatVersion } from './refloat.ts';
-import type { TelemetrySource } from './telemetry.ts';
+import { idleTelemetry, type TelemetrySource } from './telemetry.ts';
 import { RefloatConfigurationModel } from './refloat-configuration.ts';
 export class SoftwarePeripheral {
   private readonly telemetry?: TelemetrySource;
   private readonly refloatVersion: RefloatVersion;
+  private controls: RefloatControlModel;
   constructor(telemetry?: TelemetrySource, refloatVersion: RefloatVersion = '1.0.0') {
     this.telemetry = telemetry;
     this.refloatVersion = refloatVersion;
     this.configuration = new RefloatConfigurationModel(refloatVersion);
+    this.controls = new RefloatControlModel(refloatVersion, { fatalErrorLatched: false });
+    if (refloatVersion === '1.3.1-beta2') {
+      this.controls.recordImuTimeout(true);
+      this.controls.recordImuTimeout(false);
+    }
   }
   private frames = new FrameAssembler();
   private configuration: RefloatConfigurationModel;
@@ -26,6 +32,7 @@ export class SoftwarePeripheral {
     const copy = new SoftwarePeripheral(this.telemetry, this.refloatVersion);
     copy.frames = this.frames.fork();
     copy.configuration = this.configuration.fork();
+    copy.controls = this.controls.fork();
     return copy;
   }
   receive(bytes: Uint8Array, consume?: (frame: Uint8Array) => void): Uint8Array[] {
@@ -72,10 +79,20 @@ export class SoftwarePeripheral {
       return config;
     }
     if (same(36, 101, 0, 2, 0)) return refloatCodecs[this.refloatVersion].infoPayload;
-    if (request[0] === 36 && request[1] === 101 && request[2] === 35)
-      return new RefloatControlModel(this.refloatVersion).alertsResponse(request);
+    if (request[0] === 36 && request[1] === 101 && request[2] === 35) return this.controls.alertsResponse(request);
     if (this.telemetry && request[0] === 36 && request[1] === 101 && request[2] !== 0) {
-      return refloatCodecs[this.refloatVersion].respond(request, this.telemetry.next())?.payload;
+      const response = refloatCodecs[this.refloatVersion].respond(
+        request,
+        this.controls.applyToSample(this.telemetry.next())
+      );
+      if (response) return this.controls.decorateTelemetry(response.payload);
+    } else if (request[0] === 36 && request[1] === 101 && request[2] === 33) {
+      const response = refloatCodecs[this.refloatVersion].respond(request, this.controls.applyToSample(idleTelemetry));
+      if (response) return this.controls.decorateTelemetry(response.payload);
+    }
+    if (request[0] === 36 && request[1] === 101) {
+      const control = this.controls.apply(request, { rideState: 'idle' });
+      if (control.accepted) return control.response;
     }
     if (same(36, 101, 10) || same(36, 101, 10, 4)) {
       const payload = new Uint8Array(55);

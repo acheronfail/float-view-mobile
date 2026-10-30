@@ -682,6 +682,15 @@ read clears it. Reads deliberately replace the draft with their selected source;
 status changes and error dismissal preserve edits and scroll and never retry a
 mutation automatically.
 
+Timeout-capable Refloat profiles publish a nullable IMU timeout state alongside
+firmware faults. The live warning remains active until a valid alert clear, while
+the retained IMU stop reason remains separate. “Faults and errors” combines
+bounded command-35 activation/clearing records with existing firmware-fault
+history. Saved records keep approximate or unknown occurrence time; guests keep
+only the current connection's bounded live history. The UI uses the shared
+`imuTimeoutAvailable` capability and write-block reasons instead of firmware
+version strings to decide which actions need confirmed inactive alert state.
+
 Live slots and Custom reading widgets offer Max speed (`maxSpeedKph`), the shared
 current-ride maximum absolute observed speed. Reconnect and view recreation retain
 it; saved ride resume restores the committed session peak. A new ride clears it.

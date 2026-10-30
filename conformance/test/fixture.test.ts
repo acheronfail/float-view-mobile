@@ -174,6 +174,7 @@ test('physical scenario matrix excludes desktop backgrounding', () => {
     'direct-legacy',
     'fault-direct',
     'fault-can',
+    'imu-timeout-beta2',
     'control-direct',
     'control-can',
     'shutdown-direct',

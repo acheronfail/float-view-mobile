@@ -26,15 +26,21 @@
   }
 </script>
 
-{#if faultWarning || connection.refloatControls?.packageEnabled === false}
+{#if sample?.imuTimeoutActive || faultWarning || connection.refloatControls?.packageEnabled === false}
   <div use:warningLayer class="live-warning-layer absolute inset-x-2 top-0 z-30 shrink-0" aria-label="Board warnings">
     <div class="flex flex-col gap-2">
+      {#if sample?.imuTimeoutActive}
+        <div role="alert" class="rounded-xl border border-danger bg-surface px-3 py-2 text-danger shadow-lg">
+          <span class="block text-sm font-semibold">IMU timeout</span>
+          <span class="block text-xs">The board stopped receiving IMU data. Step off the board.</span>
+        </div>
+      {/if}
       {#if faultWarning}
         <div role="alert">
           <button
             type="button"
             class="flex w-full touch-manipulation items-center gap-2 rounded-xl border border-danger bg-surface px-3 py-2 text-left text-danger shadow-lg"
-            aria-label={`Open fault history: ${faultWarning.title}`}
+            aria-label={`Open faults and errors: ${faultWarning.title}`}
             onpointerdown={(event) => activateFromPointer(event, openFault, { scrollable: true })}
             onclick={(event) => activateFromKeyboardOrAssistiveClick(event, openFault)}
           >

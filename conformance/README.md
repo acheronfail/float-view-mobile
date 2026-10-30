@@ -177,6 +177,13 @@ checks that the completed idle session retains each history event exactly once.
 The fixture resets to READY on cleanup. This tests native BLE transport with
 source-derived Refloat responses; it does not induce a fault on a real controller.
 
+For Refloat 1.3.1-beta2 IMU timeout behavior over the production BLE route, run
+`FLOAT_VIEW_PHYSICAL_SCENARIOS=imu-timeout-beta2 npm run physical -- macos <fixture-port>`.
+The conformance-owned scenario injects active, cleared and transient command-35
+records through the ESP32 byte bridge, checks the live warning, guarded write
+rejection and saved history, then restores the fixture to READY. It does not
+induce a sensor failure on a real board.
+
 The product-control matrix covers exact commands 12, 22, 202, 20, and 36 for
 representative Refloat 1.0.0, 1.1.0, and 1.2.3 direct and CAN routes. Its
 disposable state model confirms one-way writes through later telemetry and

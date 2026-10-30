@@ -421,7 +421,7 @@ Software backend tests SHALL cover VESC Tool-style saved-identifier advertisemen
 
 ### Requirement: Detailed telemetry compatibility matrix
 
-Software conformance SHALL exercise complete detailed telemetry for every audited stable Refloat release in 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3 through direct and CAN routes and across audited VESC 6.02, 6.05, 6.06, and 7.00. It SHALL verify the complete VESC identity baseline, audited nonzero test-version guarded write access, source-applicable bounded hardware-CRC suffix, exact command 1 fixture compatibility, command 10 detail levels and metres/second conversion, command 31/32 bytes and native kilometres/hour values, route wrapping, required-field negotiation, version-applicable active state and tails, normalization, nullability, unknown bounded extensions, and absence of command 35, data-recorder, or unsupported write requests from either backend.
+Software conformance SHALL exercise complete detailed telemetry for every audited stable Refloat release in 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3 through direct and CAN routes and across audited VESC 6.02, 6.05, 6.06, and 7.00. It SHALL verify the complete VESC identity baseline, audited nonzero test-version guarded write access, source-applicable bounded hardware-CRC suffix, exact command 1 fixture compatibility, command 10 detail levels and metres/second conversion, command 31/32 bytes and native kilometres/hour values, route wrapping, required-field negotiation, version-applicable active state and tails, normalization, nullability, unknown bounded extensions, and bounded source-correct command-35 alert reads while excluding data-recorder and unsupported write requests from either backend.
 
 #### Scenario: Audited route and package combinations
 
@@ -445,7 +445,7 @@ Software conformance SHALL exercise complete detailed telemetry for every audite
 
 #### Scenario: Compatibility rejection
 
-- **WHEN** conformance supplies an unknown version, prerelease version, or dynamic layout missing a required semantic ID
+- **WHEN** conformance supplies an unknown version, an unaudited prerelease version, or a dynamic layout missing a required semantic ID
 - **THEN** Apple and Android reject it before ready with the same unsupported-Refloat outcome
 
 #### Scenario: Slow compact polling
@@ -2767,3 +2767,32 @@ Canonical conformance SHALL cover temporal battery estimation and the preset/opt
 - **WHEN** a preset supplies capacity and the fixture observes known signed battery current
 - **THEN** charge accounting uses full-pack Ah even with a generic curve
 - **AND** count edits clear stale capacity unless replaced, effective configuration changes reseed once, and preset-name-only edits or UI mode switches do not reset temporal state
+
+### Requirement: Refloat 1.3.1-beta2 interoperability evidence
+
+Canonical conformance SHALL exercise exact beta2 admission, the existing selectable telemetry and control profiles, audited configuration identity, same-version Tunes, typed IMU-timeout state, and durable recovered history on direct and CAN routes. It SHALL preserve older-release behavior and supported baseline data. A targeted physical checkpoint SHALL confirm the core capabilities on actual beta2 firmware.
+
+#### Scenario: Source-derived beta2 fixture
+
+- **WHEN** the conformance fixture reports exact beta2 INFO, command-33 responses, command-35 mixed alerts, and its 172-field schema
+- **THEN** both hosts reach equivalent ready state, publish live telemetry, verify configuration read/write and same-version Tune apply, and retain timeout activation and clearing without firmware-fault pollution
+
+#### Scenario: Adjacent identities and malformed alerts
+
+- **WHEN** a fixture reports beta1, beta3, stable 1.3.1, malformed suffixes, or invalid beta2 command-35 records
+- **THEN** admission or the malformed response fails at its boundary without write traffic, partial history, or stale-generation state
+
+#### Scenario: Saved and guest histories
+
+- **WHEN** identical source-derived timeout transitions occur in saved and guest tracking
+- **THEN** saved sessions page and export committed events, guest history remains bounded and ephemeral, and existing supported baseline sessions and archives still load
+
+#### Scenario: Targeted physical checkpoint
+
+- **WHEN** an exact beta2 board is available after software fixture development
+- **THEN** a relevant native host validates discovery, advancing live and saved telemetry, schema/current/default reads, a safe complete configuration write/readback/restore, eligible same-version Tune application, and reconnect with original settings restored
+
+#### Scenario: Physical coverage limit
+
+- **WHEN** real IMU failure or an unaffected host or route cannot be exercised safely
+- **THEN** the checkpoint reports the limit separately from simulated timeout coverage and does not claim unrun physical validation

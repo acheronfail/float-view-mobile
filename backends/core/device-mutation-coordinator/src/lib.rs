@@ -58,6 +58,7 @@ pub struct Controls {
     pub leds_enabled: Option<bool>,
     pub headlights_enabled: Option<bool>,
     pub fatal_error_clear_available: bool,
+    pub imu_timeout_available: bool,
     pub fatal_error_latched: Option<bool>,
     pub fatal_error_active: Option<bool>,
     pub fatal_error_clearable: Option<bool>,
@@ -165,6 +166,8 @@ pub enum ConfigurationBlockReason {
     ReadOnly,
     Busy,
     Flywheel,
+    ImuTimeoutActive,
+    ImuTimeoutUnconfirmed,
     Riding,
     StateUnknown,
     PackageNotReady,
@@ -269,6 +272,8 @@ pub struct DeviceMutationCoordinator {
     shutdown_supported: bool,
     controls: Option<Controls>,
     ride_state: telemetry::RideState,
+    imu_timeout_active: Option<bool>,
+    imu_timeout_available: bool,
     package_state: Option<telemetry::PackageState>,
     package_mode: Option<telemetry::PackageMode>,
     last_telemetry_sequence: Option<u64>,
@@ -294,6 +299,15 @@ impl Default for DeviceMutationCoordinator {
 }
 
 impl DeviceMutationCoordinator {
+    /// Whether the pending control still needs fresh inactive timeout evidence at dispatch.
+    #[must_use]
+    pub fn pending_control_requires_inactive_imu_timeout(&self) -> bool {
+        self.pending.is_some_and(|pending| {
+            pending.token.kind == PendingKind::Package
+                || (pending.token.kind == PendingKind::Flywheel && pending.expected == Some(true))
+        })
+    }
+
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -307,6 +321,8 @@ impl DeviceMutationCoordinator {
             shutdown_supported: false,
             controls: None,
             ride_state: telemetry::RideState::Unknown,
+            imu_timeout_active: None,
+            imu_timeout_available: false,
             package_state: None,
             package_mode: None,
             last_telemetry_sequence: None,
@@ -389,6 +405,7 @@ impl DeviceMutationCoordinator {
         self.generation = facts.generation;
         self.route = Some(facts.route);
         self.profile = Some(facts.refloat.control);
+        self.imu_timeout_available = facts.refloat.imu_timeout_available;
         // Refloat 1.0.x reinitializes balancing on configuration writes. All
         // admitted later wire families preserve STATE_RUNNING (1.1.0+).
         self.riding_tune_apply =
@@ -396,6 +413,7 @@ impl DeviceMutationCoordinator {
         self.writable = writable;
         self.shutdown_supported = shutdown_supported;
         self.ride_state = telemetry::RideState::Unknown;
+        self.imu_timeout_active = None;
         self.package_state = None;
         self.package_mode = None;
         self.last_telemetry_sequence = None;
@@ -416,6 +434,7 @@ impl DeviceMutationCoordinator {
             leds_enabled: None,
             headlights_enabled: None,
             fatal_error_clear_available: fatal_available,
+            imu_timeout_available: self.imu_timeout_available,
             fatal_error_latched: (!fatal_available).then_some(false),
             fatal_error_active: (!fatal_available).then_some(false),
             fatal_error_clearable: (!fatal_available).then_some(false),
@@ -453,6 +472,7 @@ impl DeviceMutationCoordinator {
             .ok_or(CoordinatorError::InvalidState)?;
         self.last_telemetry_sequence = Some(sample.sequence);
         self.ride_state = sample.ride_state;
+        self.imu_timeout_active = sample.imu_timeout_active;
         if let Some(state) = sample.package_state {
             self.package_state = Some(state);
             controls.package_enabled = Some(state != telemetry::PackageState::Disabled);
@@ -594,6 +614,13 @@ impl DeviceMutationCoordinator {
         let active_flywheel_disable = target == BooleanControl::Flywheel
             && !enabled
             && self.package_mode == Some(telemetry::PackageMode::Flywheel);
+        if (self.imu_timeout_active == Some(true)
+            || (self.imu_timeout_available && self.imu_timeout_active != Some(false)))
+            && (target == BooleanControl::Package
+                || (target == BooleanControl::Flywheel && enabled))
+        {
+            return Err(CoordinatorError::InvalidState);
+        }
         if controls.flywheel_enabled == Some(true) && !active_flywheel_disable {
             return Err(CoordinatorError::InvalidState);
         }
@@ -839,6 +866,7 @@ impl DeviceMutationCoordinator {
         self.shutdown_supported = false;
         self.controls = None;
         self.ride_state = telemetry::RideState::Unknown;
+        self.imu_timeout_active = None;
         self.package_state = None;
         self.package_mode = None;
         self.last_telemetry_sequence = None;
@@ -889,6 +917,12 @@ impl DeviceMutationCoordinator {
         }
         if self.package_mode == Some(telemetry::PackageMode::Flywheel) {
             return Some(R::Flywheel);
+        }
+        if self.imu_timeout_active == Some(true) {
+            return Some(R::ImuTimeoutActive);
+        }
+        if self.imu_timeout_available && self.imu_timeout_active != Some(false) {
+            return Some(R::ImuTimeoutUnconfirmed);
         }
         let riding_tune = mutation == ConfigurationMutation::TuneApply && self.riding_tune_apply;
         let state_allowed = if riding_tune {

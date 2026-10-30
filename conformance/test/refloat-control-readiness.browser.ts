@@ -50,6 +50,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         ledsEnabled: true,
         headlightsEnabled: false,
         fatalErrorClearAvailable: true,
+        imuTimeoutAvailable: false,
         fatalErrorLatched: null,
         fatalErrorActive: null,
         fatalErrorClearable: null,

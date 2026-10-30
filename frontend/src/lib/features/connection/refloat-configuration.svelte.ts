@@ -68,6 +68,8 @@ const writeBlockMessages: Record<RefloatConfigurationWriteBlockReason, string> =
   readOnly: 'This firmware supports reading only. Connect to a board with supported writable firmware.',
   busy: 'Wait for the current board operation to finish before writing.',
   flywheel: 'Exit flywheel mode, then read current values before writing.',
+  imuTimeoutActive: 'Wait for the IMU timeout to clear before writing.',
+  imuTimeoutUnconfirmed: 'Wait for the board to confirm IMU timeout status before writing.',
   riding: 'Stop riding and wait for the board to be ready before writing.',
   stateUnknown: 'Wait for live board status before writing.',
   packageNotReady: 'Wait for Refloat to be ready before writing.',

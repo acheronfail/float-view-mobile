@@ -30,6 +30,7 @@ export type PhysicalScenarioName =
   | 'direct-legacy'
   | 'fault-direct'
   | 'fault-can'
+  | 'imu-timeout-beta2'
   | 'control-direct'
   | 'control-can'
   | 'shutdown-direct'
@@ -96,6 +97,20 @@ const controlCanBoard: BoardConfiguration = {
     refloat: refloatCodecs['1.3.0'],
     refloatControls: new RefloatControlModel('1.3.0'),
     refloatConfiguration: new RefloatConfigurationModel('1.3.0'),
+    telemetry: idleControlTelemetry(),
+  })),
+};
+
+const imuTimeoutBetaBoard: BoardConfiguration = {
+  ...controlDirectBoard,
+  name: 'Direct / Refloat beta2 IMU timeout',
+  controllers: controlDirectBoard.controllers.map((controller) => ({
+    ...controller,
+    refloatVersion: '1.3.1-beta2',
+    refloatInfoPayload: refloatCodecs['1.3.1-beta2'].infoPayload,
+    refloat: refloatCodecs['1.3.1-beta2'],
+    refloatControls: new RefloatControlModel('1.3.1-beta2', { fatalErrorLatched: false }),
+    refloatConfiguration: new RefloatConfigurationModel('1.3.1-beta2'),
     telemetry: idleControlTelemetry(),
   })),
 };
@@ -211,6 +226,14 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
   'fault-can': {
     name: 'fault-can',
     board: { ...controlCanBoard, canPingIds: [42] },
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 6,
+    preferredCanId: null,
+    requiresMobileLifecycle: false,
+  },
+  'imu-timeout-beta2': {
+    name: 'imu-timeout-beta2',
+    board: imuTimeoutBetaBoard,
     fragmentBytes: 20,
     minimumTelemetryResponses: 6,
     preferredCanId: null,
@@ -354,6 +377,7 @@ export const physicalScenarioMatrix = {
     'direct-legacy',
     'fault-direct',
     'fault-can',
+    'imu-timeout-beta2',
     'control-direct',
     'control-can',
     'shutdown-direct',
@@ -375,6 +399,7 @@ export const physicalScenarioMatrix = {
     'direct-legacy',
     'fault-direct',
     'fault-can',
+    'imu-timeout-beta2',
     'control-direct',
     'control-can',
     'shutdown-direct',
@@ -398,6 +423,7 @@ export const physicalScenarioMatrix = {
     'direct-legacy',
     'fault-direct',
     'fault-can',
+    'imu-timeout-beta2',
     'control-direct',
     'control-can',
     'shutdown-direct',
@@ -815,6 +841,11 @@ export const softwareConnectionScenarios: Record<SoftwareConnectionScenarioName,
 /** Select the audited package without replacing the older physical regression matrix. */
 export function physicalScenario(name: PhysicalScenarioName, refloatVersion?: string): FixtureScenario {
   const scenario = fixtureScenarios[name];
+  if (name === 'imu-timeout-beta2') {
+    if (refloatVersion && refloatVersion !== '1.3.1-beta2')
+      throw new Error('IMU timeout fixture requires Refloat 1.3.1-beta2');
+    return scenario;
+  }
   if (!refloatVersion) return scenario;
   if (refloatVersion !== '1.3.0') throw new Error('Physical Refloat override must be exactly 1.3.0');
   if (name === 'direct-legacy' || name === 'bms-standalone') return scenario;

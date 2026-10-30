@@ -1,12 +1,12 @@
-# Refloat firmware faults
+# Refloat faults and errors
 
 ## What users see
 
-Live shows a persistent warning while a controller fault is active or Refloat's
-fatal error remains latched. Tapping the warning opens **Fault history**.
-The danger-styled **Fault history…** item in Board actions is shown only while a
+Live shows a persistent warning while a controller fault or IMU timeout is active,
+or Refloat's fatal error remains latched. The fault warning opens **Faults and errors**.
+The danger-styled **Faults and errors…** item in Board actions is shown only while a
 warning or recorded occurrence exists, and opens a plain list, newest first. Saved connections read the ride's recorded history; guests
-keep the 20 most recent occurrences. Clearing the latch does not remove history.
+keep the 20 most recent occurrences of each type. Clearing the latch does not remove history.
 The sheet restores after WebView recreation and reports read failures with Retry.
 **Clear fatal error** lives only in this sheet. It explains unavailable actions,
 keeps active faults from being cleared, and distinguishes a known cause from an
@@ -14,7 +14,7 @@ unknown latch. If Refloat has not provided the cause, it directs the user to ste
 off and check the controller fault log in VESC Tool. Clearing resets the latch; it
 does not repair the cause or erase history.
 
-Session review shows a **Faults** list and red markers on charts and the map.
+Session review shows a **Faults and errors** list and red markers on charts and the map.
 Selecting a timed fault inspects that point in the ride. Nearby chart markers
 share a count; the list retains each occurrence. Map markers require a continuous
 GPS segment covering the fault time. Unknown codes remain visible as a numeric
@@ -27,10 +27,15 @@ transition list remains available separately.
 
 ## Refloat behavior
 
-The vendored Refloat 1.2.0 and 1.3.0 implementations of
+The vendored Refloat 1.2.0, 1.3.0, and audited 1.3.1-beta2 implementations of
 [`cmd_alerts_list`](../vendor/refloat/src/main.c) return the current controller
 fault and up to 20 historical start/end records. The volatile buffer may overwrite
-older records and disappears on power cycling.
+older records and disappears on power cycling. The beta2 command-35 active mask
+uses bit 0 for controller fault and bit 1 for IMU timeout. Its history records
+use ID 1 and ID 2 respectively. Firmware fault activation requires a nonzero
+code; IMU timeout activation and clearing both carry code zero. Refloat stop
+code 7 retains an IMU timeout stop reason, but cannot establish current active
+state. An IMU timeout is an error separate from the fatal firmware-fault latch.
 
 [`AlertTracker`](../vendor/refloat/src/alert_tracker.c) treats firmware faults as
 fatal. With Persistent Fatal Error enabled (the default), the latch remains after
@@ -45,6 +50,12 @@ fresh supported writable state, idle, no active fault and no competing operation
 It waits for telemetry confirmation. Users are told to stop riding and investigate
 before clearing or power cycling.
 
+For timeout-capable releases, a valid command-35 read establishes active or
+inactive timeout state. Inactive evidence expires independently of fast telemetry;
+failed reads make it unknown. Active warning remains until a valid clear. Package
+changes, flywheel enable, configuration writes, and Tune apply require fresh
+confirmed inactive state at submission. Flywheel disable retains its escape path.
+
 ## Timing and storage
 
 The audited [VESC interface](../vendor/refloat/vesc_pkg_lib/vesc_c_if.h) defines
@@ -53,8 +64,9 @@ fast telemetry on the ride's monotonic timeline. Tick differences handle wrap;
 negative ride times and unusable clocks remain unavailable. Estimates slightly
 ahead of retrieval are capped at retrieval within the existing 900 ms request
 bound, accounting for the larger telemetry response's transport delay. Larger
-inconsistencies remain unavailable. Reconnect preserves the history cursor and
-cause; a new session resets them. A detected clock rollback invalidates the anchor.
+inconsistencies remain unavailable. Reconnect starts a new alert generation and
+cursor; saved ride records remain durable. A detected clock rollback invalidates
+the anchor.
 
 Each `firmwareFaultHistory` event keeps its retrieval time, raw code, source ticks,
 active/end state and optional `occurredElapsedMs`. Both starts and ends stay in the
@@ -63,6 +75,13 @@ Fault-bearing sessions survive the minimum-distance filter. Existing four-field
 records remain readable without a storage/schema/archive version change; their
 occurrence time is not inferred retrospectively. Frozen baseline archives remain
 supported. See [storage details](../backends/sql/README.md).
+
+Each `imuTimeoutHistory` event keeps activation or clearing, source ticks, retrieval
+time, and nullable approximate occurrence time in the same event store and archive.
+The two kinds share a 10,000-record recovered-history budget. A sampled stop code
+is stored as a separate `stopCondition` transition. The app does not manufacture
+history entries from sampled state or reconcile them against recovered records;
+the source's 20-record volatile buffer can miss an episode.
 
 The authenticated event page adds an optional parallel `faults` column containing
 raw codes and occurrence times. Both native hosts use the shared Rust projection.

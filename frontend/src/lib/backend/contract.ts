@@ -147,6 +147,7 @@ export type StopCondition =
   | 'switchFull'
   | 'reverseStop'
   | 'quickStop'
+  | 'imuTimeout'
   | 'unknown';
 export type SetpointAdjustment =
   | 'none'
@@ -254,6 +255,11 @@ export interface FirmwareFaultEntry {
   elapsedMs: number | null;
   observedElapsedMs: number;
 }
+export interface ImuTimeoutEntry {
+  active: boolean;
+  elapsedMs: number | null;
+  observedElapsedMs: number;
+}
 export interface LiveSample {
   /** Authoritative backend fractions and winner for this sample. */
   load: DriveLoad;
@@ -275,6 +281,10 @@ export interface LiveSample {
   charging: boolean | null;
   alertReason: AlertReason | null;
   firmwareFault: FirmwareFault | null;
+  /** Beta alert state; null before observation, when inactive evidence expires, or on older profiles. */
+  imuTimeoutActive: boolean | null;
+  /** Up to 20 actual timeout transitions; initial inactive state is excluded. */
+  imuTimeoutHistory: ImuTimeoutEntry[];
   /** Persistent Refloat fatal state; independent of a momentary active fault. */
   fatalErrorLatched: boolean | null;
   /** Most recently retrieved controller fault, including one that has cleared. */
@@ -402,6 +412,7 @@ export interface RefloatControls {
   ledsEnabled: boolean | null;
   headlightsEnabled: boolean | null;
   fatalErrorClearAvailable: boolean;
+  imuTimeoutAvailable: boolean;
   fatalErrorLatched: boolean | null;
   fatalErrorActive: boolean | null;
   fatalErrorClearable: boolean | null;
@@ -425,6 +436,8 @@ export const REFLOAT_CONFIGURATION_WRITE_BLOCK_REASONS = [
   'readOnly',
   'busy',
   'flywheel',
+  'imuTimeoutActive',
+  'imuTimeoutUnconfirmed',
   'riding',
   'stateUnknown',
   'packageNotReady',

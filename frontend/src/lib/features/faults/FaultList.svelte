@@ -13,13 +13,17 @@
   } = $props();
 </script>
 
-<ol class="space-y-2" aria-label="Controller faults">
+<ol class="space-y-2" aria-label="Controller faults and IMU timeouts">
   {#each faults.slice(0, shown) as fault, index (index)}
     <li class="rounded-lg border border-danger/40 bg-danger/5 text-sm">
       {#snippet content()}
         <Icon name="triangle-alert" class="shrink-0 text-lg text-danger" />
         <span class="min-w-0 flex-1 font-medium">{faultLabel(fault.reason, fault.code)}</span>
-        <span class="shrink-0 text-xs text-muted">{faultTime(fault.elapsedMs)}</span>
+        <span class="shrink-0 text-xs text-muted"
+          >{faultTime(fault.elapsedMs)}{#if fault.elapsedMs === null}<span class="block"
+              >Observed {faultTime(fault.observedElapsedMs)}</span
+            >{/if}</span
+        >
       {/snippet}
       {#if onselect && fault.elapsedMs !== null}
         <button

@@ -35,6 +35,17 @@ describe('recorded connection context', () => {
     expect(() =>
       validateConnectionContextEvent({ ...event, context: { ...event.context, refloatVersion: '0.9' } })
     ).not.toThrow();
+    expect(() =>
+      validateConnectionContextEvent({ ...event, context: { ...event.context, refloatVersion: '1.3.1-beta2' } })
+    ).not.toThrow();
+    expect(() =>
+      validateConnectionContextEvent({ ...event, context: { ...event.context, refloatVersion: '1.3.1-beta3' } })
+    ).not.toThrow();
+    for (const refloatVersion of ['1.3.1-beta2!', '1.3.1-β']) {
+      expect(() =>
+        validateConnectionContextEvent({ ...event, context: { ...event.context, refloatVersion } })
+      ).toThrow();
+    }
     for (const context of [
       { ...event.context, version: 2 },
       { ...event.context, connection: { kind: 'can', canId: 254 } },

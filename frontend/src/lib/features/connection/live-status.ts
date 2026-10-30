@@ -10,6 +10,7 @@ export function stopReasonLabel(reason: StopCondition | null | undefined): strin
     switchFull: 'Both footpads',
     reverseStop: 'Reverse stop',
     quickStop: 'Quick stop',
+    imuTimeout: 'IMU timeout',
     unknown: 'Unknown',
   };
   return reason == null ? 'Unavailable' : labels[reason];
@@ -27,6 +28,8 @@ type StatusSample = Pick<
   | 'wheelslip'
   | 'charging'
   | 'firmwareFault'
+  | 'imuTimeoutActive'
+  | 'imuTimeoutHistory'
   | 'fatalErrorLatched'
   | 'lastFirmwareFault'
 >;
@@ -42,6 +45,8 @@ export function liveStatus(
 
   // The firmware retains beep reasons after the beep ends. They cannot establish an active warning.
   const fault = firmwareFaultWarning(sample);
+  if (sample?.imuTimeoutActive)
+    return { display: fault ? `${fault.title} · IMU timeout` : 'IMU timeout', safetyStateActive: true };
   if (fault) return { display: fault.title, safetyStateActive: true };
   if (charging) return { display: 'Charging', safetyStateActive: false };
 
@@ -97,11 +102,24 @@ export function firmwareFaultWarning(
 }
 
 /** Retained occurrences keep history discoverable after the warning clears. */
-export function hasFirmwareFaults(
+export function hasFaultHistory(
   sample:
-    | Pick<LiveSample, 'firmwareFault' | 'lastFirmwareFault' | 'fatalErrorLatched' | 'faultHistory'>
+    | Pick<
+        LiveSample,
+        | 'firmwareFault'
+        | 'lastFirmwareFault'
+        | 'fatalErrorLatched'
+        | 'faultHistory'
+        | 'imuTimeoutActive'
+        | 'imuTimeoutHistory'
+      >
     | null
     | undefined
 ): boolean {
-  return firmwareFaultWarning(sample) !== null || (sample?.faultHistory?.length ?? 0) > 0;
+  return (
+    sample?.imuTimeoutActive === true ||
+    firmwareFaultWarning(sample) !== null ||
+    (sample?.faultHistory?.length ?? 0) > 0 ||
+    (sample?.imuTimeoutHistory?.length ?? 0) > 0
+  );
 }
