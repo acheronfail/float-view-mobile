@@ -1145,6 +1145,48 @@ fn live_widget_slots_are_validated_and_persisted() {
 }
 
 #[test]
+fn net_consumption_selections_survive_reopen() {
+    let root = Root::new();
+    let mut store = root.open();
+    let slots = serde_json::json!([
+        "wattHoursNetWh",
+        "ampHoursNetAh",
+        "empty",
+        "powerW",
+        "distanceM"
+    ]);
+    let settings = store
+        .update_settings(
+            0,
+            &serde_json::json!({"liveWidgetSlots": slots}).to_string(),
+        )
+        .unwrap();
+    let board = store
+        .ensure_board("net-energy", Some("Net energy"), None, 0)
+        .unwrap();
+    let dashboard = serde_json::json!({"version": 1, "widgets": [
+        {"id": "wh", "kind": "reading", "field": "wattHoursNetWh", "presentation": "number", "size": "compact"},
+        {"id": "ah", "kind": "reading", "field": "ampHoursNetAh", "presentation": "trend", "size": "compact"}
+    ]});
+    let saved = store
+        .update_profile(
+            &board.saved_device_id,
+            0,
+            &serde_json::json!({"liveWidgetSlots": slots, "customDashboard": dashboard})
+                .to_string(),
+            1,
+        )
+        .unwrap();
+    drop(store);
+    let store = root.open();
+    assert_eq!(store.settings().unwrap(), settings);
+    let reopened = store.profile(&board.saved_device_id).unwrap();
+    assert_eq!(reopened, saved);
+    assert_eq!(reopened.values["liveWidgetSlots"], slots);
+    assert_eq!(reopened.values["customDashboard"], dashboard);
+}
+
+#[test]
 fn custom_dashboard_is_atomic_bounded_independent_and_survives_reopen() {
     let root = Root::new();
     let mut store = root.open();

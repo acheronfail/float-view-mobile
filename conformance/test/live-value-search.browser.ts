@@ -113,6 +113,44 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await picker.waitFor({ state: 'hidden' });
       assert.equal(saves, 3, 'one request per keyboard activation');
       assert.equal((await client.request('state.get', {})).activeConnection!.liveWidgetSlots[0], 'chargingVoltageV');
+      for (const [title, field] of [
+        ['Net watt-hours', 'wattHoursNetWh'],
+        ['Net amp-hours', 'ampHoursNetAh'],
+      ] as const) {
+        await page.getByRole('button', { name: /Choose value for box 1:/ }).focus();
+        await page.keyboard.press('Enter');
+        await search.fill(title);
+        await picker.getByRole('button', { name: title, exact: true }).tap();
+        await picker.waitFor({ state: 'hidden' });
+        assert.equal((await client.request('state.get', {})).activeConnection!.liveWidgetSlots[0], field);
+        await page.reload();
+        await page.getByRole('button', { name: `Choose value for box 1: ${title}`, exact: true }).waitFor();
+      }
+      assert.equal(saves, 5, 'each net selection saves once and survives reload');
+      const savedDeviceId = (await client.request('state.get', {})).activeConnection!.savedDeviceId!;
+      const profile = await client.request('boardProfile.get', { savedDeviceId });
+      await client.request('boardProfile.update', {
+        savedDeviceId,
+        expectedRevision: profile.revision,
+        patch: {
+          lastLiveView: 'custom',
+          customDashboard: {
+            version: 1,
+            widgets: [
+              { id: 'net-wh', kind: 'reading', field: 'wattHoursNetWh', presentation: 'number', size: 'compact' },
+              { id: 'net-ah', kind: 'reading', field: 'ampHoursNetAh', presentation: 'number', size: 'compact' },
+            ],
+          },
+        },
+      });
+      await page.reload();
+      await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+      await page.getByRole('button', { name: 'Custom View', exact: true }).click();
+      const custom = page.getByRole('region', { name: 'Custom dashboard', exact: true });
+      await custom.getByText('Wh net', { exact: true }).waitFor();
+      await custom.getByText('Ah net', { exact: true }).waitFor();
+      assert.match(await custom.locator('[data-dashboard-widget="net-wh"]').innerText(), /693\.0\s*Wh/);
+      assert.match(await custom.locator('[data-dashboard-widget="net-ah"]').innerText(), /15\.70\s*Ah/);
       assert.deepEqual(errors, []);
     } finally {
       await browser?.close();

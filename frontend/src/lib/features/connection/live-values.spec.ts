@@ -219,3 +219,39 @@ describe('BMS boxes and highest temperature', () => {
     expect(liveValueColor('highestTempC', 176, sample, 'imperial')).toBe('text-danger');
   });
 });
+
+describe('net consumption readings', () => {
+  it.each([
+    ['wattHoursNetWh', 'wattHoursDrawnWh', 'wattHoursChargedWh', 'Wh', 1],
+    ['ampHoursNetAh', 'ampHoursDrawnAh', 'ampHoursChargedAh', 'Ah', 2],
+  ] as const)(
+    'derives %s with signed consumption and complete finite operands',
+    (field, drawn, charged, unit, digits) => {
+      for (const units of ['metric', 'imperial'] as const) {
+        for (const [draw, charge, net] of [
+          [120, 20, 100],
+          [20, 120, -100],
+          [0, 0, 0],
+        ]) {
+          expect(liveValue(field, { ...sample, [drawn]: draw, [charged]: charge }, units)).toMatchObject({
+            value: net,
+            unit,
+            digits,
+          });
+          expect(liveValueColor(field, net)).toBe(
+            net > 0 ? 'text-power-draw' : net < 0 ? 'text-success' : 'text-foreground'
+          );
+          expect(liveValueText(field, net, digits)).toBe(net.toFixed(digits));
+        }
+        for (const unavailable of [null, undefined, NaN, Infinity, -Infinity]) {
+          expect(liveValue(field, { ...sample, [drawn]: unavailable, [charged]: 20 }, units).value).toBeNull();
+          expect(liveValue(field, { ...sample, [drawn]: 120, [charged]: unavailable }, units).value).toBeNull();
+        }
+        expect(liveValue(field, null, units).value).toBeNull();
+      }
+      expect(liveValueColor(field, -0.0001)).toBe('text-foreground');
+      expect(liveValueText(field, -0.0001, digits)).toBe((0).toFixed(digits));
+      expect(liveValueText(field, null, digits)).toBe('—');
+    }
+  );
+});

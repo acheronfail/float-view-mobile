@@ -26,6 +26,8 @@ describe('widget discovery', () => {
     expect(names('battery level')).toEqual(
       expect.arrayContaining(['Estimated battery level', 'Controller-reported battery level', 'BMS battery level'])
     );
+    expect(names('net wh')).toEqual(['Net watt-hours']);
+    expect(names('net ah')).toEqual(['Net amp-hours']);
     expect(names('cell voltage spread')).toEqual(['Cell voltage spread']);
     expect(names('battery panel')).toEqual(['Battery panel']);
     expect(names('ride marker')).toEqual(['Save ride marker']);

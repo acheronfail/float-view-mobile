@@ -61,8 +61,10 @@ export const liveValueCatalog = {
   atrSpeedBoost: { name: 'ATR speed boost', label: 'ATR boost', unit: '', digits: 3 },
   ampHoursDrawnAh: { name: 'Amp-hours drawn', label: 'Ah drawn', unit: 'Ah', digits: 2 },
   ampHoursChargedAh: { name: 'Amp-hours charged', label: 'Ah charged', unit: 'Ah', digits: 2 },
+  ampHoursNetAh: { name: 'Net amp-hours', label: 'Ah net', unit: 'Ah', digits: 2 },
   wattHoursDrawnWh: { name: 'Watt-hours drawn', label: 'Wh drawn', unit: 'Wh', digits: 1 },
   wattHoursChargedWh: { name: 'Watt-hours charged', label: 'Wh charged', unit: 'Wh', digits: 1 },
+  wattHoursNetWh: { name: 'Net watt-hours', label: 'Wh net', unit: 'Wh', digits: 1 },
   chargingCurrentA: { name: 'Charging current', label: 'Charge I', unit: 'A', digits: 1 },
   chargingVoltageV: { name: 'Charging voltage', label: 'Charge V', unit: 'V', digits: 1 },
 } satisfies Record<LiveWidgetField, { name: string; label: string; unit: string; digits: number }>;
@@ -80,6 +82,10 @@ export function liveValue(
   const snapshot = freshBmsSnapshot(bms, nowMs);
   const cells = snapshot?.cellVoltagesV.filter(Number.isFinite) ?? [];
   const hottest = field === 'highestTempC' ? highestTemperature(sample, bms, nowMs) : null;
+  const netValues = {
+    ampHoursNetAh: netCounter(sample?.ampHoursDrawnAh, sample?.ampHoursChargedAh),
+    wattHoursNetWh: netCounter(sample?.wattHoursDrawnWh, sample?.wattHoursChargedWh),
+  };
   const bmsValues = {
     bmsStateOfCharge: snapshot?.stateOfCharge == null ? null : snapshot.stateOfCharge * 100,
     bmsStateOfHealth: snapshot?.stateOfHealth == null ? null : snapshot.stateOfHealth * 100,
@@ -99,23 +105,25 @@ export function liveValue(
     ...(load ? { label: { duty: 'Duty', motor: 'Motor', battery: 'Battery' }[load.source] } : {}),
   };
   let value =
-    field === 'elapsedMs'
-      ? sample?.ridingElapsedMs
-      : field === 'highestTempC'
-        ? hottest?.value
-        : field in bmsValues
-          ? bmsValues[field as keyof typeof bmsValues]
-          : field === 'driveLoad'
-            ? load?.percentage
-            : field === 'powerW'
-              ? sample?.packVoltageV == null || sample.batteryCurrentA == null
-                ? null
-                : sample.packVoltageV * sample.batteryCurrentA
-              : field === 'estimatedBatteryLevel'
-                ? estimatedLevel
-                : field === 'empty' || field === 'headlights' || field === 'leds'
+    field in netValues
+      ? netValues[field as keyof typeof netValues]
+      : field === 'elapsedMs'
+        ? sample?.ridingElapsedMs
+        : field === 'highestTempC'
+          ? hottest?.value
+          : field in bmsValues
+            ? bmsValues[field as keyof typeof bmsValues]
+            : field === 'driveLoad'
+              ? load?.percentage
+              : field === 'powerW'
+                ? sample?.packVoltageV == null || sample.batteryCurrentA == null
                   ? null
-                  : (sample?.[field as keyof LiveSample] as number | null | undefined);
+                  : sample.packVoltageV * sample.batteryCurrentA
+                : field === 'estimatedBatteryLevel'
+                  ? estimatedLevel
+                  : field === 'empty' || field === 'headlights' || field === 'leds'
+                    ? null
+                    : (sample?.[field as keyof LiveSample] as number | null | undefined);
   let unit: string = definition.unit;
   if (value == null || !Number.isFinite(value)) return { ...definition, value: null, unit: displayUnit(unit, units) };
   if (field === 'batteryLevel' || field === 'estimatedBatteryLevel' || field === 'dutyCycle') value *= 100;
@@ -124,6 +132,12 @@ export function liveValue(
   if (unit === '°C' && units === 'imperial') value = value * 1.8 + 32;
   unit = displayUnit(unit, units);
   return { ...definition, value, unit };
+}
+
+function netCounter(drawn: number | null | undefined, charged: number | null | undefined) {
+  return drawn == null || charged == null || !Number.isFinite(drawn) || !Number.isFinite(charged)
+    ? null
+    : drawn - charged;
 }
 
 function displayUnit(unit: string, units: UnitPreference) {
@@ -179,6 +193,10 @@ export function liveValueColor(
     return 'text-motor';
   if (field === 'batteryCurrentA')
     return value > 0 ? 'text-power-draw' : value < 0 ? 'text-success' : 'text-foreground';
+  if (field === 'ampHoursNetAh' || field === 'wattHoursNetWh') {
+    const rounded = Number(value.toFixed(liveValueCatalog[field].digits));
+    return rounded > 0 ? 'text-power-draw' : rounded < 0 ? 'text-success' : 'text-foreground';
+  }
   if (field === 'ampHoursDrawnAh' || field === 'wattHoursDrawnWh') return 'text-power-draw';
   if (field === 'ampHoursChargedAh' || field === 'wattHoursChargedWh' || field === 'chargingCurrentA')
     return 'text-success';

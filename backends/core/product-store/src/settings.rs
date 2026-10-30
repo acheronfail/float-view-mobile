@@ -307,8 +307,10 @@ pub(crate) const LIVE_WIDGET_FIELDS: &[&str] = &[
     "atrSpeedBoost",
     "ampHoursDrawnAh",
     "ampHoursChargedAh",
+    "ampHoursNetAh",
     "wattHoursDrawnWh",
     "wattHoursChargedWh",
+    "wattHoursNetWh",
     "chargingCurrentA",
     "chargingVoltageV",
 ];

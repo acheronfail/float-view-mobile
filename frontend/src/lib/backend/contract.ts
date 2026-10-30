@@ -992,8 +992,10 @@ export const liveWidgetFields = [
   'atrSpeedBoost',
   'ampHoursDrawnAh',
   'ampHoursChargedAh',
+  'ampHoursNetAh',
   'wattHoursDrawnWh',
   'wattHoursChargedWh',
+  'wattHoursNetWh',
   'chargingCurrentA',
   'chargingVoltageV',
 ] as const;
