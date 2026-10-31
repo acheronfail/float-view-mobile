@@ -2,7 +2,18 @@
 
 ### Requirement: Durable detailed telemetry lifecycle
 
-For a commands-31/32 package, each accepted compact response SHALL replace the latest compact cache and its `slowObservedAt`; the next accepted realtime response SHALL merge that cache into one normalized sample. For Refloat 1.3.0, each accepted slow command-33 response SHALL replace the latest selectable slow cache and its `slowObservedAt`; the next accepted fast command-33 response SHALL merge that cache into one normalized sample. A command-10 mode-0 response for 1.3.0 SHALL update only current active firmware-fault state and MUST NOT replace typed or extension telemetry. Device-reported accumulated values SHALL replace previous values even when they decrease. Each accepted normalized sample SHALL be assigned one monotonic session sequence and stored durably with bounded typed detail and extension values in the same commit unit. A changed discrete state SHALL append one deduplicated typed `session_event` in that transaction. Live state, session metadata/data pages, and export SHALL derive from the normalized records and observed events. Apple and Android SHALL share baseline 100 storage semantics: recognised pre-baseline development data may reset once, while baseline and subsequent supported telemetry require preservation and explicit tested upgrades for incompatible changes.
+The shared service SHALL persist normalized telemetry, discrete events and commit markers atomically before publication, preserve the release-specific slow/fast merge and expose only committed records through live state, history and export. Storage compatibility follows [backend-contract](../backend-contract/spec.md#requirement-supported-current-storage-schema).
+
+#### Scenario: Merge command-31/32 telemetry
+
+- **WHEN** a current commands-31/32 compact response is accepted
+- **THEN** it replaces the compact cache and its `slowObservedAt`; the next accepted realtime response merges that cache into one normalized sample
+
+#### Scenario: Commit one normalized observation
+
+- **WHEN** a release-selected fast response merges the latest accepted slow cache
+- **THEN** it receives one monotonic session sequence and commits bounded typed details, extensions and deduplicated source-linked discrete transitions atomically
+- **AND** live state, history and export derive only from those normalized committed records and events
 
 #### Scenario: Persist and recover detailed sample
 

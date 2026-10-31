@@ -120,11 +120,11 @@ Shared transport SHALL preserve published-boundary reads, compression, read inte
 - **WHEN** an archive is oversized, malformed, cancelled, or interrupted by server stop
 - **THEN** partial resources are removed and no successful import or export is reported
 
-### Requirement: Both host migrations remove old server ownership
+### Requirement: Hosts retain only shared server integration
 
-The completed change SHALL select the shared server on Android, iOS, and macOS. Each host migration SHALL delete its superseded routes, serializers, auth/compression helpers, and unused server dependencies. There SHALL be one native binding artifact per host and no permanent native server fallback. Source and dependency audits SHALL prove the deletion inventory and a net decrease in combined production source while retaining existing convergence limits.
+Android, iOS and macOS SHALL select the shared server through the existing coarse binding families. Hosts SHALL contain no duplicate routes, serializers, authentication/compression helpers, unused server dependencies or native server fallback.
 
-#### Scenario: Inspect final production selection
+#### Scenario: Inspect production selection
 
-- **WHEN** source, dependencies, symbols, and packaged native artifacts are audited
-- **THEN** both host families select the shared server through their existing binding families without native API dispatch or obsolete server libraries
+- **WHEN** source, dependencies, symbols and packaged native artifacts are audited
+- **THEN** both host families select the shared server without native API dispatch or obsolete server libraries

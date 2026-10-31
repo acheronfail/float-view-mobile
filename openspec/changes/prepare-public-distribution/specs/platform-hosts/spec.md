@@ -2,7 +2,12 @@
 
 ### Requirement: Native standalone session catalog and grouping removal
 
-Apple and Android SHALL expose the same bounded `session.list` control operation over the same shared Rust session catalog. The query SHALL use the catalog's `(started_at_ms, session_id)` keyset order, return at most the requested page size, encode the query shape/catalog revision/last-key context in its opaque cursor, and avoid offset scans. Complete state snapshot construction SHALL not query or serialize session summaries during telemetry-driven publication; it SHALL expose only the bounded session-catalog revision marker. The canonical schema, settings store, application service, loopback handlers, and mock SHALL contain no session-group tables, group-member tables, automatic-linking fields, group mutation ports, or linked-ride payloads. Recognised pre-baseline group-bearing development schemas MAY be reset once to baseline 100 without migration; supported baseline data SHALL be preserved and unsupported storage SHALL fail without deletion.
+Apple and Android SHALL expose the same bounded `session.list` control operation over the same shared Rust session catalog.
+
+#### Scenario: Keep catalog work out of telemetry snapshots
+
+- **WHEN** the service lists sessions or publishes live state
+- **THEN** the query SHALL use the catalog's `(started_at_ms, session_id)` keyset order, return at most the requested page size, encode the query shape/catalog revision/last-key context in its opaque cursor, and avoid offset scans. Complete state snapshot construction SHALL not query or serialize session summaries during telemetry-driven publication; it SHALL expose only the bounded session-catalog revision marker. The canonical schema, settings store, application service, loopback handlers, and mock SHALL contain no session-group tables, group-member tables, automatic-linking fields, group mutation ports, or linked-ride payloads. Only recognised pre-baseline owned development layouts may be reset; supported data is preserved and unsupported storage fails without deletion.
 
 #### Scenario: Indexed session page
 
@@ -16,7 +21,7 @@ Apple and Android SHALL expose the same bounded `session.list` control operation
 
 #### Scenario: Grouping removed from native surfaces
 
-- **WHEN** a backend is built from the canonical baseline schema and exposes settings or control methods
+- **WHEN** a backend is built from the canonical supported schema and exposes settings or control methods
 - **THEN** group tables, linked-ride records, automatic-linking options, and group/unlink operations are absent on Apple and Android
 
 #### Scenario: Cursor context mismatch

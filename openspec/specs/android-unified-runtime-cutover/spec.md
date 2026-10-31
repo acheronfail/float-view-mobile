@@ -1,36 +1,29 @@
-# android-unified-runtime-cutover Specification
+# Android Shared Runtime Integration
 
 ## Purpose
 
-Define Android's selection of the unified Rust runtime, retained native responsibilities, and required deletion, packaging, and verification evidence.
+Define Android’s current shared-service selection, native OS boundary and runtime packaging.
 
-## Verification scope
-
-Use the current [impact-based verification policy](../../../AGENTS.md#verification)
-for ongoing changes. Full-suite, all-platform packaging and physical acceptance
-gates below apply only to the original completed migration, refactor or feature
-change. They do not impose recurring gates on maintenance. Preserve behavioral
-coverage, selecting relevant tests and hardware checkpoints by actual impact.
+Original cutover requirements and evidence remain in [archived changes](../../changes/archive/).
+Ongoing checks follow the [verification policy](../../../AGENTS.md#verification).
+The capability identifier remains stable for historical references.
 
 ## Requirements
 
-### Requirement: Android selects one unified Rust runtime
+### Requirement: Android selects one unified Rust service
 
-The Android backend SHALL select one process-owned unified Rust application runtime through one bounded callback-free JNI boundary and SHALL retain Bluetooth, execution, lifecycle/background service, permissions, location acquisition, native file presentation, theme/UI, protected storage-root setup, and import/export presentation as Kotlin-owned OS responsibilities. Shared Rust SHALL own loopback transport, authentication, frontend dispatch, and serialization. The shared backend service SHALL own product/catalog persistence, archive formats and portable application policy. Kotlin SHALL supply typed OS facts and execute bounded OS effects without duplicating domain records, frontend dispatch or portable decisions.
+Android SHALL use one process-owned shared Rust service through the bounded callback-free JNI boundary specified by [rust-android-jni-support](../rust-android-jni-support/spec.md). Kotlin SHALL execute OS capabilities without protocol, product, persistence, dispatch or snapshot fallback implementations.
 
-#### Scenario: Execute an ordered runtime result
+#### Scenario: Execute an ordered result
 
-- **WHEN** Android supplies a valid platform fact or frontend operation to the runtime
-- **THEN** Kotlin validates the complete result and executes its bounded effects in order without a native protocol/application/session-decision fallback
-
-### Requirement: Android cutover deletes superseded ownership
-
-The same change that selects the runtime SHALL delete the superseded Kotlin application/protocol/session decision owners, ten protocol JNI adapters and crates, JNI support crate, tests of removed private types, per-protocol task/property/source-set entries, bridge catalog/helper, and generated protocol artifacts.
+- **WHEN** Android supplies a platform fact or frontend operation
+- **THEN** shared code owns loopback authentication, dispatch, serialization, product/catalog storage, archives and portable policy
+- **AND** Kotlin validates complete results and executes ordered Bluetooth, clock/timer, lifecycle/background, permission, location, protected-root, external-file and theme/UI effects without duplicating domain records
 
 #### Scenario: Inspect production and build inputs
 
-- **WHEN** repository audits inspect Kotlin/Rust sources, Gradle and root recipes, symbols, dependencies, and generated package directories
-- **THEN** no retired decision owner, protocol bridge, fallback import, JNI symbol, build task/property, or protocol library remains
+- **WHEN** Kotlin/Rust, Gradle, root recipes, symbols and packaged libraries are audited
+- **THEN** no retired native decision owner, protocol JNI adapter/crate, support crate, fallback import, per-protocol task/property/source set, bridge catalog/helper or generated protocol artifact remains
 
 ### Requirement: Android packages one coarse runtime library
 
@@ -40,21 +33,3 @@ Android Debug and Release builds SHALL source-build and package exactly one unif
 
 - **WHEN** clean host-test and four-ABI Debug/Release packaging runs
 - **THEN** each expected output contains the runtime library with the required architecture/symbols and contains no protocol-specific Rust library
-
-### Requirement: Final convergence is enforced
-
-The completed cutover SHALL reduce the combined tracked production Rust, Apple, and Android source below 59,280 lines, reduce workspace members below 34, and reduce temporary protocol bridge crates and target artifacts to zero while retaining one thin host binding per selected platform.
-
-#### Scenario: Audit the completed migration
-
-- **WHEN** convergence audits compare the recorded pre-runtime, Apple-cutover, and final states
-- **THEN** every source/member/bridge/artifact limit passes and future reintroduction fails the normal verification gate
-
-### Requirement: Complete software and requested physical evidence
-
-The cutover SHALL pass focused shared-boundary/ABI/adapter/persistence tests, warnings-denied linting, clean packaging, strict OpenSpec validation, and complete `just verify`. It SHALL rerun canonical physical conformance on the connected iOS device with the ESP32 fixture after shared-boundary changes and SHALL explicitly record that Android physical testing was skipped.
-
-#### Scenario: Accept the deletion-bearing cutover
-
-- **WHEN** all software gates and the connected iOS fixture matrix pass
-- **THEN** Android runtime ownership and final bridge retirement may be committed without claiming Android hardware evidence

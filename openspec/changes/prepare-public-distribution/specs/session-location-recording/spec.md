@@ -2,7 +2,7 @@
 
 ### Requirement: Location lifecycle and retention parity
 
-Location rows SHALL participate in the same provisional-session retention, interruption recovery, deletion, pruning, integrity checks, and export lifecycle as the containing board session. Recognised pre-baseline development storage MAY reset once to baseline 100; baseline location records SHALL be preserved and unsupported/newer storage SHALL fail without deletion.
+Location rows SHALL participate in the same provisional-session retention, interruption recovery, deletion, pruning, integrity checks, and export lifecycle as the containing board session. Location storage SHALL follow the supported-storage requirement in [backend-contract](../backend-contract/spec.md#requirement-supported-current-storage-schema); version mismatch alone never authorizes deletion.
 
 #### Scenario: Rejected provisional session
 

@@ -1,8 +1,12 @@
-# Shared Rust backend service
+# Shared Rust Backend Service
 
 ## Purpose
 
-Define a complete portable backend service that lets native hosts supply only OS capabilities while sharing product persistence, application policy and frontend behavior.
+Define the portable production service shared by native hosts supplying only OS capabilities.
+
+Original cutover requirements and evidence remain in [archived changes](../../changes/archive/).
+Ongoing checks follow the [verification policy](../../../AGENTS.md#verification).
+The capability identifier remains stable for historical references.
 
 ## Requirements
 
@@ -63,14 +67,15 @@ The shared service SHALL own settings, saved boards, profiles, private routing a
 - **WHEN** an archive introduces a known board identity without a local Bluetooth association
 - **THEN** its history and profile are available while connecting still requires a valid locally discovered association
 
-#### Scenario: Replace incompatible development storage before first release
+#### Scenario: Preserve supported storage
 
-- **WHEN** the shared service encounters an earlier development storage marker before the first application release
-- **THEN** it resets only owned incompatible storage and uses the current canonical identity algorithm without migrations, legacy aliases or fallback readers; ordinary corruption or I/O failure does not trigger a version reset
+- **WHEN** the service opens existing product storage
+- **THEN** it preserves baseline 100 and subsequent supported data, using explicit crash-safe upgrades for incompatible supported transitions; only recognised pre-baseline markers and validated owned layouts permit bounded restartable development reset
+- **AND** unknown/newer/malformed markers, missing markers on nonempty roots, corruption and I/O failure preserve files and fail actionably; exports remain outside resets and no pre-baseline readers or identity aliases are retained
 
 ### Requirement: Shared session catalog and recovery
 
-The shared service SHALL own session creation, catalog summaries, keyset queries, close/retention, recovery, pending deletion and persisted maintenance coordination. The session commit marker SHALL remain authoritative across catalog/session failures. Existing schemas and formats SHALL remain unchanged, and ordinary interruption MUST NOT invoke incompatible-schema deletion. Recovery SHALL be bounded, restartable and complete required reconciliation before exposing affected sessions.
+The shared service SHALL own session creation, catalog summaries, keyset queries, close/retention, recovery, pending deletion and persisted maintenance coordination. The session commit marker SHALL remain authoritative across catalog/session failures. Recovery SHALL preserve supported schemas and formats; ordinary interruption MUST NOT invoke incompatible-schema deletion. Recovery SHALL be bounded, restartable and complete required reconciliation before exposing affected sessions.
 
 #### Scenario: Catalog update fails after session commit
 
@@ -154,16 +159,16 @@ Every command queue, effect batch, waiter, worker pool, collection, cache, trans
 - **WHEN** available storage crosses the existing stop threshold or a write fails
 - **THEN** shared policy exposes the canonical failure and preserves already committed data without a host-specific retention decision
 
-### Requirement: Existing hosts prove complete portable ownership
+### Requirement: Existing hosts preserve complete portable ownership
 
-Completion SHALL select the shared service on Apple and Android and delete superseded native stores, portable policy, domain dispatch and domain snapshot projection. A direct Rust test host SHALL exercise the same selected service while implementing only synthetic OS capabilities. Audits SHALL require a net production-source reduction below 49,922 lines, at most 28 workspace members, two existing native binding families and no temporary bridges or permanent native fallback.
+Apple, Android and the direct Rust test host SHALL use the same shared service. Native hosts retain the two coarse binding families and no temporary bridges, duplicate portable stores/policy/dispatch/projection or fallback. The direct host SHALL implement only synthetic OS capabilities.
 
-#### Scenario: Inspect a future host's responsibilities
+#### Scenario: Inspect a test host’s responsibilities
 
-- **WHEN** the direct test host runs canonical product and lifecycle scenarios
+- **WHEN** the direct host runs canonical product and lifecycle scenarios
 - **THEN** it provides no settings/profile/Tune/session CRUD, catalog SQL, archive encoding, identity derivation, reconnect policy or product snapshot implementation
 
 #### Scenario: Inspect selected native packages
 
-- **WHEN** source, symbols, dependencies and clean host packages are audited
+- **WHEN** source, symbols, dependencies and affected host packages are audited
 - **THEN** both host families select one shared service through their existing artifacts and contain no superseded portable implementation

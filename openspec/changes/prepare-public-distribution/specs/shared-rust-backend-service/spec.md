@@ -24,7 +24,8 @@ The shared service SHALL own settings, saved boards, profiles, private routing a
 - **WHEN** an archive introduces a known board identity without a local Bluetooth association
 - **THEN** its history and profile are available while connecting still requires a valid locally discovered association
 
-#### Scenario: Replace incompatible development storage before first release
+#### Scenario: Preserve supported storage
 
-- **WHEN** the shared service encounters a recognised pre-baseline development marker and owned layout
-- **THEN** it resets only validated owned development files to baseline 100 once, uses the current identity algorithm without development readers or aliases, and preserves supported or unsupported data on future launches; corruption and I/O failure do not authorize deletion
+- **WHEN** the service opens existing product storage
+- **THEN** it preserves baseline 100 and subsequent supported data, using explicit crash-safe upgrades for incompatible supported transitions; only recognised pre-baseline markers and validated owned layouts permit bounded restartable development reset
+- **AND** unknown/newer/malformed markers, missing markers on nonempty roots, corruption and I/O failure preserve files and fail actionably; exports remain outside resets and no pre-baseline readers or identity aliases are retained

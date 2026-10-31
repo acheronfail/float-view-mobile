@@ -1,13 +1,21 @@
 ## MODIFIED Requirements
 
-### Requirement: Disposable current storage schema
+### Requirement: Supported current storage schema
 
-The native backends SHALL execute the shared canonical first-production SQLite schemas, retain WAL recovery and integrity handling, and reset only recognised pre-baseline owned development storage at baseline 100, preserve supported baseline data, and reject unknown/newer/malformed/missing-on-nonempty markers without deletion. The session schema SHALL use dedicated nullable columns for every stable numeric telemetry field, bounded JSON only for negotiated numeric extensions, bounded write-time numeric-field presence metadata, chronological transition rows linked to source samples, elapsed indexes, incremental auto-vacuum, session-captured riding/idle persistence intervals, history/prune metadata, and one authoritative commit marker containing committed sample/event boundaries, recorded/stored counts, history revision, elapsed coverage, and the bounded riding/distance/maximum/source-sequence/last-value projection needed to recover catalog summaries. The catalog SHALL contain bounded persisted prune-job progress. Denormalized catalog metadata SHALL be reconciled from the authoritative session database after interruption or an in-process catalog failure before that session is published or appended again.
+The shared service SHALL use canonical SQLite schemas, WAL recovery and integrity handling while preserving baseline 100 and subsequent supported data. Incompatible supported transitions require incremented storage markers and explicit crash-safe tested upgrades. Only recognised pre-baseline markers and validated owned layouts permit bounded restartable development reset; unsupported or damaged storage fails without deletion.
 
-#### Scenario: Schema mismatch
+#### Scenario: Persist complete session evidence
 
-- **WHEN** the store encounters a recognised pre-baseline marker and validated owned layout
-- **THEN** the backend resets only validated app-owned development files to baseline 100 once, preserving unrelated exports; supported baseline data and unsupported storage are never erased by this path
+- **WHEN** the service commits telemetry or updates session history
+- **THEN** it retains dedicated nullable stable numeric columns, bounded negotiated extension JSON and write-time field presence, ordered source-linked transition rows, elapsed indexes, incremental auto-vacuum, session-captured riding/idle intervals and history/prune metadata
+- **AND** one atomic authoritative marker records sample/event boundaries, recorded/stored counts, history revision, elapsed coverage and the bounded riding/distance/maximum/source-sequence/last-value projection needed for catalog recovery; the catalog retains bounded prune-job progress
+- **AND** denormalized catalog metadata is reconciled from that marker before an interrupted or dirty session is published or appended again
+
+#### Scenario: Storage admission
+
+- **WHEN** existing storage is opened
+- **THEN** baseline and subsequent supported data are preserved; unknown/newer/malformed markers, missing markers on nonempty roots, corruption and operational failures preserve files and fail actionably
+- **AND** any recognized pre-baseline reset is limited to validated owned development files, excludes exports and never introduces legacy readers, backfill or identity aliases solely to recover development data
 
 #### Scenario: Interrupted session recovery
 

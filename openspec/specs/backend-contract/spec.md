@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the complete platform-neutral contract implemented by every supported native backend and consumed by the shared frontend.
+
 ## Requirements
+
 ### Requirement: Complete mandatory contract
 
 Every supported backend SHALL implement the WebSocket control methods `state.get`, `diagnostics.list`, `diagnostics.capture`, `diagnostics.prepare`, `diagnostics.export`, `diagnostics.clear`, `diagnostics.uiError`, `diagnostics.report`, `uiState.get`, `uiState.set`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `announcements.test`, `announcements.openVoiceSettings`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.marker.add`, `session.end`, `session.extendPause`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, `events`, `locations`, `markers`, and `connectionContexts`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities, except that the mandatory announcement audio state SHALL determine visibility of the iOS-only audio-lowering control and supported system voice-settings action.
@@ -277,14 +279,22 @@ Available numeric-field descriptors SHALL include only fields with at least one 
 - **WHEN** the user cancels deletion while it is still waiting for reader leases and before file removal begins
 - **THEN** pending deletion clears and the unchanged session becomes readable again; if removal already won, the backend reports the stable completed-deletion result
 
-### Requirement: Disposable current storage schema
+### Requirement: Supported current storage schema
 
-The native backends SHALL execute the shared canonical first-production SQLite schemas, retain WAL recovery and integrity handling, and recreate all incompatible test-stage storage on schema-version mismatch rather than running migrations. The session schema SHALL use dedicated nullable columns for every stable numeric telemetry field, bounded JSON only for negotiated numeric extensions, bounded write-time numeric-field presence metadata, chronological transition rows linked to source samples, elapsed indexes, incremental auto-vacuum, session-captured riding/idle persistence intervals, history/prune metadata, and one authoritative commit marker containing committed sample/event boundaries, recorded/stored counts, history revision, elapsed coverage, and the bounded riding/distance/maximum/source-sequence/last-value projection needed to recover catalog summaries. The catalog SHALL contain bounded persisted prune-job progress. Denormalized catalog metadata SHALL be reconciled from the authoritative session database after interruption or an in-process catalog failure before that session is published or appended again.
+The shared service SHALL use canonical SQLite schemas, WAL recovery and integrity handling while preserving baseline 100 and subsequent supported data. Incompatible supported transitions require incremented storage markers and explicit crash-safe tested upgrades. Only recognised pre-baseline markers and validated owned layouts permit bounded restartable development reset; unsupported or damaged storage fails without deletion.
 
-#### Scenario: Schema mismatch
+#### Scenario: Persist complete session evidence
 
-- **WHEN** the canonical storage version differs from persisted pre-release test data
-- **THEN** the backend deletes its logging directory and recreates the complete current schema without migration, backfill, compatibility columns, or partial fallback
+- **WHEN** the service commits telemetry or updates session history
+- **THEN** it retains dedicated nullable stable numeric columns, bounded negotiated extension JSON and write-time field presence, ordered source-linked transition rows, elapsed indexes, incremental auto-vacuum, session-captured riding/idle intervals and history/prune metadata
+- **AND** one atomic authoritative marker records sample/event boundaries, recorded/stored counts, history revision, elapsed coverage and the bounded riding/distance/maximum/source-sequence/last-value projection needed for catalog recovery; the catalog retains bounded prune-job progress
+- **AND** denormalized catalog metadata is reconciled from that marker before an interrupted or dirty session is published or appended again
+
+#### Scenario: Storage admission
+
+- **WHEN** existing storage is opened
+- **THEN** baseline and subsequent supported data are preserved; unknown/newer/malformed markers, missing markers on nonempty roots, corruption and operational failures preserve files and fail actionably
+- **AND** any recognized pre-baseline reset is limited to validated owned development files, excludes exports and never introduces legacy readers, backfill or identity aliases solely to recover development data
 
 #### Scenario: Interrupted session recovery
 
@@ -1055,7 +1065,6 @@ Saved profile requests and imported profiles SHALL validate optional `batteryCel
 - **WHEN** a valid configured board is exported and imported
 - **THEN** its preset identity, selected profile, empty voltage, and optional capacity including manual overrides round trip through the existing profile mechanism, without replaying preset defaults, and invalid or inconsistent values are rejected
 
-
 #### Scenario: Invalid capacity
 
 - **WHEN** a save or import supplies a nonnumeric, non-finite, or out-of-range capacity
@@ -1129,22 +1138,27 @@ A non-null preset identity in a revisioned profile patch SHALL explicitly select
 Every supported backend SHALL expose a bounded permission inventory in complete state snapshots and implement authenticated `permissions.recover` with a closed permission identifier and expected action. The result SHALL report current permission state, not assert a grant merely because presentation or settings navigation succeeded. Existing Bluetooth and location permission methods SHALL use consistent underlying state and recovery policy. The frontend SHALL render the advertised inventory and actions without platform detection or optional-method negotiation.
 
 #### Scenario: Current action
+
 - **WHEN** an authenticated client requests an applicable advertised recovery action
 - **THEN** the backend dispatches native presentation and returns one terminal result or structured error, with subsequent authorization observations published in complete monotonic snapshots
 
 #### Scenario: Invalid or stale target
+
 - **WHEN** a request contains an unknown identifier or action, an inapplicable permission, or an action that no longer matches current state
 - **THEN** malformed identifiers/actions receive invalid_request and inapplicable or stale actions receive invalid_state without native presentation
 
 #### Scenario: Presentation cannot proceed
+
 - **WHEN** another permission presentation is pending or no foreground host can present
 - **THEN** the backend returns conflict or unavailable respectively without accumulating deferred prompts
 
 #### Scenario: Stale completion
+
 - **WHEN** a timed-out or prior-lifetime native operation completes
 - **THEN** it does not complete a newer request or overwrite newer state, and current OS observations remain authoritative
 
 #### Scenario: Authentication and bounds
+
 - **WHEN** a permission command has invalid authentication, origin, or exceeds contract bounds
 - **THEN** it is rejected before any native effect using the existing transport and error rules
 
@@ -1153,10 +1167,12 @@ Every supported backend SHALL expose a bounded permission inventory in complete 
 Every supported backend and mock SHALL implement `uiState.get` with empty parameters returning a typed checkpoint or null, and `uiState.set` with exactly `checkpoint` returning `Accepted`. Null SHALL clear the checkpoint; a valid record SHALL atomically replace it. These methods SHALL use the existing authenticated envelopes, origin checks and stable errors, with no platform branches or additional endpoint.
 
 #### Scenario: Read replace and clear
+
 - **WHEN** an authenticated client reads before any save, saves a valid checkpoint, reads again and then saves null
 - **THEN** it observes null, the exact accepted checkpoint and finally null through bounded terminal results
 
 #### Scenario: Invalid authentication
+
 - **WHEN** a checkpoint operation has an invalid origin or token
 - **THEN** existing transport rules reject it without exposing or modifying the checkpoint
 
@@ -1165,18 +1181,22 @@ Every supported backend and mock SHALL implement `uiState.get` with empty parame
 A checkpoint SHALL contain format version 1, a closed route descriptor, optional Live presentation and at most one supported surface descriptor. Each identifier SHALL be nonempty and at most 512 UTF-8 bytes; the complete encoded record SHALL be at most 4,096 UTF-8 bytes. Unknown versions, fields, kinds, invalid identifiers and incompatible route/surface combinations SHALL fail with `invalid_request` without changing the previous checkpoint.
 
 #### Scenario: Route descriptors
+
 - **WHEN** a client supplies a checkpoint route
 - **THEN** its kind is exactly Home, Sessions, Settings, Live, BMS, board history with saved-board ID, or session detail with session ID and nullable saved-board return context
 
 #### Scenario: Presentation descriptors
+
 - **WHEN** a client supplies Live presentation or an open surface
 - **THEN** Live presentation has only normal/detailed mode and target device identity, and the surface uses the fixed supported kind and applicable target fields without nested dialog stacks, draft maps or arbitrary URLs
 
 #### Scenario: Malformed record
+
 - **WHEN** a request exceeds a checkpoint bound, supplies an unknown version/field, combines a session route with a Live panel or includes an unsaved draft
 - **THEN** it returns `invalid_request` and a subsequent get returns the previous accepted checkpoint
 
 #### Scenario: Structurally valid stale target
+
 - **WHEN** a well-formed checkpoint refers to a target that subsequently disappears
 - **THEN** checkpoint retrieval still returns the record and restoration validates the target through current authoritative state and normal detail reads
 
@@ -1185,14 +1205,17 @@ A checkpoint SHALL contain format version 1, a closed route descriptor, optional
 Checkpoint operations SHALL retain only one record in the process-owned service, survive listener restart and frontend replacement, and have no persistence, BLE, recording or product mutation effects. They SHALL neither increment application/product/catalog revisions nor publish `state.changed`; checkpoints SHALL be absent from snapshots, archives and exports. Process recreation SHALL start with no checkpoint.
 
 #### Scenario: Listener and token replacement
+
 - **WHEN** the listener stops and restarts over the same service
 - **THEN** a client authenticated with the current bootstrap token retrieves the accepted checkpoint while obsolete authentication remains rejected
 
 #### Scenario: Native process replacement
+
 - **WHEN** a new native service process is constructed
 - **THEN** `uiState.get` returns null without reading any persisted UI state
 
 #### Scenario: No product side effects
+
 - **WHEN** a checkpoint is saved or cleared while telemetry and recording continue
 - **THEN** the save causes no BLE effects, durable writes, state events or revision increments, and no snapshot or export contains the checkpoint
 
@@ -1433,10 +1456,12 @@ categories. Neither parameters nor arbitrary error text SHALL be logged.
 Settings SHALL include `rideResumeWindowMinutes` (integer 1–1,440, default 60). Complete state SHALL include nullable `pausedRide` with session ID, saved board ID, display name and resume deadline. `session.end` SHALL accept a session ID and end only the matching active or paused ride; stale identities SHALL fail without affecting another ride. These semantics SHALL be shared by Apple, Android and the mock.
 
 #### Scenario: Authoritative paused state
+
 - **WHEN** a saved ride pauses or ends
 - **THEN** a newer complete snapshot exposes or clears its paused state
 
 #### Scenario: Invalid window or stale completion
+
 - **WHEN** a request supplies a fractional/out-of-range resume window or ends another session
 - **THEN** the request fails without changing the ride or saved settings
 
@@ -1468,7 +1493,6 @@ Settings SHALL include `rideResumeWindowMinutes` (integer 1–1,440, default 60)
 
 - **WHEN** the same context-history request is sent to Apple, Android or the mock
 - **THEN** all implement the same bounded typed result and errors without frontend platform branches or exposing context history in AppState
-
 
 ### Requirement: Confirmed recording break metadata
 

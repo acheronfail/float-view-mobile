@@ -2,15 +2,11 @@
 
 ## Purpose
 
-Define the safe coarse application boundary that composes proven portable backend owners and the evidence and convergence gates required before native hosts select it.
+Define the safe coarse application runtime selected by the shared service on both native host families.
 
-## Verification scope
-
-Use the current [impact-based verification policy](../../../AGENTS.md#verification)
-for ongoing changes. Full-suite, all-platform packaging and physical acceptance
-gates below apply only to the original completed migration, refactor or feature
-change. They do not impose recurring gates on maintenance. Preserve behavioral
-coverage, selecting relevant tests and hardware checkpoints by actual impact.
+Original cutover requirements and evidence remain in [archived changes](../../changes/archive/).
+Ongoing checks follow the [verification policy](../../../AGENTS.md#verification).
+The capability identifier remains stable for historical references.
 
 ## Requirements
 
@@ -82,60 +78,29 @@ The runtime component SHALL make the existing session reader and pruner operatio
 
 ### Requirement: Platform responsibilities remain outside the runtime
 
-The runtime MUST express Bluetooth I/O, clocks, timers, persistence paths, cache access, routing-hint storage, and activation as caller facts or returned effects. Bluetooth adapters, location acquisition, lifecycle/background execution, permissions, native file presentation, theme, and WebViews SHALL remain platform-owned. Shared Rust transport SHALL own loopback authentication and the frontend API above the application runtime. The shared backend service SHALL satisfy portable cache, routing-hint, storage and activation effects directly, forwarding only OS effects to native adapters. The application runtime MUST remain independent of HTTP, sockets, and server executors.
+The application runtime SHALL remain independent of HTTP, sockets, server executors and OS integration. Bluetooth, clocks, timers, paths, cache access, routing-hint storage and activation SHALL cross its boundary as facts/effects. The shared service executes portable work; hosts execute OS work.
 
 #### Scenario: Execute runtime effects
 
-- **WHEN** the runtime returns writes, timers, cache work, activation, or publication effects
-- **THEN** the shared backend service executes portable work, dispatches OS work to native adapters and reports resulting facts through later runtime commands
+- **WHEN** the runtime returns writes, timers, cache work, activation or publication effects
+- **THEN** the shared service executes portable cache, routing-hint, storage and activation work and forwards only OS effects to adapters, reporting outcomes through later commands
+- **AND** native hosts retain Bluetooth adapters, location acquisition, lifecycle/background execution, permissions, native file presentation, theme and WebViews; shared transport owns loopback authentication and the frontend API
 
 #### Scenario: Replace a WebView
 
-- **WHEN** a platform destroys and recreates its WebView while the native process and runtime remain alive
-- **THEN** the replacement frontend observes the same process-owned authoritative state without transferring runtime ownership to the view
+- **WHEN** a platform destroys and recreates its WebView while the process and runtime remain alive
+- **THEN** the replacement frontend observes the same authoritative state without transferring runtime ownership to the view
 
-### Requirement: Candidate evidence precedes host selection
+### Requirement: Both mobile hosts select the same runtime
 
-The unselected runtime SHALL have exact composition, framing, persistence, ordering, adversarial, reset, and redaction tests plus repository audits proving no production host, host bridge, generated binding, or OS dependency selects it. `just verify` SHALL pass before a host-cutover proposal may select the runtime.
+Apple and Android SHALL select the same safe application runtime through thin coarse platform bindings. No protocol-specific bridge, duplicate native application/protocol/session decision owner or fallback SHALL remain.
 
-#### Scenario: Complete candidate verification
+#### Scenario: Inspect production selection
 
-- **WHEN** the runtime change is ready to archive
-- **THEN** focused tests, workspace lint, strict OpenSpec validation, the full software gate, and production-isolation audits pass while Apple and Android continue using their existing selected paths
+- **WHEN** source, dependencies and native build inputs are audited
+- **THEN** both host families select the existing shared runtime and no superseded per-protocol bridge or build matrix is present
 
-### Requirement: Migration economics are a release gate
+#### Scenario: Verify changed composition
 
-The repository SHALL retain a reproducible baseline for production source lines, workspace and bridge counts, selected families, and host build artifacts. Every later host cutover SHALL name its deletion inventory and the migration SHALL NOT be considered complete until both hosts use the coarse runtime boundary and all superseded per-protocol bridges and native decision owners are removed.
-
-#### Scenario: Add a host cutover
-
-- **WHEN** Apple or Android selects the runtime
-- **THEN** the same completed change deletes that host's superseded connection, protocol, and persistence decision code and reports the baseline delta
-
-#### Scenario: Finish both host cutovers
-
-- **WHEN** Apple and Android have passed their required gates through the runtime boundary
-- **THEN** a final change removes every obsolete per-protocol Apple FFI and Android JNI crate, native adapter, header/module, and per-family build entry rather than retaining fallback scaffolding
-
-### Requirement: Apple selects the unified runtime independently
-
-The shared iOS/macOS backend SHALL select the unified Rust runtime through one coarse audited Apple boundary only after deleting its superseded native application/protocol/session decisions and passing complete Apple software and physical gates. Android SHALL remain the production owner of its current application behavior and continue using its temporary JNI bridges until a separate deletion-bearing cutover.
-
-#### Scenario: Complete Apple selection
-
-- **WHEN** the Apple deletion, packaging, canonical conformance, and connected iOS fixture gates pass
-- **THEN** Apple becomes the first production selector of the unified runtime while Android ownership is unchanged
-
-#### Scenario: Preserve the final convergence gate
-
-- **WHEN** only Apple has selected the runtime
-- **THEN** the migration remains incomplete and bridge retirement cannot remove Android scaffolding until Android independently passes its cutover
-
-### Requirement: Both mobile hosts complete unified runtime selection
-
-Apple and Android SHALL select the same safe application runtime through thin platform bindings, with no protocol-specific bridge or native application/protocol/session-decision fallback remaining.
-
-#### Scenario: Complete the migration
-
-- **WHEN** Android passes its deletion, packaging, software, convergence, and requested iOS physical-regression gates
-- **THEN** both mobile hosts share the unified runtime and the temporary protocol bridge/build matrix is fully retired
+- **WHEN** runtime composition changes
+- **THEN** affected tests cover framing, persistence, ordering, adversarial input, reset and redaction through the selected owner rather than an isolated candidate
