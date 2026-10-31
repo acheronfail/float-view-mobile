@@ -81,16 +81,11 @@ closed/production promotion remains manual. Tagged manual runs accept
 `android-store=true` for build-only or `android-delivery=check|upload`;
 master/nightly store requests are rejected. Only stable `vX.Y.Z` or numbered `vX.Y.Z-rc.N` release tags select protected App Store jobs.
 `just release ...` pushes that tag and selects iOS signing/delivery; master
-commits and rolling nightlies never select them. One owner approval on
-`ios-store-signing` covers signing and subsequent delivery; `ios-store-upload`
-retains its tag policy and credentials without a second reviewer gate. Explicit
-upload readiness is still required. A fresh manual run on an existing
-stable or candidate tag can rebuild store artifacts with `ios-store=true` or select
-`ios-delivery=check|upload`; requests on master/nightly refs are rejected.
-Published stable/candidate GitHub assets remain immutable during store retries. Check mode
-verifies authentication/app/build records without uploading. Upload mode sends
-once and retains a processing receipt. Neither invites testers or submits review.
-See the Apple host guide for gates and retries.
+commits and rolling nightlies never select them.
+
+Apple signing/delivery credentials, readiness gates and retry commands are
+maintained in the [Apple host guide](../backends/apple/README.md#protected-apple-delivery).
+Store retries do not replace published GitHub packages, invite testers or submit review.
 
 Run the focused release-tooling checks with
 `node --strip-types --test .github/scripts/*.test.ts` and

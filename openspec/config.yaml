@@ -30,6 +30,7 @@ context: |
   Historical Rust migration/cutover gates apply only to their original changes.
   Run every OpenSpec CLI command with `OPENSPEC_TELEMETRY=0`; OpenSpec work in
   this repository must not make telemetry requests.
+  AGENTS.md owns completion policy; docs/development.md#openspec owns validation commands.
 
 rules:
   proposal:

@@ -1,6 +1,19 @@
 _default:
     @just --list
 
+# Validate canonical specs and archives, or one ready change; see docs/development.md.
+spec-check change="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export OPENSPEC_TELEMETRY=0
+    change={{ quote(change) }}
+    if [[ -n "$change" ]]; then
+      openspec validate "$change" --type change --no-interactive --json
+    else
+      openspec validate --specs --no-interactive
+      openspec validate --archived --strict --no-interactive
+    fi
+
 core-lint:
     cd backends/core && cargo fmt --check
     cd backends/core && cargo clippy --locked --offline --workspace --all-targets -- -D warnings
@@ -303,30 +316,7 @@ fixture action port="":
     esac
 
 audit:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    [[ -f backends/core/application-runtime-host/Cargo.toml ]]
-    [[ -f backends/core/application-runtime-apple-ffi/Cargo.toml ]]
-    [[ -f backends/core/application-runtime-android-jni/Cargo.toml ]]
-    [[ "$(find backends/core -mindepth 2 -maxdepth 2 -path '*-apple-ffi/Cargo.toml' -print)" == \
-      'backends/core/application-runtime-apple-ffi/Cargo.toml' ]]
-    [[ "$(find backends/core -mindepth 2 -maxdepth 2 -path '*-android-jni/Cargo.toml' -print)" == \
-      'backends/core/application-runtime-android-jni/Cargo.toml' ]]
-    [[ -z "$(find backends/apple/Sources -mindepth 1 -maxdepth 1 -type d -name 'CVesc*' -print -quit)" ]]
-    ! rg -n 'Rust(Vesc|Refloat).*Bridge|float_view_(vesc|refloat)_.*android_jni|android-jni-support' \
-      backends/android backends/core/Cargo.toml backends/core/Cargo.lock
-    ! rg -n 'VescProtocolPort|VescProtocolService' backends/android/app/src/main -g '*.kt'
-    for file in AdaptiveLogging AuxiliaryNodeDiscovery ControllerDiscovery \
-      RefloatConfigurationService RefloatMutationCoordinator TelemetryPolling VescRequestScheduler; do
-      [[ ! -e "backends/android/app/src/main/java/fail/acheron/floatview/application/$file.kt" ]]
-    done
-    [[ ! -e backends/core/bridge-build-catalog.sh ]]
-    [[ ! -e backends/core/build-android-bridge.sh ]]
-    ! git ls-files | rg '\.(a|so|dylib|xcframework)$'
-    ! rg -n 'FlyingFox|io\.ktor|libs\.ktor|ktor-server' backends/apple backends/android \
-      -g '*.swift' -g '*.kt' -g '*.kts' -g '*.toml' -g '*.pbxproj' -g 'Package.resolved'
-    ! rg -n 'case "state.get"|"state.get" ->|GZIPOutputStream|SessionHistoryReducer' \
-      backends/apple/Sources backends/android/app/src/main
+    python3 -B backends/core/test-audit-ownership.py
     backends/core/audit-ownership.sh
     git diff --check
 

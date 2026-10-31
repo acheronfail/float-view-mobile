@@ -1,110 +1,53 @@
 # Interactive fixture development
 
-This development-only SvelteKit application controls the unchanged ESP32 byte
-bridge while a production native Float View backend owns Bluetooth. It runs only
-through Vite at `http://127.0.0.1:11004`; there is no build, preview, adapter,
-package, deployment, or persisted simulator state.
+This development-only SvelteKit workbench controls the ESP32 byte bridge while
+the production native backend owns Bluetooth. It runs through Vite on
+`http://127.0.0.1:11004`; it has no deployment or persisted simulator state.
 
 ## Ownership
 
-- `../fixture/` owns reusable VESC framing, serial transport, the deliberate
-  THOR300 identity, firmware variants, Refloat codecs, topology strategies,
-  telemetry generation, simulation, and canonical physical scenarios. It must
-  not import Svelte or fixture-development code.
-- `src/lib/coordinator/` owns authoritative state, exclusive serial lifecycle,
-  high-level actions, request servicing, and process-wide resolution. Files
-  that can touch Node or serial use the `.server.ts` suffix.
-- `src/lib/control/` owns the browser API client, reactive control state, the
-  configuration form, and the control surface.
-- `src/lib/contract.ts` is the bounded state/action boundary shared by browser
-  and server.
-- `src/routes/` contains thin SvelteKit adapters only.
+| Location               | Responsibility                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------- |
+| `../fixture/`          | Reusable framing, serial transport, topology, firmware models and canonical scenarios |
+| `src/lib/coordinator/` | Authoritative state, exclusive serial lifecycle and request servicing                 |
+| `src/lib/control/`     | Browser client, reactive control state and form/UI                                    |
+| `src/lib/contract.ts`  | Bounded browser/server state/action boundary                                          |
+| `src/routes/`          | Thin SvelteKit adapters                                                               |
 
-Keep owner directories flat, keep focused tests beside their owner, and avoid
-generic `components`, `services`, `types`, `utils`, and barrel directories.
-Cross-owner and native-decoder tests remain in `../test/`.
+The reusable fixture must not import Svelte/workbench code. Node/serial-capable
+files use `.server.ts`. Keep focused tests beside their owner; cross-owner and
+native-decoder tests stay in `../test/`. The workbench reports requests; the
+separate conformance runner owns assertions, pass/fail and physical checkpoints.
 
 ## Operation
 
-Flash the fixture firmware, then run these in separate terminals:
+Flash the fixture, then run in separate terminals:
 
 ```sh
 just fixture dev <fixture-port>
 just dev macos
 ```
 
-Omit the serial path to select an enumerated port in the UI. The server binds
-strictly to `127.0.0.1:11004`; if that port is occupied, startup fails.
+Omit the serial path to select an enumerated port in the UI. Startup fails if the
+loopback port is occupied. Browser reload/HMR preserve serial ownership; restart
+`just fixture dev` after coordinator or other server-side changes.
 
-The workbench composes up to 16 THOR300 controller candidates and 64 discovered
-CAN IDs with VESC firmware 6.02, 6.05, 6.06, or 7.00; stable Refloat 1.0.0–1.0.1,
-1.1.0–1.1.2, 1.2.0–1.2.3, or 1.3.0;
-and direct or VESC Express topology. The common templates remain editable
-starting points for direct, single-Express, and reported multi-controller
-setups. Float View still chooses and polls only one active controller route; the
-workbench never drives that selection or reports a test result.
+Choose a direct/Express topology and firmware composition, select a semantic scene,
+then pin individual values or freeze/resume motion as needed. Templates are editable
+starting points; Float View chooses its own controller route. Connection controls
+serialize disconnects around route/identity changes and reconnects.
 
-The shared simulator in `../fixture/` also models zero, one, or multiple VBMS
-nodes independently from the controller route: direct controller plus CAN VBMS,
-Express plus CAN controller/VBMS, and a standalone direct VBMS.
-It owns source-faithful legacy/extended values, omitted-ping routing, timeouts,
-malformed responses, request counters, and the command-96 read-only allowlist.
-The ESP32 remains unchanged and has no VBMS scenario logic.
+For a fault exercise, select `firmwareFault`, then `idle` to end the active fault
+while retaining history/latch. Once idle, clear the latch through Float View's
+Fault history; recorded occurrences remain. Resolve ambiguous BMS selection with
+the Board Profile's `preferredBmsCanId`, independently of controller `preferredCanId`.
 
-Each semantic controller also owns one exact versioned Refloat configuration
-model backed by the immutable backend fixtures. It serves commands 92–95 over
-direct or once-forwarded CAN routes, retains disposable current/default/write
-state, accepts arbitrary complete writes validated against the selected schema
-and wire signature, applies expected firmware normalization, and resets safely without
-duplicating nine board profiles. The request panel exposes only bounded identity,
-byte counts, operation/rejection counters, and sanitized diagnostics. Raw schema
-and value bodies are never rendered. Rejections report their specific reason
-(unsafe state, index, request length, wire signature, field value, or schema chunk
-bounds) with the command and route, without logging configuration values. Riding/flywheel current reads and writes,
-unknown indexes/routes, malformed requests, and unsafe app-data
-remain rejected; the ESP32 continues to interpret none of them.
+Firmware models and supported variants live in `../fixture/` and source-derived
+backend fixtures. Complete configuration writes must validate against the selected
+schema and wire signature; unsafe states, malformed requests and motor/remote
+actuation remain rejected. The ESP32 interprets none of these product commands.
 
-Choose a coherent semantic scene, then optionally pin individual bounded values
-while the remaining motion continues, freeze/resume generated motion, or reset
-to the scene baseline. Connection controls can serialize a disconnect around a
-CAN move, identity replacement, ping-visibility change, or unchanged reconnect.
-New workbench controllers start without a fatal latch. Apply the `firmwareFault`
-scene to generate an overvoltage occurrence, then `idle` to end the active fault
-while retaining its history and latch. Float View can clear the latch from Fault
-history once idle; clearing keeps recorded occurrences.
-
-The request area reports the selected route, command class, response kind,
-fragmentation, counters, and bounded diagnostics. Refloat 1.0.0 serves exact
-command 1 and command 10 detail 1–4 layouts; 1.1.0 and 1.2.3 serve negotiated
-command 31/32 layouts and compact command 10 detail 4. Refloat 1.2+ also serves command 35 fault history; commands
-41–43 remain unsupported.
-
-Scenario JSON is a shareable, strictly validated document capped at 65,536 UTF-8
-bytes. It includes public aliases, topology, package identities, discovery
-behavior, fragmentation, scene, and overrides. It excludes serial paths, launch
-tokens, power state, real Bluetooth identifiers, and raw controller UUID bytes.
-Aliases are capped at 64 UTF-8 bytes and deterministically map to private
-simulated identities only inside the server. An invalid import is rejected
-without changing the retained or active scenario.
-
-This UI is for manual investigation beside a developer-operated product. The
-separate conformance runner remains the owner of scripted scenarios, assertions,
-pass/fail, and physical checkpoints. Shared protocol and semantic fixture types
-in `../fixture/` are used by both paths.
-
-In Float View, configure an ambiguous CAN VBMS with the Board Profile field
-`preferredBmsCanId` (`0...253` or clear). It does not change
-`preferredCanId` or restart the controller session. Once any VBMS identity is
-known, use the conditional BMS item in the live menu to inspect route, freshness,
-cells, balancing, temperatures, environment, counters, and optional extended
-status. Unavailable values remain visibly stale at their original observation
-time.
-
-The native backends support route-correct telemetry for direct and Express
-topologies across VESC 6.02, 6.05, 6.06, and 7.00 and the Refloat 1.0.0, 1.1.0, and
-1.2.3 protocol families. Refloat 1.0.0 uses fixed legacy packets; 1.1.0 and
-1.2.3 negotiate dynamic layouts. All families use simple periodic command 10
-detail-4 compact polling for accumulated and charging values.
-
-Browser reload and UI HMR preserve serial ownership. Restart
-`just fixture dev` after changing coordinator or other server-side source.
+Request diagnostics expose bounded routes, command classes and rejection reasons,
+never raw schemas or configuration values. Shareable scenario JSON excludes
+serial paths, launch tokens, power state and private device identities. Import
+validation is atomic; an invalid document must not replace retained/active state.

@@ -1,335 +1,77 @@
-# Native backend architecture
+# Backend ownership
 
-Apple and Android compose one process-owned Rust backend service. Native hosts
-execute bounded OS capabilities: Bluetooth, permissions, location, lifecycle,
-background execution, scoped file presentation, theme and UI. Rust owns product
-storage/policy and authenticated loopback dispatch/projection. The frontend and
-listener are disposable and borrow the existing application owner.
+Apple and Android compose one process-owned Rust service. Hosts execute OS
+Bluetooth, permissions, location, lifecycle, background execution, scoped file
+presentation, theme and UI. Rust owns product policy/storage, protocol processing
+and authenticated loopback dispatch. WebViews and listeners borrow that owner.
 
-See [`core/README.md`](core/README.md), [`apple/README.md`](apple/README.md) and
-[`android/README.md`](android/README.md) for the ownership and build boundaries.
+| Area                                            | Guide                                   |
+| ----------------------------------------------- | --------------------------------------- |
+| Shared service, protocol and persistence owners | [core/README.md](core/README.md)        |
+| Apple adapters, signing and packaging           | [apple/README.md](apple/README.md)      |
+| Android adapters and SDK setup                  | [android/README.md](android/README.md)  |
+| SQL and session storage                         | [sql/README.md](sql/README.md)          |
+| Canonical and physical verification             | [conformance](../conformance/README.md) |
 
-## Custom dashboard metadata
+## Protocol and write boundaries
 
-The shared product store validates optional Board Profile `customDashboard` through
-the existing get/update operations on every host. Version 1 accepts at most 24
-ordered widgets, unique 1–64 ASCII identifier IDs, closed content/presentation/size
-choices and valid metric display ranges. Sizes accept a closed `{columns, rows}`
-object with both integer spans bounded to 1–4. Existing named compact/medium/large
-values remain supported and round-trip unchanged; reads do not rewrite them. Dashboard JSON is bounded to 8,192 UTF-8
-bytes within the existing complete-profile 16,384-byte limit. Null/absence uses a
-derived default; an empty widget list is intentional. Malformed or unknown versions
-fail without replacing stored data. Profile revision checks and atomic writes
-apply unchanged; native adapters do not interpret widget layouts.
+Each connection has one shared request scheduler. Native Bluetooth adapters
+execute its ordered writes; they do not create a parallel request path.
+`DeviceMutationCoordinator` owns admission for device mutations. The frontend
+uses published readiness and completion rather than inferring support or success.
+An acknowledgement does not replace required configuration readback; shutdown
+acceptance does not establish observed power-off and must not cause retries.
 
-This is additive profile JSON, with no SQL schema, storage marker or archive-format
-change. Supported baseline stores and format-4 archives remain valid. Historical
-profile snapshots stay immutable; normal archive import initializes a new board's
-profile and preserves an existing board's current profile. UI checkpoints additionally
-accept `custom` viewing mode but never contain dashboard data or editor drafts.
-No native Bluetooth, collection cadence or background-work changes are involved.
+Compatibility catalogs and source-derived fixtures are the release inventory:
+[VESC](core/vesc-compatibility/src/lib.rs),
+[Refloat](core/refloat-compatibility/src/lib.rs) and
+[BMS fixtures](fixtures/vesc-bms/README.md). Do not duplicate version tables,
+schema fingerprints, field counts or command layouts in this guide.
 
-Saved boards also retain optional nullable `lastLiveView` (`normal`, `detailed`,
-`custom`) in the same validated profile JSON. Absence/null defaults to Live. This
-uses existing revisioned updates and archive policy; guest sessions never write it.
+Two upstream quirks matter when auditing identities:
 
-## Startup presentation
+- VESC Express VBMS32 reports custom-module type `2`; hardware type alone neither
+  identifies nor authorizes a BMS.
+- Audited stable Refloat releases can report a suffix repeating the patch number
+  because of upstream Makefile extraction. This is a specific audited case,
+  not permission to accept arbitrary suffixes, betas or future releases.
 
-The launch surface, native window/container, WebView and early HTML canvas use
-`#f8fafc` (light) and `#020617` (dark), matching `frontend/src/app.css`.
-iOS uses the adaptive `Canvas` asset for its system launch screen and SwiftUI
-background. Android keeps its platform splash behavior, with matching window
-and Android 12+ splash backgrounds. macOS shows its normal application window
-with an adaptive canvas and applies the service's theme preference to AppKit.
-Do not add minimum splash durations or hide the WebView while awaiting backend
-connectivity; the frontend must remain able to show connection errors.
-
-The OS launch surface follows system appearance before the application can read
-its saved theme. Native theme effects and the early HTML theme hint then apply
-the user's preference. Keep these canvas values aligned when changing the palette.
-
-Focused real-browser startup checks run with `cd conformance && npm run startup`
-after `just build`; install their development-only engines with
-`cd conformance && npx playwright install chromium webkit`. Native macOS appearance
-checks run with `just test apple`. Android canvas/recreation instrumentation runs
-on the configured emulator with `cd conformance && npm run startup:android`.
-These checks are included in `just verify`; recordings remain a separate visual
-acceptance requirement.
-
-For visual startup checks, cold-launch in system light and dark appearances,
-then repeat with a saved opposite app theme. Check iOS background/foreground,
-Android activity recreation and WebView teardown, and macOS window close/reopen.
-The transition should contain no default white flash in dark mode or temporary
-loading message. A loopback startup failure on iOS must still show an error.
-
-## VESC request ownership
-
-Each active Bluetooth connection has one bounded Rust `VescRequestScheduler`.
-It is the only production decision owner allowed to emit framed VESC writes
-after UART setup, keeps at most one request in flight, attributes responses to
-an exact route and expected command, and rejects late work from older connection
-generations. Native Bluetooth adapters execute those ordered writes.
-Controller identification has the highest priority, riding telemetry precedes
-ordinary controller work, and auxiliary BMS traffic has the lowest priority.
-
-## Refloat product-control boundary
-
-`DeviceMutationCoordinator` is the sole connection-scoped owner of semantic
-package, flywheel, LED, headlight, and fatal-latch mutations. It authorizes only
-the current route and generation, exact audited VESC firmware versions, and exact
-Refloat 1.0.x, 1.1.0–1.1.2, 1.2.0–1.2.3, or the 1.3.0 selectable wire profile and exact 1.3.1-beta2. Other 1.3.1 suffixes and stable 1.3.1 remain unsupported. Test builds of audited VESC versions allow the same guarded writes as release builds;
-unrecognised VESC and Refloat versions remain blocked by compatibility checks. One action may be pending for at most three seconds;
-the request result and published state change only after matching telemetry or
-lighting confirms it. Disconnect, reconnect, and generation changes cancel the
-owner and its waiter.
-
-Audited stable Refloat INFO-v2 versions also accept the upstream build artifact
-whose suffix exactly repeats the patch number (for example, `1.3.0-0` or
-`1.2.3-3`). The upstream `src/Makefile` suffix extraction passes an undelimited
-stable patch through `cut`. Admission uses the canonical stable version; other
-suffixes, including betas and release candidates, remain unsupported, as do
-versions outside the audited catalog.
-
-Package disable and flywheel enable retain the authoritative idle gate. Exact
-flywheel disable is the sole motion-state exception: active flywheel state is
-normalized as riding, and upstream command 22 performs its ordered stop before
-leaving flywheel mode. Every other mutation remains prohibited in that mode.
-
-All writes and the one-second best-effort lighting read use the shared request
-scheduler. Package, flywheel, and fatal-clear commands are one-way writes whose
-completion is confirmed by later telemetry. Lighting uses the exact release
-family response. While flywheel mode is active every mutation is rejected except
-an otherwise eligible flywheel disable. Tunes and profiles, reverse stop, simple
-start, recording/history, Handtest, remote/RC move, arbitrary configuration, and
-motor-control commands are outside this allowlist and fail closed.
-
-Refloat controls are live-only normalized state. They are never persisted,
-restored, exported, or inferred by the frontend, and bounded diagnostics contain
-no raw payloads or device identity.
-
-## Refloat configuration boundary
-
-Commands 92–95 use the same `VescRequestScheduler` and the same
-`DeviceMutationCoordinator` as semantic controls and shutdown; there is no
-direct or parallel write path. A connection-scoped configuration service
-assembles bounded command-92 chunks, decodes the Qt envelope and strict XML,
-matches the full schema fingerprint and CRC32C wire signature to an audited
-exact Refloat release, and decodes complete command-93/94 values. Private custom
-configuration count, hardware CRC, raw schema, and raw values stay below the
-application boundary and out of logs.
-
-Writes require the latest normal-mode current revision, exact identity, current
-route/generation, stable firmware, idle ride state, disengaged footpad, and no
-competing mutation. Command 95 acknowledgement is not success: a mandatory
-command-93 readback must match the complete expected normalized values. A
-disconnect after acknowledgement is indeterminate, and a mismatch publishes
-fresh current state without claiming success. Flywheel mode rejects every
-configuration write/Tune apply and withholds current reads; exit schedules a
-fresh normal-mode current read before editing resumes. Shared semantic fields
-are refreshed after verified writes rather than projected optimistically.
-
-Tune application on supported Refloat 1.1.0 and later releases also permits
-normal-mode ready/running boards with a known idle/riding state, including
-engaged footpads. Refloat 1.0.0/1.0.1 keep the idle, disengaged-footpad rule:
-their configuration handler reinitializes balancing. General configuration
-writes retain the idle restriction on every version. Tune application retains
-the same identity, revision, mutation lease, and verified-readback requirements.
-
-Tunes are bounded application-wide records in the catalog database, keyed and
-filtered by exact package version, schema fingerprint, and wire signature with
-optimistic revisions. The schema cache lives in shared product storage and is keyed
-by private connection identity, custom index, and a nonzero hardware CRC; every
-hit is digest-checked, bounded, decoded, and audited again. Cache identity is
-never public and never authorizes a write by itself. Both hosts select the shared
-store; its canonical storage marker is defined in `core/product-store/src/lib.rs`.
-Incompatible development databases currently follow the pre-release reset policy.
-
-## Controller shutdown boundary
-
-`controller.shutdown` is a live-only, accepted-for-transmission action owned by
-the same `DeviceMutationCoordinator`. Stable writable VESC 6.05, 6.06, and 7.00
-controllers may receive exactly `[156, 0, 0]`, either directly or once inside
-`COMM_FORWARD_CAN`; VESC 6.02 and test builds remain unavailable. Authorization
-requires fresh authoritative idle telemetry, normal (non-flywheel) mode, the
-current route and generation, and no other pending device mutation.
-
-The write is one-way and is never retried. A controller or Bluetooth loss while
-the bounded shutdown intent is pending is classified as user-initiated and does
-not enter automatic reconnect. If the selected controller remains healthy, the
-intent expires and normal connectivity continues; this is the deterministic
-path for hardware that ignores the command. State reports only transmission
-acceptance and never claims power-off. Force, restart, broadcast, direct-CAN,
-arbitrary payload, and repeated-pending variants are outside the allowlist.
-
-Controller discovery owns controller compatibility, route selection, readiness,
-and ride-session continuity. It also publishes a bounded, structurally decoded
-hardware inventory after a complete CAN enumeration. `AuxiliaryNodeDiscovery`
-may reuse that inventory or run its own low-priority enumeration, but owns only
-VBMS candidates, preference resolution, liveness, and BMS status. A local VBMS
-uses the direct route while controller discovery continues through CAN.
-
-## VBMS protocol boundary
-
-BMS capability is fail-closed and keyed by exact audited identity, not hardware
-type alone:
-
-| Upstream family      | Firmware identity                                          | Support                                                                 |
-| -------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `vesc_bms_fw`        | version 6.00, `HW_TYPE_VESC_BMS` (`1`)                     | Supported                                                               |
-| VESC Express VBMS32  | name `VBMS32`, version 6.06, `HW_TYPE_CUSTOM_MODULE` (`2`) | Supported                                                               |
-| VESC Express VBMS32  | name `VBMS32`, version 7.00                                | Rejected pending a new source, decoder, conformance, and physical audit |
-| Other custom modules | any other tuple                                            | Not a BMS candidate                                                     |
-
-VESC Express intentionally emits type `2` from both `COMM_FW_VERSION` and CAN
-pong for VBMS32 even though its command dispatcher implements BMS command 96.
-Firmware identity parsing preserves the private 12-byte UUID for in-memory
-generation deduplication, but UUIDs are never serialized or logged.
-`COMM_BMS_GET_VALUES` (96) is read-only and is routed as exact direct `[96]` or
-CAN `[34, id, 96]` payloads. Decoders accept only the source-defined exact
-legacy body or the exact data-version plus bounded, NUL-terminated UTF-8 status
-extension. Counts, flags, finite values, route ID, status length, and remainder
-are validated before a complete snapshot is made.
-
-BMS values are live-only. They appear in authoritative state and conflated
-`state.changed` snapshots, but never enter telemetry samples, SQLite telemetry
-tables, session counts or aggregates, diagnostics, review data, or exports.
-Unavailable state may retain a stale snapshot with its original observation
-time. Normal diagnostics contain only bounded route/status codes—not UUIDs,
-raw packets, full cell arrays, tokens, or Bluetooth addresses.
+Current beta2 support is temporary: replace live beta admission with stable 1.3.1
+after its audit, preserving supported saved histories and Tunes. The
+[beta2 checkpoint](../conformance/physical-checkpoints/refloat-1-3-1-beta2.md)
+owns its verification outcome.
 
 ## Auditing another VBMS wire version
 
-1. Pin the relevant `vesc_bms_fw`, `vesc_express`, VESC firmware, and VESC Tool
-   sources under `vendor/` and identify the exact source commit.
-2. Audit the firmware common prefix, hardware-type tail, command 96 field order,
-   fixed-point scales, auto-float behavior, and optional tail byte for byte.
-3. Add immutable source-derived fixtures with provenance under
-   `backends/fixtures/vesc-bms/`.
-4. Update the shared Rust decoder and source-derived vectors, including valid
-   and malformed tables, bounds, error classification, and route checks.
-5. Update the frontend contract/mock and canonical `conformance/` scenarios if
-   public semantics change; do not add a generated or platform-specific API.
-6. Run affected decoder, consumer and canonical conformance checks, then the
-   relevant physical BLE interoperability checkpoint for the new wire version.
-   Record unavailable required hardware; `just verify` is optional broader coverage.
+1. Identify exact upstream commits under `vendor/` for firmware, Express and VESC Tool.
+2. Audit identity, command-96 field order, scales, optional tails and bounds byte for byte.
+3. Add immutable fixtures with provenance under [fixtures/vesc-bms](fixtures/vesc-bms/README.md).
+4. Update the shared decoder and valid/malformed vectors, including route and error checks.
+5. Update contract/mock and canonical scenarios together if public semantics change.
+6. Run affected decoder/consumer and conformance checks, then the relevant physical
+   interoperability checkpoint. Record unavailable required hardware.
 
-Never broaden an existing entry by major version, hardware type, prefix match,
-or successful command-96 probing. Add a new exact compatibility entry only
-after all six audit steps pass.
+Never broaden compatibility by major version, hardware type, prefix matching or
+successful command probing alone.
 
-For connected-iPhone startup acceptance, the existing UI test target includes
-`FloatViewLifecycleTests/testStartupAndForegroundPresentation`. It checks three
-cold launches and foreground reconstructions with visible frontend navigation
-and no stale native startup error. Run it against the connected device with
-`xcodebuild test -project backends/apple/ios/float-view.xcodeproj -scheme float-view -destination 'platform=iOS,id=<device-id>' -allowProvisioningUpdates -only-testing:float-view-lifecycle-tests/FloatViewLifecycleTests/testStartupAndForegroundPresentation`.
-Retain XCTest screen recordings by setting `SystemAttachmentLifetime` to
-`keepAlways` in the generated `.xctestrun` when collecting visual evidence.
-These physical UI observations are separate from the software gate and do not
-require an ESP32/BLE fixture.
+## Debugging and presentation checks
 
-## Ride timing diagnostics
-
-Every newly recorded ride carries bounded diagnostic JSON in its SQLite
-`session_diagnostic(sequence, record_json)` table. The normal `.floatview`
-archive export includes it; no debugger or separate log export is required.
-When a slowdown occurs, add a ride marker, finish the ride, and export it.
-Markers capture recent request, BLE write, sample-sequence, and recording
-progress traces, capped at 256 events and 30 seconds. Automatic captures are
-limited to once per ten seconds; markers, reconnects, and ride close also capture.
-
-Each record has version `v`, wall-clock `at_ms`, monotonic time since diagnostic
-start `elapsed_ms`, an `event`, and structured `data`. Sample/marker elapsed
-times inside data use the ride clock. Capture records precede their earlier
-trace records in insertion order, so sort by timestamps when reconstructing
-a timeline. Metadata includes the build's Git revision, firmware/package
-versions, polling and persistence intervals. Native summaries supply platform
-and OS version.
-
-Ten-second summaries measure request queue and response time, BLE write progress,
-notification sizes/counts, timer lateness, sample intervals, SQLite append and
-catalog time, runtime work, and snapshot projection. Values named `_ms` use
-milliseconds; `_us` use microseconds. `count_p50_p95_max` contains the full-window
-count and maximum, with approximate percentiles of the most recent 256
-observations. Request traces distinguish fast, slow, fault, BMS, configuration,
-and other work. Native records count callbacks, queue depth/delay, admission
-overflows, and exchange failures. UI reports measure snapshot count, maximum
-delivery gap, sample age, and synchronous subscriber handling time; they do not
-measure completed paint or animation latency. Background suspension and wall-clock
-changes can affect these UI maxima.
-
-Recording traces include cumulative accepted/stored counts and committed sequence
-and elapsed time. Telemetry gaps, protocol diagnostics, clock/sequence
-discontinuities, foreground changes, link transitions, and disconnect reasons
-provide context. Normal idle polling can produce intervals above 500 ms; automatic
-gap capture uses riding samples.
-
-Persistence runs on a separate worker with eight pending batches of at most 32
-records. It yields on database contention and drops diagnostics on overload or
-failure, reporting cumulative `dropped_records` in subsequent summaries when
-persistence recovers. The table keeps its first record and the newest 4,999
-records, each at most 1,024 bytes. Older evidence is evicted on long rides.
-Abrupt process termination can lose pending records. Diagnostics contain timing,
-counts, closed status codes and versions, never raw BLE payloads, telemetry
-values, coordinates, addresses, device identities, or authentication tokens.
-
-For an exported archive, inspect the records with:
+For ride timing problems, add a marker, finish the ride and export its archive.
+Inspect its diagnostic rows without modifying it:
 
 ```sh
 sqlite3 'file:ride.floatview?immutable=1' \
   'SELECT record_json FROM session_diagnostic ORDER BY sequence;'
 ```
 
-The archive format is defined in `core/product-store/src/archive.rs` and the
-owned product-storage marker in `core/product-store/src/lib.rs`. Under the current
-pre-release policy, incompatible development storage is reset and unsupported
-archive formats are rejected rather than migrated. The public-release plan
-introduces baseline 100 and preservation guarantees before external testing.
+Sort captured traces by their timestamps rather than insertion order. Timing
+summaries and subscriber work are not proof of completed paint or native rendering.
+Use [diagnostic instructions](../docs/diagnostics.md) for incident ZIPs; implementation
+bounds and event fields live in the collectors and their tests.
 
-Foreground auto-connect is owned by the shared Rust service. Each native
-foreground visit can search for one locally selected saved board for 15 seconds
-after readiness. This demand shares ordinary discovery without extending its
-automatic eligibility. Manual connection/disconnect suppresses the opportunity
-until the next visit; WebView/listener replacement does not rearm it.
-
-### Refloat 1.3.1-beta2
-
-The audited prerelease is pinned to `ebe3eb5886b9f7c6247d9a06abeafa8415a94542`.
-Against 1.3.0, the source adds alert ID 2, stop code 7, and configuration
-metadata. Against beta1, the relevant source delta is motor-control changes
-in `src/main.c` and `src/motor_control.*` plus one descriptive XML edit;
-INFO, command 33/35 shapes, controls, and stop code are unchanged.
-It reuses the 1.3 command-33 profile and stable controls. Command 35 additionally
-reports package IMU timeout (alert ID 2, code 0), independently of VESC firmware
-faults and fatal latch. Active timeout and retained stop reason are distinct;
-recovered activation/clear records use `imuTimeoutHistory`. Existing firmware
-fault records remain unchanged. Both kinds share the 10,000 recovered-event
-budget per ride and existing bounded retrieval cadence.
-
-Configuration keeps the complete `1.3.1-beta2` identity, fingerprint
-`6bc6bfa433f8205519bc931723e39252aa71c9f538a0ed7c200d688486c63e73`,
-and wire signature `0x191a6c1b`. The 172-field signature matches 1.3.0, but schema
-metadata differs. Cache entries and Tunes do not cross versions. Convert from
-1.2, runtime tuning and automatic support for later releases are excluded.
-
-The added stop literal and JSON event kinds use the existing extensible session
-storage; no SQL layout, owned-storage marker or archive format change is needed.
-Frozen baseline storage and archive fixtures must continue to pass their tests.
-For focused software-host conformance, run:
-
-```sh
-FLOAT_VIEW_FIXTURE_REFLOAT=1.3.1-beta2 FLOAT_VIEW_CONFORMANCE_SCENARIOS=refloat-beta2 npm --prefix conformance run direct
-```
-
-The same scenario can run against the Apple or Android software-host target.
-This exercises simulated timeout records. The [physical checkpoint](../conformance/physical-checkpoints/refloat-1-3-1-beta2.md)
-is pending an exact-beta2 board.
-
-Guarded beta mutations require positively confirmed inactive IMU timeout state;
-unknown state before the first valid command-35 response cannot authorize a write.
-Live snapshots retain a separate bounded `imuTimeoutHistory` collection of
-recovered records. A retained IMU stop is persisted separately from history.
-
-When stable 1.3.1 is released and audited, replace beta2 support and its live
-admission/implementation fixtures with stable 1.3.1 rather than retaining both.
-Supported saved histories and Tunes remain preserved; conversion stays out of
-scope. Stable 1.3.1 remains unsupported until that audit and replacement.
+Keep native launch canvases aligned with the frontend theme; do not hide connection
+errors behind a splash delay. Run `npm run startup` from `conformance/` after
+`just build`, and `npm run startup:android` for Android recreation instrumentation.
+Cold-launch in light/dark themes and check foreground/WebView reconstruction when
+startup presentation changes. The connected-iPhone command is in the
+[Apple guide](apple/README.md#startup-recovery).

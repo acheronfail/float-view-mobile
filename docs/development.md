@@ -20,44 +20,71 @@ small hand-written contract in `frontend/src/lib/backend/contract.ts`.
 - `tools/vesc-test-device/` — pure ESP-IDF firmware, built with PlatformIO, that
   only bridges a serial line protocol to a fixed BLE GATT service.
 
-Native hosts own Bluetooth, permissions, native file presentation and lifecycle.
-The shared Rust service owns the session catalog, exports, protocol processing and
-durable session work. `backends/core/loopback-server` owns authenticated HTTP/WebSocket transport,
-complete state projection and historical responses through the existing C/JNI
-binding families. Hosts provide embedded HTML and execute bounded OS capabilities; Rust owns
-product storage, application policy, dispatch and complete state projection.
+See [backend ownership](../backends/README.md) for service and host boundaries.
 
 Project-owned contributions use AGPL-3.0-or-later. Preserve third-party licences
 and attribution; see [licensing and notice maintenance](licensing.md).
 
 ## Additional commands
 
+`just --list` lists recipes; [CONTRIBUTING.md](../CONTRIBUTING.md) covers everyday
+setup/build/run commands and [releases](releases.md) covers publication.
+For manual BLE iteration, run `just fixture dev [port]` beside `just dev <platform>`.
+The controller is at `http://127.0.0.1:11004`; see
+[fixture development](../conformance/fixture-dev/README.md).
+Fixture tooling needs PlatformIO Core, without a separate ESP-IDF installation.
+
+## OpenSpec
+
+Use OpenSpec according to [AGENTS.md](../AGENTS.md#when-to-use-openspec). Run every
+CLI command with `OPENSPEC_TELEMETRY=0`. The commands below were checked with
+OpenSpec 1.15.0. Commands normally resolve the nearest local `openspec/` root.
+Only when a standalone store is explicitly selected, discover its ID with
+`OPENSPEC_TELEMETRY=0 openspec store list --json` and retain `--store <id>` on
+commands that support it. Use `status --change <name> --json` to resolve artifact
+paths, schema and edit constraints, and `instructions <artifact-id>` to create
+missing artifacts in dependency order. Do not write to a literal glob path.
+
+Before declaring planning ready or starting implementation, start at `applyRequires`
+and follow each artifact's `requires` transitively, including artifacts marked
+`done`. Every required artifact must be `done` or explicitly `skipped`; skipped
+outputs must not be created. Status is based on file existence, so a tasks file,
+an apply-ready response or successful validation alone does not establish readiness.
+
+[AGENTS.md](../AGENTS.md#completing-work) owns completion and authorization policy.
+The commands below implement that workflow; they do not require separate Git phases.
+
+Validation errors block completion. Fix warnings in new or changed requirements;
+unchanged existing editorial warnings are reported separately and do not block
+unrelated work. In particular, existing requirements longer than 500 characters
+produce warnings; do not describe those results as a strict-validation pass.
+`--strict` promotes warnings to failures and is an optional editorial audit.
+Inspect JSON `issues` for touched specs and ready changes so non-strict summaries
+do not hide warnings; compare warned requirements with the pre-change version
+before classifying a warning as unchanged.
+
 ```sh
-just setup
-just dev
-just build
-just run android|ios|macos [target] [--detach]
-just release patch|minor|major # Tag and push a deliberate stable release.
-just release preview [ref] # Preview next-patch release notes locally (default: HEAD).
-just ipa # Build an IPA for AltStore; see backends/apple/README.md.
-just test frontend|conformance|apple|android|core|fixture|all
-just conformance direct|mock|android|ios|macos
-just conformance-physical macos <fixture-port>
-just conformance-physical android <fixture-port> <adb-serial>
-just conformance-physical ios <fixture-port> <device-id>
-just fixture setup|check|ports|build|flash|monitor|dev [port]
-just verify
+just spec-check                     # Canonical specs and archived task completion
+just spec-check CHANGE_NAME         # One implementation-ready active change
+OPENSPEC_TELEMETRY=0 openspec validate CAPABILITY --type spec --no-interactive --json
+OPENSPEC_TELEMETRY=0 openspec validate --specs --strict --no-interactive # Editorial audit
 ```
 
-The fixture commands require PlatformIO Core (`pio`), but do not require a
-separate ESP-IDF installation or a sourced ESP-IDF environment.
+An intentionally unfinished proposal must say so and identify its remaining
+planning work. Review the existing artifacts for coherence and valid links;
+validate the complete change once it has its required delta specs (or an actual
+spec-free scope). Do not include unfinished drafts in ready-change validation or
+set `skip_specs: true` merely to silence missing behavioral requirements.
+Consequently, `validate --all` is an inventory audit that can fail on drafts,
+not the routine completion gate. `just spec-check` excludes active drafts;
+validate each ready change by name as well as its affected canonical specs.
 
-For manual native-Bluetooth iteration, flash the ESP32 and run
-`just fixture dev [port]` beside `just dev <platform>`. The development-only
-SvelteKit fixture controller is available at `http://127.0.0.1:11004`; it can
-select direct or VESC Express topology, configure one CAN ID, choose the
-THOR300 VESC/Refloat version composition, and switch power and riding state.
-See [the fixture controller guide](../conformance/fixture-dev/README.md) for compatibility and ownership details.
+Sync reads both delta and canonical specs, preserves unrelated scenarios and is
+idempotent. After sync and validation, use
+`OPENSPEC_TELEMETRY=0 openspec archive CHANGE_NAME --yes --skip-specs` to archive
+without applying the deltas twice. Here `--skip-specs` skips only the CLI merge;
+it does not replace the preceding sync or validation. Preserve required evidence
+and verify the archive destination; never bypass validation to force closeout.
 
 ## Verification
 
@@ -68,7 +95,7 @@ required for each edit.
 
 | Change                                      | Relevant checks                                                                                                                                                                                                                                                                                      |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Documentation or planning only              | Review links and commands, `git diff --check`, and strict OpenSpec validation when specs or plans change. No application tests or builds.                                                                                                                                                            |
+| Documentation or planning only              | Review links and commands, `git diff --check`, and the [OpenSpec validation rules](#openspec) when specs or plans change. No application tests or builds.                                                                                                                                            |
 | Frontend UI only                            | Focused Vitest tests (`cd frontend && npm test -- <test-file>`), `npm run check`, and relevant formatting/lint checks. `just test frontend` runs the whole frontend suite when useful. Add `npm run build` for bundle/build changes and affected browser tests for interaction or rendering changes. |
 | Shared Rust logic or persistence            | From `backends/core`, run `cargo test --locked --offline -p <crate>` for affected crates and consumers, plus relevant formatting and warnings-denied Clippy checks. Use `just conformance direct` for affected public service behavior.                                                              |
 | Contract, client/mock or shared integration | Update the contract, client/mock, shared implementation, both host integrations and canonical scenarios together. Run affected frontend and Rust tests, mock/direct conformance, and affected native integration coverage.                                                                           |
@@ -117,23 +144,12 @@ inherently require an ESP32/BLE run. Record missing required hardware and actual
 results honestly; ordinary software-only changes need no hardware-skip report.
 See [conformance/README.md](../conformance/README.md) for checkpoint procedures.
 
-Supported BMS identities are deliberately exact: stock VESC BMS 6.00/type 1
-and VESC Express `VBMS32` 6.06/type 2. See `backends/README.md` for the
-compatibility and future-version audit policy and `conformance/physical-checkpoints/`
-for reusable procedures and brief historical outcomes. Detailed device records
-and raw reports are retained locally.
+For new BMS support, follow the [compatibility audit procedure](../backends/README.md#auditing-another-vbms-wire-version).
+Reusable hardware procedures and brief outcomes are in
+[physical checkpoints](../conformance/physical-checkpoints/README.md).
 
 ### Release-readiness records
 
-Keep reusable test procedures, open requirements and brief build/source-linked
-results in the public repository. Include tested scope, pass/fail/pending status
-and material limits. Keep detailed execution history, device/OS/firmware records,
-tester reports, screenshots/logs and account/approval history in ignored local
-records under `.local/physical-testing/` (or `.local/ios-store/readiness/` for
-distribution-specific records). Do not force-add these records;
-arrange a private backup when needed. Publish only sanitized actionable failures,
-without private routes, identifiers or contact details. This changes where detail
-is retained, not which acceptance checks must pass.
-
-See [the getting-started guide](../CONTRIBUTING.md) for local setup and everyday
-build/run commands, and [app releases](releases.md) for release tooling.
+Follow the [evidence policy](../AGENTS.md#verification) for public summaries and
+ignored local records. Distribution procedures are in [releases](releases.md)
+and the linked platform guides.

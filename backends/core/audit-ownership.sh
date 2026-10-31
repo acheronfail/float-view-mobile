@@ -59,25 +59,75 @@ android_bridge_crates=$android_bridge_artifacts
 android_runtime_target_artifacts=$((android_bridge_artifacts * 4 * 2))
 EOF
 
-[[ "$binding_crates" == 2 ]]
-[[ "$temporary_bridge_crates" == 0 ]]
-[[ "$apple_bridge_artifacts" == 1 ]]
-[[ "$android_bridge_artifacts" == 1 ]]
-[[ "$members" -le 28 ]]
-((rust_lines + apple_lines + android_lines < 49922))
+fail() {
+  echo "Ownership audit: $*" >&2
+  exit 1
+}
+
+# Negated commands and compound assertions do not reliably trigger errexit on
+# Bash 3.2. Handle both matches and search errors explicitly.
+reject_matches() {
+  local result=0
+  rg -n "$@" || result=$?
+  case "$result" in
+    0) fail "Forbidden source or artifact matched the pattern above." ;;
+    1) ;;
+    *) fail "Source search failed (rg exit $result)." ;;
+  esac
+}
+
+[[ "$binding_crates" == 2 ]] || fail "Expected exactly two host binding crates."
+[[ "$temporary_bridge_crates" == 0 ]] || fail "Temporary protocol bindings remain."
+[[ "$apple_bridge_artifacts" == 1 ]] || fail "Expected one Apple binding family."
+[[ "$android_bridge_artifacts" == 1 ]] || fail "Expected one Android binding family."
+# Source size and workspace counts describe the current tree; migration-era
+# ceilings are not ongoing feature-development gates.
+
+for path in \
+  backends/core/application-runtime-host/Cargo.toml \
+  backends/core/application-runtime-apple-ffi/Cargo.toml \
+  backends/core/application-runtime-android-jni/Cargo.toml; do
+  [[ -f "$path" ]] || fail "Missing runtime boundary: $path"
+done
+
+for path in \
+  backends/core/bridge-build-catalog.sh \
+  backends/core/build-android-bridge.sh \
+  backends/core/loopback-server/src/exchange.rs \
+  backends/core/loopback-server/src/completion.rs; do
+  [[ ! -e "$path" ]] || fail "Superseded runtime path remains: $path"
+done
+
+for file in AdaptiveLogging AuxiliaryNodeDiscovery ControllerDiscovery \
+  RefloatConfigurationService RefloatMutationCoordinator TelemetryPolling VescRequestScheduler; do
+  path="backends/android/app/src/main/java/fail/acheron/floatview/application/$file.kt"
+  [[ ! -e "$path" ]] || fail "Superseded native owner remains: $path"
+done
+
+modules="$(find backends/apple/Sources -mindepth 1 -maxdepth 1 -type d -name 'CVesc*' -print)"
+[[ -z "$modules" ]] || fail "Temporary Apple C modules remain: $modules"
+git ls-files | reject_matches '\.(a|so|dylib|xcframework)$'
+reject_matches 'Rust(Vesc|Refloat).*Bridge|float_view_(vesc|refloat)_.*android_jni|android-jni-support' \
+  backends/android backends/core/Cargo.toml backends/core/Cargo.lock
+reject_matches 'VescProtocolPort|VescProtocolService' backends/android/app/src/main -g '*.kt'
+reject_matches 'FlyingFox|io\.ktor|libs\.ktor|ktor-server' backends/apple backends/android \
+  -g '*.swift' -g '*.kt' -g '*.kts' -g '*.toml' -g '*.pbxproj' -g 'Package.resolved'
+reject_matches 'case "state.get"|"state.get" ->|GZIPOutputStream|SessionHistoryReducer' \
+  backends/apple/Sources backends/android/app/src/main
 
 # Native code owns OS capabilities; product SQL and dispatch stay shared.
-! rg -n 'SQLiteLogStore|LogSchema|class ApplicationService|class ServerOperations|class ServerFacts|enum ServerFacts|class RuntimeRecords' \
+reject_matches 'SQLiteLogStore|LogSchema|class ApplicationService|class ServerOperations|class ServerFacts|enum ServerFacts|class RuntimeRecords' \
   backends/apple/Sources backends/apple/macos backends/apple/ios/float-view backends/android/app/src/main
-! rg -n 'sqlite3_|android.database.sqlite|CREATE TABLE|session_catalog' \
+reject_matches 'sqlite3_|android.database.sqlite|CREATE TABLE|session_catalog' \
   backends/apple/Sources backends/apple/macos backends/apple/ios/float-view backends/android/app/src/main -g '*.swift' -g '*.kt'
-[[ ! -e backends/core/loopback-server/src/exchange.rs ]]
-[[ ! -e backends/core/loopback-server/src/completion.rs ]]
-! rg -n 'CommandEnvelope|pub fn create\(\)|pub fn apply\(handle' backends/core/application-runtime-host/src/lib.rs
-rg -q 'SharedService\(' backends/apple/ios/float-view/application/AppBackend.swift
-rg -q 'SharedService\(' backends/apple/macos/application/MacBackendRuntime.swift
-rg -q 'SharedService\(' backends/android/app/src/main/java/fail/acheron/floatview/application/BackendRuntime.kt
+reject_matches 'CommandEnvelope|pub fn create\(\)|pub fn apply\(handle' backends/core/application-runtime-host/src/lib.rs
+for path in \
+  backends/apple/ios/float-view/application/AppBackend.swift \
+  backends/apple/macos/application/MacBackendRuntime.swift \
+  backends/android/app/src/main/java/fail/acheron/floatview/application/BackendRuntime.kt; do
+  rg -q 'SharedService\(' "$path" || fail "Missing shared service construction: $path"
+done
 
-# BLE policy and logical buffering are owned by the existing shared service.
-! rg -n 'VescBluetoothPolicy|pendingWrites|pendingWriteBytes|drainWriteQueue|scheduleSetupDeadline|scheduleConnectionTimeout' \
+# BLE policy and logical buffering belong to the shared service.
+reject_matches 'VescBluetoothPolicy|pendingWrites|pendingWriteBytes|drainWriteQueue|scheduleSetupDeadline|scheduleConnectionTimeout' \
   backends/apple/Sources backends/android/app/src/main -g '*.swift' -g '*.kt'

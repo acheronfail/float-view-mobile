@@ -1,63 +1,34 @@
 # Android host
 
-Session metadata exposes recording-break endpoints and persisted interruption
-reasons through the shared Rust reader and loopback projection. The common
-frontend compacts only deliberate user pauses; connection losses and unknown
-historical reasons remain uncompressed. Android adapters add no timestamp or
-gap policy.
-
 Android is one Kotlin Gradle module. `SharedService` creates the process-owned
-Rust service and executes a closed, bounded OS fact/effect exchange through the
-existing `application-runtime-android-jni` family. The binding retains no JVM
-references or callbacks. Listener handles borrow this service; Activities and
-WebViews are disposable.
+[Rust service](../core/README.md) through the existing JNI family. Activities,
+WebViews and listeners borrow it. Kotlin executes OS effects; product CRUD,
+recording, reconnect policy, archives and public projection remain in Rust.
 
-Kotlin owns BLE/GATT, permissions, location acquisition, the foreground service,
-scoped file access, theme and UI integration. All product CRUD, identity,
-reconnect, recording, configuration, archives, public dispatch and projection
-live in Rust. There is no native SQL catalog or domain-operation bridge.
+Paths below are relative to `app/src/main/java/fail/acheron/floatview/`:
 
-| Package          | Responsibility                                                |
-| ---------------- | ------------------------------------------------------------- |
-| `application/`   | Process composition, bounded OS executor and JNI declarations |
-| `bluetooth/`     | BLE/GATT, permission presentation and test adapter            |
-| `files/`         | Scoped URI import stream and export destination picker/copy   |
-| `lifecycle/`     | Application lifetime and foreground recording service         |
-| `notifications/` | Ride notification presentation and notification formatting    |
-| `location/`      | Location acquisition and permission broker                    |
-| `protocol/vesc/` | Emulator conformance fixture only                             |
-| `theme/`         | System bars and WebView appearance                            |
-| `transport/`     | Listener lifetime and authenticated native URI upload         |
-| `ui/`            | Disposable Activity and WebView                               |
+| Package                       | Responsibility                                       |
+| ----------------------------- | ---------------------------------------------------- |
+| `application/`                | Composition, OS executor and JNI declarations        |
+| `bluetooth/`                  | BLE/GATT and test adapter                            |
+| `files/`                      | Scoped import streams and export destination copies  |
+| `lifecycle/`                  | Application lifetime and foreground service          |
+| `notifications/`              | Native ride-notification formatting and construction |
+| `permissions/`, `location/`   | Permission broker and location acquisition           |
+| `protocol/vesc/`              | Emulator conformance fixture only                    |
+| `speech/`                     | TTS engine and audio-focus lifecycle                 |
+| `theme/`, `transport/`, `ui/` | Appearance, listener lifetime and disposable WebView |
 
-The URI importer streams at most 128 MiB through 64-KiB buffers into the same
-shared HTTP importer used by the frontend. Exports retain their service lease
-until the scoped destination stream closes. Native file callbacks have bounded
-admission; no entire archive is materialized in Kotlin memory.
-
-Gradle pins NDK `28.2.13676358` and minimum API 29. Builds package one
-`libfloat_view_application_runtime_android_jni.so` for each of `arm64-v8a`,
-`armeabi-v7a`, `x86`, and `x86_64`. `just test android` runs linked JVM checks;
-`just android-rust-packaging` verifies clean Debug/Release packages and exact
-JNI exports. Select tests and packaging checks by impact using the root
-[verification policy](../../AGENTS.md#verification). Use a real Android device
-only for affected BLE, background, Activity or file-presentation behavior that
-software cannot establish; unrelated platforms need no regression run.
-
-The Bluetooth adapter requests ATT MTU 517 before service discovery and supplies
-the confirmed write capacity to shared segmentation, which caps chunks at 244
-bytes. Receive capacity is independent of that outgoing cap: older Express
-firmware advances notification fragments by `min(MTU, 255)` without subtracting
-ATT overhead, so an MTU of 247 can discard three bytes at each full fragment.
-Rejected or failed negotiation retains the default 20-byte capacity;
-missing callbacks remain bounded by the shared connection-attempt deadline.
+Do not retain JVM references/callbacks in the binding or materialize whole archives
+in Kotlin memory. Stream imports through the shared importer; retain export leases
+until scoped copies close.
 
 ## Local SDK and verification
 
-Install the [Android command-line tools](https://developer.android.com/studio#command-tools)
-under `$ANDROID_HOME/cmdline-tools/latest` and select an installed JDK with
-`JAVA_HOME` (Java 17 or 21). On macOS the conventional SDK directory is
-`$HOME/Library/Android/sdk`. Install the pinned build dependencies:
+Install [Android command-line tools](https://developer.android.com/studio#command-tools)
+under `$ANDROID_HOME/cmdline-tools/latest`. Select JDK 17 or 21 with `JAVA_HOME`;
+Android Studio's bundled Java may be newer than Gradle supports. Install the
+pinned SDK/NDK and Rust targets:
 
 ```sh
 "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
@@ -66,10 +37,8 @@ rustup target add --toolchain 1.93.0 \
   aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
 ```
 
-Keep `ANDROID_HOME` set when building, or put `sdk.dir=<absolute SDK path>` in
-the ignored `backends/android/local.properties`. Android Studio can provide the
-SDK and emulator, but its bundled Java runtime can be newer than this project's
-Gradle supports. For a Homebrew Java 21 installation, select it explicitly:
+Keep `ANDROID_HOME` set or put `sdk.dir=<absolute SDK path>` in ignored
+`local.properties`. A Homebrew/macOS example:
 
 ```sh
 export JAVA_HOME="$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home"
@@ -77,150 +46,53 @@ export ANDROID_HOME="$HOME/Library/Android/sdk"
 export PATH="$ANDROID_HOME/platform-tools:$PATH"
 ```
 
-Build the frontend assets first
-with `cd frontend && npm run build`. From `backends/android`, full software
-compilation, all JVM test variants and lint run with:
+Build frontend assets first with `cd frontend && npm run build`. Use
+`just test android` for linked JVM checks and `just android-rust-packaging` for
+clean packages/JNI exports, selecting checks by
+[impact](../../AGENTS.md#verification). For comprehensive host compilation/tests,
+run from `backends/android`:
 
 ```sh
 ./gradlew clean assembleDebug assembleRelease assembleConformance test \
   lintDebug lintRelease lintConformance assembleDebugAndroidTest
 ```
 
-With an emulator running, `./gradlew connectedDebugAndroidTest` executes the
-instrumentation tests. Add SDK `platform-tools` to `PATH`, then run
-`cd conformance && npm run android` from the repository root for the canonical
-Android host contract suite. These software checks do not verify audible speech,
-ducking/restoration, real headset routes or locked-screen BLE delivery.
+With an emulator running, use `./gradlew connectedDebugAndroidTest` for
+instrumentation and `cd conformance && npm run android` from the repository root
+for canonical host conformance.
 
-## GitHub Actions APK builds
+## Signing and distribution
 
-The [app workflow](../../.github/workflows/build-apps.yml) builds a signed APK
-on Ubuntu: Debug for ordinary master/nightly runs and Release for stable or
-numbered candidate tags. It builds the shared
-frontend and packages the Rust runtime for all four supported ABIs using Java 17,
-API 36, NDK `28.2.13676358` and the repository-pinned Rust toolchain. Locked Cargo
-dependencies are fetched before Gradle's offline Rust build. CI caches Gradle's
-wrapper, dependencies, compiled build scripts and local task outputs, with
-`--build-cache` enabled. Cargo downloads and compilation artifacts are cached
-separately; CI disables Rust incremental compilation and excludes incremental
-state from that cache to reduce transfer overhead. Local builds retain their
-usual incremental settings. A new cache format or dependency set needs a cold
-build before later runs benefit.
+[Build apps](../../.github/workflows/build-apps.yml) owns APK build/signing inputs;
+[releases](../../docs/releases.md) owns channels and numbering. Published APKs use
+the persistent `float-view-ci` key from `ANDROID_SIGNING_KEYSTORE_BASE64` and
+`ANDROID_SIGNING_PASSWORD`. Keep its secure backup under local custody: rotating
+the app-signing identity prevents ordinary updates to existing installations.
+Local Debug signing cannot replace a CI installation signed with another key.
 
-Successful publishing runs retain the versioned `FloatView-<version>.apk`
-alongside the IPA and macOS app after all three sideload builds succeed.
-Master builds use the rolling Nightly; stable/candidate tags use their own
-releases. Manual run behavior follows the selected ref and release inputs;
-download build artifacts from the run summary. Workflow artifacts are retained
-for 14 days.
+For Play enrollment, upload-key custody and store replacement checks, use
+[Android distribution](../../docs/android-distribution.md).
 
-The APK can be sideloaded on Android 10/API 29 or newer. CI signs every published
-APK with the same persistent key, allowing subsequent CI builds to update the app
-without removing supported local data. Locally built Debug APKs use the local
-debug key and cannot replace a CI installation unless signed with the same
-official key.
+## OS integration constraints
 
-Repository Actions secrets `ANDROID_SIGNING_KEYSTORE_BASE64` (base64-encoded
-PKCS12 keystore) and `ANDROID_SIGNING_PASSWORD` (both store and key password)
-provide the signing identity, with key alias `float-view-ci`. The workflow fails
-if either secret is missing, verifies the signed APK, and removes the temporary
-keystore after signing. Keep a secure backup of the keystore and password;
-GitHub secret values cannot be downloaded later. The local provisioning backup
-is in the ignored `.local/android-signing/` directory. Do not rotate this key
-casually: a different key prevents ordinary updates to existing installations.
+- Receive MTU and outgoing write capacity are different. Older Express firmware
+  advances fragments by `min(MTU, 255)` without subtracting ATT overhead; a small
+  negotiated MTU can lose bytes. Preserve the source-derived receive workaround
+  and pass confirmed write capacity to shared segmentation.
+- The foreground service and notification consume the shared native presentation
+  projection. OS permission, channel and Live Update promotion are separate facts;
+  native code must not calculate drive load or battery estimates.
+- `speech/SpeechAdapter` accepts both `en` and Samsung's `eng` language IDs for
+  installed offline English voices. Main-looper engine/audio-focus cleanup is
+  native; eligibility and cooldowns remain shared. Calls can prevent playback.
+- Report foreground lifecycle facts rather than implementing a second auto-connect
+  window in the Activity. Listener/WebView replacement must not create a new runtime.
+- Startup retries preserve the process owner and data; recovery must not offer
+  clearing storage or uninstalling as a routine fix.
 
-The planned Play enrollment uses a separate upload key while retaining the
-official app-signing identity.
-See [Android distribution signing](../../docs/android-distribution.md) for
-enrollment, custody and the pending store-delivered replacement checks.
-
-## Ride notifications and Live Updates
-
-The foreground service runs while a device connection or recording is active,
-including guest connections. It reads the shared Rust `live_activity` projection
-and updates one ongoing notification at most once per second. The notification
-uses a compact Load/Board and Temp summary when collapsed. Expanded notifications
-show separate Load (or Board), Distance, Battery and Temp rows, including the
-winning load source, selected distance units, pack voltage to one decimal place,
-and hottest component. Temperature numbers use the system foreground; a thermometer
-carries the temperature colour where the system preserves colour spans. Android
-may simplify text styling on promoted surfaces. Unchanged visible readings do not trigger reposts;
-after 15 seconds without telemetry, it shows “Waiting for telemetry”. Opening
-the notification returns to the app, and “Stop and disconnect” uses the existing
-shared-service stop request.
-
-On Android 16/API 36 and newer, fresh board readings request Live Update
-promotion and put the load percentage in the status-bar chip. Older versions,
-disabled promotion and devices that decline promotion retain a standard ongoing
-notification. Android owns the layout and styling; no custom notification view
-is used. Swiping the notification away suppresses telemetry reposts for that connection
-without stopping recording. Required foreground-service type changes, such as a
-new location grant, may restore the ongoing notification without re-requesting
-promotion. Disconnect removes the foreground notification.
-
-Android 13+ requests notification permission once after a board connects while
-the app is foregrounded. Denial does not prevent Bluetooth or recording; users
-can manage access later under Settings → Permissions. The Notifications row
-reports both app access and the ride-notification channel; a blocked channel
-opens its own settings. Android 16+ also shows a separate Live Updates row for
-promotion access. Both rows refresh from OS observations when returning to the
-app. The automatic first-ride prompt and Settings actions share the same native
-permission broker, dialog slot and request history. `POST_PROMOTED_NOTIFICATIONS`
-is a separate, non-runtime permission, and the system/user controls promotion.
-
-`notifications/` owns display formatting and native notification construction.
-`permissions/` owns notification observations and OS permission presentation.
-Native code does not calculate drive load or battery estimates. Unit tests cover projection decoding, units, stale/missing
-readings, visible-update coalescing and dismissal across connection generations.
-
-Physical checkpoint: compare readings with the app on a connected board, then
-background/lock the phone and check BLE updates, notification permission denial
-and later grant, Stop, dismissal and reconnect. Check both a standard notification
-and Live Update promotion on a supporting Android 16+ device. Software checks do
-not establish OEM presentation or background BLE behavior.
-
-## Spoken announcements
-
-Rust supplies the highest load source and optional speed in one bounded speech
-request. `speech/SpeechAdapter` owns installed offline English TTS voices and
-transient may-duck audio focus on the main looper. Voice selection accepts both
-ISO 639-1 `en` and ISO 639-2 `eng` language identifiers, as emitted by Samsung
-TTS. It never queues delayed focus. Completion, errors, interruption and admission expiry stop playback and release
-focus. Speech gain is relative to current device volume. Audio lowering remains
-automatic; only iOS exposes its lowering preference.
-
-The existing ride foreground service includes mediaPlayback while automatic
-announcements are enabled and non-muted, alongside connectedDevice and optional
-location. It remains one service and one shared runtime. Background delivery,
-headset routing and music restoration need real-device validation; calls can
-gracefully prevent speech. Foreground return, connection and explicit tests
-refresh speech readiness without continuous engine initialization retries.
-
-Settings exposes the system TTS chooser when Android can resolve it. The adapter
-honors the engine's preferred installed offline English voice and reinitializes
-after returning from the chooser, deferring refresh until active speech ends.
-This uses standard Android TTS APIs with the selected engine, including Google
-and Samsung engines; it does not require Samsung hardware. Speed is spoken as
-the value and units, without a redundant “speed” prefix.
-
-The adapter delegates its main-looper lifecycle to one `SpeechExecutor`, using
-closed engine/focus/clock ports for deterministic failure tests. Engine and focus
-cleanup remain native effects; Rust still owns telemetry eligibility, cooldown
-and admission. No second speech policy or playback queue is introduced.
-
-Foreground auto-connect uses the existing MainActivity onStart/onStop facts and
-the process-owned shared service. Initial start and each return can search for
-the selected local board for 15 seconds once readiness is satisfied; permission
-prompts are not triggered by this policy. Configuration-driven Activity
-replacement, duplicate foreground observations and WebView/listener replacement
-do not rearm; normal BLE execution remains in the adapter.
-
-## Startup recovery
-
-Data, local connection and interface loading failures show a native recovery
-screen with **Try again**. Listener and WebView retries retain the process runtime;
-Activity lifecycle callbacks also work when the runtime could not start. Data
-recovery suggests checking available storage and using the same or a newer app
-version. It warns against uninstalling or clearing app storage, which can erase
-saved rides and settings. It does not require access to sandboxed files or offer a
-storage reset. Connection recovery suggests restarting the device if retry fails.
+For affected physical behavior, compare notifications with the app, then check
+background/lock, Stop, dismissal/reconnect, permission denial/grant, and standard
+versus promoted presentation on a supporting device. Speech checks need audible
+headset routing and music restoration. Emulator/unit tests do not establish OEM
+presentation, radio behavior or audibility. See
+[physical checkpoints](../../conformance/physical-checkpoints/README.md).
