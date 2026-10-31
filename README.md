@@ -53,13 +53,8 @@ Download the latest build from the [releases page](https://github.com/acheronfai
 
 ### iOS
 
-For now, use [AltStore Classic](https://faq.altstore.io/altstore-classic).
-
-1. Install AltStore Classic using its linked guide (requires a Mac or PC).
-2. Download the `.ipa` on your iPhone.
-3. In AltStore, open **My Apps**, tap **+**, and select the IPA.
-
-With a free Apple account, [refresh the app every seven days](https://faq.altstore.io/altstore-classic/your-altstore).
+Download the `.ipa` and follow the [ipa-loader](https://github.com/acheronfail/ipa-loader/)
+instructions to install it.
 
 ### Android
 
