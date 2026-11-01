@@ -2,19 +2,17 @@
 
 ## Why
 
-Refloat configuration labels/help can change without changing serialized settings, but Float View still requires an exact full-schema fingerprint for every admitted release. The beta3 support rework separates exact audited release identity from reusable protocol behavior and fixture bytes; use that boundary to simplify configuration admission without weakening writes.
+Refloat marketing releases are too coarse a compatibility boundary. Beta3 reused beta2's protocols and fixtures, yet adding it still required exact release admission; removing those registrations after stable would strand otherwise working boards. Cosmetic schema edits also invalidate configuration despite leaving its behavior unchanged. Reuse verified behavior, admit compatible public reads independently, and disable only features whose semantics are unproven.
 
 ## What Changes
 
-- Determine which validated schema properties must gate reads/writes and which descriptive metadata should identify the active schema and cache without blocking compatible behavior. Preserve legacy 1.0.0/1.0.1 patch resolution.
-- Keep audited release admission separate from schema compatibility, active device identity and test-fixture ownership. Beta3 now reuses beta2 fixture files through an explicit generator mapping that verifies every generated artifact; this does not alias runtime package versions or relax fingerprints.
-- Reuse existing protocol/control capabilities instead of adding release-name branches. Keep conformance evidence independent of production policy; do not generate both sides from one runtime catalogue merely to eliminate a few explicit registrations.
-- Investigate removing redundant runtime fingerprint catalogues and frontend version eligibility lists where validated schema compatibility and authoritative backend availability can replace them. Introduce no additional catalogue, migration or general generation framework without a demonstrated need.
-- Preserve exact active schema metadata, bounded parsing, signed values, cache validation, mutation safety and mandatory complete write readback. A matching wire signature alone must not establish write compatibility; encoding, order, constraints and semantic changes require review.
-- Preserve supported configurations, drafts, Tunes, sessions and archives. Keep exact-version Tune isolation separate from fixture/schema reuse; cross-version application is outside this change.
-- When stable 1.3.1 is audited, remove beta2/beta3 runtime admission, frontend/simulator registrations and beta-only scenarios/vectors. Retain only shared fixture evidence needed by the stable profile, promoting its ownership/name if necessary. Preserve beta-created histories, events, provenance and Tunes without keeping beta firmware admission or adding automatic Tune conversion. Historical-data regressions may retain beta identities; storage/archive readers must remain independent of the active firmware catalogue, with reopen/import coverage after beta registration removal.
-- Aim for a future audited release with unchanged behavior to require a small release registration and source-evidence update, focused differential regression and any required scoped interoperability checkpoint, with no copied payloads or repeated decoder/safety tests per label.
-- **Non-goals:** automatic admission of unreviewed releases; implementing this policy in beta3 support; cross-version Tune migration/application; relaxing storage compatibility or write safety.
+- Keep existing audited release mappings, including beta2/beta3, with their current capabilities. A stable release does not revoke working beta support. Remove duplicate implementations and evidence when they add no value; retain mappings needed by supported boards.
+- Add a bounded, read-only fallback for unknown Refloat versions on already supported VESC controllers. Require valid Refloat INFO and a successfully validated public command-33 core telemetry exchange before readiness or session activation. Preserve the observed version; do not guess compatibility from a version range or alias it to a known release.
+- Let usable telemetry and app-side recording survive unavailable optional fields, alert history or configuration. Unproven status is unknown, never an inferred healthy/clear state. Unknown releases receive no device mutation authority, even if their responses and schema match an audited release.
+- Replace the configuration service's non-legacy exact-version/full-fingerprint catalogue with shared schema profiles. After full bounded XML validation, ignore only parameter label/help contents for admission; retain actual full fingerprints for schema identity, drafts and exact-version Tunes. Unknown releases matching a known schema profile may read configuration; only audited operation semantics can authorize writes.
+- Publish a small authoritative live compatibility summary and riding-Tune capability. Use existing configuration/control availability for individual features and remove frontend version eligibility duplication. Show limited compatibility without blocking connecting or recording.
+- Extend existing independent fixtures and focused conformance for unknown versions, isolated feature failure, zero mutation traffic, exact identity and preserved beta access. Reuse fixtures rather than copying release-sized datasets.
+- **Non-goals:** generic writes to unknown firmware; undocumented command probing; inventing upstream capability bits; supporting unknown VESC versions; cross-version Tune application; persistence/archive migrations; promising arbitrary future firmware interoperability.
 
 ## Capabilities
 
@@ -24,10 +22,15 @@ None.
 
 ### Modified Capabilities
 
-- `refloat-configuration`: Reconsider full-fingerprint admission for audited releases while preserving validated schema/write compatibility and exact active identity.
+- `vesc-device-connection`: Distinguish audited support, validated limited support and unusable protocols; retain actionable recovery and existing VESC admission.
+- `refloat-telemetry-pipeline`: Validate a bounded public read fallback without treating optional or unknown status as healthy evidence.
+- `refloat-configuration`: Admit shared cosmetic schema profiles independently of observed version while retaining exact identities and restricted writes.
+- `refloat-live-controls`: Deny every device mutation in limited mode at the authoritative backend boundary.
+- `backend-contract`: Publish minimal live support and feature availability; drive frontend eligibility from backend facts.
+- `backend-conformance`: Prove future-identity fallback, feature isolation, preserved audited behavior and the schema boundary with independent evidence.
 
 ## Impact
 
-Likely affects the shared Rust configuration codec/service, existing release capability owners, frontend eligibility presentation and conformance fixture generation. The beta3 implementation already centralizes simulator capabilities in its codec catalogue and verifies fixture reuse; build on those mechanisms rather than introducing parallel policy. The later design must determine whether authoritative frontend availability needs a contract change. No dependency or public-contract/persistence change is selected here.
+Shared Rust discovery, compatibility, polling, configuration and mutation owners; the hand-written backend contract, client/mock, frontend connection/configuration presentation and both host integrations; existing fixture and conformance tooling. No new dependency, native ABI entry point, storage marker or archive format is planned. Actual schema/version identity becomes owned observed data rather than static catalogue references.
 
-This change remains intentionally unfinished. Its design, delta specs and tasks still require a separate schema-safety review. The completed beta3 rework informs that design; it does not authorize or implement schema-admission relaxation.
+This plan supersedes the earlier exact-release-only scope and proposed beta retirement. [design.md](design.md) defines the trust boundary and [tasks.md](tasks.md) records implementation and validation work. Leave the change open for review; this planning request does not authorize implementation, commits or online changes.
