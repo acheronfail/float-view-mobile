@@ -17,7 +17,7 @@
   import { ENERGY_COUNTERS, loadSessionEnergy } from './session-energy';
   import { sessionSeriesGroups } from './session-series-groups';
   import { chartDomain, chartExtrema, chartShowsMinimum } from './chart-extrema';
-  import { buildChartTooltipEntries } from './chart-tooltip';
+  import { buildChartTooltipEntries, formatChartElapsedTime } from './chart-tooltip';
   import { chartTouchInspection } from './chart-touch-inspection';
   import {
     formatSessionFieldValue,
@@ -1163,7 +1163,7 @@
                         style={tooltipStyle(tooltipAnchor.x)}
                         role="status"
                       >
-                        <p>{(inspectionMs / 1000).toFixed(1)}s into ride</p>
+                        <p>{formatChartElapsedTime(inspectionMs)} into ride</p>
                         {#if inspectionBreak}<p>
                             {recordingBreakLabel(inspectionBreak.start, inspectionBreak.end)}
                           </p>{/if}

@@ -99,7 +99,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 clientX: bounds.x + bounds.width * 0.75,
                 clientY: bounds.y + bounds.height / 2,
               });
-              await page.getByText('50.0s into ride', { exact: true }).first().waitFor();
+              await page.getByText('50s into ride', { exact: true }).first().waitFor();
               await chart.dispatchEvent('pointermove', {
                 pointerType: 'touch',
                 pointerId: 1,
@@ -121,7 +121,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             const move = (ratio: number) =>
               page.mouse.move(bounds.x + bounds.width * ratio, bounds.y + bounds.height / 2);
             await move(0.75);
-            await page.getByText('50.0s into ride', { exact: true }).first().waitFor();
+            await page.getByText('50s into ride', { exact: true }).first().waitFor();
             await move(0.5);
             await page
               .getByRole('status')
