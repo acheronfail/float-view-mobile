@@ -1,4 +1,4 @@
-import { firmwareFaultCode, type RefloatVersion } from './refloat.ts';
+import { firmwareFaultCode, refloatCodecs, type RefloatVersion } from './refloat.ts';
 import type { TelemetrySample } from './telemetry.ts';
 
 export type RefloatBooleanControl = 'package' | 'flywheel' | 'leds' | 'headlights';
@@ -29,22 +29,9 @@ export type RefloatControlRejection = 'malformed' | 'wrong_route' | 'read_only' 
 export type RefloatControlDecodeResult =
   { accepted: true; value: DecodedRefloatControl } | { accepted: false; reason: RefloatControlRejection };
 
-const profiles = new Map<RefloatVersion, RefloatControlProfile>([
-  ['1.0.0', { version: '1.0.0', family: 'legacy', fatalClearAvailable: false }],
-  ['1.0.1', { version: '1.0.1', family: 'legacy', fatalClearAvailable: false }],
-  ['1.1.0', { version: '1.1.0', family: 'legacy', fatalClearAvailable: false }],
-  ['1.1.1', { version: '1.1.1', family: 'legacy', fatalClearAvailable: false }],
-  ['1.1.2', { version: '1.1.2', family: 'legacy', fatalClearAvailable: false }],
-  ['1.2.0', { version: '1.2.0', family: 'stable', fatalClearAvailable: true }],
-  ['1.2.1', { version: '1.2.1', family: 'stable', fatalClearAvailable: true }],
-  ['1.2.2', { version: '1.2.2', family: 'stable', fatalClearAvailable: true }],
-  ['1.2.3', { version: '1.2.3', family: 'stable', fatalClearAvailable: true }],
-  ['1.3.0', { version: '1.3.0', family: 'stable', fatalClearAvailable: true }],
-  ['1.3.1-beta2', { version: '1.3.1-beta2', family: 'stable', fatalClearAvailable: true }],
-]);
-
 export function refloatControlProfile(version: RefloatVersion): RefloatControlProfile {
-  return profiles.get(version)!;
+  const family = refloatCodecs[version].controlFamily;
+  return { version, family, fatalClearAvailable: family === 'stable' };
 }
 
 export function decodeRefloatProductControl(
@@ -180,7 +167,8 @@ export class RefloatControlModel {
   }
 
   recordImuTimeout(active: boolean) {
-    if (this.version !== '1.3.1-beta2') throw new Error('IMU timeout requires audited beta');
+    if (refloatCodecs[this.version].alertProfile !== 'firmwareAndImuTimeout')
+      throw new Error('IMU timeout requires a timeout-capable profile');
     if (active === this.imuTimeoutActive) return;
     this.imuTimeoutActive = active;
     this.faultHistory.push({ ticks: this.clockTicks(), id: 2, active, code: 0 });
@@ -188,12 +176,7 @@ export class RefloatControlModel {
   }
 
   alertsResponse(payload: Uint8Array): Uint8Array | undefined {
-    if (
-      !(this.version.startsWith('1.2.') || this.version === '1.3.0' || this.version === '1.3.1-beta2') ||
-      payload.length !== 7 ||
-      payload[2] !== 35
-    )
-      return;
+    if (refloatCodecs[this.version].alertProfile === 'none' || payload.length !== 7 || payload[2] !== 35) return;
     const since = new DataView(payload.buffer, payload.byteOffset, payload.byteLength).getUint32(3, false);
     const records = this.faultHistory.filter((r) => r.ticks > since);
     const bytes = [
@@ -240,7 +223,7 @@ export class RefloatControlModel {
       ledsEnabled: true,
       headlightsEnabled: true,
       fatalErrorActive: false,
-      fatalErrorLatched: version.startsWith('1.2.') || version === '1.3.0' || version === '1.3.1-beta2',
+      fatalErrorLatched: refloatControlProfile(version).fatalClearAvailable,
       ...initial,
     };
   }
@@ -333,7 +316,7 @@ export class RefloatControlModel {
 
   decorateTelemetry(payload: Uint8Array): Uint8Array {
     if (
-      (this.version === '1.3.0' || this.version === '1.3.1-beta2') &&
+      refloatCodecs[this.version].telemetryCommand === 33 &&
       payload[0] === 36 &&
       payload[2] === 33 &&
       payload.length >= 16

@@ -1831,3 +1831,29 @@ fn invalid_present_battery_charge_setting_preserves_supported_storage() {
         assert_eq!(stored, value.to_string());
     }
 }
+
+#[test]
+fn beta_tunes_with_identical_schemas_remain_isolated_and_durable() {
+    let root = Root::new();
+    let (mut beta2, values, schema) = tune_fixture();
+    beta2.package_version = "1.3.1-beta2".into();
+    let mut beta3 = beta2.clone();
+    beta3.package_version = "1.3.1-beta3".into();
+    let mut store = root.open();
+    let old = store
+        .create_tune("Beta2", None, &beta2, &values, &schema, 1)
+        .unwrap();
+    assert!(store.tunes(&beta3, 50, None).unwrap().items.is_empty());
+    let new = store
+        .create_tune("Beta3", None, &beta3, &values, &schema, 2)
+        .unwrap();
+    drop(store);
+    let store = root.open();
+    assert_eq!(
+        store.tunes(&beta2, 50, None).unwrap().items,
+        vec![old.clone()]
+    );
+    assert_eq!(store.tunes(&beta3, 50, None).unwrap().items, vec![new]);
+    assert_eq!(store.tune(&old.configuration_id).unwrap(), old);
+    assert_eq!(store.tunes_filtered(None, 50, None).unwrap().items.len(), 2);
+}

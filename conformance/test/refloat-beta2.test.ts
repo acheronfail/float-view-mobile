@@ -65,3 +65,20 @@ test('beta direct and CAN fixture routes retain selectable telemetry, schema and
     );
   }
 });
+
+test('audited beta3 changes identity and shares beta2 protocol/configuration fixtures', () => {
+  const beta2 = refloatCodecs['1.3.1-beta2'];
+  const beta3 = refloatCodecs['1.3.1-beta3'];
+  const expected = beta2.infoPayload.slice();
+  expected[32] = '3'.charCodeAt(0);
+  assert.deepEqual(beta3.infoPayload, expected);
+  assert.equal(beta3.telemetryCommand, beta2.telemetryCommand);
+  assert.equal(beta3.controlFamily, beta2.controlFamily);
+  assert.equal(beta3.alertProfile, beta2.alertProfile);
+  const manifest = JSON.parse(
+    readFileSync(new URL('../../backends/fixtures/refloat-configuration/manifest.json', import.meta.url), 'utf8')
+  );
+  const release = (version: string) => manifest.releases.find((item: { version: string }) => item.version === version);
+  assert.equal(release('1.3.1-beta3').commit, 'e6388f75e63919bc42a3e10cecb68824ac413ae4');
+  assert.deepEqual(release('1.3.1-beta3').files, release('1.3.1-beta2').files);
+});

@@ -32,6 +32,9 @@ VERSIONS = (
     "1.3.0",
     "1.3.1-beta2",
 )
+# Explicitly audited reuse of fixture bytes, independent of runtime release admission.
+FIXTURE_REUSE = {"1.3.1-beta3": "1.3.1-beta2"}
+VERSIONS += tuple(FIXTURE_REUSE)
 SOURCE_PATH = "src/conf/settings.xml"
 MAX_COMPRESSED_BYTES = 32 * 1024
 MAX_EXPANDED_BYTES = 384 * 1024
@@ -226,19 +229,35 @@ def main() -> None:
         current_payload = encode_values(schema, defaults, wire_signature)
         write_payload = encode_values(schema, representative, wire_signature)
         readback_payload = encode_values(schema, normalized, wire_signature)
-        (schemas / f"{version}.qcompress").write_bytes(compressed)
-        (values_dir / f"{version}-default.bin").write_bytes(default_payload)
-        (values_dir / f"{version}-current.bin").write_bytes(current_payload)
-        (values_dir / f"{version}-write.bin").write_bytes(write_payload)
-        (values_dir / f"{version}-readback.bin").write_bytes(readback_payload)
-        (values_dir / f"{version}.json").write_text(
-            json.dumps(
+        artifacts = {
+            "schema": compressed,
+            "default": default_payload,
+            "current": current_payload,
+            "acceptedWrite": write_payload,
+            "expectedReadback": readback_payload,
+            "values": (json.dumps(
                 {"default": defaults, "representativeCurrent": defaults, "acceptedWrite": representative, "expectedReadback": normalized},
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-            + "\n"
-        )
+                ensure_ascii=False, separators=(",", ":"),
+            ) + "\n").encode(),
+        }
+        reused = FIXTURE_REUSE.get(version)
+        if reused:
+            source = next(item for item in releases if item["version"] == reused)
+            files = source["files"]
+            for kind, data in artifacts.items():
+                if (OUTPUT / files[kind]).read_bytes() != data:
+                    raise ValueError(f"{version} cannot reuse {reused}: {kind} differs")
+        else:
+            files = {
+                "schema": f"schemas/{version}.qcompress",
+                "values": f"values/{version}.json",
+                "default": f"values/{version}-default.bin",
+                "current": f"values/{version}-current.bin",
+                "acceptedWrite": f"values/{version}-write.bin",
+                "expectedReadback": f"values/{version}-readback.bin",
+            }
+            for kind, data in artifacts.items():
+                (OUTPUT / files[kind]).write_bytes(data)
         releases.append(
             {
                 "version": version,
@@ -260,14 +279,7 @@ def main() -> None:
                 "defaultPayloadSha256": hashlib.sha256(default_payload).hexdigest(),
                 "representativeWrite": {"field": changed["name"], "value": representative[changed["name"]]},
                 "writeNormalization": [] if version < "1.1.0" else [{"field": "meta.is_default", "value": 0}],
-                "files": {
-                    "schema": f"schemas/{version}.qcompress",
-                    "values": f"values/{version}.json",
-                    "default": f"values/{version}-default.bin",
-                    "current": f"values/{version}-current.bin",
-                    "acceptedWrite": f"values/{version}-write.bin",
-                    "expectedReadback": f"values/{version}-readback.bin",
-                },
+                "files": files,
             }
         )
 

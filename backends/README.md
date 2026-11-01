@@ -36,10 +36,11 @@ Two upstream quirks matter when auditing identities:
   because of upstream Makefile extraction. This is a specific audited case,
   not permission to accept arbitrary suffixes, betas or future releases.
 
-Current beta2 support is temporary: replace live beta admission with stable 1.3.1
+Current beta2/beta3 support is temporary: replace live beta admission with stable 1.3.1
 after its audit, preserving supported saved histories and Tunes. The
-[beta2 checkpoint](../conformance/physical-checkpoints/refloat-1-3-1-beta2.md)
-owns its verification outcome.
+[beta2 checkpoint](../conformance/physical-checkpoints/refloat-1-3-1-beta2.md) and
+[beta3 checkpoint](../conformance/physical-checkpoints/refloat-1-3-1-beta3.md)
+own their verification outcomes.
 
 ## Auditing another VBMS wire version
 

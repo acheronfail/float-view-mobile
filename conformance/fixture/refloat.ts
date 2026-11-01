@@ -9,9 +9,6 @@ import type {
   TelemetrySample,
 } from './telemetry.ts';
 
-export type RefloatVersion =
-  '1.0.0' | '1.0.1' | '1.1.0' | '1.1.1' | '1.1.2' | '1.2.0' | '1.2.1' | '1.2.2' | '1.2.3' | '1.3.0' | '1.3.1-beta2';
-type DynamicRefloatVersion = Exclude<RefloatVersion, '1.0.0' | '1.0.1'>;
 export type RefloatRequestKind = 'info' | 'layout' | 'telemetry' | 'compact';
 
 export const MAX_REFLOAT_FIELDS = 64;
@@ -23,8 +20,11 @@ export interface RefloatResponse {
   payload: Uint8Array;
 }
 
-export interface RefloatCodec {
-  version: RefloatVersion;
+export interface RefloatCodec<Version extends string = string> {
+  version: Version;
+  telemetryCommand: 10 | 31 | 33;
+  controlFamily: 'legacy' | 'stable';
+  alertProfile: 'none' | 'firmware' | 'firmwareAndImuTimeout';
   provenance: string;
   infoPayload: Uint8Array;
   layoutPayload?: Uint8Array;
@@ -65,9 +65,9 @@ export const runtimeRealtimeFields = [
 ] as const;
 
 const provenance =
-  'Immutable read-only wire profiles audited from https://github.com/lukash/refloat stable tags v1.0.0 through v1.3.0 and exact v1.3.1-beta2';
+  'Immutable read-only wire profiles audited from https://github.com/lukash/refloat stable tags v1.0.0 through v1.3.0 and exact v1.3.1-beta2/v1.3.1-beta3';
 
-export const refloatCodecs: Readonly<Record<RefloatVersion, RefloatCodec>> = {
+export const refloatCodecs = {
   '1.0.0': legacyCodec('1.0.0'),
   '1.0.1': legacyCodec('1.0.1'),
   '1.1.0': dynamicCodec('1.1.0', false),
@@ -77,17 +77,20 @@ export const refloatCodecs: Readonly<Record<RefloatVersion, RefloatCodec>> = {
   '1.2.1': dynamicCodec('1.2.1', true),
   '1.2.2': dynamicCodec('1.2.2', true),
   '1.2.3': dynamicCodec('1.2.3', true),
-  '1.3.0': selectableCodec(),
-  '1.3.1-beta2': selectableCodec('1.3.1-beta2'),
-};
+  '1.3.0': selectableCodec('1.3.0'),
+  '1.3.1-beta2': selectableCodec('1.3.1-beta2', true),
+  '1.3.1-beta3': selectableCodec('1.3.1-beta3', true),
+} as const satisfies Record<string, RefloatCodec>;
+
+export type RefloatVersion = keyof typeof refloatCodecs;
 
 export function encodeRefloatTelemetry(version: RefloatVersion, sample: TelemetrySample): Uint8Array {
-  if (version === '1.3.0' || version === '1.3.1-beta2') {
+  if (refloatCodecs[version].telemetryCommand === 33) {
     return encodeSelectableTelemetry(Uint8Array.from([36, 101, 33, 1, 0x7f, 0xff, 0xbf, 0xc3, 0, 0, 0, 0]), sample);
   }
-  return version.startsWith('1.0.')
+  return refloatCodecs[version].telemetryCommand === 10
     ? encodeLegacyCompact(sample, 4)
-    : encodeDynamicTelemetry(sample, version.startsWith('1.2.'));
+    : encodeDynamicTelemetry(sample, refloatCodecs[version].alertProfile !== 'none');
 }
 
 export function encodeRefloatLayout(
@@ -264,10 +267,13 @@ export function encodeDynamicTelemetry(sample: TelemetrySample, alertTail: boole
   return payload;
 }
 
-function legacyCodec(version: '1.0.0' | '1.0.1'): RefloatCodec {
+function legacyCodec<Version extends string>(version: Version): RefloatCodec<Version> {
   const infoPayload = Uint8Array.of(36, 101, 0, 10);
   return {
     version,
+    telemetryCommand: 10,
+    controlFamily: 'legacy',
+    alertProfile: 'none',
     provenance,
     infoPayload,
     respond(payload, sample) {
@@ -282,11 +288,14 @@ function legacyCodec(version: '1.0.0' | '1.0.1'): RefloatCodec {
   };
 }
 
-function dynamicCodec(version: DynamicRefloatVersion, alertTail: boolean): RefloatCodec {
+function dynamicCodec<Version extends string>(version: Version, alertTail: boolean): RefloatCodec<Version> {
   const infoPayload = encodeInfoV2(version);
   const layoutPayload = encodeRefloatLayout();
   return {
     version,
+    telemetryCommand: 31,
+    controlFamily: alertTail ? 'stable' : 'legacy',
+    alertProfile: alertTail ? 'firmware' : 'none',
     provenance,
     infoPayload,
     layoutPayload,
@@ -305,11 +314,14 @@ function dynamicCodec(version: DynamicRefloatVersion, alertTail: boolean): Reflo
   };
 }
 
-function selectableCodec(version: '1.3.0' | '1.3.1-beta2' = '1.3.0'): RefloatCodec {
+function selectableCodec<Version extends string>(version: Version, imuTimeoutAvailable = false): RefloatCodec<Version> {
   const infoPayload = encodeInfoV2(version);
   infoPayload[59] = 0x04;
   return {
     version,
+    telemetryCommand: 33,
+    controlFamily: 'stable',
+    alertProfile: imuTimeoutAvailable ? 'firmwareAndImuTimeout' : 'firmware',
     provenance,
     infoPayload,
     respond(payload, sample) {
@@ -403,7 +415,7 @@ function packagePacket(payload: Uint8Array): number | undefined {
   return payload[2];
 }
 
-function encodeInfoV2(version: DynamicRefloatVersion): Uint8Array {
+function encodeInfoV2(version: string): Uint8Array {
   const payload = new Uint8Array(61);
   payload.set([36, 101, 0, 2]);
   payload.set(new TextEncoder().encode('Refloat').slice(0, 20), 5);

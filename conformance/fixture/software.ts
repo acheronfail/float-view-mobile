@@ -14,7 +14,7 @@ export class SoftwarePeripheral {
     this.refloatVersion = refloatVersion;
     this.configuration = new RefloatConfigurationModel(refloatVersion);
     this.controls = new RefloatControlModel(refloatVersion, { fatalErrorLatched: false });
-    if (refloatVersion === '1.3.1-beta2') {
+    if (refloatCodecs[refloatVersion].alertProfile === 'firmwareAndImuTimeout') {
       this.controls.recordImuTimeout(true);
       this.controls.recordImuTimeout(false);
     }

@@ -1230,7 +1230,7 @@ Canonical conformance SHALL exercise exact beta2 admission, the existing selecta
 
 #### Scenario: Adjacent identities and malformed alerts
 
-- **WHEN** a fixture reports beta1, beta3, stable 1.3.1, malformed suffixes, or invalid beta2 command-35 records
+- **WHEN** a fixture reports beta1, beta4, stable 1.3.1, malformed suffixes, or invalid beta2 command-35 records
 - **THEN** admission or the malformed response fails at its boundary without write traffic, partial history, or stale-generation state
 
 #### Scenario: Saved and guest histories
@@ -1271,3 +1271,18 @@ Focused tests SHALL exercise the retained protocol, coordination and SQLite guar
 
 - **WHEN** a component's current regression cases are selected
 - **THEN** original extraction/cutover reports remain historical evidence, while checks run against today's production shared owner under the current impact policy
+
+### Requirement: Refloat beta3 interoperability evidence
+
+Canonical conformance SHALL verify exact beta3 admission, direct/CAN telemetry, timeout history and write gates, configuration read/write/readback, exact-version Tunes and reconnect using source-pinned fixtures. A stationary production-host checkpoint SHALL validate beta3 interoperability with backed-up configuration and verified restoration. Damaged controller readings SHALL NOT establish riding or motor behavior.
+
+#### Scenario: Beta3 software coverage
+
+- **WHEN** source-derived beta3 fixtures exercise the shared service and affected frontend policy
+- **THEN** exact identity, telemetry, alert safety, complete configuration and same-version Tune application pass while beta2 and older releases retain their behavior
+
+#### Scenario: ExpressT checkpoint
+
+- **WHEN** the available damaged controller reports beta3 through the production macOS BLE host
+- **THEN** the checkpoint verifies discovery, advancing fast/slow telemetry, schema/current/default reads, a non-actuating write/readback/restore, unchanged same-version Tune apply, saved stationary samples and reconnect
+- **AND** raw evidence remains local and public results identify the exercised route and exclude motor output, riding and unreliable duty/eRPM assertions

@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
+import type { RefloatVersion } from './refloat.ts';
 import { RefloatConfigurationValuesLayout } from './refloat-configuration-values.ts';
 
-export type StableRefloatConfigurationVersion =
-  '1.0.0' | '1.0.1' | '1.1.0' | '1.1.1' | '1.1.2' | '1.2.0' | '1.2.1' | '1.2.2' | '1.2.3' | '1.3.0' | '1.3.1-beta2';
+export type StableRefloatConfigurationVersion = RefloatVersion;
 
 export type RefloatConfigurationOperation = 'schema' | 'current' | 'default' | 'write';
 

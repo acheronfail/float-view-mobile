@@ -16,6 +16,14 @@ fn bytes(relative: &str) -> Vec<u8> {
     fs::read(root().join(relative)).expect("committed fixture")
 }
 
+// Expected shared test evidence, independent of runtime release admission.
+fn fixture_version(version: &str) -> &str {
+    match version {
+        "1.3.1-beta3" => "1.3.1-beta2",
+        other => other,
+    }
+}
+
 fn facts(
     version: &str,
     route: Route,
@@ -41,7 +49,8 @@ fn facts(
 
 fn load_current(version: &str, route: Route, generation: Generation) -> ConfigurationService {
     let mut service = ConfigurationService::new();
-    let schema_bytes = bytes(&format!("schemas/{version}.qcompress"));
+    let fixture = fixture_version(version);
+    let schema_bytes = bytes(&format!("schemas/{fixture}.qcompress"));
     let first = service.begin(facts(version, route, generation, Some(schema_bytes)));
     let operation = match first.request {
         Some(RequestEffect::Values {
@@ -59,7 +68,7 @@ fn load_current(version: &str, route: Route, generation: Generation) -> Configur
             Response::Values {
                 command: ValuesCommand::Current,
                 index: 0,
-                bytes: bytes(&format!("values/{version}-current.bin")),
+                bytes: bytes(&format!("values/{fixture}-current.bin")),
             },
             RequestContext::Values {
                 route,
@@ -75,9 +84,12 @@ fn load_current(version: &str, route: Route, generation: Generation) -> Configur
 
 #[test]
 fn every_catalogue_release_and_legacy_patch_is_admitted_from_exact_cache() {
-    assert_eq!(CATALOG.len(), 11);
+    assert_eq!(CATALOG.len(), 12);
     for entry in CATALOG {
-        let compressed = bytes(&format!("schemas/{}.qcompress", entry.version));
+        let compressed = bytes(&format!(
+            "schemas/{}.qcompress",
+            fixture_version(entry.version)
+        ));
         let schema = decode_qt_compressed(&compressed).expect("schema");
         assert_eq!(resolve_catalog(entry.version, &schema), Some(*entry));
         let reported = if entry.version.starts_with("1.0.") {

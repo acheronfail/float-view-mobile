@@ -166,6 +166,11 @@ pub const CATALOG: &[CatalogEntry] = &[
         fingerprint: "6bc6bfa433f8205519bc931723e39252aa71c9f538a0ed7c200d688486c63e73",
         wire_signature: 421_162_011,
     },
+    CatalogEntry {
+        version: "1.3.1-beta3",
+        fingerprint: "6bc6bfa433f8205519bc931723e39252aa71c9f538a0ed7c200d688486c63e73",
+        wire_signature: 421_162_011,
+    },
 ];
 
 /// Resolve a reported release only when its complete audited identity matches.

@@ -39,12 +39,13 @@ if (name === 'physical') {
   );
   process.exit(0);
 }
+const betaVersion = process.env.FLOAT_VIEW_FIXTURE_REFLOAT;
 const target =
   name === 'direct'
-    ? process.env.FLOAT_VIEW_FIXTURE_REFLOAT === '1.3.1-beta2'
+    ? betaVersion === '1.3.1-beta2' || betaVersion === '1.3.1-beta3'
       ? makeDirectTarget({
           telemetry: new InteractiveTelemetrySource(),
-          refloatVersion: '1.3.1-beta2',
+          refloatVersion: betaVersion,
           onSpeech: () => {},
         })
       : directTarget
@@ -60,7 +61,7 @@ const target =
 const result = await (
   process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'announcements'
     ? runAnnouncementsConformance
-    : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'refloat-beta2'
+    : ['refloat-beta2', 'refloat-beta3'].includes(process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS ?? '')
       ? runRefloatBetaConformance
       : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'connection-context'
         ? runConnectionContextConformance

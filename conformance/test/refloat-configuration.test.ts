@@ -6,20 +6,9 @@ import { encodeFrame, FrameAssembler } from '../fixture/frame.ts';
 import { RefloatConfigurationModel, type StableRefloatConfigurationVersion } from '../fixture/refloat-configuration.ts';
 import { VescSimulator } from '../fixture/simulator.ts';
 import { fixtureScenarios } from '../fixture/scenarios.ts';
+import { refloatCodecs } from '../fixture/refloat.ts';
 
-const versions: readonly StableRefloatConfigurationVersion[] = [
-  '1.0.0',
-  '1.0.1',
-  '1.1.0',
-  '1.1.1',
-  '1.1.2',
-  '1.2.0',
-  '1.2.1',
-  '1.2.2',
-  '1.2.3',
-  '1.3.0',
-  '1.3.1-beta2',
-];
+const versions = Object.keys(refloatCodecs) as StableRefloatConfigurationVersion[];
 const fixtureRoot = new URL('../../backends/fixtures/refloat-configuration/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('manifest.json', fixtureRoot), 'utf8')) as {
   releases: Array<{
@@ -55,12 +44,13 @@ test('semantic model serves every exact stable release and applies disposable wr
 
 test('arbitrary complete writes persist across repeated edits on every release and route', () => {
   for (const version of versions) {
+    const release = manifest.releases.find((item) => item.version === version)!;
     for (const topology of ['direct', 'express'] as const) {
       const simulator = new VescSimulator(
         composeBoard({ firmware: '6.06', refloat: version, topology, canId: 1, requestPolicy: 'strict' })
       );
       const route = (payload: Uint8Array) => (topology === 'direct' ? payload : Uint8Array.from([34, 1, ...payload]));
-      const current = bytes(`values/${version}-current.bin`);
+      const current = bytes(release.files.current);
       const edited = current.slice();
       const view = new DataView(edited.buffer);
       // Audited wire order starts with kp (scale 10), kp2 (scale 100).
@@ -72,7 +62,7 @@ test('arbitrary complete writes persist across repeated edits on every release a
         const expected = edited.slice();
         if (!version.startsWith('1.0.')) expected[expected.length - 1] = 0; // meta.is_default
         assert.deepEqual(decode(simulator, route(Uint8Array.of(93, 0))), Uint8Array.from([93, 0, ...expected]));
-        assert.deepEqual(decode(simulator, route(Uint8Array.of(94, 0))), response(94, `values/${version}-default.bin`));
+        assert.deepEqual(decode(simulator, route(Uint8Array.of(94, 0))), response(94, release.files.default));
       }
       simulator.reset();
       assert.deepEqual(decode(simulator, route(Uint8Array.of(93, 0))), Uint8Array.from([93, 0, ...current]));

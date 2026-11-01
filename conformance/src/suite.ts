@@ -43,6 +43,7 @@ export interface PhysicalTarget extends Target {
 
 /** Exact beta admission, schema, recovered timeout and saved/guest lifecycle. */
 export async function runRefloatBetaConformance(target: Target) {
+  const version = process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'refloat-beta3' ? '1.3.1-beta3' : '1.3.1-beta2';
   let client: ConformanceClient | undefined;
   try {
     const endpoint = await target.start();
@@ -66,7 +67,7 @@ export async function runRefloatBetaConformance(target: Target) {
         { timeoutMs: 30000 }
       );
 
-      assert.equal(ready.activeConnection!.firmware!.packageVersion, '1.3.1-beta2');
+      assert.equal(ready.activeConnection!.firmware!.packageVersion, version);
       assert.equal(ready.activeConnection!.latestSample!.firmwareFault, null);
       assert.deepEqual(
         ready.activeConnection!.latestSample!.imuTimeoutHistory.map((entry) => entry.active),
@@ -74,7 +75,7 @@ export async function runRefloatBetaConformance(target: Target) {
       );
       assert.deepEqual(ready.activeConnection!.latestSample!.faultHistory, []);
       const opened: RefloatConfigurationSummary = await client.request('refloat.configuration.open', {});
-      assert.equal(opened.packageVersion, '1.3.1-beta2');
+      assert.equal(opened.packageVersion, version);
       if (trackingMode === 'saved') {
         await exerciseRefloatConfiguration(client, ready, true);
         const sessionId = required(ready.activeConnection!.activeSession, 'saved beta session').sessionId;

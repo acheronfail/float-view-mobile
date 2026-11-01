@@ -1,3 +1,4 @@
+import { supportsRidingTuneApply } from '$lib/backend/refloat-tune-policy';
 import { describe, expect, it, vi } from 'vitest';
 import type { RefloatConfigurationValues, RefloatTune } from '$lib/backend/contract';
 import {
@@ -147,5 +148,14 @@ describe('Tune overwrite', () => {
       )
     ).toBeNull();
     expect(updateRefloatTune).toHaveBeenCalledOnce();
+  });
+});
+
+describe('audited Refloat riding Tune eligibility', () => {
+  it.each(['1.3.1-beta2', '1.3.1-beta3'])('permits the audited %s release', (version) => {
+    expect(supportsRidingTuneApply(version)).toBe(true);
+  });
+  it.each(['1.3.1-beta1', '1.3.1-beta4', '1.3.1', '1.3.1-beta3-extra'])('rejects unaudited %s', (version) => {
+    expect(supportsRidingTuneApply(version)).toBe(false);
   });
 });

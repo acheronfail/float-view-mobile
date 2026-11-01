@@ -321,7 +321,7 @@ const STABLE_CONTROL: ControlProfile = ControlProfile {
 };
 
 /// Exact audited source-release compatibility catalogue.
-pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 11] = [
+pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 12] = [
     CompatibilityEntry {
         imu_timeout_available: false,
         source: SourceVersion::new(1, 0, 0),
@@ -398,6 +398,15 @@ pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 11] = [
             .with_suffix(VersionSuffix::new("beta2").expect("valid catalogue suffix")),
         wire: WireVersion::patched(1, 3, 1)
             .with_suffix(VersionSuffix::new("beta2").expect("valid catalogue suffix")),
+        telemetry: TelemetryProfile::Selectable,
+        control: STABLE_CONTROL,
+    },
+    CompatibilityEntry {
+        imu_timeout_available: true,
+        source: SourceVersion::new(1, 3, 1)
+            .with_suffix(VersionSuffix::new("beta3").expect("valid catalogue suffix")),
+        wire: WireVersion::patched(1, 3, 1)
+            .with_suffix(VersionSuffix::new("beta3").expect("valid catalogue suffix")),
         telemetry: TelemetryProfile::Selectable,
         control: STABLE_CONTROL,
     },
@@ -834,11 +843,12 @@ mod tests {
     }
 
     #[test]
-    fn only_the_audited_beta2_suffix_is_admitted() {
+    fn only_audited_beta_suffixes_are_admitted() {
         for (suffix, accepted) in [
             ("beta1", false),
             ("beta2", true),
-            ("beta3", false),
+            ("beta3", true),
+            ("beta4", false),
             ("", false),
         ] {
             let mut payload = info_v2(1, 3, 1);
@@ -851,6 +861,15 @@ mod tests {
                 accepted
             );
         }
+    }
+
+    #[test]
+    fn beta3_reuses_the_complete_beta2_profile() {
+        let version = WireVersion::patched(1, 3, 1);
+        let beta2 = version.with_suffix(VersionSuffix::new("beta2").unwrap());
+        let beta3 = version.with_suffix(VersionSuffix::new("beta3").unwrap());
+        assert_eq!(compatibility(beta3), compatibility(beta2));
+        assert!(compatibility(beta3).unwrap().imu_timeout_available);
     }
 
     #[test]
@@ -1031,6 +1050,7 @@ mod tests {
             SourceVersion::new(1, 2, 3),
             SourceVersion::new(1, 3, 0),
             SourceVersion::new(1, 3, 1).with_suffix(VersionSuffix::new("beta2").unwrap()),
+            SourceVersion::new(1, 3, 1).with_suffix(VersionSuffix::new("beta3").unwrap()),
         ];
         assert_eq!(
             COMPATIBILITY_ENTRIES.map(|entry| entry.source),
@@ -1063,7 +1083,17 @@ mod tests {
     #[test]
     fn exact_wire_text_and_structural_lookup_reject_ranges_and_prereleases() {
         for text in [
-            "1.0", "1.1.0", "1.1.1", "1.1.2", "1.2.0", "1.2.1", "1.2.2", "1.2.3", "1.3.0",
+            "1.0",
+            "1.1.0",
+            "1.1.1",
+            "1.1.2",
+            "1.2.0",
+            "1.2.1",
+            "1.2.2",
+            "1.2.3",
+            "1.3.0",
+            "1.3.1-beta2",
+            "1.3.1-beta3",
         ] {
             let version = parse_wire_version(text).unwrap();
             assert_eq!(version.to_string(), text);
