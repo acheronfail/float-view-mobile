@@ -5,8 +5,6 @@ Buying the app through an app store supports ongoing development and helps cover
 developer memberships and distribution fees. You can also install through the
 alternative routes below or [build it yourself](CONTRIBUTING.md).
 
-Store links will be added here as they become available!
-
 [Privacy policy](PRIVACY.md) · [Support](https://github.com/acheronfail/float-view-mobile/issues)
 
 - 📡 Connect to your VESC board over Bluetooth.
@@ -49,7 +47,8 @@ Store links will be added here as they become available!
 
 ## How to install
 
-Download the latest build from the [releases page](https://github.com/acheronfail/float-view-mobile/releases).
+Choose your platform below. Alternative builds are available on the
+[releases page](https://github.com/acheronfail/float-view-mobile/releases).
 
 ### iOS
 
@@ -65,7 +64,11 @@ Allow installation from this source if Android asks.
 
 Requires macOS 14 or later. Supports Apple Silicon and Intel.
 
-1. Download the macOS `.zip`, extract it, and move `Float View Desktop.app` to Applications.
+<a href="https://apps.apple.com/app/id6823913513"><img src="https://developer.apple.com/app-store/marketing/guidelines/images/badge-download-on-the-mac-app-store.svg" alt="Download Float View Desktop on the Mac App Store" height="48"></a>
+
+Alternatively, download the macOS `.zip` from the
+[releases page](https://github.com/acheronfail/float-view-mobile/releases), extract
+it, and move `Float View Desktop.app` to Applications.
 
 ## Contributing
 
