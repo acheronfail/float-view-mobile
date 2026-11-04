@@ -29,18 +29,35 @@
   } = $props();
   const reading = $derived(liveValue(field, sample, units, estimatedLevel, bms, Math.max(nowMs ?? 0, Date.now())));
   const animated = new Tween(0);
+  // These cumulative readings arrive about once a second. Spread their changes
+  // across that interval; instantaneous readings retain the short transition.
+  const cumulative = $derived(
+    [
+      'wattHoursDrawnWh',
+      'wattHoursChargedWh',
+      'wattHoursNetWh',
+      'ampHoursDrawnAh',
+      'ampHoursChargedAh',
+      'ampHoursNetAh',
+      'odometerM',
+    ].includes(field)
+  );
   let previousIdentity: string | undefined;
   let previousAvailable = false;
+  let previousValue: number | null = null;
   $effect(() => {
     const identity = `${field}:${units}:${reading.label}`;
+    const immediate =
+      prefersReducedMotion.current || previousIdentity !== identity || !previousAvailable || reading.value == null;
+    // Fast snapshots repeat the cached slow counters. Restarting their tween on
+    // each snapshot would turn a one-second transition into an endless chase.
+    if (cumulative && !immediate && reading.value === previousValue) return;
     void animated.set(reading.value ?? 0, {
-      duration:
-        prefersReducedMotion.current || previousIdentity !== identity || !previousAvailable || reading.value == null
-          ? 0
-          : 150,
+      duration: immediate ? 0 : cumulative ? 1000 : 150,
     });
     previousIdentity = identity;
     previousAvailable = reading.value != null;
+    previousValue = reading.value;
   });
   const value = $derived(reading.value == null ? null : animated.current);
   const text = $derived(liveValueText(field, value, reading.digits));
