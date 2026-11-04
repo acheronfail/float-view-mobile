@@ -52,8 +52,12 @@ Choose your platform below. Alternative builds are available on the
 
 ### iOS
 
-Download the `.ipa` and follow the [ipa-loader](https://github.com/acheronfail/ipa-loader/)
-instructions to install it.
+<a href="https://apps.apple.com/app/id6823768488"><img src="https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg" alt="Download Float View on the App Store" height="48"></a>
+
+Alternatively, download the `.ipa` from the
+[releases page](https://github.com/acheronfail/float-view-mobile/releases) and
+follow the [ipa-loader](https://github.com/acheronfail/ipa-loader/) instructions
+to install it.
 
 ### Android
 
