@@ -100,6 +100,17 @@ fmt:
 dev platform="mock" target="":
     cd conformance && node --strip-types src/dev.ts "{{ platform }}" "{{ target }}"
 
+# Regenerate store upload JPEGs; see conformance/README.md#store-screenshots.
+store-screenshots output="" ride=".local/store-screenshots-input/ride-sanitized.json":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    npm --prefix frontend run build
+    args=(--ride {{ quote(ride) }})
+    if [[ -n {{ quote(output) }} ]]; then
+      args+=(--output {{ quote(output) }})
+    fi
+    node --strip-types conformance/src/store-screenshots.mjs "${args[@]}"
+
 list platform:
     #!/usr/bin/env bash
     set -euo pipefail

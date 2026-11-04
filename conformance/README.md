@@ -47,6 +47,35 @@ building. Its captures go to `generated/custom-dashboard/`.
 Viewport emulation does not establish physical safe areas, hinge behavior or
 fold-device gesture integration.
 
+## Store screenshots
+
+From the repository root, run `just store-screenshots`. It builds the current
+frontend, captures the shared UI in WebKit, and prints a new
+`.local/store-screenshots-<timestamp>/` upload folder containing six JPEGs per
+device: `ios/iphone/`, `ios/ipad/`, `ios/iphone-duo-outer/`, `macos/mac/`,
+`android/phone/` and `android/tablet/`. Only the corrected outer-display Duo
+layout is included. Existing output folders are never overwritten.
+
+The command requires the frontend/conformance dependencies and Playwright WebKit
+from `just setup`. Its recorded input is intentionally local: place the sanitized
+ride JSON at `.local/store-screenshots-input/ride-sanitized.json`. That file is
+already prepared in the screenshot author's checkout. The JSON contains `meta`,
+`marker`, `fields` and `samples`, as consumed by
+[store-screenshots.mjs](src/store-screenshots.mjs); it must omit GPS and private
+identifiers. To select another output directory or sanitized ride:
+
+```sh
+just store-screenshots .local/store-screenshots-review /path/to/ride-sanitized.json
+```
+
+The script keeps raw captures, a gallery and source/data hashes separately under
+ignored `conformance/generated/store-screenshots/`. Captures use anonymized ride
+telemetry with illustrative BMS readings, setup and tunes. Android exports reuse
+the shared captures; Duo uses the measured native CI geometry fixture to activate
+side controls. These browser assets omit native OS chrome and do not establish
+new native-device or folding evidence. Follow the macOS browser sandbox and build
+serialization rules in the [development guide](../docs/development.md#verification).
+
 ## On-demand native layout captures
 
 `Capture iOS layout` is manually dispatched for pushed `apple-duo/*` branches;
