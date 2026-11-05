@@ -140,7 +140,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const boardList = page.getByRole('region', { name: 'Saved boards', exact: true });
       for (const width of [320, 390, 768]) {
         await page.setViewportSize({ width, height: 844 });
-        const headerBox = await page.locator('header').boundingBox();
+        const headerBox = await page.getByLabel('Session totals', { exact: true }).boundingBox();
         const firstBoardBox = await boardList.getByRole('link').first().boundingBox();
         assert.ok(headerBox && firstBoardBox);
         assert.equal(
@@ -156,6 +156,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.match(await shortcut.innerText(), /Latest board/);
       assert.match((await shortcut.getAttribute('href')) ?? '', /^#\/sessions\/session-2\?board=/);
       assert.equal(await shortcut.locator('svg').count(), 0, 'shortcut has no board icon');
+      await shortcut.locator('.i-lucide-chevron-right').waitFor();
       assert.ok(requestedBoards.length > 0);
       assert.ok(
         requestedBoards.every((id) => id !== 'older-board'),
@@ -163,7 +164,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       );
       for (const width of [320, 390, 768]) {
         await page.setViewportSize({ width, height: 844 });
-        const headerBox = await page.locator('header').boundingBox();
+        const headerBox = await page.getByLabel('Session totals', { exact: true }).boundingBox();
         const shortcutBox = await shortcut.boundingBox();
         const firstBoardBox = await boardList.getByRole('link').first().boundingBox();
         assert.ok(headerBox && shortcutBox && firstBoardBox);

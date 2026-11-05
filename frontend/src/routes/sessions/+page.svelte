@@ -8,6 +8,7 @@
   import { reportFrontendPerformance } from '$lib/backend/performance-log';
   import BoardList from '$lib/features/boards/BoardList.svelte';
   import PruneDialog from '$lib/features/sessions/PruneDialog.svelte';
+  import SessionTotals from '$lib/features/sessions/SessionTotals.svelte';
   import LastRideSubtitle from '$lib/features/sessions/LastRideSubtitle.svelte';
   import LastRideButton from '$lib/features/sessions/LastRideButton.svelte';
 
@@ -85,6 +86,7 @@
   {#if backendState.error}
     <p class="text-warning" role="alert">{backendState.error}</p>
   {/if}
+  <SessionTotals />
   <CurrentRideButton />
   <LastRideButton />
   <BoardList />

@@ -4,35 +4,36 @@ import { lastRideLabel, latestRideAt, latestRideBoard } from './last-ride';
 
 const board = (date: string | null) => ({ summary: { mostRecentSessionAt: date } }) as SavedDevice;
 
-describe('last ride subtitle', () => {
+describe('latest ride board', () => {
   it('selects the latest ride across boards and ignores missing or invalid dates', () => {
     const latest = board('2026-02-01T00:00:00Z');
     expect(latestRideBoard([board(null), board('invalid')])).toBeNull();
     expect(latestRideBoard([board('2026-01-01T00:00:00Z'), latest, board(null)])).toBe(latest);
-    expect(latestRideAt([board(null), board('invalid')])).toBeNull();
-    expect(latestRideAt([])).toBeNull();
-    expect(latestRideAt([board('2026-01-01T00:00:00Z'), board('2026-02-01T00:00:00Z'), board(null)])).toBe(
-      Date.parse('2026-02-01T00:00:00Z')
-    );
+    expect(latestRideBoard([])).toBeNull();
   });
+});
 
-  it('handles empty history and advances from just now to minutes ago', () => {
-    const now = Date.now();
+describe('last ride relative time', () => {
+  const now = new Date(2026, 10, 5, 12).getTime();
+  it.each([
+    [0, 'just now'],
+    [30_000, 'just now'],
+    [60_000, '1 minute ago'],
+    [5 * 60_000, '5 minutes ago'],
+    [3_600_000, '1 hour ago'],
+    [3 * 3_600_000, '3 hours ago'],
+    [86_400_000, 'yesterday'],
+    [3 * 86_400_000, '3 days ago'],
+    [14 * 86_400_000, '2 weeks ago'],
+    [90 * 86_400_000, '3 months ago'],
+    [730 * 86_400_000, '2 years ago'],
+  ])('formats %i milliseconds naturally', (elapsed, label) => {
+    expect(lastRideLabel(now - elapsed, now)).toBe(`Last ride was ${label}`);
+  });
+  it('handles empty history and clock skew', () => {
     expect(lastRideLabel(null, now)).toBe('No rides recorded yet');
-    expect(lastRideLabel(now - 30_000, now)).toBe('Last ride just now');
-    expect(lastRideLabel(now - 300_000, now)).toBe('Last ride 5 minutes ago');
-  });
-
-  it('uses local calendar days and local clock formatting across midnight', () => {
-    const ride = new Date(2026, 9, 9, 23, 30);
-    const now = new Date(2026, 9, 10, 1, 0);
-    const time = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(ride);
-    expect(lastRideLabel(ride.getTime(), now.getTime())).toBe(`Last ride yesterday at ${time}`);
-  });
-
-  it('includes the year for older rides and never calls a future ride just now', () => {
-    const now = new Date(2026, 9, 10, 12).getTime();
-    expect(lastRideLabel(new Date(2025, 1, 1, 12).getTime(), now)).toContain('2025');
-    expect(lastRideLabel(now + 60_000, now)).toContain('today at');
+    expect(lastRideLabel(now + 60_000, now)).toBe('Last ride was just now');
+    expect(latestRideAt([])).toBeNull();
+    expect(latestRideAt([board('invalid'), board('2026-01-01T00:00:00Z')])).toBe(Date.parse('2026-01-01T00:00:00Z'));
   });
 });

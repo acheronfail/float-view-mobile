@@ -15,7 +15,7 @@ export const bottomTabs = [
     routeId: '/sessions',
     icon: 'route',
     title: 'Sessions',
-    subtitle: 'Loading rides…',
+    subtitle: '',
   },
   {
     label: 'settings',

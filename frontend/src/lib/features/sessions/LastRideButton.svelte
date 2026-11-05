@@ -3,6 +3,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
   import ListItem from '$lib/ui/ListItem.svelte';
+  import Icon from '$lib/ui/Icon.svelte';
   import { latestRideBoard } from './last-ride';
   import { sessionStartDateLabel } from './session-label';
 
@@ -47,7 +48,11 @@
     href={`#/sessions/${encodeURIComponent(session.sessionId)}?board=${encodeURIComponent(board.savedDeviceId)}`}
     title="Most recent ride"
     subtitle={`${board.displayName} · ${sessionStartDateLabel(session.startedAt) ?? 'Unknown date'} · ${Math.round(session.totalElapsedMs / 60000)} min · ${formatDistanceM(session.distanceM, units)}`}
-  />
+  >
+    {#snippet trailing()}
+      <Icon name="chevron-right" class="size-5 shrink-0 text-muted" />
+    {/snippet}
+  </ListItem>
 {/if}
 {#if error}
   <div>
