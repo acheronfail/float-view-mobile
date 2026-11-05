@@ -153,6 +153,8 @@ impl Server {
                     let protected = Router::new()
                         .route("/api/ws", get(websocket))
                         .route("/api/session-data", post(session_data))
+                        .route("/api/app-import", post(crate::archives::import))
+                        .route("/api/app-export", post(crate::archives::export))
                         .route("/api/session-import", post(crate::archives::import))
                         .route("/api/session-export", post(crate::archives::export))
                         .route_layer(middleware::from_fn_with_state(app.clone(), authenticate));
@@ -294,12 +296,22 @@ async fn authenticate(State(app): State<Arc<App>>, request: Request, next: Next)
         return status(StatusCode::FORBIDDEN);
     }
     let method = match request.uri().path() {
+        "/api/app-import" => "http.appImport",
+        "/api/app-export" => "http.appExport",
         "/api/session-data" => "http.sessionData",
         "/api/session-import" => "http.sessionImport",
         "/api/session-export" => "http.sessionExport",
         _ => "unknown",
     };
-    let response = match tokio::time::timeout(IO_TIMEOUT, next.run(request)).await {
+    let timeout = if matches!(
+        request.uri().path(),
+        "/api/app-import" | "/api/app-export" | "/api/session-export"
+    ) {
+        std::time::Duration::from_secs(10 * 60)
+    } else {
+        IO_TIMEOUT
+    };
+    let response = match tokio::time::timeout(timeout, next.run(request)).await {
         Ok(response) => response,
         Err(_) => status(StatusCode::REQUEST_TIMEOUT),
     };

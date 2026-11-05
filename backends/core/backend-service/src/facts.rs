@@ -265,6 +265,7 @@ pub enum Completion {
         length: u64,
     },
     Imported(String),
+    AppImported(float_view_product_store::AppImportSummary),
     TransferReady,
 }
 

@@ -40,12 +40,24 @@ fn lease(client: &Client, direction: Direction, maximum: u64) -> Result<Lease, S
     })
 }
 pub(crate) async fn import(State(app): State<Arc<App>>, request: Request) -> Response {
+    let app_import = request.uri().path() == "/api/app-import";
+    let apply_settings = match request.headers().get("X-Float-View-Import-Settings") {
+        None => false,
+        Some(value) if app_import && value == "true" => true,
+        Some(value) if app_import && value == "false" => false,
+        _ => return status(StatusCode::BAD_REQUEST),
+    };
+    let maximum = if app_import {
+        float_view_backend_service::MAX_APP_TRANSFER_BYTES as usize
+    } else {
+        MAX_SESSION_IMPORT_BYTES
+    };
     if request
         .headers()
         .get(header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u64>().ok())
-        .is_some_and(|n| n > MAX_SESSION_IMPORT_BYTES as u64)
+        .is_some_and(|n| n > maximum as u64)
     {
         return status(StatusCode::PAYLOAD_TOO_LARGE);
     }
@@ -53,7 +65,7 @@ pub(crate) async fn import(State(app): State<Arc<App>>, request: Request) -> Res
         Ok(c) => c,
         Err(e) => return status(e),
     };
-    let transfer = match lease(&client, Direction::Import, MAX_SESSION_IMPORT_BYTES as u64) {
+    let transfer = match lease(&client, Direction::Import, maximum as u64) {
         Ok(t) => t,
         Err(e) => return status(e),
     };
@@ -61,8 +73,15 @@ pub(crate) async fn import(State(app): State<Arc<App>>, request: Request) -> Res
         .backend
         .call(
             client.id,
-            Operation::BeginImport {
-                transfer_id: transfer.id,
+            if app_import {
+                Operation::BeginAppImport {
+                    transfer_id: transfer.id,
+                    apply_settings,
+                }
+            } else {
+                Operation::BeginImport {
+                    transfer_id: transfer.id,
+                }
             },
         )
         .await
@@ -77,7 +96,7 @@ pub(crate) async fn import(State(app): State<Arc<App>>, request: Request) -> Res
             return status(StatusCode::BAD_REQUEST);
         };
         for bytes in chunk.chunks(MAX_TRANSFER_CHUNK_BYTES) {
-            if offset + bytes.len() as u64 > MAX_SESSION_IMPORT_BYTES as u64 {
+            if offset + bytes.len() as u64 > maximum as u64 {
                 return status(StatusCode::PAYLOAD_TOO_LARGE);
             }
             if app
@@ -127,10 +146,12 @@ pub(crate) async fn import(State(app): State<Arc<App>>, request: Request) -> Res
         .await
     {
         Ok(Completion::Imported(id)) => json_response(json!({"sessionId":id})),
+        Ok(Completion::AppImported(summary)) => json_response(crate::projection::value(&summary)),
         _ => status(StatusCode::BAD_REQUEST),
     }
 }
 pub(crate) async fn export(State(app): State<Arc<App>>, request: Request) -> Response {
+    let app_export = request.uri().path() == "/api/app-export";
     let bytes = match request_body(request, MAX_SESSION_DATA_REQUEST_BYTES).await {
         Ok(b) => b,
         Err(e) => return status(e),
@@ -143,15 +164,29 @@ pub(crate) async fn export(State(app): State<Arc<App>>, request: Request) -> Res
         return status(StatusCode::BAD_REQUEST);
     };
     let p = Params(object);
-    let (Ok((id, board)), Ok(format)) = (p.export_selector(), p.text("format")) else {
+    let selector = if app_export {
+        Ok((String::new(), true))
+    } else {
+        p.export_selector()
+    };
+    let format_value = if app_export {
+        Ok("float-view-archive".into())
+    } else {
+        p.text("format")
+    };
+    let (Ok((id, board)), Ok(format)) = (selector, format_value) else {
         return status(StatusCode::BAD_REQUEST);
     };
     let operation_id = match p.export_operation(board) {
         Ok(id) => id,
         Err(_) => return status(StatusCode::BAD_REQUEST),
     };
-    if p.only(&["sessionId", "savedDeviceId", "format", "operationId"])
-        .is_err()
+    if p.only(if app_export {
+        &["operationId"][..]
+    } else {
+        &["sessionId", "savedDeviceId", "format", "operationId"][..]
+    })
+    .is_err()
         || format != "csv" && format != "float-view-archive"
     {
         return status(StatusCode::BAD_REQUEST);
@@ -174,8 +209,13 @@ pub(crate) async fn export(State(app): State<Arc<App>>, request: Request) -> Res
         .call(
             client.id,
             Operation::ExportSession {
-                id,
-                board,
+                target: if app_export {
+                    crate::protocol::ExportTarget::App
+                } else if board {
+                    crate::protocol::ExportTarget::Board { id }
+                } else {
+                    crate::protocol::ExportTarget::Session { id }
+                },
                 operation_id,
                 format: format.clone(),
                 present: false,

@@ -13,7 +13,9 @@ mod boards;
 mod csv;
 mod dashboard;
 mod files;
-pub use archive::{ArchiveExport, ArchiveImport, BoardExport, ExportFormat};
+pub use archive::{
+    AppImport, AppImportSummary, ArchiveExport, ArchiveImport, BoardExport, ExportFormat,
+};
 pub use files::{FileCancellation, ImportSink, StagedFile};
 mod cache;
 mod lifecycle;

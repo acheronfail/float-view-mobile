@@ -1,6 +1,6 @@
 import { reportSessionRequestFailure } from './request-failures';
 import { bootstrapSessionImportUrl, type BootstrapDocument } from './bootstrap';
-import { MAX_SESSION_IMPORT_BYTES } from './contract';
+import { MAX_APP_TRANSFER_BYTES, MAX_SESSION_IMPORT_BYTES, type AppImportSummary } from './contract';
 import { reportFrontendPerformance } from './performance-log';
 
 export type SessionImportResult = {
@@ -19,6 +19,38 @@ export class SessionImportClient {
   ) {
     this.endpoint = bootstrapSessionImportUrl(bootstrap, base, development);
     this.token = bootstrap.sessionToken ?? '';
+  }
+
+  async uploadApp(file: Blob, applySettings: boolean): Promise<AppImportSummary> {
+    return reportSessionRequestFailure(async () => {
+      if (file.size > MAX_APP_TRANSFER_BYTES) throw new Error('App export exceeds the 2 GiB import limit');
+      const response = await this.fetcher(new URL('app-import', this.endpoint), {
+        method: 'POST',
+        body: file,
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/octet-stream',
+          'X-Float-View-Token': this.token,
+          'X-Float-View-Import-Settings': String(applySettings),
+        },
+      });
+      if (!response.ok)
+        throw new Error(`App import failed: HTTP ${response.status}. Your existing data has been preserved.`);
+      const result = (await response.json()) as AppImportSummary;
+      for (const key of [
+        'boardsAdded',
+        'boardsSkipped',
+        'sessionsAdded',
+        'sessionsSkipped',
+        'tunesAdded',
+        'tunesSkipped',
+      ] as const) {
+        if (!Number.isSafeInteger(result[key]) || result[key] < 0) throw new Error('Invalid app import summary');
+      }
+      if (typeof result.settingsImported !== 'boolean') throw new Error('Invalid app import summary');
+      return result;
+    });
   }
 
   async upload(file: Blob): Promise<SessionImportResult> {

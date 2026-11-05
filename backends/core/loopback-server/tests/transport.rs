@@ -90,6 +90,8 @@ fn authentication_precedes_body_and_host_admission() {
     let revision = server.backend.service.lock().unwrap().service_revision();
     for route in [
         "/api/session-data",
+        "/api/app-import",
+        "/api/app-export",
         "/api/session-import",
         "/api/session-export",
     ] {

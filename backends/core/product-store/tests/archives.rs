@@ -164,7 +164,7 @@ fn frozen_public_baseline_archive_imports_without_changing_settings() {
     assert!(store.boards().unwrap()[0].local_identifier.is_none());
 }
 #[test]
-fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
+fn archive_roundtrip_preserves_portable_recording_identity() {
     let (_dir, mut store, id) = setup();
     let preferred = store.boards().unwrap()[0].saved_device_id.clone();
     store
@@ -202,7 +202,7 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     let settings_before = imported.settings().unwrap();
     let session = imported.attach_import(value).unwrap();
     assert_eq!(imported.settings().unwrap(), settings_before);
-    assert_ne!(session.session_id, id);
+    assert_eq!(session.session_id, id);
     let db = Connection::open(imported.session_path(&session.session_id).unwrap()).unwrap();
     assert_eq!(
         db.query_row("SELECT record_json FROM session_diagnostic", [], |r| r
@@ -283,7 +283,7 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     let second = imported
         .attach_import(sink(&imported, export.path()).validate(&cancel).unwrap())
         .unwrap();
-    assert_ne!(second.session_id, session.session_id);
+    assert_eq!(second.session_id, session.session_id);
     assert_eq!(imported.boards().unwrap().len(), 1);
     assert_eq!(
         imported.profile(&board.saved_device_id).unwrap().values["customDashboard"]["widgets"],
@@ -1101,4 +1101,433 @@ fn board_zip_can_exceed_the_individual_128_mib_limit() {
     ));
     assert!(store.session(&first).is_ok());
     assert!(store.session(&second.session_id).is_ok());
+}
+
+fn app_sink(store: &ProductStore, path: &std::path::Path) -> ImportSink {
+    let bytes = fs::read(path).unwrap();
+    let mut sink = store.begin_app_import_stream().unwrap();
+    for (i, chunk) in bytes.chunks(65536).enumerate() {
+        sink.write((i * 65536) as u64, chunk).unwrap();
+    }
+    sink
+}
+fn import_app(
+    store: &mut ProductStore,
+    path: &std::path::Path,
+    settings: bool,
+) -> float_view_product_store::AppImportSummary {
+    let import = app_sink(store, path)
+        .validate_app(&FileCancellation::default(), settings)
+        .unwrap();
+    store.attach_app_import(import).unwrap()
+}
+fn app_entries(path: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
+    (0..zip.len())
+        .map(|i| {
+            let mut entry = zip.by_index(i).unwrap();
+            let name = entry.name().to_owned();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).unwrap();
+            (name, bytes)
+        })
+        .collect()
+}
+fn write_app(path: &std::path::Path, entries: &[(String, Vec<u8>)]) {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
+    for (name, bytes) in entries {
+        zip.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap();
+}
+#[test]
+fn app_transfer_merges_empty_boards_current_profiles_settings_and_stable_sessions() {
+    let (source_dir, mut source, id) = setup();
+    let first = source.boards().unwrap().remove(0);
+    let empty = source
+        .ensure_board("OTHER-PRIVATE-ID", Some("Empty"), Some(&[2; 12]), 2)
+        .unwrap();
+    source
+        .update_profile(
+            &empty.saved_device_id,
+            0,
+            r#"{"batteryCapacityAh":12.3}"#,
+            2,
+        )
+        .unwrap();
+    // The current profile has changed since the session was recorded.
+    let profile = source.profile(&first.saved_device_id).unwrap();
+    source
+        .update_profile(
+            &first.saved_device_id,
+            profile.revision,
+            r#"{"batteryCapacityAh":9.9}"#,
+            3,
+        )
+        .unwrap();
+    source.update_settings(source.settings().unwrap().revision,
+        &serde_json::json!({"unitPreference":"imperial","autoConnectSavedDeviceId":first.saved_device_id,"safetyDisclaimerAccepted":true}).to_string()).unwrap();
+    let db = Connection::open(source_dir.file("catalog.sqlite")).unwrap();
+    db.execute("INSERT INTO refloat_configuration VALUES ('portable-tune',1,'My tune',NULL,'refloat','6.0',?,42,?,1,2)", rusqlite::params!["a".repeat(64),r#"{"kp":{"type":"double","value":3.0}}"#]).unwrap();
+    drop(db);
+    let exported = source
+        .prepare_app_export()
+        .unwrap()
+        .run(&FileCancellation::default())
+        .unwrap();
+    let entries = app_entries(exported.path());
+    let manifest: serde_json::Value = serde_json::from_slice(&entries[0].1).unwrap();
+    let text = serde_json::to_string(&manifest).unwrap();
+    assert!(!text.contains("PRIVATE-ID"));
+    assert!(!text.contains("PRIVATE-LOCAL-ID"));
+    assert!(!text.contains(&first.saved_device_id));
+    assert_eq!(manifest["settings"]["safetyDisclaimerAccepted"], false);
+    let target = TestDirectory::new();
+    let mut destination = ProductStore::open(target.path()).unwrap();
+    destination
+        .update_settings(0, r#"{"safetyDisclaimerAccepted":true}"#)
+        .unwrap();
+    let first_import = import_app(&mut destination, exported.path(), true);
+    assert_eq!(
+        (
+            first_import.boards_added,
+            first_import.sessions_added,
+            first_import.tunes_added
+        ),
+        (2, 1, 1)
+    );
+    assert!(first_import.settings_imported);
+    let boards = destination.boards().unwrap();
+    assert!(boards.iter().all(|b| b.local_identifier.is_none()));
+    let target_first = boards
+        .iter()
+        .find(|b| b.device_history_id == first.device_history_id)
+        .unwrap();
+    assert_ne!(target_first.saved_device_id, first.saved_device_id);
+    assert_eq!(
+        destination
+            .profile(&target_first.saved_device_id)
+            .unwrap()
+            .values["batteryCapacityAh"],
+        9.9
+    );
+    assert_eq!(destination.session(&id).unwrap().session_id, id);
+    let settings = destination.settings().unwrap();
+    assert_eq!(settings.unit_preference, "imperial");
+    assert!(settings.safety_disclaimer_accepted);
+    assert_eq!(
+        settings.auto_connect_saved_device_id.as_deref(),
+        Some(target_first.saved_device_id.as_str())
+    );
+    destination
+        .update_profile(
+            &target_first.saved_device_id,
+            destination
+                .profile(&target_first.saved_device_id)
+                .unwrap()
+                .revision,
+            r#"{"batteryCapacityAh":7.7}"#,
+            4,
+        )
+        .unwrap();
+    let db = Connection::open(target.file("catalog.sqlite")).unwrap();
+    db.execute("UPDATE refloat_configuration SET name='Local tune'", [])
+        .unwrap();
+    drop(db);
+    destination
+        .update_settings(settings.revision, r#"{"unitPreference":"metric"}"#)
+        .unwrap();
+    let repeated = import_app(&mut destination, exported.path(), false);
+    assert_eq!(
+        (
+            repeated.boards_skipped,
+            repeated.sessions_skipped,
+            repeated.tunes_skipped
+        ),
+        (2, 1, 1)
+    );
+    assert_eq!(
+        (
+            repeated.boards_added,
+            repeated.sessions_added,
+            repeated.tunes_added
+        ),
+        (0, 0, 0)
+    );
+    assert_eq!(
+        destination
+            .profile(&target_first.saved_device_id)
+            .unwrap()
+            .values["batteryCapacityAh"],
+        7.7
+    );
+    assert_eq!(
+        destination.tune("portable-tune").unwrap().name,
+        "Local tune"
+    );
+    assert_eq!(destination.settings().unwrap().unit_preference, "metric");
+    let back = destination
+        .prepare_app_export()
+        .unwrap()
+        .run(&FileCancellation::default())
+        .unwrap();
+    let back_path = target.file("back.zip");
+    fs::copy(back.path(), &back_path).unwrap();
+    drop(back);
+    // A transfer in one store is admitted after its previous issued export is released.
+    let export_copy = source_dir.file("transfer.zip");
+    fs::copy(exported.path(), &export_copy).unwrap();
+    drop(exported);
+    assert_eq!(
+        import_app(&mut source, &back_path, false).sessions_skipped,
+        1
+    );
+    let user_file = target.file("user-export.zip");
+    fs::copy(&export_copy, &user_file).unwrap();
+    destination.clear_app_data().unwrap();
+    assert!(destination.boards().unwrap().is_empty());
+    assert!(matches!(destination.session(&id), Err(Error::NotFound)));
+    assert!(matches!(
+        destination.tune("portable-tune"),
+        Err(Error::NotFound)
+    ));
+    assert!(destination.settings().unwrap().safety_disclaimer_accepted);
+    assert!(user_file.exists());
+    drop(destination);
+    let mut destination = ProductStore::open(target.path()).unwrap();
+    assert_eq!(
+        import_app(&mut destination, &user_file, true).sessions_added,
+        1
+    );
+}
+#[test]
+fn app_import_rejects_bad_packages_and_rolls_back_all_catalog_changes() {
+    let (_source, source, _) = setup();
+    let export = source
+        .prepare_app_export()
+        .unwrap()
+        .run(&FileCancellation::default())
+        .unwrap();
+    let good = app_entries(export.path());
+    let target = TestDirectory::new();
+    let mut destination = ProductStore::open(target.path()).unwrap();
+    for case in 0..5 {
+        let mut entries = good.clone();
+        match case {
+            0 => {
+                let mut manifest: serde_json::Value =
+                    serde_json::from_slice(&entries[0].1).unwrap();
+                manifest["version"] = 2.into();
+                entries[0].1 = serde_json::to_vec(&manifest).unwrap();
+            }
+            1 => entries[1].1 = b"invalid session".to_vec(),
+            2 => {
+                let mut duplicate = entries[1].clone();
+                duplicate.0 = "sessions/00002.floatview".into();
+                entries.push(duplicate);
+            }
+            3 => entries[1].0 = "../session.floatview".into(),
+            _ => {
+                let mut manifest: serde_json::Value =
+                    serde_json::from_slice(&entries[0].1).unwrap();
+                manifest["sessions"][0]["sessionId"] =
+                    "00000000-0000-0000-0000-000000000001".into();
+                entries[0].1 = serde_json::to_vec(&manifest).unwrap();
+            }
+        }
+        let path = target.file("bad.zip");
+        write_app(&path, &entries);
+        if case == 2 {
+            let bytes = fs::read(&path).unwrap();
+            let text = b"sessions/00002.floatview";
+            let mut bytes = bytes;
+            for i in 0..bytes.len() - text.len() {
+                if &bytes[i..i + text.len()] == text {
+                    bytes[i + 13] = b'1';
+                }
+            }
+            fs::write(&path, bytes).unwrap();
+        }
+        assert!(
+            app_sink(&destination, &path)
+                .validate_app(&FileCancellation::default(), true)
+                .is_err()
+        );
+        assert!(destination.boards().unwrap().is_empty());
+    }
+    let before = destination.settings().unwrap();
+    let db = Connection::open(target.file("catalog.sqlite")).unwrap();
+    db.execute_batch("CREATE TRIGGER fail BEFORE INSERT ON session_catalog BEGIN SELECT RAISE(ABORT,'injected'); END").unwrap();
+    let validated = app_sink(&destination, export.path())
+        .validate_app(&FileCancellation::default(), true)
+        .unwrap();
+    assert!(destination.attach_app_import(validated).is_err());
+    assert!(destination.boards().unwrap().is_empty());
+    assert_eq!(destination.settings().unwrap(), before);
+    db.execute_batch("DROP TRIGGER fail").unwrap();
+    drop(db);
+    drop(destination);
+    let mut destination = ProductStore::open(target.path()).unwrap();
+    assert_eq!(
+        import_app(&mut destination, export.path(), false).sessions_added,
+        1
+    );
+}
+#[test]
+fn empty_app_transfer_and_clear_admission() {
+    let target = TestDirectory::new();
+    let mut store = ProductStore::open(target.path()).unwrap();
+    let export = store
+        .prepare_app_export()
+        .unwrap()
+        .run(&FileCancellation::default())
+        .unwrap();
+    assert_eq!(app_entries(export.path()).len(), 1);
+    let path = target.file("empty.zip");
+    fs::copy(export.path(), &path).unwrap();
+    drop(export);
+    assert_eq!(import_app(&mut store, &path, false).sessions_added, 0);
+    let board = store
+        .ensure_board("local", Some("B"), Some(&[4; 12]), 1)
+        .unwrap();
+    let active = store
+        .create_session(&board.saved_device_id, 1, u64::MAX)
+        .unwrap();
+    assert!(matches!(
+        store.prepare_app_export(),
+        Err(Error::ActiveSession)
+    ));
+    assert!(matches!(store.clear_app_data(), Err(Error::ActiveSession)));
+    store
+        .update_settings(
+            store.settings().unwrap().revision,
+            r#"{"minimumSessionDistance":0}"#,
+        )
+        .unwrap();
+    let mut writer = SessionWriter::open(store.session_path(&active.session_id).unwrap()).unwrap();
+    let mut point = sample(1, 1000);
+    point.ride_state = RideState::Riding;
+    point.speed_kph = Some(36.);
+    writer.append_samples(&[point]).unwrap();
+    writer.close().unwrap();
+    store
+        .close_session(&active.session_id, 2, "disconnect")
+        .unwrap();
+    let lease = store
+        .prepare_export(&active.session_id, ExportFormat::Archive)
+        .unwrap();
+    assert!(matches!(store.clear_app_data(), Err(Error::Busy)));
+    drop(lease);
+    store.clear_app_data().unwrap();
+}
+
+#[test]
+fn duplicate_archives_keep_local_pruning_and_reject_board_identity_collisions() {
+    let (_dir, source, id) = setup();
+    let cancel = FileCancellation::default();
+    let export = source
+        .prepare_export(&id, ExportFormat::Archive)
+        .unwrap()
+        .run(&cancel)
+        .unwrap();
+    let target = TestDirectory::new();
+    let mut destination = ProductStore::open(target.path()).unwrap();
+    destination
+        .attach_import(sink(&destination, export.path()).validate(&cancel).unwrap())
+        .unwrap();
+    destination
+        .begin_maintenance(Some(&id), 60, false, 1)
+        .unwrap();
+    let work = destination.next_maintenance_work(2).unwrap().unwrap();
+    destination
+        .complete_maintenance_work(work.run(3), 4)
+        .unwrap();
+    let pruned = destination.session(&id).unwrap();
+    assert!(pruned.history_revision > 0);
+    let reimported = destination
+        .attach_import(sink(&destination, export.path()).validate(&cancel).unwrap())
+        .unwrap();
+    assert_eq!(reimported.history_revision, pruned.history_revision);
+    assert_eq!(reimported.stored_sample_count, pruned.stored_sample_count);
+    let collision = target.file("collision.floatview");
+    fs::copy(export.path(), &collision).unwrap();
+    let db = Connection::open(&collision).unwrap();
+    let text: String = db
+        .query_row(
+            "SELECT value FROM float_view_archive_metadata WHERE key='session'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let mut manifest: serde_json::Value = serde_json::from_str(&text).unwrap();
+    manifest["deviceHistoryId"] = "other-board".into();
+    manifest["deviceSnapshot"]["deviceHistoryId"] = "other-board".into();
+    db.execute(
+        "UPDATE float_view_archive_metadata SET value=? WHERE key='session'",
+        [manifest.to_string()],
+    )
+    .unwrap();
+    drop(db);
+    let import = sink(&destination, &collision).validate(&cancel).unwrap();
+    assert!(matches!(
+        destination.attach_import(import),
+        Err(Error::InvalidInput)
+    ));
+    assert_eq!(destination.boards().unwrap().len(), 1);
+    assert_eq!(
+        destination.session(&id).unwrap().history_revision,
+        pruned.history_revision
+    );
+}
+#[test]
+fn clear_failure_rolls_back_and_manifest_bounds_fail_before_catalog_changes() {
+    let (dir, mut store, id) = setup();
+    let db = Connection::open(dir.file("catalog.sqlite")).unwrap();
+    db.execute_batch("CREATE TRIGGER fail_settings BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT,'injected'); END").unwrap();
+    let settings = store.settings().unwrap();
+    assert!(store.clear_app_data().is_err());
+    assert_eq!(store.boards().unwrap().len(), 1);
+    assert!(store.session_path(&id).unwrap().exists());
+    assert_eq!(store.settings().unwrap(), settings);
+    db.execute_batch("DROP TRIGGER fail_settings").unwrap();
+    drop(db);
+    let export = store
+        .prepare_app_export()
+        .unwrap()
+        .run(&FileCancellation::default())
+        .unwrap();
+    let original = app_entries(export.path());
+    let target = TestDirectory::new();
+    let destination = ProductStore::open(target.path()).unwrap();
+    for case in 0..3 {
+        let mut entries = original.clone();
+        let mut manifest: serde_json::Value = serde_json::from_slice(&entries[0].1).unwrap();
+        match case {
+            0 => {
+                let board = manifest["boards"][0].clone();
+                manifest["boards"] = serde_json::json!(vec![board; 51]);
+            }
+            1 => manifest["settings"]["ridingPersistIntervalMs"] = 0.into(),
+            _ => manifest["sessions"][0]["sessionId"] = "../owned-file".into(),
+        }
+        entries[0].1 = serde_json::to_vec(&manifest).unwrap();
+        let path = target.file("bad.zip");
+        write_app(&path, &entries);
+        assert!(
+            app_sink(&destination, &path)
+                .validate_app(&FileCancellation::default(), true)
+                .is_err()
+        );
+        assert!(destination.boards().unwrap().is_empty());
+    }
+    let path = target.file("truncated.zip");
+    fs::write(&path, b"PK\x05\x06").unwrap();
+    assert!(
+        app_sink(&destination, &path)
+            .validate_app(&FileCancellation::default(), false)
+            .is_err()
+    );
 }

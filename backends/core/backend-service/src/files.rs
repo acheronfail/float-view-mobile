@@ -1,8 +1,9 @@
 //! Correlated file leases and shared bounded worker admission.
-use crate::BackendService;
+use crate::{BackendService, operations::ExportTarget};
 use float_view_product_store::{
-    ArchiveExport, ArchiveImport, BoardExport, Error, ExportFormat, FileCancellation, ImportSink,
-    Maintenance, MaintenanceCompletion, MaintenanceWork, Result, StagedFile, limits,
+    AppImport, AppImportSummary, ArchiveExport, ArchiveImport, BoardExport, Error, ExportFormat,
+    FileCancellation, ImportSink, Maintenance, MaintenanceCompletion, MaintenanceWork, Result,
+    StagedFile, limits,
 };
 use std::{
     collections::BTreeMap,
@@ -46,6 +47,7 @@ struct Transfer {
 }
 enum State {
     Import(ImportSink),
+    AppImport(ImportSink, bool),
     Working {
         cancel: FileCancellation,
         live: Weak<()>,
@@ -118,6 +120,7 @@ impl Drop for Files {
 }
 enum FileTask {
     Import(ImportSink),
+    AppImport(ImportSink, bool),
     Export(Box<ArchiveExport>),
     BoardExport(Box<BoardExport>, Arc<AtomicUsize>),
 }
@@ -136,11 +139,13 @@ pub struct FileCompletion {
 }
 enum FileValue {
     Import(Box<ArchiveImport>),
+    AppImport(Box<AppImport>),
     Export(StagedFile),
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum FileResult {
     Imported(String),
+    AppImported(AppImportSummary),
     Exported {
         transfer_id: u64,
         file_name: String,
@@ -150,6 +155,10 @@ pub enum FileResult {
 impl FileWork {
     pub fn run(self) -> FileCompletion {
         let result = match self.task {
+            FileTask::AppImport(s, settings) => s
+                .validate_app(&self.cancel, settings)
+                .map(Box::new)
+                .map(FileValue::AppImport),
             FileTask::Import(s) => s
                 .validate(&self.cancel)
                 .map(Box::new)
@@ -204,6 +213,53 @@ fn export_error(error: Error) -> &'static str {
     }
 }
 impl BackendService {
+    pub(crate) fn require_transfer_idle(&self) -> Result<()> {
+        if self.policy.active.is_some()
+            || self.policy.ride.is_some()
+            || self.maintenance_worker.is_some()
+        {
+            return Err(Error::Busy);
+        }
+        self.store.require_app_idle()
+    }
+    fn reload_transfer_state(&mut self) -> Result<()> {
+        self.cancel_auto_connect();
+        self.policy.settings = self.store.settings()?;
+        self.policy.ride = None;
+        self.ui_checkpoint = None;
+        self.refresh_boards()?;
+        self.changed().map_err(|_| Error::Capacity)
+    }
+    pub fn clear_saved_app_data(&mut self) -> Result<()> {
+        self.require_transfer_idle()?;
+        if !self.files.entries.is_empty() || self.active_workers() != 0 {
+            return Err(Error::Busy);
+        }
+        let result = self.store.clear_app_data();
+        self.reload_transfer_state()?;
+        result
+    }
+    pub fn begin_app_import_transfer(
+        &mut self,
+        owner: u64,
+        apply_settings: bool,
+        now_ms: u64,
+    ) -> Result<u64> {
+        self.require_transfer_idle()?;
+        let id = self.files.admit()?;
+        let sink = self.store.begin_app_import_stream()?;
+        self.files.entries.insert(
+            id,
+            Transfer {
+                owner,
+                deadline: now_ms.saturating_add(10 * 60_000),
+                cancelled: false,
+                presentation_reply: None,
+                state: State::AppImport(sink, apply_settings),
+            },
+        );
+        Ok(id)
+    }
     pub fn begin_import_transfer(
         &mut self,
         owner: u64,
@@ -236,8 +292,9 @@ impl BackendService {
         now_ms: u64,
     ) -> Result<()> {
         let transfer = self.files.owned(owner, id)?;
-        let State::Import(sink) = &mut transfer.state else {
-            return Err(Error::Busy);
+        let sink = match &mut transfer.state {
+            State::Import(sink) | State::AppImport(sink, _) => sink,
+            _ => return Err(Error::Busy),
         };
         sink.write(offset, bytes)?;
         transfer.deadline = now_ms.saturating_add(IDLE_MS);
@@ -245,24 +302,31 @@ impl BackendService {
     }
     pub fn validate_import(&mut self, owner: u64, id: u64) -> Result<FileWork> {
         let permit = self.files.permit()?;
+        let now = self.monotonic_ms();
         let transfer = self.files.owned(owner, id)?;
-        if !matches!(transfer.state, State::Import(_)) {
+        if matches!(transfer.state, State::AppImport(_, _)) {
+            transfer.deadline = now.saturating_add(10 * 60_000);
+        }
+        if !matches!(transfer.state, State::Import(_) | State::AppImport(_, _)) {
             return Err(Error::Busy);
         }
         let cancel = FileCancellation::default();
         let live = Arc::new(());
-        let State::Import(sink) = std::mem::replace(
+        let state = std::mem::replace(
             &mut transfer.state,
             State::Working {
                 cancel: cancel.clone(),
                 live: Arc::downgrade(&live),
             },
-        ) else {
-            unreachable!()
+        );
+        let task = match state {
+            State::Import(sink) => FileTask::Import(sink),
+            State::AppImport(sink, settings) => FileTask::AppImport(sink, settings),
+            _ => unreachable!(),
         };
         Ok(FileWork {
             id,
-            task: FileTask::Import(sink),
+            task,
             cancel,
             permit,
             live,
@@ -293,7 +357,12 @@ impl BackendService {
         format: ExportFormat,
         now_ms: u64,
     ) -> Result<(u64, FileWork)> {
-        self.begin_selected_export(owner, session, format, false, now_ms)
+        self.begin_selected_export(
+            owner,
+            &ExportTarget::Session { id: session.into() },
+            format,
+            now_ms,
+        )
     }
     pub fn begin_board_export(
         &mut self,
@@ -302,12 +371,53 @@ impl BackendService {
         format: ExportFormat,
         now_ms: u64,
     ) -> Result<(u64, FileWork)> {
-        self.begin_selected_export(owner, board, format, true, now_ms)
+        self.begin_selected_export(
+            owner,
+            &ExportTarget::Board { id: board.into() },
+            format,
+            now_ms,
+        )
     }
     pub fn begin_tracked_board_export(
         &mut self,
         owner: u64,
         board: &str,
+        format: ExportFormat,
+        operation: &str,
+        now_ms: u64,
+    ) -> Result<(u64, FileWork)> {
+        self.begin_tracked_export(
+            owner,
+            &ExportTarget::Board { id: board.into() },
+            format,
+            operation,
+            now_ms,
+        )
+    }
+    pub fn begin_app_export(
+        &mut self,
+        owner: u64,
+        operation: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(u64, FileWork)> {
+        self.require_transfer_idle()?;
+        match operation {
+            Some(id) => self.begin_tracked_export(
+                owner,
+                &ExportTarget::App,
+                ExportFormat::Archive,
+                id,
+                now_ms,
+            ),
+            None => {
+                self.begin_selected_export(owner, &ExportTarget::App, ExportFormat::Archive, now_ms)
+            }
+        }
+    }
+    fn begin_tracked_export(
+        &mut self,
+        owner: u64,
+        target: &ExportTarget,
         format: ExportFormat,
         operation: &str,
         now_ms: u64,
@@ -328,7 +438,7 @@ impl BackendService {
         }) {
             return Err(Error::Busy);
         }
-        let (id, work) = match self.begin_board_export(owner, board, format, now_ms) {
+        let (id, work) = match self.begin_selected_export(owner, target, format, now_ms) {
             Ok(work) => work,
             Err(error) => {
                 self.files.export = Some(TrackedExport {
@@ -399,20 +509,24 @@ impl BackendService {
     fn begin_selected_export(
         &mut self,
         owner: u64,
-        selector: &str,
+        target: &ExportTarget,
         format: ExportFormat,
-        board: bool,
         now_ms: u64,
     ) -> Result<(u64, FileWork)> {
         let id = self.files.admit()?;
         let permit = self.files.permit()?;
-        let task = if board {
-            FileTask::BoardExport(
-                Box::new(self.store.prepare_board_export(selector, format)?),
+        let task = match target {
+            ExportTarget::Session { id } => {
+                FileTask::Export(Box::new(self.store.prepare_export(id, format)?))
+            }
+            ExportTarget::Board { id } => FileTask::BoardExport(
+                Box::new(self.store.prepare_board_export(id, format)?),
                 Arc::new(AtomicUsize::new(0)),
-            )
-        } else {
-            FileTask::Export(Box::new(self.store.prepare_export(selector, format)?))
+            ),
+            ExportTarget::App => FileTask::BoardExport(
+                Box::new(self.store.prepare_app_export()?),
+                Arc::new(AtomicUsize::new(0)),
+            ),
         };
         let cancel = FileCancellation::default();
         let live = Arc::new(());
@@ -491,6 +605,12 @@ impl BackendService {
             return Err(Error::Cancelled);
         }
         match completion.result? {
+            FileValue::AppImport(value) => {
+                self.require_transfer_idle()?;
+                let summary = self.store.attach_app_import(*value)?;
+                self.reload_transfer_state()?;
+                Ok(FileResult::AppImported(summary))
+            }
             FileValue::Import(value) => {
                 let id = self.store.attach_import(*value)?.session_id;
                 self.refresh_boards()?;
@@ -745,6 +865,55 @@ mod tests {
         ));
         transfer
     }
+    #[test]
+    fn app_transfer_rechecks_idle_at_commit_and_clear_requires_released_files() {
+        let (_dir, mut source, _) = setup();
+        let (transfer, work) = source.begin_app_export(1, Some("app-test"), 0).unwrap();
+        let FileResult::Exported { length, .. } = source.complete_file_work(work.run(), 1).unwrap()
+        else {
+            panic!()
+        };
+        let mut bundle = vec![0; length as usize];
+        let mut offset = 0;
+        while offset < bundle.len() {
+            let end = (offset + 65536).min(bundle.len());
+            offset += source
+                .read_export(1, transfer, offset as u64, &mut bundle[offset..end], 2)
+                .unwrap();
+        }
+        assert_eq!(source.clear_saved_app_data(), Err(Error::Busy));
+        source.cancel_file_transfer(1, transfer).unwrap();
+        let target = support::TestDirectory::new();
+        let mut destination = BackendService::open(target.path()).unwrap();
+        let import = destination.begin_app_import_transfer(2, true, 0).unwrap();
+        for (i, chunk) in bundle.chunks(65536).enumerate() {
+            destination
+                .write_import(2, import, (i * 65536) as u64, chunk, 1)
+                .unwrap();
+        }
+        let work = destination.validate_import(2, import).unwrap();
+        let board = destination
+            .store
+            .ensure_board("local", Some("local"), Some(&[3; 12]), 1)
+            .unwrap();
+        let active = destination
+            .store
+            .create_session(&board.saved_device_id, 1, u64::MAX)
+            .unwrap();
+        assert_eq!(
+            destination.complete_file_work(work.run(), 2),
+            Err(Error::ActiveSession)
+        );
+        assert_eq!(destination.store.boards().unwrap().len(), 1);
+        destination
+            .store
+            .close_session(&active.session_id, 2, "disconnect")
+            .unwrap();
+        destination.clear_saved_app_data().unwrap();
+        assert!(destination.store.boards().unwrap().is_empty());
+        source.clear_saved_app_data().unwrap();
+    }
+
     #[test]
     fn reclaiming_is_published_and_cancellation_takes_precedence() {
         let (_dir, mut service, id) = setup();

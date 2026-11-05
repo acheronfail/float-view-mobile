@@ -660,6 +660,20 @@ impl Backend {
                     id: p.text("sessionId")?,
                 }
             }
+            "app.clear" => {
+                p.only(&[])?;
+                Operation::ClearAppData
+            }
+            "app.export" => {
+                p.only(&["operationId"])?;
+                Operation::ExportSession {
+                    target: crate::protocol::ExportTarget::App,
+                    operation_id: p.export_operation(true)?,
+                    format: "float-view-archive".into(),
+                    present: true,
+                    transfer_id: 0,
+                }
+            }
             "session.export.status" | "session.export.cancel" => {
                 p.only(&["operationId"])?;
                 let id = p.export_operation(true)?.ok_or(Failure::InvalidRequest)?;
@@ -680,8 +694,11 @@ impl Backend {
                 }
                 Operation::ExportSession {
                     operation_id: p.export_operation(board)?,
-                    id,
-                    board,
+                    target: if board {
+                        crate::protocol::ExportTarget::Board { id }
+                    } else {
+                        crate::protocol::ExportTarget::Session { id }
+                    },
                     format,
                     present: true,
                     transfer_id: 0,

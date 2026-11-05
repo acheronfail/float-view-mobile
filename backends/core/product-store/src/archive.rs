@@ -16,6 +16,10 @@ use std::{
     io::{Read, Write},
     sync::Arc,
 };
+#[path = "app_transfer.rs"]
+mod app_transfer;
+pub use app_transfer::{AppImport, AppImportSummary};
+
 const META: &str =
     "CREATE TABLE float_view_archive_metadata(key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)";
 const ARCHIVE_FORMAT_VERSION: &str = "4";
@@ -56,6 +60,9 @@ struct DeviceSnapshot {
 impl Manifest {
     fn validate(&self) -> Result<()> {
         boards::validate_id(&self.session_id)?;
+        if !root::is_uuid(&self.session_id) {
+            return Err(Error::InvalidInput);
+        }
         boards::validate_history(&self.device_history_id)?;
         boards::validate_id(&self.device_snapshot.saved_device_id)?;
         if self.device_snapshot.device_history_id != self.device_history_id
@@ -296,6 +303,7 @@ fn check_export_space(available: u64, needed: u64) -> Result<()> {
 
 /// One output and one reusable scratch file; session bytes never accumulate in memory.
 pub struct BoardExport {
+    app_manifest: Option<Vec<u8>>,
     sessions: Vec<PreparedExport>,
     stage: StagedFile,
     scratch: StagedFile,
@@ -313,24 +321,42 @@ impl BoardExport {
         progress: impl Fn(usize),
     ) -> Result<StagedFile> {
         let Self {
+            app_manifest,
             sessions,
             mut stage,
             mut scratch,
         } = self;
         cancel.check()?;
-        let prefix = &sessions.first().ok_or(Error::NotFound)?.name_prefix;
-        let kind = if sessions[0].format == ExportFormat::Csv {
-            "csv"
+        let name = if app_manifest.is_some() {
+            "float-view-app-transfer.zip".into()
         } else {
-            "archives"
+            let first = sessions.first().ok_or(Error::NotFound)?;
+            format!(
+                "{}-all-sessions-{}.zip",
+                first.name_prefix,
+                if first.format == ExportFormat::Csv {
+                    "csv"
+                } else {
+                    "archives"
+                }
+            )
         };
-        let destination = stage
-            .path
-            .with_file_name(format!("{prefix}-all-sessions-{kind}.zip"));
+        let destination = stage.path.with_file_name(name);
         fs::rename(&stage.path, &destination)?;
         stage.path = destination;
         let mut output = zip::ZipWriter::new(File::create(stage.path())?);
         let mut budget = 0_u64;
+        if let Some(manifest) = &app_manifest {
+            output
+                .start_file(
+                    "manifest.json",
+                    zip::write::SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Stored),
+                )
+                .map_err(|_| Error::Io)?;
+            output.write_all(manifest)?;
+            budget = manifest.len() as u64 + 512;
+        }
         let mut buffer = [0_u8; 65_536];
         for (index, session) in sessions.into_iter().enumerate() {
             cancel.check()?;
@@ -362,7 +388,11 @@ impl BoardExport {
                 .ok_or(Error::UnsafePath)?;
             output
                 .start_file(
-                    format!("{:05}-{name}", index + 1),
+                    if app_manifest.is_some() {
+                        format!("sessions/{:05}.floatview", index + 1)
+                    } else {
+                        format!("{:05}-{name}", index + 1)
+                    },
                     zip::write::SimpleFileOptions::default()
                         .compression_method(zip::CompressionMethod::Stored),
                 )
@@ -499,6 +529,7 @@ impl ProductStore {
             .saturating_add(limits::EXPORT_FREE_SPACE_HEADROOM);
         require_export_space(&self.root, estimated)?;
         Ok(BoardExport {
+            app_manifest: None,
             sessions,
             stage: self.stage(true, limits::MAX_BOARD_EXPORT_BYTES)?,
             scratch: self.stage(true, limits::MAX_EXPORT_BYTES * 2)?,
@@ -517,7 +548,18 @@ impl ProductStore {
         if active {
             return Err(Error::ActiveSession);
         }
-        let id = identifier()?;
+        let id = import.manifest.session_id.clone();
+        match self.session(&id) {
+            Ok(existing) => {
+                return if existing.device_history_id == import.manifest.device_history_id {
+                    Ok(existing)
+                } else {
+                    Err(Error::InvalidInput)
+                };
+            }
+            Err(Error::NotFound) => {}
+            Err(error) => return Err(error),
+        }
         let job = identifier()?;
         let file = format!("session-{id}.sqlite");
         let destination = self.root.join(&file);
@@ -535,15 +577,7 @@ impl ProductStore {
         let tx = self
             .catalog
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        boards::import_board_on(
-            &tx,
-            &m.device_history_id,
-            Some(&m.device_snapshot.display_name),
-            &json(&m.board_profile_snapshot, limits::MAX_PROFILE_BYTES)?,
-            m.started_at_ms,
-        )?;
-        tx.execute("INSERT INTO session_catalog(session_id,job_id,device_history_id,device_snapshot_json,profile_snapshot_json,profile_revision,file_name,started_at_ms,ended_at_ms,state,integrity,requested_idle_ms,effective_idle_ms,requested_riding_ms,effective_riding_ms,close_reason) VALUES(?,?,?,?,?,?,?,?,?,'completed','complete',?,?,?,?,?)",params![id,job,m.device_history_id,json(&m.device_snapshot,limits::MAX_PROFILE_BYTES)?,json(&m.board_profile_snapshot,limits::MAX_PROFILE_BYTES)?,m.board_profile_revision,file,m.started_at_ms,m.ended_at_ms,m.requested_idle_ms,m.effective_idle_ms,m.requested_riding_ms,m.effective_riding_ms,m.close_reason])?;
-        crate::sessions::apply_marker(&tx, &id, &import.marker)?;
+        attach_session_row(&tx, &id, &job, &file, m, &import.marker)?;
         let committed = tx.commit();
         // A commit error can have an uncertain durable outcome. Preserve the
         // file; startup reconciles referenced files and removes true orphans.
@@ -657,6 +691,26 @@ mod export_name_tests {
             assert_eq!(export_timestamp(&db, ms).unwrap(), expected);
         }
     }
+}
+
+fn attach_session_row(
+    tx: &Connection,
+    id: &str,
+    job: &str,
+    file: &str,
+    m: &Manifest,
+    marker: &CommitMarker,
+) -> Result<()> {
+    boards::import_board_on(
+        tx,
+        &m.device_history_id,
+        Some(&m.device_snapshot.display_name),
+        &json(&m.board_profile_snapshot, limits::MAX_PROFILE_BYTES)?,
+        m.started_at_ms,
+    )?;
+    tx.execute("INSERT INTO session_catalog(session_id,job_id,device_history_id,device_snapshot_json,profile_snapshot_json,profile_revision,file_name,started_at_ms,ended_at_ms,state,integrity,requested_idle_ms,effective_idle_ms,requested_riding_ms,effective_riding_ms,close_reason) VALUES(?,?,?,?,?,?,?,?,?,'completed','complete',?,?,?,?,?)",params![id,job,m.device_history_id,json(&m.device_snapshot,limits::MAX_PROFILE_BYTES)?,json(&m.board_profile_snapshot,limits::MAX_PROFILE_BYTES)?,m.board_profile_revision,file,m.started_at_ms,m.ended_at_ms,m.requested_idle_ms,m.effective_idle_ms,m.requested_riding_ms,m.effective_riding_ms,m.close_reason])?;
+    crate::sessions::apply_marker(tx, id, marker)?;
+    Ok(())
 }
 
 #[cfg(test)]

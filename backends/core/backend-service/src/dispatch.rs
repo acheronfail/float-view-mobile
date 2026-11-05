@@ -53,6 +53,10 @@ impl BackendService {
             self.expire_paused_ride()?;
         }
         let result = match operation {
+            Operation::ClearAppData => {
+                self.clear_saved_app_data().map_err(store_failure)?;
+                f::Completion::Unit
+            }
             Operation::ExtendRidePause { session_id } => {
                 self.extend_ride_pause(&session_id)?;
                 f::Completion::Unit
@@ -568,7 +572,8 @@ impl BackendService {
             Operation::CancelMaintenance { id } => f::Completion::Maintenance(Some(
                 p::maintenance(&self.cancel_maintenance(&id, epoch).map_err(store_failure)?),
             )),
-            Operation::ExportSession { .. }
+            Operation::BeginAppImport { .. }
+            | Operation::ExportSession { .. }
             | Operation::WriteTransfer { .. }
             | Operation::ReadTransfer { .. }
             | Operation::BeginImport { .. }

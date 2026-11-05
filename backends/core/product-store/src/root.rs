@@ -281,7 +281,7 @@ fn issued_file(name: &str, prefix: &str, suffix: &str) -> bool {
         .is_some_and(is_uuid)
 }
 
-fn is_uuid(id: &str) -> bool {
+pub(crate) fn is_uuid(id: &str) -> bool {
     id.len() == 36
         && id.bytes().enumerate().all(|(i, b)| {
             if [8, 13, 18, 23].contains(&i) {

@@ -2,6 +2,7 @@ import type { SessionExportProgress } from './contract';
 import { validateRideMarker } from './session-data';
 import type {
   AppState,
+  AppImportSummary,
   UiCheckpoint,
   PermissionRow,
   BluetoothState,
@@ -54,6 +55,7 @@ export class BackendState {
     | (Omit<SessionExportProgress, 'phase'> & {
         phase: SessionExportProgress['phase'] | 'preparing' | 'downloading';
         cancelRequested: boolean;
+        app: boolean;
       })
     | null
   >(null);
@@ -699,7 +701,31 @@ export class BackendState {
     });
   }
 
-  async exportBoardSessions(savedDeviceId: string, format: SessionExportFormat): Promise<void> {
+  async exportAppData(): Promise<void> {
+    return this.exportBoardSessions(null, 'float-view-archive');
+  }
+
+  async importAppData(file: Blob, applySettings: boolean): Promise<AppImportSummary | null> {
+    let summary: AppImportSummary | null = null;
+    const success = await this.run(async () => {
+      if (!this.sessionImportClient) throw new Error('App import is not connected');
+      summary = await this.sessionImportClient.uploadApp(file, applySettings);
+      this.closeSession();
+      this.selectedBoardProfile = null;
+    });
+    return success ? summary : null;
+  }
+
+  async clearAppData(): Promise<boolean> {
+    return this.run(async (client) => {
+      await client.request('app.clear', {}, 10 * 60_000);
+      this.closeSession();
+      this.selectedBoardProfile = null;
+      this.exportStatus = null;
+    });
+  }
+
+  async exportBoardSessions(savedDeviceId: string | null, format: SessionExportFormat): Promise<void> {
     if (this.busy || this.boardExport) return;
     const operationId = crypto.randomUUID();
     this.exportStatus = null;
@@ -710,6 +736,7 @@ export class BackendState {
       totalSessions: 0,
       error: null,
       cancelRequested: false,
+      app: savedDeviceId === null,
     };
     const abort = new AbortController();
     this.exportAbort = abort;
@@ -721,18 +748,19 @@ export class BackendState {
         const task = (async () => {
           if (this.platform === 'web') {
             if (!this.sessionExportClient) throw new Error('Session export download is not connected');
-            const download = await this.sessionExportClient.downloadBoard(
-              savedDeviceId,
-              format,
-              operationId,
-              abort.signal
-            );
+            const download =
+              savedDeviceId === null
+                ? await this.sessionExportClient.downloadApp(operationId, abort.signal)
+                : await this.sessionExportClient.downloadBoard(savedDeviceId, format, operationId, abort.signal);
             deliver = () => {
               triggerBrowserDownload(download);
               this.exportStatus = `${download.fileName} downloaded.`;
             };
           } else {
-            const result = await client.request('session.export', { savedDeviceId, format, operationId }, 10 * 60_000);
+            const result =
+              savedDeviceId === null
+                ? await client.request('app.export', { operationId }, 10 * 60_000)
+                : await client.request('session.export', { savedDeviceId, format, operationId }, 10 * 60_000);
             deliver = () => {
               this.exportStatus =
                 result.delivery === 'presented'

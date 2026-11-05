@@ -36,12 +36,23 @@ export class SessionExportClient {
     return this.downloadSelected({ savedDeviceId, format, ...(operationId ? { operationId } : {}) }, signal);
   }
 
+  async downloadApp(operationId: string, signal?: AbortSignal): Promise<SessionExportDownload> {
+    return this.downloadSelected({ operationId }, signal);
+  }
+
   private async downloadSelected(
-    selector: BackendParams<'session.export'>,
+    selector: BackendParams<'session.export'> | BackendParams<'app.export'>,
     signal?: AbortSignal
   ): Promise<SessionExportDownload> {
+    const app = !('format' in selector);
+    const fallback =
+      'format' in selector
+        ? 'savedDeviceId' in selector
+          ? `float-view-all-sessions.${selector.format}.zip`
+          : fallbackFileName(selector.sessionId!, selector.format)
+        : 'float-view-app-transfer.zip';
     return reportSessionRequestFailure(async () => {
-      const response = await this.fetcher(this.endpoint, {
+      const response = await this.fetcher(app ? new URL('app-export', this.endpoint) : this.endpoint, {
         method: 'POST',
         signal,
         body: JSON.stringify(selector),
@@ -54,12 +65,7 @@ export class SessionExportClient {
       });
       if (!response.ok) throw new Error(`Session export download failed: HTTP ${response.status}`);
       return {
-        fileName: fileNameFromContentDisposition(
-          response.headers.get('Content-Disposition'),
-          'savedDeviceId' in selector
-            ? `float-view-all-sessions.${selector.format}.zip`
-            : fallbackFileName(selector.sessionId!, selector.format)
-        ),
+        fileName: fileNameFromContentDisposition(response.headers.get('Content-Disposition'), fallback),
         blob: await response.blob(),
       };
     }, signal);

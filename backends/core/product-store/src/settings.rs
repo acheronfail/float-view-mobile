@@ -334,3 +334,13 @@ fn default_battery_charge_enabled() -> bool {
 fn default_footpad_delay() -> u64 {
     1
 }
+
+pub(crate) fn validate_imported(value: &Settings) -> Result<()> {
+    let db = rusqlite::Connection::open_in_memory()?;
+    db.execute_batch("CREATE TABLE settings(singleton INTEGER,revision INTEGER,json TEXT)")?;
+    db.execute(
+        "INSERT INTO settings VALUES(1,0,?)",
+        [json(value, limits::MAX_SETTINGS_BYTES)?],
+    )?;
+    read(&db).map(|_| ()).map_err(|_| Error::InvalidInput)
+}

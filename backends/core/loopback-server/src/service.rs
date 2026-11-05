@@ -171,7 +171,12 @@ impl Backend {
             .map_err(|_| Failure::Unavailable)?;
         let service = &self.service;
         match operation {
-            Operation::BeginImport { transfer_id } => {
+            Operation::BeginImport { transfer_id }
+            | Operation::BeginAppImport { transfer_id, .. } => {
+                let settings = match operation {
+                    Operation::BeginAppImport { apply_settings, .. } => Some(apply_settings),
+                    _ => None,
+                };
                 let mut mapping = self
                     .service_transfers
                     .lock()
@@ -181,9 +186,11 @@ impl Backend {
                 }
                 let mut s = service.lock().map_err(|_| Failure::Internal)?;
                 let now = s.monotonic_ms();
-                let id = s
-                    .begin_import_transfer(client, None, now)
-                    .map_err(|_| Failure::Unavailable)?;
+                let id = match settings {
+                    Some(settings) => s.begin_app_import_transfer(client, settings, now),
+                    None => s.begin_import_transfer(client, None, now),
+                }
+                .map_err(|_| Failure::Unavailable)?;
                 mapping.insert(transfer_id, (client, id));
                 Ok(Completion::TransferReady)
             }
@@ -231,12 +238,12 @@ impl Backend {
                 self.sync_service()?;
                 match result {
                     FileResult::Imported(id) => Ok(Completion::Imported(id)),
+                    FileResult::AppImported(summary) => Ok(Completion::AppImported(summary)),
                     _ => Err(Failure::Internal),
                 }
             }
             Operation::ExportSession {
-                id,
-                board,
+                target,
                 operation_id,
                 format,
                 present,
@@ -250,12 +257,21 @@ impl Backend {
                 let (local, work) = {
                     let mut s = service.lock().map_err(|_| Failure::Internal)?;
                     let now = s.monotonic_ms();
-                    if let Some(operation) = operation_id.as_deref() {
-                        s.begin_tracked_board_export(client, &id, format, operation, now)
-                    } else if board {
-                        s.begin_board_export(client, &id, format, now)
-                    } else {
-                        s.begin_export(client, &id, format, now)
+                    match &target {
+                        crate::protocol::ExportTarget::App => {
+                            s.begin_app_export(client, operation_id.as_deref(), now)
+                        }
+                        crate::protocol::ExportTarget::Board { id } => {
+                            match operation_id.as_deref() {
+                                Some(operation) => {
+                                    s.begin_tracked_board_export(client, id, format, operation, now)
+                                }
+                                None => s.begin_board_export(client, id, format, now),
+                            }
+                        }
+                        crate::protocol::ExportTarget::Session { id } => {
+                            s.begin_export(client, id, format, now)
+                        }
                     }
                     .map_err(|_| Failure::Unavailable)?
                 };

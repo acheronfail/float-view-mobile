@@ -15,7 +15,7 @@
 
 {#if progress}
   <FullScreenOverlay
-    title="Exporting sessions"
+    title={progress.app ? 'Exporting app data' : 'Exporting sessions'}
     titleId="session-export-progress-title"
     closeLabel={progress.cancelRequested ? 'Cancelling…' : 'Cancel'}
     closeDisabled={progress.cancelRequested || (progress.phase === 'ready' && backendState.platform !== 'web')}

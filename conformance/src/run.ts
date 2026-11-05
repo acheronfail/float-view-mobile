@@ -60,7 +60,7 @@ const target =
             ? androidTarget
             : externalTarget(name, `FLOAT_VIEW_${name.toUpperCase()}_WS_URL`);
 const result = await (
-  process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'board-export'
+  ['board-export', 'app-transfer'].includes(process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS ?? '')
     ? runBoardExportConformance
     : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'announcements'
       ? runAnnouncementsConformance

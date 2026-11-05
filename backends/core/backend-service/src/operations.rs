@@ -16,6 +16,11 @@ pub enum Failure {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    ClearAppData,
+    BeginAppImport {
+        transfer_id: u64,
+        apply_settings: bool,
+    },
     ExtendRidePause {
         session_id: String,
     },
@@ -128,8 +133,7 @@ pub enum Operation {
         id: String,
     },
     ExportSession {
-        id: String,
-        board: bool,
+        target: ExportTarget,
         operation_id: Option<String>,
         format: String,
         present: bool,
@@ -163,4 +167,12 @@ pub enum Operation {
     CleanupTransfer {
         transfer_id: u64,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ExportTarget {
+    Session { id: String },
+    Board { id: String },
+    App,
 }

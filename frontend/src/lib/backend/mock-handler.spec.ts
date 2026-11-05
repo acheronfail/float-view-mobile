@@ -255,7 +255,9 @@ describe('deterministic mock backend', () => {
     });
 
     const mergedSessionId = backend.importSession(
-      new TextEncoder().encode(JSON.stringify({ deviceHistoryId: 'history-board', displayName: 'Renamed board' }))
+      new TextEncoder().encode(
+        JSON.stringify({ sessionId: 'imported-1', deviceHistoryId: 'history-board', displayName: 'Renamed board' })
+      )
     );
     const mergedBoard = (backend.handle({ id: 2, method: 'state.get', params: {} }) as { result: AppState }).result
       .savedDevices[0];
@@ -269,7 +271,9 @@ describe('deterministic mock backend', () => {
     ).toBe(true);
 
     const createdSessionId = backend.importSession(
-      new TextEncoder().encode(JSON.stringify({ deviceHistoryId: 'history-imported', displayName: 'Imported board' }))
+      new TextEncoder().encode(
+        JSON.stringify({ sessionId: 'imported-2', deviceHistoryId: 'history-imported', displayName: 'Imported board' })
+      )
     );
     const afterImport = (backend.handle({ id: 4, method: 'state.get', params: {} }) as { result: AppState }).result;
     const importedBoard = afterImport.savedDevices.find((value) => value.deviceHistoryId === 'history-imported');
@@ -1338,4 +1342,27 @@ describe('tune library', () => {
       })
     ).toMatchObject({ error: { code: 'invalid_request' } });
   });
+});
+
+it('merges app data idempotently, keeps local profiles, clears explicitly and restores associations as unpaired', () => {
+  const backend = new MockBackend(() => {}, { safetyDisclaimerAccepted: true });
+  const exported = backend.appManifest();
+  const local = backend.profiles.get('saved-board')!;
+  local.values.batteryCapacityAh = 9;
+  expect(backend.importAppManifest(exported, false)).toMatchObject({
+    boardsAdded: 0,
+    sessionsAdded: 0,
+    sessionsSkipped: 2,
+    settingsImported: false,
+  });
+  expect(backend.profiles.get('saved-board')!.values.batteryCapacityAh).toBe(9);
+  expect(backend.handle({ id: 1, method: 'app.clear', params: {} })).toHaveProperty('result.accepted', true);
+  expect(backend.importAppManifest(exported, true)).toMatchObject({
+    boardsAdded: 1,
+    sessionsAdded: 2,
+    settingsImported: true,
+  });
+  const state = backend.handle({ id: 2, method: 'state.get', params: {} }) as { result: AppState };
+  expect(state.result.savedDevices[0]!.bluetoothIdentifier).toBeNull();
+  expect(state.result.settings.safetyDisclaimerAccepted).toBe(true);
 });

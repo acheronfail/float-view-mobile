@@ -292,9 +292,9 @@ export function detailedSeriesValues(overrides: Record<string, number>): Record<
 export class MockBackend {
   private exportProgress: SessionExportProgress | null = null;
   beginBoardExportProgress(operationId: string, savedDeviceId: string): boolean {
-    const sessions = this.boardExportSessions(savedDeviceId);
+    const sessions = savedDeviceId === 'app' ? this.appSessionIds() : this.boardExportSessions(savedDeviceId);
     if (
-      !sessions?.length ||
+      !sessions ||
       !/^[a-zA-Z0-9-]{1,128}$/.test(operationId) ||
       this.exportProgress?.operationId === operationId ||
       ['exporting', 'cancelling'].includes(this.exportProgress?.phase ?? '')
@@ -1337,6 +1337,46 @@ export class MockBackend {
           this.exportProgress.phase = 'cancelled';
         return success(id, { ...this.exportProgress });
       }
+      case 'app.clear': {
+        if (Object.keys(params).length) return failure(id, 'invalid_request', 'Unexpected parameters');
+        if (!this.appIdle()) return failure(id, 'invalid_state', 'Disconnect and end any paused ride first');
+        if (this.exportProgress?.phase === 'exporting') return failure(id, 'unavailable', 'An export is running');
+        this.sessionCatalog = [];
+        this.profiles.clear();
+        this.tunes.clear();
+        this.refloatDrafts.clear();
+        this.rideMarkers.clear();
+        this.connectionContexts.clear();
+        this.recordingBreaks.clear();
+        this.interruptionReasons.clear();
+        this.uiCheckpoint = null;
+        const defaults = new MockBackend().state.settings;
+        this.autoConnect = 'closed';
+        this.change(
+          {
+            ...this.state,
+            savedDevices: [],
+            settings: {
+              ...defaults,
+              revision: this.state.settings.revision + 1,
+              safetyDisclaimerAccepted: this.state.settings.safetyDisclaimerAccepted,
+            },
+          },
+          true
+        );
+        return accepted(id);
+      }
+      case 'app.export': {
+        if (Object.keys(params).some((key) => key !== 'operationId'))
+          return failure(id, 'invalid_request', 'Unexpected parameters');
+        if (!this.appIdle()) return failure(id, 'invalid_state', 'Disconnect and end any paused ride first');
+        if (params.operationId !== undefined) {
+          if (typeof params.operationId !== 'string' || !this.beginBoardExportProgress(params.operationId, 'app'))
+            return failure(id, 'unavailable', 'Invalid or busy export');
+          this.advanceBoardExport(params.operationId, this.appSessionIds().length);
+        }
+        return success(id, { fileName: 'float-view-app-transfer.zip', delivery: 'staged' });
+      }
       case 'session.export': {
         const hasSession = Object.hasOwn(params, 'sessionId');
         const hasBoard = Object.hasOwn(params, 'savedDeviceId');
@@ -2163,6 +2203,124 @@ export class MockBackend {
     return success(id, complete);
   }
 
+  appIdle(): boolean {
+    return !this.state.activeConnection && !this.state.pausedRide && !this.operation;
+  }
+  appSessionIds(): string[] {
+    return this.sessionCatalog.map((s) => s.sessionId);
+  }
+  appManifest() {
+    if (!this.appIdle()) throw new Error('Disconnect and end any paused ride first');
+    return structuredClone({
+      format: 'float-view-app-transfer',
+      version: 1,
+      settings: {
+        ...this.state.settings,
+        revision: 0,
+        safetyDisclaimerAccepted: false,
+        autoConnectSavedDeviceId: null,
+      },
+      autoConnectHistoryId:
+        this.state.savedDevices.find((b) => b.savedDeviceId === this.state.settings.autoConnectSavedDeviceId)
+          ?.deviceHistoryId ?? null,
+      boards: this.state.savedDevices.map((b) => ({
+        deviceHistoryId: b.deviceHistoryId,
+        name: b.displayName,
+        customName: b.customDisplayName,
+        profile: this.profiles.get(b.savedDeviceId)?.values ?? {},
+      })),
+      tunes: [...this.tunes.values()],
+      sessions: this.sessionCatalog,
+    });
+  }
+  importAppManifest(value: ReturnType<MockBackend['appManifest']>, applySettings: boolean) {
+    if (
+      !this.appIdle() ||
+      value.format !== 'float-view-app-transfer' ||
+      value.version !== 1 ||
+      value.boards.length > 50 ||
+      value.sessions.length > 10000 ||
+      value.tunes.length > 1000
+    )
+      throw new Error('Invalid app transfer');
+    const summary = {
+      boardsAdded: 0,
+      boardsSkipped: 0,
+      sessionsAdded: 0,
+      sessionsSkipped: 0,
+      tunesAdded: 0,
+      tunesSkipped: 0,
+      settingsImported: applySettings,
+    };
+    const histories = new Set(value.boards.map((b) => b.deviceHistoryId));
+    if (
+      histories.size !== value.boards.length ||
+      new Set(value.sessions.map((s) => s.sessionId)).size !== value.sessions.length
+    )
+      throw new Error('Duplicate identity');
+    for (const incoming of value.sessions) {
+      const existing = this.sessionCatalog.find((s) => s.sessionId === incoming.sessionId);
+      if (
+        !histories.has(incoming.deviceHistoryId) ||
+        (existing && existing.deviceHistoryId !== incoming.deviceHistoryId)
+      )
+        throw new Error('Conflicting session board identity');
+    }
+    const boards = [...this.state.savedDevices];
+    for (const b of value.boards) {
+      if (boards.some((e) => e.deviceHistoryId === b.deviceHistoryId)) {
+        summary.boardsSkipped++;
+        continue;
+      }
+      const savedDeviceId = `saved-${b.deviceHistoryId}`;
+      boards.push({
+        ...savedBoard,
+        savedDeviceId,
+        deviceHistoryId: b.deviceHistoryId,
+        displayName: b.name,
+        customDisplayName: b.customName,
+        advertisedName: b.name,
+        bluetoothIdentifier: null,
+        lastSeenAt: null,
+        lastConnectedAt: null,
+        summary: emptySummary(),
+      });
+      this.profiles.set(savedDeviceId, {
+        savedDeviceId,
+        revision: 0,
+        values: structuredClone(b.profile),
+        missingFields: [],
+      });
+      summary.boardsAdded++;
+    }
+    for (const tune of value.tunes) {
+      if (this.tunes.has(tune.tuneId)) summary.tunesSkipped++;
+      else {
+        this.tunes.set(tune.tuneId, structuredClone(tune));
+        summary.tunesAdded++;
+      }
+    }
+    for (const incoming of value.sessions) {
+      if (this.hasSession(incoming.sessionId)) summary.sessionsSkipped++;
+      else {
+        this.sessionCatalog.push(structuredClone(incoming));
+        summary.sessionsAdded++;
+      }
+    }
+    const settings = applySettings
+      ? {
+          ...value.settings,
+          revision: this.state.settings.revision + 1,
+          safetyDisclaimerAccepted: this.state.settings.safetyDisclaimerAccepted,
+          autoConnectSavedDeviceId:
+            boards.find((b) => b.deviceHistoryId === value.autoConnectHistoryId)?.savedDeviceId ?? null,
+        }
+      : this.state.settings;
+    this.autoConnect = 'closed';
+    this.change({ ...this.state, savedDevices: boards, settings }, true);
+    return summary;
+  }
+
   boardExportSessions(savedDeviceId: string): string[] | null {
     const board = this.state.savedDevices.find((value) => value.savedDeviceId === savedDeviceId);
     if (!board) return null;
@@ -2182,6 +2340,11 @@ export class MockBackend {
 
   importSession(archive: Uint8Array): string {
     const imported = parseArchiveIdentity(archive);
+    const existing = this.sessionCatalog.find((s) => s.sessionId === imported.sessionId);
+    if (existing) {
+      if (existing.deviceHistoryId !== imported.deviceHistoryId) throw new Error('Conflicting session board identity');
+      return existing.sessionId;
+    }
     let importedBoard = this.state.savedDevices.find((value) => value.deviceHistoryId === imported.deviceHistoryId);
     if (!importedBoard) {
       importedBoard = {
@@ -2206,7 +2369,7 @@ export class MockBackend {
         missingFields: ['seriesCount', 'parallelCount', 'motor'],
       });
     }
-    const sessionId = `imported-${this.nextSession++}`;
+    const sessionId = imported.sessionId;
     const startedAt = new Date().toISOString();
     this.sessionCatalog = [
       {
@@ -2757,17 +2920,24 @@ function emptySummary(): BoardHistorySummary {
   };
 }
 
-function parseArchiveIdentity(archive: Uint8Array): { deviceHistoryId: string; displayName: string } {
+function parseArchiveIdentity(archive: Uint8Array): {
+  sessionId: string;
+  deviceHistoryId: string;
+  displayName: string;
+} {
   try {
     const text = new TextDecoder().decode(archive);
-    const value = JSON.parse(text) as { deviceHistoryId?: unknown; displayName?: unknown };
+    const value = JSON.parse(text) as { sessionId?: unknown; deviceHistoryId?: unknown; displayName?: unknown };
     if (
+      typeof value.sessionId !== 'string' ||
+      !/^[A-Za-z0-9-]{1,128}$/.test(value.sessionId) ||
       typeof value.deviceHistoryId !== 'string' ||
       !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.deviceHistoryId)
     ) {
       throw new Error('Session archive is missing a valid board identity');
     }
     return {
+      sessionId: value.sessionId,
       deviceHistoryId: value.deviceHistoryId,
       displayName:
         typeof value.displayName === 'string' && value.displayName.trim()

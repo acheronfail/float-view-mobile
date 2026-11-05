@@ -26,7 +26,7 @@ pub struct Start {
     pub port: u16,
 }
 pub use float_view_backend_service::operations::Failure;
-pub use float_view_backend_service::operations::Operation;
+pub use float_view_backend_service::operations::{ExportTarget, Operation};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PublishedBoundary {

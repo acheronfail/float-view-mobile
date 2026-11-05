@@ -1,6 +1,7 @@
 export const MAX_MESSAGE_BYTES = 65_536;
 export const MAX_SESSION_DATA_REQUEST_BYTES = 16_384;
 export const MAX_SESSION_DATA_RESPONSE_BYTES = 4 * 1024 * 1024;
+export const MAX_APP_TRANSFER_BYTES = 2 * 1024 * 1024 * 1024;
 export const MAX_SESSION_IMPORT_BYTES = 128 * 1024 * 1024;
 export const MAX_SESSION_DATA_FIELDS = 16;
 export const MAX_SESSION_SERIES_BUCKETS = 1_024;
@@ -1074,6 +1075,16 @@ export interface Settings {
   includeGpsLocationWhenExporting: boolean;
 }
 
+export interface AppImportSummary {
+  boardsAdded: number;
+  boardsSkipped: number;
+  sessionsAdded: number;
+  sessionsSkipped: number;
+  tunesAdded: number;
+  tunesSkipped: number;
+  settingsImported: boolean;
+}
+
 export interface ExportResult {
   fileName: string;
   delivery: 'presented' | 'staged';
@@ -1335,6 +1346,8 @@ export interface BackendMethods {
     result: { marker: SessionRideMarker; snapshot: SessionPublishedSnapshot };
   };
   'session.get': { params: { sessionId: string }; result: SessionMetadata };
+  'app.export': { params: { operationId?: string }; result: ExportResult };
+  'app.clear': { params: Record<string, never>; result: Accepted };
   'session.export': {
     // Single CSV exports contain one CSV; board exports bundle individual artifacts in one ZIP.
     params: (

@@ -176,6 +176,8 @@ fn store_failure(error: float_view_product_store::Error) -> operations::Failure 
     }
 }
 
+pub const MAX_APP_TRANSFER_BYTES: u64 = float_view_product_store::limits::MAX_BOARD_EXPORT_BYTES;
+
 #[cfg(test)]
 mod tests {
     use super::*;

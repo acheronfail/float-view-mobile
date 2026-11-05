@@ -39,14 +39,14 @@ export function selectedBackendOrigin(environment: NodeJS.ProcessEnv = process.e
   return url.origin;
 }
 
-export function backendProxy(target: string): ProxyOptions {
+export function backendProxy(target: string, timeout = 5_000): ProxyOptions {
   return {
     target,
     ws: true,
     changeOrigin: true,
     rewriteWsOrigin: target !== MOCK_BACKEND_ORIGIN,
-    timeout: 5_000,
-    proxyTimeout: 5_000,
+    timeout,
+    proxyTimeout: timeout,
     configure(proxy) {
       // Native loopback hosts validate the application origin, not the Vite
       // development origin. HTTP proxying does not apply http-proxy's
@@ -162,6 +162,9 @@ export default defineConfig({
     port: DEVELOPMENT_PORT,
     strictPort: true,
     proxy: {
+      '/api/app-import': backendProxy(backendOrigin, 10 * 60_000),
+      '/api/app-export': backendProxy(backendOrigin, 10 * 60_000),
+      '/api/session-export': backendProxy(backendOrigin, 10 * 60_000),
       '/api': backendProxy(backendOrigin),
     },
   },

@@ -18,7 +18,7 @@ import type {
   RefloatConfigurationSchemaPage,
 } from '../../frontend/src/lib/backend/contract.ts';
 import { ConformanceClient, ConformanceError } from './client.ts';
-import { exerciseTransport, exerciseBoardExports } from './transport.ts';
+import { exerciseTransport, exerciseBoardExports, exerciseAppTransfer } from './transport.ts';
 
 export interface Target {
   name: string;
@@ -65,7 +65,9 @@ export async function runBoardExportConformance(target: Target) {
     const board = ready.activeConnection!.savedDeviceId!;
     await client.request('session.end', { sessionId: ready.activeConnection!.activeSession!.sessionId });
     await client.waitForState((state) => !state.activeConnection && !state.pausedRide);
-    await exerciseBoardExports(endpoint, client, board, target.verifyFilePresentation?.bind(target));
+    if (process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'app-transfer')
+      await exerciseAppTransfer(endpoint, client, target.verifyFilePresentation?.bind(target));
+    else await exerciseBoardExports(endpoint, client, board, target.verifyFilePresentation?.bind(target));
     return { target: target.name, revision: (await client.request('state.get', {})).revision };
   } finally {
     client?.close();

@@ -131,42 +131,19 @@ impl ProductStore {
         Ok(sink)
     }
     pub(crate) fn stage(&self, export: bool, reserved: u64) -> Result<StagedFile> {
-        let mut b = self.file_budget.lock().map_err(|_| Error::Database)?;
-        if b.count >= limits::MAX_TRANSFERS
-            || b.reserved
-                .checked_add(reserved)
-                .is_none_or(|v| v > limits::MAX_STAGING_BYTES)
-        {
-            return Err(Error::Capacity);
-        }
-        let id = identifier()?;
-        let path = if export {
-            let dir = self.root.join("Exports");
-            if !dir.try_exists()? {
-                fs::create_dir(&dir)?;
-            }
-            root::require_kind(&dir, true)?;
-            let transfer_dir = dir.join(id);
-            fs::create_dir(&transfer_dir)?;
-            transfer_dir.join("float-view.tmp")
-        } else {
-            self.root.join(format!("import-{id}.floatview.tmp"))
-        };
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
-        b.count += 1;
-        b.reserved += reserved;
-        Ok(StagedFile {
-            staging_dir: export.then(|| path.parent().unwrap().to_owned()),
-            path,
-            root: self.root.clone(),
-            budget: self.file_budget.clone(),
+        make_stage(
+            &self.root,
+            &self.file_budget,
+            &self.root_lock,
+            export,
             reserved,
-            owned: true,
-            _root_lock: self.root_lock.clone(),
-        })
+        )
+    }
+    pub fn begin_app_import_stream(&self) -> Result<ImportSink> {
+        ImportSink::from_stage(
+            self.stage(false, limits::MAX_BOARD_EXPORT_BYTES * 2)?,
+            limits::MAX_BOARD_EXPORT_BYTES,
+        )
     }
     pub(crate) fn cleanup_staging(&self) -> Result<()> {
         for (i, entry) in fs::read_dir(&self.root)?.enumerate() {
@@ -239,5 +216,76 @@ impl ProductStore {
             }
         }
         Ok(())
+    }
+}
+
+fn make_stage(
+    root: &Path,
+    budget: &FileBudgets,
+    root_lock: &crate::root::RootLock,
+    export: bool,
+    reserved: u64,
+) -> Result<StagedFile> {
+    let mut b = budget.lock().map_err(|_| Error::Database)?;
+    if b.count >= limits::MAX_TRANSFERS
+        || b.reserved
+            .checked_add(reserved)
+            .is_none_or(|v| v > limits::MAX_STAGING_BYTES)
+    {
+        return Err(Error::Capacity);
+    }
+    let id = identifier()?;
+    let path = if export {
+        let dir = root.join("Exports");
+        if !dir.try_exists()? {
+            fs::create_dir(&dir)?;
+        }
+        root::require_kind(&dir, true)?;
+        let transfer_dir = dir.join(id);
+        fs::create_dir(&transfer_dir)?;
+        transfer_dir.join("float-view.tmp")
+    } else {
+        root.join(format!("import-{id}.floatview.tmp"))
+    };
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)?;
+    b.count += 1;
+    b.reserved += reserved;
+    Ok(StagedFile {
+        staging_dir: export.then(|| path.parent().unwrap().to_owned()),
+        path,
+        root: root.to_owned(),
+        budget: budget.clone(),
+        reserved,
+        owned: true,
+        _root_lock: root_lock.clone(),
+    })
+}
+impl ImportSink {
+    fn from_stage(stage: StagedFile, maximum: u64) -> Result<Self> {
+        let file = OpenOptions::new().write(true).open(&stage.path)?;
+        Ok(Self {
+            stage,
+            file,
+            expected: maximum,
+            exact: false,
+            written: 0,
+        })
+    }
+}
+impl StagedFile {
+    pub(crate) fn scratch_import(&self) -> Result<ImportSink> {
+        ImportSink::from_stage(
+            make_stage(
+                &self.root,
+                &self.budget,
+                &self._root_lock,
+                false,
+                limits::MAX_IMPORT_BYTES * 2,
+            )?,
+            limits::MAX_IMPORT_BYTES,
+        )
     }
 }

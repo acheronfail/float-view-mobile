@@ -9,6 +9,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import SectionTitle from '../../ui/SectionTitle.svelte';
 
+  import AppDataTransfer from './AppDataTransfer.svelte';
   import Permissions from './Permissions.svelte';
   import Announcements from './Announcements.svelte';
   import LegalNotices from './LegalNotices.svelte';
@@ -180,6 +181,8 @@
     </div>
 
     <Announcements />
+
+    <AppDataTransfer />
 
     <Permissions />
 

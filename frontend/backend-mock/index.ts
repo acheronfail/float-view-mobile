@@ -9,6 +9,7 @@ import {
   MAX_MESSAGE_BYTES,
   MAX_SESSION_DATA_REQUEST_BYTES,
   MAX_SESSION_IMPORT_BYTES,
+  MAX_APP_TRANSFER_BYTES,
 } from '../src/lib/backend/contract.ts';
 import { detailedSeriesValues, MockBackend } from './api-v1.ts';
 import { validateSessionDataRequest, type SessionDataRequest } from '../src/lib/backend/session-data.ts';
@@ -48,13 +49,15 @@ app.get('/api/bootstrap', (_request, response) => {
   });
 });
 
-app.post('/api/session-import', (request, response) => {
+app.post(['/api/session-import', '/api/app-import'], (request, response) => {
   response.set('Cache-Control', 'no-store');
   if (request.headers.origin !== expectedOrigin || request.headers['x-float-view-token'] !== sessionToken) {
     response.status(403).end();
     return;
   }
-  if (Number(request.headers['content-length'] ?? 0) > MAX_SESSION_IMPORT_BYTES) {
+  const appImport = request.path === '/api/app-import';
+  const maximum = appImport ? MAX_APP_TRANSFER_BYTES : MAX_SESSION_IMPORT_BYTES;
+  if (Number(request.headers['content-length'] ?? 0) > maximum) {
     response.status(413).end();
     return;
   }
@@ -62,10 +65,10 @@ app.post('/api/session-import', (request, response) => {
   let bytes = 0;
   request.on('data', (chunk: Buffer) => {
     bytes += chunk.byteLength;
-    if (bytes <= MAX_SESSION_IMPORT_BYTES) chunks.push(chunk);
+    if (bytes <= maximum) chunks.push(chunk);
   });
   request.on('end', () => {
-    if (bytes > MAX_SESSION_IMPORT_BYTES) {
+    if (bytes > maximum) {
       response.status(413).end();
       return;
     }
@@ -74,6 +77,24 @@ app.post('/api/session-import', (request, response) => {
       return;
     }
     try {
+      if (appImport) {
+        const entries = readStoredZip(Buffer.concat(chunks));
+        const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf8')) as ReturnType<
+          MockBackend['appManifest']
+        >;
+        if (entries.size !== manifest.sessions.length + 1) throw new Error('Missing or unexpected entries');
+        for (const [i, session] of manifest.sessions.entries()) {
+          const archive = JSON.parse(
+            entries.get(`sessions/${String(i + 1).padStart(5, '0')}.floatview`)!.toString('utf8')
+          );
+          if (archive.sessionId !== session.sessionId || archive.deviceHistoryId !== session.deviceHistoryId)
+            throw new Error('Conflicting identity');
+        }
+        response.json(
+          activeMockBackend.importAppManifest(manifest, request.headers['x-float-view-import-settings'] === 'true')
+        );
+        return;
+      }
       const sessionId = activeMockBackend.importSession(Buffer.concat(chunks));
       response.type('application/json').json({ sessionId });
     } catch {
@@ -82,7 +103,7 @@ app.post('/api/session-import', (request, response) => {
   });
 });
 
-app.post('/api/session-export', (request, response) => {
+app.post(['/api/session-export', '/api/app-export'], (request, response) => {
   response.set('Cache-Control', 'no-store');
   if (request.headers.origin !== expectedOrigin || request.headers['x-float-view-token'] !== sessionToken) {
     response.status(403).end();
@@ -105,6 +126,40 @@ app.post('/api/session-export', (request, response) => {
     }
     try {
       const payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
+      const appExport = request.path === '/api/app-export';
+      if (appExport) {
+        if (!activeMockBackend || Object.keys(payload).some((k) => k !== 'operationId'))
+          throw new Error('Invalid request');
+        const backend = activeMockBackend;
+        const manifest = backend.appManifest();
+        const operationId = payload.operationId;
+        if (
+          operationId !== undefined &&
+          (typeof operationId !== 'string' || !backend.beginBoardExportProgress(operationId, 'app'))
+        )
+          throw new Error('Invalid export operation');
+        const entries: { name: string; body: Buffer }[] = [
+          { name: 'manifest.json', body: Buffer.from(JSON.stringify(manifest)) },
+        ];
+        for (const [i, sessionId] of backend.appSessionIds().entries()) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          if (typeof operationId === 'string' && !backend.advanceBoardExport(operationId, i + 1))
+            throw new Error('Cancelled');
+          entries.push({
+            name: `sessions/${String(i + 1).padStart(5, '0')}.floatview`,
+            body: createMockExport(sessionId, 'float-view-archive', backend.archiveIdentity(sessionId)).body,
+          });
+        }
+        if (typeof operationId === 'string' && !backend.advanceBoardExport(operationId, manifest.sessions.length))
+          throw new Error('Cancelled');
+        response
+          .set({
+            'Content-Type': 'application/zip',
+            'Content-Disposition': 'attachment; filename="float-view-app-transfer.zip"',
+          })
+          .end(storedZip(entries));
+        return;
+      }
       const hasBoard = Object.hasOwn(payload, 'savedDeviceId');
       const selector = hasBoard ? payload.savedDeviceId : payload.sessionId;
       const format = payload.format === 'csv' || payload.format === 'float-view-archive' ? payload.format : undefined;
@@ -637,4 +692,26 @@ export function simulateConnectionFailure(
   compatibility?: import('../src/lib/backend/contract.ts').RefloatCompatibility
 ) {
   activeMockBackend?.simulateConnectionFailure(code, message, compatibility);
+}
+
+// Mock archives use stored ZIP entries; production also supports DEFLATE.
+function readStoredZip(bytes: Buffer): Map<string, Buffer> {
+  const entries = new Map<string, Buffer>();
+  let offset = 0;
+  while (offset + 30 <= bytes.length && bytes.readUInt32LE(offset) === 0x04034b50) {
+    if (entries.size > 10000 || bytes.readUInt16LE(offset + 8) !== 0) throw new Error('Unsupported ZIP');
+    const size = bytes.readUInt32LE(offset + 18),
+      nameLength = bytes.readUInt16LE(offset + 26),
+      extra = bytes.readUInt16LE(offset + 28);
+    const name = bytes.subarray(offset + 30, offset + 30 + nameLength).toString('utf8');
+    const start = offset + 30 + nameLength + extra,
+      end = start + size;
+    if (end > bytes.length || entries.has(name)) throw new Error('Invalid ZIP entry');
+    const body = bytes.subarray(start, end);
+    if (crc32(body) !== bytes.readUInt32LE(offset + 14)) throw new Error('ZIP checksum mismatch');
+    entries.set(name, body);
+    offset = end;
+  }
+  if (!entries.size || bytes.readUInt32LE(offset) !== 0x02014b50) throw new Error('Invalid ZIP directory');
+  return entries;
 }

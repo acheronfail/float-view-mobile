@@ -15,7 +15,13 @@ export async function exerciseTransport(
   const socketUrl = new URL(endpoint.url);
   const token = socketUrl.searchParams.get('token')!;
   const headers = { Origin: endpoint.origin, 'X-Float-View-Token': token };
-  for (const path of ['/api/session-data', '/api/session-import', '/api/session-export']) {
+  for (const path of [
+    '/api/session-data',
+    '/api/session-import',
+    '/api/session-export',
+    '/api/app-import',
+    '/api/app-export',
+  ]) {
     for (const auth of [{}, { ...headers, Origin: 'null' }, { ...headers, 'X-Float-View-Token': 'wrong' }]) {
       const response = await fetch(endpoint.origin + path, { method: 'POST', headers: auth, body: '{' });
       assert.equal(response.status, 403, `${path} must authenticate before decoding`);
@@ -142,7 +148,7 @@ export async function exerciseTransport(
     const detail = await archiveClient.request('session.get', { sessionId });
     assert.equal(detail.summary.deviceHistoryId, original.deviceHistoryId);
     assert.equal(detail.summary.sampleCount, original.sampleCount);
-    await archiveClient.request('session.delete', { sessionId });
+    assert.equal(sessionId, original.sessionId, 're-import preserves recording identity');
     const malformed = await fetch(endpoint.origin + '/api/session-import', {
       method: 'POST',
       headers,
@@ -267,4 +273,61 @@ export async function exerciseBoardExports(
     });
     assert.equal(response.status, 400);
   }
+}
+
+export async function exerciseAppTransfer(
+  endpoint: { url: string; origin: string },
+  client: ConformanceClient,
+  afterPresentation?: () => Promise<void>
+) {
+  const token = new URL(endpoint.url).searchParams.get('token')!;
+  const base = endpoint.url.replace(/^ws/, 'http');
+  const headers = { Origin: endpoint.origin, 'X-Float-View-Token': token };
+  const initial = await client.request('state.get', {});
+  const exported = await fetch(new URL('/api/app-export', base), { method: 'POST', headers, body: '{}' });
+  assert.equal(exported.status, 200);
+  assert.equal(exported.headers.get('content-type'), 'application/zip');
+  const bytes = new Uint8Array(await exported.arrayBuffer());
+  assert.ok(bytes.length > 0);
+  const upload = () =>
+    fetch(new URL('/api/app-import', base), {
+      method: 'POST',
+      headers: { ...headers, 'X-Float-View-Import-Settings': 'true' },
+      body: bytes,
+    });
+  let response = await upload();
+  assert.equal(response.status, 200);
+  const skipped = await response.json();
+  assert.equal(skipped.boardsAdded, 0);
+  assert.equal(skipped.sessionsAdded, 0);
+  assert.equal(skipped.boardsSkipped, initial.savedDevices.length);
+  assert.ok(skipped.sessionsSkipped > 0);
+  await client.request('app.clear', {});
+  const cleared = await client.request('state.get', {});
+  assert.equal(cleared.savedDevices.length, 0);
+  assert.equal(cleared.settings.safetyDisclaimerAccepted, true);
+  response = await upload();
+  assert.equal(response.status, 200);
+  const added = await response.json();
+  assert.equal(added.boardsAdded, skipped.boardsSkipped);
+  assert.equal(added.sessionsAdded, skipped.sessionsSkipped);
+  const restored = await client.request('state.get', {});
+  assert.deepEqual(
+    restored.savedDevices.map((b) => b.deviceHistoryId).sort(),
+    initial.savedDevices.map((b) => b.deviceHistoryId).sort()
+  );
+  assert.ok(restored.savedDevices.every((b) => b.bluetoothIdentifier === null));
+  assert.equal(restored.settings.minimumSessionDistance, initial.settings.minimumSessionDistance);
+  response = await upload();
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).sessionsSkipped, added.sessionsAdded);
+  const bad = await fetch(new URL('/api/app-import', base), { method: 'POST', headers, body: 'invalid ZIP' });
+  assert.equal(bad.status, 400);
+  assert.equal((await client.request('state.get', {})).savedDevices.length, restored.savedDevices.length);
+  // Native picker dismissal and its lease acknowledgement are asynchronous.
+  // Present last so the merge checks do not race the OS completion callback.
+  const operationId = `app-export-${Date.now()}`;
+  const presented = await client.request('app.export', { operationId });
+  if (presented.delivery === 'presented') await afterPresentation?.();
+  assert.equal((await client.request('session.export.status', { operationId })).phase, 'ready');
 }
