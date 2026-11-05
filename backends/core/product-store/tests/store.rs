@@ -579,7 +579,9 @@ fn imported_board_associates_on_explicit_save_without_leaking_private_identifier
 fn revisions_names_profiles_and_route_invalidation_are_atomic() {
     let root = Root::new();
     let mut store = root.open();
-    let b = store.ensure_board("local", None, None, 1).unwrap();
+    let b = store
+        .ensure_board("local", None, Some(&[1; 12]), 1)
+        .unwrap();
     let id = &b.saved_device_id;
     assert_eq!(
         store.profile(id).unwrap().missing_fields(),
@@ -638,15 +640,15 @@ fn board_capacity_is_checked_before_insertion_but_allows_existing_board() {
     let mut store = root.open();
     for i in 0..limits::MAX_BOARDS {
         store
-            .ensure_board(&format!("local-{i}"), None, None, 1)
+            .ensure_board(&format!("local-{i}"), None, Some(&[i as u8 + 1; 12]), 1)
             .unwrap();
     }
     assert_eq!(
-        store.ensure_board("overflow", None, None, 1),
+        store.ensure_board("overflow", None, Some(&[254; 12]), 1),
         Err(Error::Capacity)
     );
     store
-        .ensure_board("local-0", Some("updated"), None, 2)
+        .ensure_board("local-0", Some("updated"), Some(&[1; 12]), 2)
         .unwrap();
     assert_eq!(store.boards().unwrap().len(), limits::MAX_BOARDS);
 }
@@ -1162,7 +1164,7 @@ fn net_consumption_selections_survive_reopen() {
         )
         .unwrap();
     let board = store
-        .ensure_board("net-energy", Some("Net energy"), None, 0)
+        .ensure_board("net-energy", Some("Net energy"), Some(&[1; 12]), 0)
         .unwrap();
     let dashboard = serde_json::json!({"version": 1, "widgets": [
         {"id": "wh", "kind": "reading", "field": "wattHoursNetWh", "presentation": "number", "size": "compact"},
@@ -1191,10 +1193,10 @@ fn custom_dashboard_is_atomic_bounded_independent_and_survives_reopen() {
     let root = Root::new();
     let mut store = root.open();
     let first = store
-        .ensure_board("dash-first", Some("First"), None, 0)
+        .ensure_board("dash-first", Some("First"), Some(&[1; 12]), 0)
         .unwrap();
     let second = store
-        .ensure_board("dash-second", Some("Second"), None, 0)
+        .ensure_board("dash-second", Some("Second"), Some(&[2; 12]), 0)
         .unwrap();
     let id = &first.saved_device_id;
     let dashboard = serde_json::json!({"version":1,"widgets":[{"id":"mark","kind":"action","action":"rideMarker","size":"compact"},{"id":"a","kind":"reading","field":"motorCurrentA","presentation":"gauge","size":"large","range":{"min":-100,"max":100}},{"id":"peak","kind":"reading","field":"maxSpeedKph","presentation":"gauge","size":"compact","range":{"min":0,"max":60}}]});
@@ -1270,7 +1272,7 @@ fn dashboard_profile_limit_and_unreadable_data_preserve_accepted_storage() {
     let root = Root::new();
     let mut store = root.open();
     let board = store
-        .ensure_board("dash", Some("Dashboard"), None, 0)
+        .ensure_board("dash", Some("Dashboard"), Some(&[1; 12]), 0)
         .unwrap();
     let id = &board.saved_device_id;
     let padding = serde_json::json!({"extension": "x".repeat(16300)});
@@ -1352,9 +1354,11 @@ fn session_display_options_are_validated_and_persisted() {
 fn board_live_widget_layouts_are_independent_validated_and_persisted() {
     let root = Root::new();
     let mut store = root.open();
-    let first = store.ensure_board("first", Some("First"), None, 0).unwrap();
+    let first = store
+        .ensure_board("first", Some("First"), Some(&[1; 12]), 0)
+        .unwrap();
     let second = store
-        .ensure_board("second", Some("Second"), None, 0)
+        .ensure_board("second", Some("Second"), Some(&[2; 12]), 0)
         .unwrap();
     let id = &first.saved_device_id;
     for invalid in [
@@ -1450,8 +1454,12 @@ fn announcement_preferences_validate_atomically_and_reopen() {
 fn auto_connect_selection_is_local_validated_atomic_and_durable() {
     let root = Root::new();
     let mut store = root.open();
-    let a = store.ensure_board("local-a", Some("A"), None, 100).unwrap();
-    let b = store.ensure_board("local-b", Some("B"), None, 101).unwrap();
+    let a = store
+        .ensure_board("local-a", Some("A"), Some(&[1; 12]), 100)
+        .unwrap();
+    let b = store
+        .ensure_board("local-b", Some("B"), Some(&[2; 12]), 101)
+        .unwrap();
     assert_eq!(store.settings().unwrap().auto_connect_saved_device_id, None);
     for id in [&a.saved_device_id, &b.saved_device_id] {
         let revision = store.settings().unwrap().revision;
@@ -1511,7 +1519,9 @@ fn auto_connect_selection_is_local_validated_atomic_and_durable() {
 fn forgetting_selected_board_clears_selection_in_the_same_transaction() {
     let root = Root::new();
     let mut store = root.open();
-    let board = store.ensure_board("local", None, None, 1).unwrap();
+    let board = store
+        .ensure_board("local", None, Some(&[1; 12]), 1)
+        .unwrap();
     let selected = store
         .update_settings(
             0,
@@ -1642,8 +1652,12 @@ fn tune_library_pages_all_versions_and_preserves_incompatible_values_on_rename()
 fn last_live_view_is_validated_independent_and_survives_reopen() {
     let root = Root::new();
     let mut store = root.open();
-    let a = store.ensure_board("view-a", Some("A"), None, 0).unwrap();
-    let b = store.ensure_board("view-b", Some("B"), None, 0).unwrap();
+    let a = store
+        .ensure_board("view-a", Some("A"), Some(&[1; 12]), 0)
+        .unwrap();
+    let b = store
+        .ensure_board("view-b", Some("B"), Some(&[2; 12]), 0)
+        .unwrap();
     let id = &a.saved_device_id;
     for value in [
         serde_json::json!("unknown"),
@@ -1706,7 +1720,9 @@ fn last_live_view_is_validated_independent_and_survives_reopen() {
 fn dashboard_explicit_spans_are_bounded_and_preserve_existing_named_sizes() {
     let root = Root::new();
     let mut store = root.open();
-    let board = store.ensure_board("spans", Some("Spans"), None, 0).unwrap();
+    let board = store
+        .ensure_board("spans", Some("Spans"), Some(&[1; 12]), 0)
+        .unwrap();
     let id = &board.saved_device_id;
     for size in [
         serde_json::json!({}),
@@ -1856,4 +1872,184 @@ fn beta_tunes_with_identical_schemas_remain_isolated_and_durable() {
     assert_eq!(store.tunes(&beta3, 50, None).unwrap().items, vec![new]);
     assert_eq!(store.tune(&old.configuration_id).unwrap(), old);
     assert_eq!(store.tunes_filtered(None, 50, None).unwrap().items.len(), 2);
+}
+
+#[test]
+fn verified_controller_moves_only_the_transport_and_preserves_both_profiles() {
+    let root = Root::new();
+    let mut store = root.open();
+    let a = store
+        .ensure_board("shared-transport", Some("Original"), Some(&[1; 12]), 1)
+        .unwrap();
+    let a = store
+        .update_board(&a.saved_device_id, 0, Some("My original board"))
+        .unwrap();
+    let profile_a = store
+        .update_profile(
+            &a.saved_device_id,
+            0,
+            r#"{"motor":"hub","seriesCount":16,"parallelCount":2}"#,
+            1,
+        )
+        .unwrap();
+    let b = store
+        .ensure_board(
+            "shared-transport",
+            Some("Different controller"),
+            Some(&[2; 12]),
+            2,
+        )
+        .unwrap();
+    assert_ne!(a.saved_device_id, b.saved_device_id);
+    assert_eq!(b.device_history_id, board_identity(Some(&[2; 12])).unwrap());
+    let mut detached_a = a.clone();
+    detached_a.local_identifier = None;
+    assert_eq!(store.board(&a.saved_device_id).unwrap(), detached_a);
+    assert_eq!(store.profile(&a.saved_device_id).unwrap(), profile_a);
+    assert_eq!(
+        store.profile(&b.saved_device_id).unwrap().missing_fields(),
+        ["seriesCount", "parallelCount", "motor"]
+    );
+    let profile_b = store
+        .update_profile(
+            &b.saved_device_id,
+            0,
+            r#"{"motor":"hub","seriesCount":20,"parallelCount":2}"#,
+            2,
+        )
+        .unwrap();
+    // Returning to an already-known controller must move the hint without a conflict.
+    let returned = store
+        .ensure_board(
+            "shared-transport",
+            Some("Original again"),
+            Some(&[1; 12]),
+            3,
+        )
+        .unwrap();
+    assert_eq!(returned.saved_device_id, a.saved_device_id);
+    assert_eq!(returned.custom_display_name, a.custom_display_name);
+    assert_eq!(store.profile(&a.saved_device_id).unwrap(), profile_a);
+    assert_eq!(
+        store.board(&b.saved_device_id).unwrap().local_identifier,
+        None
+    );
+    assert_eq!(store.profile(&b.saved_device_id).unwrap(), profile_b);
+    let relocated = store
+        .ensure_board("another-platform-transport", None, Some(&[1; 12]), 4)
+        .unwrap();
+    assert_eq!(relocated.saved_device_id, a.saved_device_id);
+    assert_eq!(
+        relocated.local_identifier.as_deref(),
+        Some("another-platform-transport")
+    );
+    assert_eq!(store.boards().unwrap().len(), 2);
+    drop(store);
+    let reopened = root.open();
+    assert_eq!(reopened.board(&a.saved_device_id).unwrap(), relocated);
+    assert_eq!(reopened.profile(&b.saved_device_id).unwrap(), profile_b);
+}
+
+#[test]
+fn verified_imported_board_replaces_another_boards_local_association() {
+    let root = Root::new();
+    let mut store = root.open();
+    let old = store
+        .ensure_board("shared-transport", Some("Old"), Some(&[1; 12]), 1)
+        .unwrap();
+    let imported = store
+        .import_board(
+            &board_identity(Some(&[2; 12])).unwrap(),
+            Some("Imported"),
+            r#"{"motor":"hub","seriesCount":18,"parallelCount":2}"#,
+            1,
+        )
+        .unwrap();
+    let profile = store.profile(&imported.saved_device_id).unwrap();
+    let connected = store
+        .ensure_board("shared-transport", Some("BLE"), Some(&[2; 12]), 2)
+        .unwrap();
+    assert_eq!(connected.saved_device_id, imported.saved_device_id);
+    assert_eq!(store.profile(&connected.saved_device_id).unwrap(), profile);
+    assert_eq!(
+        store.board(&old.saved_device_id).unwrap().local_identifier,
+        None
+    );
+    assert_eq!(store.boards().unwrap().len(), 2);
+}
+
+#[test]
+fn invalid_controller_identification_never_falls_back_to_a_local_association() {
+    let root = Root::new();
+    let mut store = root.open();
+    let original = store
+        .ensure_board("local", Some("Original"), Some(&[1; 12]), 1)
+        .unwrap();
+    for uuid in [
+        None,
+        Some([0u8; 12].as_slice()),
+        Some([255u8; 12].as_slice()),
+        Some([1u8; 11].as_slice()),
+        Some([1u8; 13].as_slice()),
+    ] {
+        for local in ["local", "new-local"] {
+            assert_eq!(
+                store.ensure_board(local, Some("Unverified"), uuid, 2),
+                Err(Error::InvalidInput)
+            );
+            assert_eq!(store.boards().unwrap(), vec![original.clone()]);
+        }
+    }
+    // Existing supported opaque identities stay intact; a new UUID never adopts them.
+    let opaque = store
+        .import_board("supported-opaque-history", Some("Offline"), "{}", 1)
+        .unwrap();
+    store
+        .ensure_board("local", None, Some(&[2; 12]), 3)
+        .unwrap();
+    assert_eq!(store.board(&opaque.saved_device_id).unwrap(), opaque);
+}
+
+#[test]
+fn reassociation_rolls_back_if_insertion_fails_or_board_capacity_is_full() {
+    let root = Root::new();
+    let mut store = root.open();
+    let original = store
+        .ensure_board("local-0", Some("Original"), Some(&[1; 12]), 1)
+        .unwrap();
+    let db = Connection::open(root.0.join("catalog.sqlite")).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_new_board BEFORE INSERT ON saved_device BEGIN SELECT RAISE(FAIL, 'test insertion failure'); END;").unwrap();
+    assert!(
+        store
+            .ensure_board("local-0", None, Some(&[2; 12]), 2)
+            .is_err()
+    );
+    assert_eq!(store.board(&original.saved_device_id).unwrap(), original);
+    db.execute_batch("DROP TRIGGER reject_new_board;").unwrap();
+    for i in 1..limits::MAX_BOARDS {
+        store
+            .ensure_board(&format!("local-{i}"), None, Some(&[i as u8 + 1; 12]), 1)
+            .unwrap();
+    }
+    assert_eq!(
+        store.ensure_board("local-0", None, Some(&[254; 12]), 3),
+        Err(Error::Capacity)
+    );
+    assert_eq!(store.board(&original.saved_device_id).unwrap(), original);
+    assert_eq!(store.boards().unwrap().len(), limits::MAX_BOARDS);
+    let existing = store
+        .ensure_board("local-0", None, Some(&[2; 12]), 4)
+        .unwrap();
+    assert_eq!(
+        existing.device_history_id,
+        board_identity(Some(&[2; 12])).unwrap()
+    );
+    assert_eq!(
+        store
+            .board(&original.saved_device_id)
+            .unwrap()
+            .local_identifier,
+        None
+    );
+    assert_eq!(store.boards().unwrap().len(), limits::MAX_BOARDS);
 }

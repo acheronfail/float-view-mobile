@@ -111,6 +111,9 @@ export interface InteractiveBoardSelection {
 
 const expressFirmware = fixturePayload('../backends/fixtures/vesc/firmware-express-6.05.json');
 const controllerFirmware = fixturePayload('../backends/fixtures/vesc/firmware-6.06.json');
+// Source vectors retain placeholder identity; executable board scenarios need a
+// meaningful synthetic controller UUID for saved recording ownership.
+controllerFirmware.set(thor300.uuid, 11);
 const refloat = fixtureCases('../backends/fixtures/refloat/rtdata-1.2.3-android-hardware.json');
 const rideStates = fixtureCases('../backends/fixtures/refloat/ride-states-1.2.3.json');
 

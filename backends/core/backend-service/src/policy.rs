@@ -2185,9 +2185,12 @@ mod tests {
             self.service.changed().unwrap();
         }
         fn identify(&mut self) {
+            self.identify_controller([7; 12]);
+        }
+        fn identify_controller(&mut self, uuid: [u8; 12]) {
             let mut payload = vec![0, 6, 6];
             payload.extend_from_slice(b"THOR300\0");
-            payload.extend_from_slice(&[7; 12]);
+            payload.extend_from_slice(&uuid);
             payload.extend_from_slice(&[1, 0, 0, 0, 1, 0, 1, 0]);
             payload.extend_from_slice(b"Float\0");
             let generation = self.service.runtime.snapshot().application.generation;
@@ -2204,6 +2207,174 @@ mod tests {
             self.drain();
         }
     }
+    #[test]
+    fn verified_controller_switches_keep_board_profiles_and_recordings_separate() {
+        let mut t = Test::new();
+        t.service.policy.settings = t
+            .service
+            .store
+            .update_settings(0, r#"{"minimumSessionDistance":0}"#)
+            .unwrap();
+        t.activate(true);
+        let a = t
+            .service
+            .policy
+            .active
+            .as_ref()
+            .unwrap()
+            .board
+            .clone()
+            .unwrap();
+        let first_session = t.service.policy.ride.as_ref().unwrap().session_id.clone();
+        let profile_a = t
+            .service
+            .store
+            .update_profile(
+                &a.saved_device_id,
+                0,
+                r#"{"motor":"hub","seriesCount":16,"parallelCount":2}"#,
+                1,
+            )
+            .unwrap();
+        t.fact(Fact::Foreground { foreground: true }, 100).unwrap();
+        t.riding_sample(100);
+        t.service.disconnect("explicit_disconnect").unwrap();
+
+        // The same OS/Bluetooth device now identifies a different controller.
+        t.discover();
+        t.service.connect("test-device", true).unwrap();
+        let generation = t.service.policy.active.as_ref().unwrap().generation;
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Ready,
+            },
+            t.service.policy.exchange.now + 1,
+        )
+        .unwrap();
+        t.identify_controller([8; 12]);
+        let b = t
+            .service
+            .policy
+            .active
+            .as_ref()
+            .unwrap()
+            .board
+            .clone()
+            .unwrap();
+        let second_session = t.service.policy.ride.as_ref().unwrap().session_id.clone();
+        assert_ne!(a.saved_device_id, b.saved_device_id);
+        assert_ne!(first_session, second_session);
+        assert_eq!(
+            b.device_history_id,
+            float_view_product_store::board_identity(Some(&[8; 12])).unwrap()
+        );
+        assert_eq!(
+            t.service
+                .store
+                .session(&first_session)
+                .unwrap()
+                .device_history_id,
+            a.device_history_id
+        );
+        assert_eq!(
+            t.service.store.session(&first_session).unwrap().state,
+            "completed"
+        );
+        assert_eq!(
+            t.service
+                .store
+                .session(&second_session)
+                .unwrap()
+                .device_history_id,
+            b.device_history_id
+        );
+        assert_eq!(
+            t.service.store.profile(&a.saved_device_id).unwrap(),
+            profile_a
+        );
+        assert!(
+            !t.service
+                .store
+                .profile(&b.saved_device_id)
+                .unwrap()
+                .missing_fields()
+                .is_empty()
+        );
+        let state = t.service.published_snapshot();
+        assert_eq!(
+            state
+                .saved_boards
+                .iter()
+                .find(|board| board.saved_device_id == a.saved_device_id)
+                .unwrap()
+                .bluetooth_identifier,
+            None
+        );
+        assert_eq!(
+            state
+                .saved_boards
+                .iter()
+                .find(|board| board.saved_device_id == b.saved_device_id)
+                .unwrap()
+                .bluetooth_identifier
+                .as_deref(),
+            Some("test-device")
+        );
+        assert_eq!(
+            state
+                .active
+                .unwrap()
+                .saved_device
+                .as_ref()
+                .map(|board| board.saved_device_id.as_str()),
+            Some(b.saved_device_id.as_str())
+        );
+        let now = t.service.policy.exchange.now + 100;
+        t.fact(Fact::Foreground { foreground: true }, now).unwrap();
+        t.riding_sample(now);
+        t.service.disconnect("explicit_disconnect").unwrap();
+
+        // Returning to the first controller uses its old profile without conflict.
+        t.activate(true);
+        assert_eq!(
+            t.service
+                .policy
+                .active
+                .as_ref()
+                .unwrap()
+                .board
+                .as_ref()
+                .unwrap()
+                .saved_device_id,
+            a.saved_device_id
+        );
+        let third_session = t
+            .service
+            .store
+            .session(&t.service.policy.ride.as_ref().unwrap().session_id)
+            .unwrap();
+        assert_eq!(third_session.device_history_id, a.device_history_id);
+        assert_eq!(third_session.profile_snapshot["seriesCount"], 16);
+        assert_eq!(
+            t.service
+                .store
+                .session(&second_session)
+                .unwrap()
+                .device_history_id,
+            b.device_history_id
+        );
+        assert_eq!(
+            t.service
+                .store
+                .board(&b.saved_device_id)
+                .unwrap()
+                .local_identifier,
+            None
+        );
+        assert_eq!(t.service.store.boards().unwrap().len(), 2);
+    }
+
     #[test]
     fn unsupported_refloat_snapshot_survives_link_loss_without_recovery_or_session() {
         for saved in [false, true] {
@@ -4731,7 +4902,7 @@ mod tests {
         let board = t
             .service
             .store
-            .ensure_board("preferred", Some("Board"), None, 1)
+            .ensure_board("preferred", Some("Board"), Some(&[7; 12]), 1)
             .unwrap();
         t.service.policy.settings = t.service.store.update_settings(0,
             &serde_json::json!({"autoConnectSavedDeviceId":board.saved_device_id,"safetyDisclaimerAccepted":true}).to_string()).unwrap();
@@ -4948,7 +5119,7 @@ mod tests {
         let second = t
             .service
             .store
-            .ensure_board("second", None, None, 1)
+            .ensure_board("second", None, Some(&[8; 12]), 1)
             .unwrap();
         t.service.refresh_boards().unwrap();
         t.fact(Fact::Foreground { foreground: true }, 2).unwrap();

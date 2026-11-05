@@ -19,7 +19,7 @@ export interface FirmwareVariant {
 export const thor300: ControllerIdentity = {
   hardwareName: 'THOR300',
   hardwareType: 0,
-  uuid: new Uint8Array(12),
+  uuid: Uint8Array.from({ length: 12 }, (_, index) => index + 1),
 };
 
 /** VESC 7.00 COMM_GET_MCCONF with current limits and an 18S battery setup. */

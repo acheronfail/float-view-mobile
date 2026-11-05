@@ -14,7 +14,7 @@ test('software golden transcript matches independent source vectors and syntheti
   const respond = (...bytes: number[]) => payload(model.receive(request(...bytes))[0]!);
   assert.equal(
     Buffer.from(respond(0)).toString('hex'),
-    '00060654484f523330300000000000000000000000000000000001000000005645534300'
+    '00060654484f52333030000102030405060708090a0b0c00000001000000005645534300'
   );
   assert.deepEqual(respond(62), Uint8Array.of(62, 42));
   const bms = JSON.parse(fixture('vesc-bms/source-derived.json').toString());

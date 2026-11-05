@@ -1,7 +1,7 @@
 // Independent software-host protocol fixture. No production codec imports.
 import { FrameAssembler, encodeFrame } from './frame.ts';
 import { RefloatControlModel } from './refloat-controls.ts';
-import { motorConfigurationPayload } from './firmware.ts';
+import { motorConfigurationPayload, thor300 } from './firmware.ts';
 import { refloatCodecs, type RefloatVersion } from './refloat.ts';
 import { idleTelemetry, type TelemetrySource } from './telemetry.ts';
 import { RefloatConfigurationModel } from './refloat-configuration.ts';
@@ -56,7 +56,7 @@ export class SoftwarePeripheral {
         6,
         6,
         ...Buffer.from('THOR300\0'),
-        ...new Array<number>(12).fill(0),
+        ...thor300.uuid,
         0,
         0,
         0,

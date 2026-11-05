@@ -101,41 +101,30 @@ impl ProductStore {
         validate_id(local)?;
         timestamp(at_ms)?;
         let advertised = name(advertised)?;
-        let identity = board_identity(uuid);
+        let identity = board_identity(uuid).ok_or(Error::InvalidInput)?;
         let tx = self
             .catalog
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let stable: Option<String> = match &identity {
-            Some(identity) => tx
-                .query_row(
-                    "SELECT saved_device_id FROM saved_device WHERE device_history_id=?",
-                    [identity],
-                    |r| r.get(0),
-                )
-                .optional()?,
-            None => None,
-        };
-        let local_match: Option<String> = tx
+        let stable: Option<String> = tx
             .query_row(
-                "SELECT saved_device_id FROM saved_device WHERE opaque_platform_id=?",
-                [local],
+                "SELECT saved_device_id FROM saved_device WHERE device_history_id=?",
+                [&identity],
                 |r| r.get(0),
             )
             .optional()?;
-        if stable.is_some() && local_match.is_some() && stable != local_match {
-            // Never merge two independently owned histories as a side effect of connecting.
-            return Err(Error::Conflict {
-                revision: board(&tx, local_match.as_deref().ok_or(Error::Database)?)?.revision,
-            });
-        }
-        let id = if let Some(id) = stable.or(local_match) {
+        // A transport can lead to a new/reselected controller. Move only its
+        // local reconnect association; board identity, profile and history stay put.
+        tx.execute(
+            "UPDATE saved_device SET opaque_platform_id=NULL WHERE opaque_platform_id=? AND device_history_id<>?",
+            params![local, identity],
+        )?;
+        let id = if let Some(id) = stable {
             tx.execute("UPDATE saved_device SET opaque_platform_id=?,advertised_name=COALESCE(?,advertised_name),last_seen_at_ms=?,last_connected_at_ms=? WHERE saved_device_id=?",params![local,advertised,at_ms,at_ms,id])?;
             id
         } else {
             admit_board(&tx)?;
             let id = identifier()?;
-            let history = identity.unwrap_or(identifier()?);
-            tx.execute("INSERT INTO saved_device(saved_device_id,device_history_id,opaque_platform_id,advertised_name,revision,created_at_ms,last_seen_at_ms,last_connected_at_ms) VALUES (?,?,?,?,0,?,?,?)", params![id,history,local,advertised,at_ms,at_ms,at_ms])?;
+            tx.execute("INSERT INTO saved_device(saved_device_id,device_history_id,opaque_platform_id,advertised_name,revision,created_at_ms,last_seen_at_ms,last_connected_at_ms) VALUES (?,?,?,?,0,?,?,?)", params![id,identity,local,advertised,at_ms,at_ms,at_ms])?;
             tx.execute("INSERT INTO board_profile(saved_device_id,revision,json,updated_at_ms) VALUES (?,0,?,?)",params![id,r#"{"preferredBmsCanId":null}"#,at_ms])?;
             id
         };
