@@ -2,7 +2,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import { defaultAnnouncements, type AnnouncementSettings } from '$lib/backend/contract';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
-  import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
+  import OnOffSetting from './OnOffSetting.svelte';
   import SectionTitle from '$lib/ui/SectionTitle.svelte';
 
   let draft = $state<AnnouncementSettings>({ ...defaultAnnouncements });
@@ -27,7 +27,7 @@
   const audio = $derived(backendState.snapshot?.announcementAudio);
   const imperial = $derived(settings?.unitPreference === 'imperial');
   const factor = $derived(imperial ? 0.621371192237334 : 1);
-  const inputClass = 'mt-1 block w-full rounded border bg-surface px-3 py-2 text-foreground';
+  const inputClass = 'mt-1 block w-full rounded-lg border bg-elevated px-3 py-2 text-foreground';
   const fieldErrors = $derived({
     footpadDelaySeconds:
       Number.isInteger(draft.footpadDelaySeconds) && draft.footpadDelaySeconds >= 1 && draft.footpadDelaySeconds <= 5
@@ -99,7 +99,7 @@
         }
         if (next.version === editVersion) dirty = false;
       }
-      message = dirty ? '' : 'Announcement settings saved.';
+      message = '';
       return true;
     })().finally(() => {
       saving = false;
@@ -145,241 +145,234 @@
 </script>
 
 <div>
-  <SectionTitle title="Ride announcements" />
   <form
     novalidate
     onsubmit={(event) => {
       event.preventDefault();
       void save();
     }}
-    class="mt-3 space-y-3 rounded-lg border border-outline bg-elevated p-3 text-sm"
+    class="space-y-6 text-sm"
   >
-    <p class="text-muted">
-      Hear footpad contact alerts and readings above your thresholds. Load speaks only the highest of duty, motor or
-      battery utilisation.
-    </p>
-    {#each ['speedEnabled', 'loadEnabled', 'footpadEnabled', 'batteryChargeEnabled'] as key (key)}
-      {@const field = key as 'speedEnabled' | 'loadEnabled' | 'footpadEnabled' | 'batteryChargeEnabled'}
-      <div>
-        <p>
-          {field === 'speedEnabled'
-            ? 'Speed announcements'
-            : field === 'loadEnabled'
-              ? 'Load announcements'
-              : field === 'footpadEnabled'
-                ? 'Footpad announcements'
-                : 'Battery announcements'}
-        </p>
-        <SegmentedControl
-          label={field === 'speedEnabled'
-            ? 'Speed announcements'
-            : field === 'loadEnabled'
-              ? 'Load announcements'
-              : field === 'footpadEnabled'
-                ? 'Footpad announcements'
-                : 'Battery announcements'}
-          options={[
-            { value: false, label: 'Off' },
-            { value: true, label: 'On' },
-          ]}
-          value={draft[field]}
-          onchange={(value) => change({ [field]: value })}
-        />
-      </div>
-    {/each}
-    <p class="text-xs text-muted">
-      Warns you about low or high battery voltage while riding. Each warning repeats at most once a minute.
-    </p>
-    <label class="block">
-      Footpad delay: {draft.footpadDelaySeconds}
-      {draft.footpadDelaySeconds === 1 ? 'second' : 'seconds'}
-      <input
-        aria-label="Footpad delay"
-        aria-valuetext={`${draft.footpadDelaySeconds} seconds`}
-        aria-describedby="announcement-footpad-description"
-        class="mt-2 w-full touch-pan-y"
-        type="range"
-        min="1"
-        max="5"
-        step="1"
-        value={draft.footpadDelaySeconds}
-        oninput={(e) => edit({ footpadDelaySeconds: e.currentTarget.valueAsNumber })}
-        onpointerup={(e) => {
-          if (e.isPrimary && e.button === 0) commit('footpadDelaySeconds');
-        }}
-        onchange={() => commit('footpadDelaySeconds')}
-        onblur={() => commit('footpadDelaySeconds')}
-      />
-      <span id="announcement-footpad-description" class="text-xs text-muted">
-        Announces footpad contact loss above {imperial ? '3 mph' : '5 km/h'}, after the selected delay.
-      </span>
-    </label>
-    <div>
-      <label class="block"
-        >Speed threshold ({imperial ? 'mph' : 'km/h'})
-        <input
-          class={`${inputClass} ${speedError ? 'border-danger' : 'border-outline'}`}
-          aria-invalid={speedError ? 'true' : undefined}
-          aria-describedby={speedError ? 'announcement-speed-error' : undefined}
-          type="number"
-          inputmode="decimal"
-          required
-          min="0.001"
-          max={200 * factor}
-          step="any"
-          value={Number((draft.speedThresholdKph * factor).toFixed(3))}
-          oninput={(e) => edit({ speedThresholdKph: e.currentTarget.valueAsNumber / factor })}
-          onchange={() => commit('speedThresholdKph')}
-          onblur={() => commit('speedThresholdKph')}
-        />
-      </label>
-      {#if speedError}
-        <p id="announcement-speed-error" role="alert" class="mt-1 text-xs text-danger">{speedError}</p>
-      {/if}
-    </div>
-    <div>
-      <label class="block"
-        >Load threshold (%)
-        <input
-          class={`${inputClass} ${loadError ? 'border-danger' : 'border-outline'}`}
-          aria-invalid={loadError ? 'true' : undefined}
-          aria-describedby={loadError ? 'announcement-load-error' : undefined}
-          type="number"
-          inputmode="decimal"
-          required
-          min="0.001"
-          max="100"
-          step="any"
-          value={draft.loadThresholdPercent}
-          oninput={(e) => edit({ loadThresholdPercent: e.currentTarget.valueAsNumber })}
-          onchange={() => commit('loadThresholdPercent')}
-          onblur={() => commit('loadThresholdPercent')}
-        />
-      </label>
-      {#if loadError}
-        <p id="announcement-load-error" role="alert" class="mt-1 text-xs text-danger">{loadError}</p>
-      {/if}
-    </div>
-    <div>
-      <label class="block"
-        >Speed, load and footpad repeat interval (seconds)
-        <input
-          class={`${inputClass} ${intervalError ? 'border-danger' : 'border-outline'}`}
-          aria-invalid={intervalError ? 'true' : undefined}
-          aria-describedby={intervalError ? 'announcement-interval-error' : undefined}
-          type="number"
-          inputmode="numeric"
-          required
-          min="1"
-          max="60"
-          step="1"
-          value={draft.repeatIntervalSeconds}
-          oninput={(e) => edit({ repeatIntervalSeconds: e.currentTarget.valueAsNumber })}
-          onchange={() => commit('repeatIntervalSeconds')}
-          onblur={() => commit('repeatIntervalSeconds')}
-        />
-      </label>
-      {#if intervalError}
-        <p id="announcement-interval-error" role="alert" class="mt-1 text-xs text-danger">{intervalError}</p>
-      {/if}
-    </div>
-    <label class="block"
-      >Announcement volume: {draft.volumePercent}%{draft.volumePercent === 0 ? ' (muted)' : ''}
-      <input
-        class="mt-2 w-full touch-pan-y"
-        aria-label="Announcement volume"
-        type="range"
-        min="0"
-        max="100"
-        step="1"
-        value={draft.volumePercent}
-        oninput={(e) => edit({ volumePercent: e.currentTarget.valueAsNumber })}
-        onchange={() => void save()}
-        onblur={() => void save()}
-      />
-      <span class="text-xs text-muted">
-        Relative to your {backendState.platform === 'ios' || backendState.platform === 'android'
-          ? "phone's"
-          : backendState.platform === 'macos'
-            ? "computer's"
-            : "device's"} current volume.
-      </span>
-    </label>
-    {#if backendState.platform === 'ios'}
-      <p class="text-xs text-muted">
-        Too quiet at 100%? Tap a test button below, then press your iPhone's volume buttons while the voice is speaking.
-        This adjusts the volume used by announcements and Siri, separately from music and ringer volume.
-      </p>
-    {/if}
-    {#if audio?.loweringControl === 'adjustable'}
-      <div>
-        <p>Lower other audio while speaking</p>
-        <SegmentedControl
-          label="Lower other audio while speaking"
-          options={[
-            { value: false, label: 'Off' },
-            { value: true, label: 'On' },
-          ]}
-          value={draft.lowerOtherAudio}
-          onchange={(value) => change({ lowerOtherAudio: value })}
-        />
-        <p class="mt-1 text-xs text-muted">
-          Temporarily makes music and other audio quieter during announcements. Some apps may pause instead.
-        </p>
-      </div>
-    {/if}
-    {#if audio?.voiceSettingsAvailable}
-      <div>
-        <button
-          type="button"
-          class="min-h-11 touch-manipulation rounded border border-outline px-3 py-2 disabled:opacity-50"
-          disabled={openingVoiceSettings || testing || saving}
-          onpointerdown={(e) => activateFromPointer(e, () => void openVoiceSettings())}
-          onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void openVoiceSettings())}
-          >{openingVoiceSettings ? 'Opening…' : 'Voice settings'}</button
-        >
-        <p class="mt-1 text-xs text-muted">
-          Choose a speech engine or preferred offline English voice in your device's text-to-speech settings. Fully
-          download the voice before testing.
-        </p>
-      </div>
-    {/if}
-    {#if backendState.platform === 'ios'}
-      <p class="text-xs text-muted">
-        On iPhone: Settings → Accessibility → Spoken Content (Read &amp; Speak) → Voices → English. Choose a voice and
-        tap its cloud icon to download it on Wi-Fi.
-      </p>
-    {/if}
-    <div class="flex flex-wrap gap-2">
-      {#each ['speed', 'load', 'combined'] as name (name)}
-        {@const kind = name as 'speed' | 'load' | 'combined'}
-        <button
-          type="button"
-          class="min-h-11 touch-manipulation rounded border border-outline px-3 py-2 disabled:opacity-50"
-          disabled={testing || openingVoiceSettings}
-          onpointerdown={(e) => activateFromPointer(e, () => void test(kind))}
-          onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void test(kind))}>Test {name}</button
-        >
+    <section aria-label="Announcement types" class="space-y-4">
+      <SectionTitle title="Announcement types" />
+      {#each [{ field: 'speedEnabled', label: 'Speed', description: 'Hear your speed above a chosen threshold.' }, { field: 'loadEnabled', label: 'Load', description: 'Hear the highest duty, motor or battery utilisation.' }, { field: 'footpadEnabled', label: 'Footpad', description: 'Hear when footpad contact is lost while riding.' }, { field: 'batteryChargeEnabled', label: 'Battery voltage', description: 'Low or high battery voltage warnings while riding. Each warning repeats at most once a minute.' }] as alert (alert.field)}
+        {@const field = alert.field as 'speedEnabled' | 'loadEnabled' | 'footpadEnabled' | 'batteryChargeEnabled'}
+        <div class="space-y-3 pb-4 last:pb-0">
+          <div>
+            <OnOffSetting label={alert.label} checked={draft[field]} onchange={(value) => change({ [field]: value })} />
+            <p class="mt-2 text-xs leading-5 text-muted">{alert.description}</p>
+          </div>
+          {#if draft[field] || (field === 'speedEnabled' && dirty && validated.speedThresholdKph) || (field === 'loadEnabled' && dirty && validated.loadThresholdPercent)}
+            {#if field === 'speedEnabled'}
+              <div>
+                <label class="block"
+                  >Speed threshold ({imperial ? 'mph' : 'km/h'})
+                  <input
+                    class={`${inputClass} ${speedError ? 'border-danger' : 'border-outline'}`}
+                    aria-invalid={speedError ? 'true' : undefined}
+                    aria-describedby={speedError ? 'announcement-speed-error' : undefined}
+                    type="number"
+                    inputmode="decimal"
+                    required
+                    min="0.001"
+                    max={200 * factor}
+                    step="any"
+                    value={Number((draft.speedThresholdKph * factor).toFixed(3))}
+                    oninput={(e) => edit({ speedThresholdKph: e.currentTarget.valueAsNumber / factor })}
+                    onchange={() => commit('speedThresholdKph')}
+                    onblur={() => commit('speedThresholdKph')}
+                  />
+                </label>
+                {#if speedError}
+                  <p id="announcement-speed-error" role="alert" class="mt-1 text-xs text-danger">{speedError}</p>
+                {/if}
+              </div>
+            {:else if field === 'loadEnabled'}
+              <div>
+                <label class="block"
+                  >Load threshold (%)
+                  <input
+                    class={`${inputClass} ${loadError ? 'border-danger' : 'border-outline'}`}
+                    aria-invalid={loadError ? 'true' : undefined}
+                    aria-describedby={loadError ? 'announcement-load-error' : undefined}
+                    type="number"
+                    inputmode="decimal"
+                    required
+                    min="0.001"
+                    max="100"
+                    step="any"
+                    value={draft.loadThresholdPercent}
+                    oninput={(e) => edit({ loadThresholdPercent: e.currentTarget.valueAsNumber })}
+                    onchange={() => commit('loadThresholdPercent')}
+                    onblur={() => commit('loadThresholdPercent')}
+                  />
+                </label>
+                {#if loadError}
+                  <p id="announcement-load-error" role="alert" class="mt-1 text-xs text-danger">{loadError}</p>
+                {/if}
+              </div>
+            {:else if field === 'footpadEnabled'}
+              <label class="block">
+                Footpad delay: {draft.footpadDelaySeconds}
+                {draft.footpadDelaySeconds === 1 ? 'second' : 'seconds'}
+                <input
+                  aria-label="Footpad delay"
+                  aria-valuetext={`${draft.footpadDelaySeconds} seconds`}
+                  aria-describedby="announcement-footpad-description"
+                  class="mt-2 w-full touch-pan-y"
+                  type="range"
+                  min="1"
+                  max="5"
+                  step="1"
+                  value={draft.footpadDelaySeconds}
+                  oninput={(e) => edit({ footpadDelaySeconds: e.currentTarget.valueAsNumber })}
+                  onpointerup={(e) => {
+                    if (e.isPrimary && e.button === 0) commit('footpadDelaySeconds');
+                  }}
+                  onchange={() => commit('footpadDelaySeconds')}
+                  onblur={() => commit('footpadDelaySeconds')}
+                />
+                <span id="announcement-footpad-description" class="text-xs text-muted">
+                  Announces footpad contact loss above {imperial ? '3 mph' : '5 km/h'}, after the selected delay.
+                </span>
+              </label>
+            {/if}
+          {/if}
+        </div>
       {/each}
-    </div>
-    <p class="text-xs text-muted">
-      {audio?.status === 'ready'
-        ? 'Speech ready.'
-        : audio?.status === 'initializing'
-          ? 'Preparing speech…'
-          : audio?.reason === 'no_offline_voice'
-            ? 'No offline voice is available. Install an English voice in system speech settings, then return to the app.'
-            : 'Speech is currently unavailable.'} Tests use your saved settings.
-    </p>
-    <p role="status" aria-live="polite">{testing ? 'Playing test…' : saving ? 'Saving…' : message}</p>
-    {#if dirty && message.startsWith('Could not save')}
-      <button
-        type="button"
-        class="min-h-11 touch-manipulation rounded border border-outline px-3 py-2 disabled:opacity-50"
-        disabled={saving || openingVoiceSettings || testing}
-        onpointerdown={(e) => activateFromPointer(e, () => void save())}
-        onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void save())}>Retry saving</button
-      >
+    </section>
+    <section class="space-y-4">
+      <SectionTitle title="Audio & timing" />
+      <div>
+        <label class="block"
+          >Repeat every (seconds)
+          <input
+            class={`${inputClass} ${intervalError ? 'border-danger' : 'border-outline'}`}
+            aria-invalid={intervalError ? 'true' : undefined}
+            aria-describedby={`announcement-repeat-help${intervalError ? ' announcement-interval-error' : ''}`}
+            type="number"
+            inputmode="numeric"
+            required
+            min="1"
+            max="60"
+            step="1"
+            value={draft.repeatIntervalSeconds}
+            oninput={(e) => edit({ repeatIntervalSeconds: e.currentTarget.valueAsNumber })}
+            onchange={() => commit('repeatIntervalSeconds')}
+            onblur={() => commit('repeatIntervalSeconds')}
+          />
+        </label>
+        <p id="announcement-repeat-help" class="mt-1 text-xs text-muted">Applies to speed, load and footpad alerts.</p>
+        {#if intervalError}
+          <p id="announcement-interval-error" role="alert" class="mt-1 text-xs text-danger">{intervalError}</p>
+        {/if}
+      </div>
+      <label class="block"
+        >Announcement volume: {draft.volumePercent}%{draft.volumePercent === 0 ? ' (muted)' : ''}
+        <input
+          class="mt-2 w-full touch-pan-y"
+          aria-label="Announcement volume"
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={draft.volumePercent}
+          oninput={(e) => edit({ volumePercent: e.currentTarget.valueAsNumber })}
+          onchange={() => void save()}
+          onblur={() => void save()}
+        />
+        <span class="text-xs text-muted">
+          Relative to your {backendState.platform === 'ios' || backendState.platform === 'android'
+            ? "phone's"
+            : backendState.platform === 'macos'
+              ? "computer's"
+              : "device's"} current volume.
+        </span>
+      </label>
+      {#if backendState.platform === 'ios'}
+        <p class="text-xs text-muted">
+          Too quiet at 100%? Tap a test button below, then press your iPhone's volume buttons while the voice is
+          speaking. This adjusts the volume used by announcements and Siri, separately from music and ringer volume.
+        </p>
+      {/if}
+      {#if audio?.loweringControl === 'adjustable'}
+        <div>
+          <OnOffSetting
+            label="Lower other audio while speaking"
+            checked={draft.lowerOtherAudio}
+            onchange={(value) => change({ lowerOtherAudio: value })}
+          />
+          <p class="mt-1 text-xs text-muted">
+            Temporarily makes music and other audio quieter during announcements. Some apps may pause instead.
+          </p>
+        </div>
+      {/if}
+    </section>
+    {#if backendState.platform === 'ios' || audio?.voiceSettingsAvailable || audio?.reason === 'no_offline_voice'}
+      <section class="space-y-4" aria-label="Announcement voice">
+        <SectionTitle title="Announcement voice" />
+        {#if audio?.voiceSettingsAvailable}
+          <div>
+            <button
+              type="button"
+              class="min-h-11 touch-manipulation rounded border border-outline px-3 py-2 disabled:opacity-50"
+              disabled={openingVoiceSettings || testing || saving}
+              onpointerdown={(e) => activateFromPointer(e, () => void openVoiceSettings())}
+              onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void openVoiceSettings())}
+              >{openingVoiceSettings ? 'Opening…' : 'Voice settings'}</button
+            >
+            <p class="mt-1 text-xs text-muted">
+              Choose a speech engine or preferred offline English voice in your device's text-to-speech settings. Fully
+              download the voice before testing.
+            </p>
+          </div>
+        {/if}
+        {#if backendState.platform === 'ios'}
+          <p class="text-xs text-muted">
+            On iPhone: Settings → Accessibility → Spoken Content (Read &amp; Speak) → Voices → English. Choose a voice
+            and tap its cloud icon to download it on Wi-Fi.
+          </p>
+        {/if}
+        {#if backendState.platform !== 'ios' && !audio?.voiceSettingsAvailable && audio?.reason === 'no_offline_voice'}
+          <p class="text-xs text-muted">
+            Install an offline English voice in your device's speech settings, then return here to test it.
+          </p>
+        {/if}
+      </section>
     {/if}
+    <section class="space-y-4">
+      <SectionTitle title="Test announcements" />
+      <div class="flex flex-wrap gap-2">
+        {#each ['speed', 'load', 'combined'] as name (name)}
+          {@const kind = name as 'speed' | 'load' | 'combined'}
+          <button
+            type="button"
+            class="min-h-11 touch-manipulation rounded border border-outline px-3 py-2 disabled:opacity-50"
+            disabled={testing || openingVoiceSettings}
+            onpointerdown={(e) => activateFromPointer(e, () => void test(kind))}
+            onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void test(kind))}>Test {name}</button
+          >
+        {/each}
+      </div>
+      <p class="text-xs text-muted">
+        {audio?.status === 'ready'
+          ? 'Speech ready.'
+          : audio?.status === 'initializing'
+            ? 'Preparing speech…'
+            : audio?.reason === 'no_offline_voice'
+              ? 'No offline voice is available.'
+              : 'Speech is currently unavailable.'} Tests use your saved settings.
+      </p>
+      <p role="status" aria-live="polite">{testing ? 'Playing test…' : saving ? 'Saving…' : message}</p>
+      {#if dirty && message.startsWith('Could not save')}
+        <button
+          type="button"
+          class="min-h-11 touch-manipulation rounded border border-outline px-3 py-2 disabled:opacity-50"
+          disabled={saving || openingVoiceSettings || testing}
+          onpointerdown={(e) => activateFromPointer(e, () => void save())}
+          onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => void save())}>Retry saving</button
+        >
+      {/if}
+    </section>
   </form>
 </div>

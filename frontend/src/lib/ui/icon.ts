@@ -1,5 +1,8 @@
 export const iconClasses = {
   info: 'i-lucide-info',
+  palette: 'i-lucide-palette',
+  archive: 'i-lucide-archive',
+  'circle-help': 'i-lucide-circle-help',
   flag: 'i-lucide-flag',
   'zoom-in': 'i-lucide-zoom-in',
   hand: 'i-lucide-hand',

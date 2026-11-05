@@ -23,7 +23,7 @@ export const bottomTabs = [
     routeId: '/settings',
     icon: 'settings',
     title: 'Settings',
-    subtitle: 'Loading ride totals…',
+    subtitle: 'Float on...',
   },
 ] as const satisfies readonly {
   label: string;

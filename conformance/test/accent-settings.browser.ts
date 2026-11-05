@@ -57,7 +57,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           server.onMessage((raw) => socket.send(raw));
         });
         await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
-        await page.goto(`${endpoint.origin}/#/settings`);
+        await page.goto(`${endpoint.origin}/#/settings/appearance`);
         const group = page.getByRole('group', { name: 'Accent color', exact: true });
         const initialTeal = group.getByRole('button', { name: 'Teal', exact: true });
         await initialTeal.waitFor();
@@ -172,6 +172,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 ...document.querySelectorAll('section[aria-label="Settings"] button[aria-pressed="true"]'),
                 ...document.querySelectorAll('section[aria-label="Settings"] .text-accent'),
                 ...document.querySelectorAll('nav [aria-current="page"]'),
+                ...document.querySelectorAll('header h1'),
               ];
               return targets.map((element) => {
                 let parent: Element | null = element;
@@ -242,7 +243,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             await dialog.getByRole('button', { name: 'Cancel', exact: true }).tap();
             await dialog.waitFor({ state: 'hidden' });
           }
-          await page.goto(`${endpoint.origin}/#/settings`);
+          await page.goto(`${endpoint.origin}/#/settings/appearance`);
           await group.waitFor();
         }
         await page.reload();

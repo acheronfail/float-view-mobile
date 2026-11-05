@@ -26,20 +26,22 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         })
       );
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
-      await page.goto(`${endpoint.origin}/#/settings`);
-      const speed = page.getByRole('group', { name: 'Speed announcements', exact: true });
-      await speed.getByRole('button', { name: 'On', exact: true }).waitFor();
-      await speed.getByRole('button', { name: 'On', exact: true }).click({ button: 'right' });
-      assert.equal(await speed.getByRole('button', { name: 'Off', exact: true }).getAttribute('aria-pressed'), 'true');
-      await speed.getByRole('button', { name: 'On', exact: true }).tap();
+      await page.goto(`${endpoint.origin}/#/settings/announcements`);
+      const speed = page
+        .getByRole('group', { name: 'Speed', exact: true })
+        .getByRole('button', { name: 'On', exact: true });
+      await speed.waitFor();
+      await speed.click({ button: 'right' });
+      assert.equal(await speed.getAttribute('aria-pressed'), 'false');
+      await speed.tap();
       await client.waitForState((s) => s.settings.announcements.speedEnabled);
       await page
-        .getByRole('group', { name: 'Load announcements', exact: true })
+        .getByRole('group', { name: 'Load', exact: true })
         .getByRole('button', { name: 'On', exact: true })
         .focus();
       await page.keyboard.press('Enter');
       await client.waitForState((s) => s.settings.announcements.loadEnabled);
-      await page.getByLabel('Speed, load and footpad repeat interval (seconds)', { exact: true }).fill('1');
+      await page.getByLabel('Repeat every (seconds)', { exact: true }).fill('1');
       await page.getByRole('slider', { name: 'Announcement volume', exact: true }).focus();
       await page.keyboard.press('Home');
       await page.getByRole('slider', { name: 'Announcement volume', exact: true }).blur();
@@ -52,7 +54,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(state.settings.announcements.loadEnabled, true);
       assert.equal(state.settings.announcements.volumePercent, 0);
       assert.equal(requests.filter((x) => x === 'settings.update').length, 4);
-      const battery = page.getByRole('group', { name: 'Battery announcements', exact: true });
+      const battery = page.getByRole('group', { name: 'Battery voltage', exact: true });
       const on = battery.getByRole('button', { name: 'On', exact: true });
       const off = battery.getByRole('button', { name: 'Off', exact: true });
       assert.equal(await on.getAttribute('aria-pressed'), 'true');
@@ -85,34 +87,33 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await on.click();
       await client.waitForState((s) => s.settings.announcements.batteryChargeEnabled);
       assert.equal(requests.filter((x) => x === 'settings.update').length, beforeBattery + 4);
-      const footpad = page.getByRole('group', { name: 'Footpad announcements', exact: true });
+      const footpad = page
+        .getByRole('group', { name: 'Footpad', exact: true })
+        .getByRole('button', { name: 'On', exact: true });
+      const footpadOff = page
+        .getByRole('group', { name: 'Footpad', exact: true })
+        .getByRole('button', { name: 'Off', exact: true });
       const delay = page.getByRole('slider', { name: 'Footpad delay', exact: true });
-      assert.equal(await delay.inputValue(), '1');
-      await footpad
-        .getByRole('button', { name: 'On', exact: true })
-        .dispatchEvent('pointerdown', { isPrimary: false, button: 0, pointerId: 2 });
-      await footpad
-        .getByRole('button', { name: 'On', exact: true })
-        .dispatchEvent('pointerup', { isPrimary: false, button: 0, pointerId: 2 });
-      await footpad.getByRole('button', { name: 'On', exact: true }).click({ button: 'right' });
-      assert.equal(
-        await footpad.getByRole('button', { name: 'Off', exact: true }).getAttribute('aria-pressed'),
-        'true'
-      );
-      await footpad.getByRole('button', { name: 'On', exact: true }).tap();
+      assert.equal(await delay.count(), 0, 'disabled footpad options are hidden');
+      await footpad.dispatchEvent('pointerdown', { isPrimary: false, button: 0, pointerId: 2 });
+      await footpad.dispatchEvent('pointerup', { isPrimary: false, button: 0, pointerId: 2 });
+      await footpad.click({ button: 'right' });
+      assert.equal(await footpad.getAttribute('aria-pressed'), 'false');
+      await footpad.tap();
       await client.waitForState((s) => s.settings.announcements.footpadEnabled);
       await delay.focus();
       await page.keyboard.press('ArrowRight');
       await page.keyboard.press('ArrowRight');
       await delay.blur();
       await client.waitForState((s) => s.settings.announcements.footpadDelaySeconds === 3);
-      await footpad.getByRole('button', { name: 'Off', exact: true }).focus();
+      await footpadOff.focus();
       await page.keyboard.press('Enter');
       await client.waitForState((s) => !s.settings.announcements.footpadEnabled);
       await page.reload();
+      assert.equal(await delay.count(), 0);
+      await footpad.click();
       await delay.waitFor();
       assert.equal(await delay.inputValue(), '3');
-      await footpad.getByRole('button', { name: 'On', exact: true }).click();
       await client.waitForState((s) => s.settings.announcements.footpadEnabled);
       // Native slider mouse and touch changes stay within whole-second steps.
       await delay.scrollIntoViewIfNeeded();
@@ -198,7 +199,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         });
       });
       await automatic.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
-      await automatic.goto(`${endpoint.origin}/#/settings`);
+      await automatic.goto(`${endpoint.origin}/#/settings/announcements`);
       await automatic.getByRole('slider', { name: 'Announcement volume', exact: true }).waitFor();
       assert.equal(
         await automatic.getByRole('group', { name: 'Lower other audio while speaking', exact: true }).count(),
@@ -219,7 +220,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         .getByText('Could not save announcement settings. Your edits are kept; try again.', { exact: true })
         .waitFor();
       assert.equal(await automatic.getByLabel('Load threshold (%)', { exact: true }).inputValue(), '77');
-      const voiceButton = automatic.getByRole('button', { name: 'Voice settings', exact: true });
+      const voiceSection = automatic.getByRole('region', { name: 'Announcement voice', exact: true });
+      await voiceSection.getByRole('heading', { name: 'Announcement voice', exact: true }).waitFor();
+      const voiceButton = voiceSection.getByRole('button', { name: 'Voice settings', exact: true });
       await voiceButton.click({ button: 'right' });
       assert.equal(voiceRequests, 0);
       await voiceButton.tap();
@@ -231,7 +234,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(voiceRequests, 1);
       assert.equal(await automatic.getByLabel('Load threshold (%)', { exact: true }).inputValue(), '77');
       await voiceButton.focus();
-      await automatic.keyboard.press('Enter');
+      await automatic.waitForFunction(() => {
+        const button = [...document.querySelectorAll('button')].find(
+          (button) => button.textContent?.trim() === 'Voice settings'
+        );
+        return button && !button.disabled;
+      });
+      await voiceButton.press('Enter');
       await automatic
         .getByText(
           'Settings opened. Choose and fully download an offline English voice, then return here to test it.',
@@ -260,7 +269,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(loadAtTest, 81);
       assert.equal((await client.request('state.get', {})).settings.announcements.loadThresholdPercent, 81);
       const beforeInvalid = automaticSaves;
-      const interval = automatic.getByLabel('Speed, load and footpad repeat interval (seconds)', { exact: true });
+      const interval = automatic.getByLabel('Repeat every (seconds)', { exact: true });
       await interval.fill('0');
       await interval.blur();
       assert.equal(automaticSaves, beforeInvalid);
@@ -305,16 +314,17 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await speedInput.blur();
       assert.equal(await speedHint.isVisible(), true);
       await speedInput.fill('0');
-      await page
-        .getByRole('group', { name: 'Units', exact: true })
-        .getByRole('button', { name: 'Imperial', exact: true })
-        .tap();
+      const beforeUnitChange = await client.request('state.get', {});
+      await client.request('settings.update', {
+        expectedRevision: beforeUnitChange.settings.revision,
+        patch: { unitPreference: 'imperial' },
+      });
       await client.waitForState((s) => s.settings.unitPreference === 'imperial');
       await page.getByLabel('Speed threshold (mph)', { exact: true }).waitFor();
       await page.getByText('Enter a speed from 0.001 to 124.274 mph.', { exact: true }).waitFor();
       assert.match(await speedHint.innerText(), /124\.274 mph/);
       const load = page.getByLabel('Load threshold (%)', { exact: true });
-      const repeat = page.getByLabel('Speed, load and footpad repeat interval (seconds)', { exact: true });
+      const repeat = page.getByLabel('Repeat every (seconds)', { exact: true });
       await load.fill('101');
       await load.blur();
       await page.locator('#announcement-load-error').waitFor();
@@ -341,6 +351,19 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       );
       assert.equal(await page.locator('#announcement-interval-error').count(), 0);
       assert.equal(await mphInput.evaluate((input) => input.closest('form')!.dataset.invalidEvents), '0');
+      // Invalid values stay reachable if their alert is disabled before correction.
+      await mphInput.fill('0');
+      await mphInput.blur();
+      await page
+        .getByRole('group', { name: 'Speed', exact: true })
+        .getByRole('button', { name: 'Off', exact: true })
+        .tap();
+      assert.equal(await mphInput.isVisible(), true);
+      await mphInput.fill('20');
+      await mphInput.blur();
+      await client.waitForState((s) => !s.settings.announcements.speedEnabled);
+      await mphInput.waitFor({ state: 'hidden' });
+      assert.equal(await page.getByText('Announcement settings saved.', { exact: true }).count(), 0);
       await automatic.close();
       assert.deepEqual(errors, []);
     } finally {

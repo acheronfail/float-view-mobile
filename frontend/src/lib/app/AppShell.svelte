@@ -20,6 +20,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import SessionExportProgress from '$lib/features/sessions/SessionExportProgress.svelte';
   import SessionPruneProgress from '$lib/features/sessions/SessionPruneProgress.svelte';
+  import { settingsCategory } from '$lib/features/settings/categories';
   import BottomTabBar from './BottomTabBar.svelte';
   import { installHostLayout } from './host-layout';
   import SafetyDisclaimer from './SafetyDisclaimer.svelte';
@@ -232,8 +233,15 @@
         return { title: 'Live board', subtitle: 'Recovering connection…' };
       case '/bms':
         return { title: 'Battery management system', subtitle: 'Recovering connection…' };
+      case '/settings/[category]':
+        return {
+          title: settingsCategory(page.params.category)?.title ?? 'Settings page',
+          titleClass: 'text-xl font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-3xl',
+          backHref: '#/settings',
+          backLabel: 'Settings',
+        };
       case '/settings/licences':
-        return { title: 'Licences and notices', backHref: '#/settings', backLabel: 'Settings' };
+        return { title: 'Licences and notices', backHref: '#/settings/about', backLabel: 'About' };
       case '/sessions/[sessionId]':
         return { title: 'Session', backHref: '#/sessions', backLabel: 'Sessions' };
       case '/sessions/boards/[savedDeviceId]':
@@ -423,11 +431,11 @@
           operation={backendState.snapshot?.sessionOperation}
           oncancel={(operationId) => backendState.cancelSessionPrune(operationId)}
         />
-        {#if page.route.id !== '/settings' && (backendState.error || (backendState.snapshot?.activeConnection?.connectionIssue && !backendState.snapshot.activeConnection.connectionIssue.refloatCompatibility))}
+        {#if !page.route.id?.startsWith('/settings') && (backendState.error || (backendState.snapshot?.activeConnection?.connectionIssue && !backendState.snapshot.activeConnection.connectionIssue.refloatCompatibility))}
           <p class="px-4 py-2 text-sm text-muted">
             If this problem persists, <a
               class="touch-manipulation text-accent underline"
-              href="#/settings"
+              href="#/settings/help"
               use:navigationLink={{ scrollable: true }}>export diagnostic logs in Settings</a
             >.
           </p>

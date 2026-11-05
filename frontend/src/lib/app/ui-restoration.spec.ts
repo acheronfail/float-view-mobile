@@ -39,6 +39,17 @@ describe('UI restoration', () => {
       kind: 'settings',
     });
   });
+  it('maps settings categories to the existing Settings checkpoint', () => {
+    for (const category of ['appearance', 'recording', 'announcements', 'connection', 'data', 'help', 'about']) {
+      const route = uiRoute(
+        '/settings/[category]',
+        { category },
+        new URL(`https://example.test/#/settings/${category}`)
+      );
+      expect(route).toEqual({ kind: 'settings' });
+      expect(uiHref(route)).toBe('#/settings');
+    }
+  });
   it('round trips the session entry route independently of recording state', () => {
     for (const [query, returnTo, savedDeviceId] of [
       ['', 'sessions', null],

@@ -29,7 +29,7 @@
 </script>
 
 <label class="mt-3 block text-sm text-muted">
-  Keep ride open for (minutes)
+  Keep ride open after a break (minutes)
   <input
     class="mt-1 block w-full rounded border border-outline bg-elevated px-3 py-2 text-foreground"
     type="number"

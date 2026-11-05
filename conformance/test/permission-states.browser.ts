@@ -239,7 +239,7 @@ for (const [engineName, engine] of Object.entries({ chromium, webkit })) {
             theme = mode;
             for (const scenario of cases) {
               rows = scenario.rows;
-              await page.goto(`${endpoint.origin}/#/settings`);
+              await page.goto(`${endpoint.origin}/#/settings/connection`);
               await page.locator(`[data-permission="${rows[0]!.permission}"]`).waitFor();
               await page.waitForFunction((mode) => document.documentElement.dataset.theme === mode, theme);
               assert.equal(await page.locator('[data-permission]').count(), rows.length);
@@ -255,14 +255,17 @@ for (const [engineName, engine] of Object.entries({ chromium, webkit })) {
                   unavailable: 'Unavailable',
                 };
                 assert.equal(status.trim(), value.pending ? 'Waiting…' : statuses[value.status]);
-                assert.equal(await card.getByRole('button').count(), value.action ? 1 : 0);
+                assert.equal(await card.locator('button').count(), value.action ? 1 : 0);
                 if (value.action) {
-                  const button = card.getByRole('button');
+                  const button = card.locator('button');
+                  const wasOpen = (await card.getAttribute('open')) !== null;
+                  if (!wasOpen) await card.locator('summary').click();
                   assert.equal(
                     await button.isDisabled(),
                     rows.some((entry) => entry.pending)
                   );
                   assert.ok((await button.boundingBox())!.height >= 44, 'touch target is at least 44px');
+                  if (!wasOpen) await card.locator('summary').click();
                 }
               }
               await capture(

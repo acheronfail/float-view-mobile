@@ -25,7 +25,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         }
       });
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
-      await page.goto(`${endpoint.origin}/#/settings`);
+      await page.goto(`${endpoint.origin}/#/settings/about`);
       const section = page.getByRole('region', { name: 'Open source and licences' });
       await section.waitFor();
       assert.match(await section.innerText(), /Copyright © 2025 acheronfail/);
@@ -61,7 +61,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await button.dispatchEvent('pointerdown', { button: 0, isPrimary: true, pointerId: 2 });
       await button.dispatchEvent('pointercancel', { pointerId: 2 });
       await button.dispatchEvent('pointerup', { button: 0, isPrimary: true, pointerId: 2 });
-      assert.ok(page.url().endsWith('#/settings'));
+      assert.ok(page.url().endsWith('#/settings/about'));
       assert.equal(await page.getByRole('region', { name: 'Project licence', exact: true }).count(), 0);
       await button.tap();
       await page.getByRole('heading', { name: 'Licences and notices', exact: true }).waitFor();
@@ -117,11 +117,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           'expanded notices fit iPad portrait, landscape and a narrow resized window'
         );
       }
-      const back = page.getByRole('link', { name: 'Settings', exact: true });
+      const back = page.getByRole('link', { name: 'About', exact: true });
       await back.focus();
       await page.keyboard.press('Enter');
       await section.waitFor();
-      assert.ok(page.url().endsWith('#/settings'));
+      assert.ok(page.url().endsWith('#/settings/about'));
       // Keyboard opens the route too; native Back returns to Settings.
       await button.focus();
       await page.keyboard.press('Enter');

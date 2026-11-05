@@ -8,7 +8,7 @@ import { ConformanceClient } from '../src/client.ts';
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(
-    `${name}: session storage footers share settings styling and update after deletion`,
+    `${name}: session storage footers remain consistent and update after deletion`,
     { timeout: 60_000 },
     async () => {
       const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
@@ -22,14 +22,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const errors: string[] = [];
         page.on('pageerror', (error) => errors.push(error.message));
         await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
-        await page.goto(`${endpoint.origin}/#/settings`);
-        const version = page.locator('footer[aria-label="Application version"]');
-        await version.waitFor();
-        const footerClass = await version.getAttribute('class');
         await page.goto(`${endpoint.origin}/#/sessions`);
         const storage = page.locator('footer[aria-label="Session storage"]');
         await storage.getByText('Sessions on disk · 308.0 KB', { exact: true }).waitFor();
-        assert.equal(await storage.getAttribute('class'), footerClass);
+        const footerClass = await storage.getAttribute('class');
         const state = await client.request('state.get', {});
         const board = state.savedDevices[0]!;
         await page.goto(`${endpoint.origin}/#/sessions/boards/${board.savedDeviceId}`);

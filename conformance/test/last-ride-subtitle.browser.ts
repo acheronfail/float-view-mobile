@@ -6,7 +6,7 @@ import { startMockServer, stopMockServer, getMockBootstrap } from '../../fronten
 
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
-  test(`${name}: dynamic session and settings subtitles`, { timeout: 60_000 }, async () => {
+  test(`${name}: dynamic session subtitle and quiet Settings header`, { timeout: 60_000 }, async () => {
     const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const browser = await engine.launch();
@@ -32,11 +32,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.getByRole('button', { name: 'Session actions', exact: true }).click();
         await page.getByRole('button', { name: 'Import session', exact: true }).waitFor();
         await page.goto(`${endpoint.origin}/#/settings`);
-        await page.locator('header').getByText('0.60 km tracked across all rides', { exact: true }).waitFor();
-        await page.getByRole('group', { name: 'Units', exact: true }).getByRole('button', { name: 'Imperial' }).click();
-        await page.locator('header').getByText('0.37 mi tracked across all rides', { exact: true }).waitFor();
-        await page.getByRole('group', { name: 'Units', exact: true }).getByRole('button', { name: 'Metric' }).click();
-        await page.locator('header').getByText('0.60 km tracked across all rides', { exact: true }).waitFor();
+        await page.getByRole('navigation', { name: 'Settings categories' }).waitFor();
+        assert.doesNotMatch(await page.locator('header').innerText(), /tracked across|Loading ride totals/);
         assert.deepEqual(errors, []);
         await page.close();
       }

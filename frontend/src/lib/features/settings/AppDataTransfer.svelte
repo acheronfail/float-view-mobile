@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, type Snippet } from 'svelte';
   import { backendState } from '$lib/backend/state.svelte';
   import type { AppImportSummary } from '$lib/backend/contract';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import SectionTitle from '$lib/ui/SectionTitle.svelte';
   import FullScreenOverlay from '$lib/ui/FullScreenOverlay.svelte';
+
+  let { children }: { children?: Snippet } = $props();
 
   let picker: HTMLInputElement;
   let file = $state<File | null>(null);
@@ -43,8 +45,8 @@
   }
 </script>
 
-<section aria-label="App data" class="space-y-3">
-  <SectionTitle title="App data" />
+<section aria-label="Backups" class="space-y-3">
+  <SectionTitle title="Backups" />
   <p class="text-sm text-muted">
     Back up or transfer your sessions, boards, configurations, tunes and preferences in one ZIP.
   </p>
@@ -60,8 +62,7 @@
       class={buttonClass}
       {disabled}
       onpointerdown={(e) => activateFromPointer(e, () => backendState.exportAppData(), { scrollable: true })}
-      onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => backendState.exportAppData())}
-      >Export app data</button
+      onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => backendState.exportAppData())}>Create backup</button
     >
     <button
       bind:this={importButton}
@@ -69,14 +70,14 @@
       class={buttonClass}
       {disabled}
       onpointerdown={(e) => activateFromPointer(e, () => picker.click(), { scrollable: true })}
-      onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => picker.click())}>Import app export</button
+      onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => picker.click())}>Restore backup…</button
     >
     <input
       bind:this={picker}
       type="file"
       accept=".zip,application/zip"
       class="hidden"
-      aria-label="App export ZIP"
+      aria-label="Backup file"
       onchange={(e) => {
         file = e.currentTarget.files?.[0] ?? null;
         e.currentTarget.value = '';
@@ -85,6 +86,23 @@
       }}
     />
   </div>
+  {#if backendState.exportStatus}<p role="status" class="text-sm">{backendState.exportStatus}</p>{/if}
+  {#if summary}
+    <div role="status" class="space-y-1 text-sm">
+      <p>Backup restored.</p>
+      <p>Boards: {summary.boardsAdded} added, {summary.boardsSkipped} already saved.</p>
+      <p>Sessions: {summary.sessionsAdded} added, {summary.sessionsSkipped} already saved.</p>
+      <p>Tunes: {summary.tunesAdded} added, {summary.tunesSkipped} already saved.</p>
+      <p>{summary.settingsImported ? 'Preferences restored.' : 'Your preferences were kept.'}</p>
+    </div>
+  {/if}
+</section>
+
+{@render children?.()}
+
+<section aria-label="Clear app data" class="space-y-3">
+  <SectionTitle title="Clear app data" />
+  <p class="text-sm text-muted">Delete app data on this device and reset preferences.</p>
   <button
     bind:this={clearButton}
     type="button"
@@ -103,22 +121,12 @@
         action = 'clear';
       })}>Clear app data…</button
   >
-  {#if backendState.exportStatus}<p role="status" class="text-sm">{backendState.exportStatus}</p>{/if}
-  {#if summary}
-    <div role="status" class="space-y-1 text-sm">
-      <p>Import complete.</p>
-      <p>Boards: {summary.boardsAdded} added, {summary.boardsSkipped} already saved.</p>
-      <p>Sessions: {summary.sessionsAdded} added, {summary.sessionsSkipped} already saved.</p>
-      <p>Tunes: {summary.tunesAdded} added, {summary.tunesSkipped} already saved.</p>
-      <p>{summary.settingsImported ? 'Preferences imported.' : 'Your preferences were kept.'}</p>
-    </div>
-  {/if}
   {#if cleared}<p role="status" class="text-sm">App data cleared.</p>{/if}
 </section>
 
 {#if action}
   <FullScreenOverlay
-    title={action === 'import' ? 'Import app export' : 'Clear app data'}
+    title={action === 'import' ? 'Restore backup' : 'Clear app data'}
     titleId="app-data-action-title"
     closeLabel="Cancel"
     closeDisabled={running}
@@ -127,10 +135,10 @@
     <div class="space-y-5 py-4">
       {#if running}
         <p role="status">
-          {action === 'import' ? 'Validating and importing your app export…' : 'Clearing app data…'}
+          {action === 'import' ? 'Validating and restoring your backup…' : 'Clearing app data…'}
         </p>
         <progress
-          aria-label={action === 'import' ? 'Importing app export' : 'Clearing app data'}
+          aria-label={action === 'import' ? 'Restoring backup' : 'Clearing app data'}
           class="w-full accent-accent"
         ></progress>
         <p class="text-sm text-muted">Keep the app open until this finishes.</p>
@@ -138,16 +146,16 @@
         <p class="break-all">{file?.name}</p>
         <p>
           New sessions, boards and tunes will be added. Existing sessions, board configurations and tunes will be kept.
-          Importing the same export again skips data you already have.
+          Restoring the same backup again skips data you already have.
         </p>
         <label class="flex min-h-11 items-center gap-3"
-          ><input type="checkbox" bind:checked={applySettings} />Also import preferences</label
+          ><input type="checkbox" bind:checked={applySettings} />Also restore preferences</label
         >
         <button
           type="button"
           class={buttonClass}
           onpointerdown={(e) => activateFromPointer(e, confirm)}
-          onclick={(e) => activateFromKeyboardOrAssistiveClick(e, confirm)}>Import</button
+          onclick={(e) => activateFromKeyboardOrAssistiveClick(e, confirm)}>Restore backup</button
         >
       {:else}
         <p>

@@ -17,7 +17,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         if (name === 'chromium')
           await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
         await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
-        await page.goto(`${endpoint.origin}/#/settings`);
+        await page.goto(`${endpoint.origin}/#/settings/appearance`);
         const theme = page.getByRole('group', { name: 'Theme', exact: true });
         const system = theme.getByRole('button', { name: 'System', exact: true });
         const light = theme.getByRole('button', { name: 'Light', exact: true });
@@ -35,10 +35,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           // Restored focus after pointer dismissal must also stay quiet.
           await system.focus();
           assert.equal(await system.evaluate((el) => getComputedStyle(el).outlineStyle), 'none');
+          await page.goto(`${endpoint.origin}/#/settings/recording`);
           const input = page.locator('input').first();
           await input.tap();
           await input.press('1');
           assert.equal(await input.evaluate((el) => getComputedStyle(el).outlineStyle), 'none');
+          await page.goto(`${endpoint.origin}/#/settings/appearance`);
+          await system.waitFor();
           await page.keyboard.press('Tab');
           await system.focus();
           assert.notEqual(await system.evaluate((el) => getComputedStyle(el).outlineStyle), 'none');

@@ -8,7 +8,7 @@ import { MOCK_BACKEND_PORT, startMockServer, stopMockServer } from './backend-mo
 import { iconClasses } from './src/lib/ui/icon';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { parseVersion } from '../.github/scripts/version';
+import { isNightlyVersion, parseVersion } from '../.github/scripts/version';
 
 let revision: string | null = null;
 try {
@@ -20,7 +20,11 @@ try {
   // Source archives can be built without Git metadata.
 }
 const version = process.env.FLOAT_VIEW_VERSION ?? null;
-if (version !== null) parseVersion(version);
+export function frontendBuildInfo(version: string | null, revision: string | null) {
+  if (version !== null) parseVersion(version);
+  return { version, revision, showRevision: version === null || isNightlyVersion(version) };
+}
+const buildInfo = frontendBuildInfo(version, revision);
 
 export const DEVELOPMENT_PORT = 11002;
 export const MOCK_BACKEND_ORIGIN = `http://127.0.0.1:${MOCK_BACKEND_PORT}`;
@@ -127,7 +131,7 @@ const backendOrigin = selectedBackendOrigin();
 
 export default defineConfig({
   define: {
-    __FLOAT_VIEW_BUILD_INFO__: JSON.stringify({ version, revision }),
+    __FLOAT_VIEW_BUILD_INFO__: JSON.stringify(buildInfo),
   },
   plugins: [
     mockBackend(backendOrigin),

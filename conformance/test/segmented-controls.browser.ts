@@ -47,7 +47,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           });
           server.onMessage((raw) => socket.send(raw));
         });
-        await page.goto(`${endpoint.origin}/#/settings`);
+        await page.goto(`${endpoint.origin}/#/settings/appearance`);
         const theme = page.getByRole('group', { name: 'Theme', exact: true });
         const dark = theme.getByRole('button', { name: 'Dark', exact: true });
         await dark.waitFor();
@@ -103,7 +103,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             });
           }
           await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-          await page.waitForFunction(() => window.scrollY > 0);
+          assert.equal(patches.length, 0, 'drag does not submit');
           await page.evaluate(() => window.scrollTo(0, 0));
           await cdp.detach();
         }
@@ -129,23 +129,6 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(patches.length, 1);
         await dark.tap();
         assert.equal(patches.length, 1);
-        const recording = page.getByRole('group', { name: 'Record ride location', exact: true });
-        const on = recording.getByRole('button', { name: 'On', exact: true });
-        await on.tap();
-        await page.waitForFunction(
-          () =>
-            document
-              .querySelector('[aria-label="Record ride location"] button:last-child')
-              ?.getAttribute('aria-pressed') === 'true'
-        );
-        assert.equal(patches.length, 2);
-        assert.ok((await on.boundingBox())!.height >= 44);
-        assert.notEqual(
-          await on.evaluate((el) => getComputedStyle(el).backgroundColor),
-          await recording
-            .getByRole('button', { name: 'Off', exact: true })
-            .evaluate((el) => getComputedStyle(el).backgroundColor)
-        );
         const output = process.env.FLOAT_VIEW_SCREENSHOTS;
         if (output && name === 'chromium') {
           await mkdir(output, { recursive: true });
@@ -165,16 +148,19 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           () =>
             document.querySelector('[aria-label="Units"] button:last-child')?.getAttribute('aria-pressed') === 'true'
         );
-        assert.equal(patches.length, 4);
+        assert.equal(patches.length, 3);
         if (output && name === 'chromium') {
           await page.waitForTimeout(250);
           await page.screenshot({ path: `${output}/settings-light.png` });
         }
         reject = true;
-        await recording.getByRole('button', { name: 'Off', exact: true }).dispatchEvent('click', { detail: 0 });
+        await page
+          .getByRole('group', { name: 'Units', exact: true })
+          .getByRole('button', { name: 'Metric', exact: true })
+          .dispatchEvent('click', { detail: 0 });
         await page.getByRole('alert').filter({ hasText: 'Settings save failed' }).waitFor();
-        assert.equal(await on.getAttribute('aria-pressed'), 'true');
-        assert.equal(patches.length, 5);
+        assert.equal(await imperial.getAttribute('aria-pressed'), 'true');
+        assert.equal(patches.length, 4);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         assert.deepEqual(errors, []);
       } finally {

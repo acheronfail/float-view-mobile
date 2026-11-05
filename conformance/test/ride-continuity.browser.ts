@@ -121,8 +121,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await homeConfirmation.waitFor({ state: 'hidden' });
       assert.equal((await client.request('state.get', {})).pausedRide?.sessionId, sessionId);
       assert.ok(await homeEnd.evaluate((button) => button === document.activeElement));
-      await page.goto(`${endpoint.origin}/#/settings`);
-      const window = page.getByRole('spinbutton', { name: 'Keep ride open for (minutes)' });
+      await page.goto(`${endpoint.origin}/#/settings/recording`);
+      const window = page.getByRole('spinbutton', { name: 'Keep ride open after a break (minutes)' });
       await window.fill('0');
       await window.blur();
       await page.getByText('Enter a whole number from 1 to 1,440 minutes.').waitFor();

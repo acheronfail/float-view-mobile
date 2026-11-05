@@ -92,6 +92,35 @@
     }
     return guidance[row.guidance];
   }
+  let disclosures = $state<Partial<Record<PermissionRow['permission'], { state: string; open: boolean }>>>({});
+  function permissionState(row: PermissionRow) {
+    return [
+      row.status,
+      row.pending,
+      row.servicesEnabled,
+      row.guidance,
+      row.accuracy,
+      row.scope,
+      row.scan,
+      row.connect,
+      row.optionLabel,
+    ].join(':');
+  }
+  function needsDetails(row: PermissionRow) {
+    return (
+      row.pending ||
+      row.status !== 'granted' ||
+      row.servicesEnabled === false ||
+      row.optionLabel !== null ||
+      (!!row.scan && row.scan !== 'granted') ||
+      (!!row.connect && row.connect !== 'granted') ||
+      (row.guidance !== 'none' && row.guidance !== 'notificationSettings' && row.guidance !== 'liveUpdateSettings')
+    );
+  }
+  function detailsOpen(row: PermissionRow) {
+    const choice = disclosures[row.permission];
+    return choice?.state === permissionState(row) ? choice.open : needsDetails(row);
+  }
   function recover(row: PermissionRow) {
     return backendState.recoverPermission(row);
   }
@@ -104,41 +133,42 @@
       {backendState.permissionError}
     </p>
   {/if}
-  <div class="mt-3 grid gap-3 sm:grid-cols-2">
+  <div class="mt-1 divide-y divide-outline">
     {#each backendState.snapshot?.permissions ?? [] as row (row.permission)}
-      <article
-        class="flex min-w-0 flex-col rounded-xl border border-outline bg-surface"
+      <details
+        class="permission-row min-w-0"
         data-permission={row.permission}
         aria-labelledby={`permission-${row.permission}`}
         aria-busy={row.pending}
+        open={detailsOpen(row)}
+        ontoggle={(event) => {
+          disclosures[row.permission] = { state: permissionState(row), open: event.currentTarget.open };
+        }}
       >
-        <div class="flex-1 space-y-3 p-4">
-          <div class="flex items-start gap-3">
-            <div
-              class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-on-accent-soft"
-            >
-              <Icon name={icons[row.permission]} class="size-5" />
-            </div>
-            <div class="min-w-0 flex-1">
-              <h3 id={`permission-${row.permission}`} class="text-sm font-semibold">{names[row.permission]}</h3>
-              <div class="mt-1.5 flex flex-wrap items-center gap-2">
-                <span
-                  class={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-                    row.pending ? 'bg-accent-soft text-on-accent-soft' : statusStyles[row.status]
-                  }`}
-                  role="status"
-                  data-permission-status
-                >
-                  <Icon
-                    name={row.pending ? 'loader-circle' : statusIcons[row.status]}
-                    class={row.pending ? 'size-3.5 motion-safe:animate-spin' : 'size-3.5'}
-                  />
-                  {row.pending ? 'Waiting…' : statuses[row.status]}
-                </span>
-                {#if row.optional}<span class="text-xs text-muted">Optional</span>{/if}
-              </div>
-            </div>
-          </div>
+        <summary
+          class="flex min-h-16 cursor-pointer list-none items-center gap-3 py-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <Icon name={icons[row.permission]} class="size-5 shrink-0 text-xl text-accent" />
+          <span class="min-w-0 flex-1">
+            <span id={`permission-${row.permission}`} class="block text-sm font-semibold">{names[row.permission]}</span>
+            <span class="mt-1 flex flex-wrap items-center gap-2">
+              <span
+                class={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${row.pending ? 'bg-accent-soft text-on-accent-soft' : statusStyles[row.status]}`}
+                role="status"
+                data-permission-status
+              >
+                <Icon
+                  name={row.pending ? 'loader-circle' : statusIcons[row.status]}
+                  class={row.pending ? 'size-3.5 motion-safe:animate-spin' : 'size-3.5'}
+                />
+                {row.pending ? 'Waiting…' : statuses[row.status]}
+              </span>
+              {#if row.optional}<span class="text-xs text-muted">Optional</span>{/if}
+            </span>
+          </span>
+          <Icon name="chevron-right" class="permission-chevron size-5 shrink-0 text-xl text-muted" />
+        </summary>
+        <div class="space-y-3 pb-4">
           <p class="text-sm leading-5 text-muted">{purposes[row.permission]}</p>
           {#if row.accuracy !== 'unknown' || row.scope !== 'unknown' || (row.scan && (row.scan !== 'granted' || row.connect !== 'granted')) || (row.connect && !row.scan)}
             <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
@@ -169,28 +199,28 @@
               {#if row.optionLabel}<p>Choose “{row.optionLabel}”.</p>{/if}
             </div>
           {/if}
+          {#if row.action}
+            <div class="pt-1">
+              <button
+                type="button"
+                class={`motion-feedback flex min-h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 motion-reduce:transition-none ${
+                  row.action === 'requestPermission'
+                    ? 'bg-accent-fill text-on-accent enabled:hover:brightness-110'
+                    : 'border border-outline bg-surface text-foreground enabled:hover:bg-elevated'
+                }`}
+                disabled={backendState.status !== 'connected' ||
+                  backendState.permissionBusy ||
+                  backendState.snapshot?.permissions.some((p) => p.pending)}
+                onpointerdown={(event) => activateFromPointer(event, () => recover(row), { scrollable: true })}
+                onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => recover(row))}
+              >
+                {#if row.action === 'openSettings'}<Icon name="settings" class="size-4" />{/if}
+                {row.action === 'requestPermission' ? 'Request access' : 'Open settings'}
+              </button>
+            </div>
+          {/if}
         </div>
-        {#if row.action}
-          <div class="border-t border-outline px-4 py-3">
-            <button
-              type="button"
-              class={`motion-feedback flex min-h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 motion-reduce:transition-none ${
-                row.action === 'requestPermission'
-                  ? 'bg-accent-fill text-on-accent enabled:hover:brightness-110'
-                  : 'border border-outline bg-surface text-foreground enabled:hover:bg-elevated'
-              }`}
-              disabled={backendState.status !== 'connected' ||
-                backendState.permissionBusy ||
-                backendState.snapshot?.permissions.some((p) => p.pending)}
-              onpointerdown={(event) => activateFromPointer(event, () => recover(row), { scrollable: true })}
-              onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => recover(row))}
-            >
-              {#if row.action === 'openSettings'}<Icon name="settings" class="size-4" />{/if}
-              {row.action === 'requestPermission' ? 'Request access' : 'Open settings'}
-            </button>
-          </div>
-        {/if}
-      </article>
+      </details>
     {/each}
   </div>
   {#if backendState.status !== 'connected'}
@@ -207,3 +237,12 @@
     </div>
   {/if}
 </section>
+
+<style>
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  .permission-row[open] :global(.permission-chevron) {
+    transform: rotate(90deg);
+  }
+</style>

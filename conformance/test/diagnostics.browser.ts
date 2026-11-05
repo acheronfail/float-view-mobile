@@ -28,7 +28,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       page.on('request', (r) => {
         if (r.url().includes('github.com')) requests.push(r.url());
       });
-      await page.goto(`${endpoint.origin}/#/settings`);
+      await page.goto(`${endpoint.origin}/#/settings/help`);
       const section = page.locator('#diagnostics');
       const open = section.getByRole('button', { name: 'Export logs', exact: true });
       await open.waitFor();

@@ -6,6 +6,7 @@ import { chromium, webkit, type Locator } from 'playwright';
 import { startMockServer, stopMockServer, getMockBootstrap } from '../../frontend/backend-mock/index.ts';
 import { ConformanceClient } from '../src/client.ts';
 import { closedSideLayout } from './support/closed-side-layout.ts';
+import { dispatchEdgeBack } from './support/edge-back.ts';
 import type { HostLayout } from '../../frontend/src/lib/app/host-layout.ts';
 
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
@@ -121,6 +122,33 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.keyboard.press('Escape');
       await settings.tap();
       await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+      const categories = page.getByRole('navigation', { name: 'Settings categories' });
+      for (const slug of ['appearance', 'recording', 'announcements', 'connection', 'data', 'help', 'about']) {
+        const category = categories.locator(`a[href="#/settings/${slug}"]`);
+        await category.tap();
+        const back = page.locator('.app-back-control');
+        await back.waitFor();
+        await insideSide(back);
+        assert.equal(await back.count(), 1, `${slug} has one shared side back button`);
+        assert.equal(await back.getAttribute('href'), '#/settings');
+        if (slug === 'recording' && process.env.FLOAT_VIEW_SCREENSHOTS && name === 'webkit') {
+          await mkdir(process.env.FLOAT_VIEW_SCREENSHOTS, { recursive: true });
+          await page.screenshot({
+            path: `${process.env.FLOAT_VIEW_SCREENSHOTS}/settings-duo-recording.png`,
+            animations: 'disabled',
+          });
+        }
+        assert.deepEqual(
+          await dispatchEdgeBack(page),
+          { consumed: true, navigated: true },
+          `${slug} accepts native edge back`
+        );
+        await categories.waitFor();
+        await category.tap();
+        await back.tap();
+        await categories.waitFor();
+      }
+      await categories.locator('a[href="#/settings/about"]').tap();
       await page.getByRole('link', { name: 'View licences and notices' }).click();
       const back = page.locator('.app-back-control');
       await back.waitFor();
@@ -139,6 +167,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await update(closedSideLayout);
       await page.waitForFunction(() => document.documentElement.dataset.controlsEdge === 'right');
       await page.keyboard.press('Enter');
+      await page.getByRole('heading', { name: 'About', exact: true }).waitFor();
+      await insideSide(back);
+      await back.tap();
       await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
 
       await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'board', exact: true }).click();

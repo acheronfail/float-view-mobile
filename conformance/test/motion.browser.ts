@@ -124,12 +124,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await editor.waitFor({ state: 'hidden' });
       // Exercise rapid tab changes without retaining inert content or recreating a stale modal.
       await page.goto(`${endpoint.origin}/#/settings`);
-      await page.getByRole('group', { name: 'Theme', exact: true }).waitFor();
+      await page.getByRole('navigation', { name: 'Settings categories', exact: true }).waitFor();
       await page.getByRole('link', { name: 'sessions', exact: true }).click();
       await page.getByRole('link', { name: 'settings', exact: true }).click();
-      await page.getByRole('group', { name: 'Theme', exact: true }).waitFor();
+      await page.getByRole('navigation', { name: 'Settings categories', exact: true }).waitFor();
       assert.equal(
-        await page.getByRole('group', { name: 'Theme', exact: true }).evaluate((node) => !!node.closest('[inert]')),
+        await page
+          .getByRole('navigation', { name: 'Settings categories', exact: true })
+          .evaluate((node) => !!node.closest('[inert]')),
         false
       );
       assert.deepEqual(errors, []);

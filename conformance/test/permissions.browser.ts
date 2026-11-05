@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { chromium, webkit } from 'playwright';
 import { startMockServer, stopMockServer, getMockBootstrap } from '../../frontend/backend-mock/index.ts';
+import { ConformanceClient } from '../src/client.ts';
 import { permissionInventory } from '../../frontend/backend-mock/permissions.ts';
 
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
@@ -10,6 +11,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(`${name}: permission inventory and bounded pointer/keyboard recovery`, { timeout: 60_000 }, async () => {
     const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
+    const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
     const browser = await engine.launch();
     try {
       const page = await browser.newPage({ hasTouch: true });
@@ -46,7 +48,35 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         });
       });
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
-      await page.goto(`${endpoint.origin}/#/settings`);
+      await page.goto(`${endpoint.origin}/#/settings/connection`);
+      const bluetooth = page.locator('[data-permission="bluetooth"]');
+      await bluetooth.waitFor();
+      const refreshPermissions = async () => {
+        const state = await client.request('state.get', {});
+        const themePreference = state.settings.themePreference === 'dark' ? 'light' : 'dark';
+        await client.request('settings.update', {
+          expectedRevision: state.settings.revision,
+          patch: { themePreference },
+        });
+        await page.waitForFunction((theme) => document.documentElement.dataset.theme === theme, themePreference);
+      };
+      assert.equal(await bluetooth.getAttribute('open'), null, 'granted permissions start compact');
+      const details = bluetooth.locator('summary');
+      await details.focus();
+      await details.press('Enter');
+      await refreshPermissions();
+      assert.notEqual(await bluetooth.getAttribute('open'), null, 'expanded details survive fresh snapshots');
+      await details.press('Space');
+      await refreshPermissions();
+      assert.equal(await bluetooth.getAttribute('open'), null, 'collapsed details survive fresh snapshots');
+      rows[0] = { ...rows[0]!, status: 'denied', action: 'openSettings', guidance: 'iosSettings' };
+      await refreshPermissions();
+      await bluetooth.getByRole('button', { name: 'Open settings', exact: true }).waitFor();
+      assert.notEqual(await bluetooth.getAttribute('open'), null, 'changed authorization exposes recovery');
+      assert.equal(requests, 0, 'disclosure never requests OS permission');
+      rows[0] = permissionInventory('ios')[0]!;
+      await refreshPermissions();
+      assert.equal(await bluetooth.getAttribute('open'), null);
       const location = page.locator('[data-permission="location"]');
       const button = location.getByRole('button', { name: 'Request access' });
       await button.waitFor();
@@ -96,7 +126,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.match(await notifications.innerText(), /Optional/);
       assert.doesNotMatch(await notifications.innerText(), /Ride location recording/);
       assert.match(await liveUpdates.innerText(), /Allow Notifications first/);
-      assert.equal(await liveUpdates.getByRole('button').count(), 0);
+      assert.equal(await liveUpdates.locator('button').count(), 0);
       const notifyRequest = notifications.getByRole('button', { name: 'Request access' });
       await notifyRequest.dispatchEvent('pointerdown', { button: 2, isPrimary: true, pointerId: 7 });
       await notifyRequest.dispatchEvent('pointerup', { button: 2, isPrimary: true, pointerId: 7 });
@@ -127,20 +157,21 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await location.getByText('Approximate location', { exact: true }).waitFor();
       rows[1] = { ...rows[1]!, pending: true };
       await page.reload();
-      await location.getByRole('button').waitFor();
-      assert.equal(await location.getByRole('button').isDisabled(), true);
+      await location.locator('button').waitFor();
+      assert.equal(await location.locator('button').isDisabled(), true);
       assert.equal(requests, 5);
       rows[1] = { ...rows[1]!, pending: false };
       await page.reload();
-      await location.getByRole('button').waitFor();
+      await location.locator('button').waitFor();
       closeBackend();
       await page.getByRole('button', { name: 'Reconnect', exact: true }).waitFor();
-      assert.equal(await location.getByRole('button').isDisabled(), true);
+      assert.equal(await location.locator('button').isDisabled(), true);
       await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
       await page.waitForFunction(
         () => !document.querySelector<HTMLButtonElement>('[data-permission="location"] button')?.disabled
       );
     } finally {
+      client.close();
       await browser.close();
       await stopMockServer();
     }
@@ -214,9 +245,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('link', { name: 'sessions', exact: true }).click();
       assert.equal(await page.getByRole('alert').count(), 0);
       await page.getByRole('link', { name: 'settings', exact: true }).click();
+      await page.getByText('Permission needs attention', { exact: true }).waitFor();
+      await page.getByRole('link', { name: 'Connection & permissions', exact: false }).click();
       const bluetooth = page.locator('[data-permission="bluetooth"]');
       await bluetooth.getByText('Bluetooth is off.', { exact: true }).waitFor();
       assert.match(await bluetooth.innerText(), /Bluetooth permission is already allowed/);
+      await page.getByRole('link', { name: 'Settings', exact: true }).click();
       await page.getByRole('link', { name: 'connect', exact: true }).click();
       await page.getByRole('heading', { name: 'Bluetooth is off' }).waitFor();
       resume();

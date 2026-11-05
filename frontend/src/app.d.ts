@@ -4,6 +4,7 @@ declare global {
   const __FLOAT_VIEW_BUILD_INFO__: {
     readonly version: string | null;
     readonly revision: string | null;
+    readonly showRevision: boolean;
   };
 
   namespace App {

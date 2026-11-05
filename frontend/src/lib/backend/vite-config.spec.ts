@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { backendProxyOrigin, DEVELOPMENT_PORT, MOCK_BACKEND_ORIGIN, selectedBackendOrigin } from '../../../vite.config';
+import {
+  frontendBuildInfo,
+  backendProxyOrigin,
+  DEVELOPMENT_PORT,
+  MOCK_BACKEND_ORIGIN,
+  selectedBackendOrigin,
+} from '../../../vite.config';
 
 describe('Vite backend selection', () => {
   it('uses the stable mock and Vite ports by default', () => {
@@ -21,5 +27,20 @@ describe('Vite backend selection', () => {
     expect(backendProxyOrigin('http://127.0.0.1:11010', 'http://127.0.0.1:11002')).toBe('http://127.0.0.1:11010');
     expect(backendProxyOrigin(MOCK_BACKEND_ORIGIN, 'http://127.0.0.1:11002')).toBe('http://127.0.0.1:11002');
     expect(backendProxyOrigin('http://127.0.0.1:11010', undefined)).toBeUndefined();
+  });
+});
+
+// Classification uses the same validated version grammar as release tooling.
+describe('About build metadata', () => {
+  it.each([
+    [null, true],
+    ['v1.2.3', false],
+    ['v1.2.3-rc.2', false],
+    ['v1.2.4-nightly.12.gabcdef012345', true],
+  ])('sets revision visibility for %s', (version, showRevision) => {
+    expect(frontendBuildInfo(version, 'abcdef012345')).toEqual({ version, revision: 'abcdef012345', showRevision });
+  });
+  it('rejects malformed versions instead of treating them as releases', () => {
+    expect(() => frontendBuildInfo('v1.2.3-rc.invalid', 'abcdef012345')).toThrow();
   });
 });
