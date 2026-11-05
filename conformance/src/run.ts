@@ -2,6 +2,7 @@ import { directTarget, makeDirectTarget } from '../targets/direct.ts';
 import { InteractiveTelemetrySource } from '../fixture/telemetry.ts';
 import {
   runConformance,
+  runBoardExportConformance,
   runAnnouncementsConformance,
   runConnectionContextConformance,
   runAutoConnectConformance,
@@ -59,19 +60,21 @@ const target =
             ? androidTarget
             : externalTarget(name, `FLOAT_VIEW_${name.toUpperCase()}_WS_URL`);
 const result = await (
-  process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'announcements'
-    ? runAnnouncementsConformance
-    : ['refloat-beta2', 'refloat-beta3'].includes(process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS ?? '')
-      ? runRefloatBetaConformance
-      : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'connection-context'
-        ? runConnectionContextConformance
-        : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'ride-continuity'
-          ? runRideContinuityConformance
-          : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'diagnostics'
-            ? runDiagnosticsConformance
-            : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'auto-connect'
-              ? runAutoConnectConformance
-              : runConformance
+  process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'board-export'
+    ? runBoardExportConformance
+    : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'announcements'
+      ? runAnnouncementsConformance
+      : ['refloat-beta2', 'refloat-beta3'].includes(process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS ?? '')
+        ? runRefloatBetaConformance
+        : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'connection-context'
+          ? runConnectionContextConformance
+          : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'ride-continuity'
+            ? runRideContinuityConformance
+            : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'diagnostics'
+              ? runDiagnosticsConformance
+              : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'auto-connect'
+                ? runAutoConnectConformance
+                : runConformance
 )(target);
 console.log(`Conformance passed: ${result.target} revision=${result.revision}`);
 

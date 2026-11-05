@@ -1197,6 +1197,14 @@ export interface DiagnosticUiError {
   column: number | null;
 }
 
+export interface SessionExportProgress {
+  operationId: string;
+  phase: 'exporting' | 'cancelling' | 'ready' | 'cancelled' | 'failed';
+  completedSessions: number;
+  totalSessions: number;
+  error: string | null;
+}
+
 export interface BackendMethods {
   'diagnostics.list': { params: EmptyParams; result: DiagnosticList };
   'diagnostics.capture': { params: EmptyParams; result: { incidentId: string; capturing: boolean } };
@@ -1328,10 +1336,17 @@ export interface BackendMethods {
   };
   'session.get': { params: { sessionId: string }; result: SessionMetadata };
   'session.export': {
-    // CSV exports are ZIP files containing one CSV.
-    params: { sessionId: string; format: 'float-view-archive' | 'csv' };
+    // Single CSV exports contain one CSV; board exports bundle individual artifacts in one ZIP.
+    params: (
+      | { sessionId: string; savedDeviceId?: never; operationId?: never }
+      | { savedDeviceId: string; sessionId?: never; operationId?: string }
+    ) & {
+      format: 'float-view-archive' | 'csv';
+    };
     result: ExportResult;
   };
+  'session.export.status': { params: { operationId: string }; result: SessionExportProgress };
+  'session.export.cancel': { params: { operationId: string }; result: SessionExportProgress };
   'session.delete': { params: { sessionId: string }; result: Accepted };
   'session.delete.cancel': { params: { operationId: string }; result: SessionOperationState };
   'session.prune.preview': {

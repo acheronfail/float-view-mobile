@@ -8,7 +8,10 @@ import WebSocket from 'ws';
 import { ConformanceClient } from './client.ts';
 
 /** Shared assertions for production HTTP/WS admission and multi-client state. */
-export async function exerciseTransport(endpoint: { url: string; origin: string }) {
+export async function exerciseTransport(
+  endpoint: { url: string; origin: string },
+  afterPresentation?: () => Promise<void>
+) {
   const socketUrl = new URL(endpoint.url);
   const token = socketUrl.searchParams.get('token')!;
   const headers = { Origin: endpoint.origin, 'X-Float-View-Token': token };
@@ -83,6 +86,8 @@ export async function exerciseTransport(endpoint: { url: string; origin: string 
     ).flatMap((page) => page.items);
     const original = sessions.sort((a, b) => b.sampleCount - a.sampleCount)[0];
     assert.ok(original, 'archive fixture requires a completed session');
+    const board = state.savedDevices.find((value) => value.deviceHistoryId === original.deviceHistoryId)!;
+    await exerciseBoardExports(endpoint, archiveClient, board.savedDeviceId, afterPresentation);
     const csvExport = await fetch(endpoint.origin + '/api/session-export', {
       method: 'POST',
       headers,
@@ -203,4 +208,63 @@ export async function exerciseTransport(endpoint: { url: string; origin: string 
         })
     )
   );
+}
+
+export async function exerciseBoardExports(
+  endpoint: { url: string; origin: string },
+  client: ConformanceClient,
+  savedDeviceId: string,
+  afterPresentation?: () => Promise<void>
+) {
+  const token = new URL(endpoint.url).searchParams.get('token')!;
+  const exportUrl = new URL('/api/session-export', endpoint.url.replace(/^ws/, 'http')).href;
+  const headers = { Origin: endpoint.origin, 'X-Float-View-Token': token };
+  for (const format of ['float-view-archive', 'csv'] as const) {
+    const operationId = `export-${format}-${Date.now()}`;
+    const before = (await client.request('state.get', {})).revision;
+    const result = await client.request('session.export', { savedDeviceId, format, operationId });
+    const progress = await client.request('session.export.status', { operationId });
+    assert.equal(progress.phase, 'ready');
+    assert.equal(progress.completedSessions, progress.totalSessions);
+    assert.ok(progress.totalSessions > 0);
+    assert.equal((await client.request('session.export.cancel', { operationId })).phase, 'ready');
+    // Export progress itself does not publish product state. Native OS lifecycle
+    // may independently update state while presenting a picker.
+    assert.ok((await client.request('state.get', {})).revision >= before);
+    assert.ok(result.fileName.endsWith('.zip'));
+    if (result.delivery === 'presented') await afterPresentation?.();
+  }
+  const boardSessions = await client.request('session.list', {
+    savedDeviceId,
+    limit: 100,
+  });
+  for (const format of ['float-view-archive', 'csv'] as const) {
+    const response = await fetch(exportUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ savedDeviceId, format }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/zip');
+    const directory = mkdtempSync(join(tmpdir(), 'float-view-bundle-'));
+    try {
+      const path = join(directory, 'bundle.zip');
+      writeFileSync(path, new Uint8Array(await response.arrayBuffer()));
+      execFileSync('unzip', ['-t', path]);
+      const names = execFileSync('unzip', ['-Z1', path], { encoding: 'utf8' }).trim().split('\n');
+      assert.equal(names.length, boardSessions.items.filter((item) => item.state !== 'active').length);
+      assert.equal(new Set(names).size, names.length);
+      assert.ok(names.every((name) => name.endsWith(format === 'csv' ? '.csv.zip' : '.floatview')));
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+  for (const payload of [{ format: 'csv' }, { sessionId: 'any-session', savedDeviceId, format: 'csv' }]) {
+    const response = await fetch(exportUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 400);
+  }
 }

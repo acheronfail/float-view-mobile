@@ -1,8 +1,8 @@
 //! Correlated file leases and shared bounded worker admission.
 use crate::BackendService;
 use float_view_product_store::{
-    ArchiveExport, ArchiveImport, Error, ExportFormat, FileCancellation, ImportSink, Maintenance,
-    MaintenanceCompletion, MaintenanceWork, Result, StagedFile, limits,
+    ArchiveExport, ArchiveImport, BoardExport, Error, ExportFormat, FileCancellation, ImportSink,
+    Maintenance, MaintenanceCompletion, MaintenanceWork, Result, StagedFile, limits,
 };
 use std::{
     collections::BTreeMap,
@@ -18,6 +18,24 @@ static NEXT: AtomicU64 = AtomicU64::new(1);
 pub(crate) struct Files {
     entries: BTreeMap<u64, Transfer>,
     workers: Arc<AtomicUsize>,
+    export: Option<TrackedExport>,
+}
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportProgress {
+    pub operation_id: String,
+    pub phase: String,
+    pub completed_sessions: usize,
+    pub total_sessions: usize,
+    pub error: Option<String>,
+}
+struct TrackedExport {
+    operation_id: String,
+    transfer_id: u64,
+    completed: Arc<AtomicUsize>,
+    total: usize,
+    phase: &'static str,
+    error: Option<&'static str>,
 }
 struct Transfer {
     owner: u64,
@@ -101,6 +119,7 @@ impl Drop for Files {
 enum FileTask {
     Import(ImportSink),
     Export(Box<ArchiveExport>),
+    BoardExport(Box<BoardExport>, Arc<AtomicUsize>),
 }
 pub struct FileWork {
     id: u64,
@@ -136,6 +155,11 @@ impl FileWork {
                 .map(Box::new)
                 .map(FileValue::Import),
             FileTask::Export(e) => e.run(&self.cancel).map(FileValue::Export),
+            FileTask::BoardExport(e, completed) => e
+                .run_with_progress(&self.cancel, |count| {
+                    completed.store(count, Ordering::Release);
+                })
+                .map(FileValue::Export),
         };
         FileCompletion {
             id: self.id,
@@ -166,6 +190,17 @@ impl MaintenanceJobWork {
             work: self.work.run_with_reclaiming(at_ms, on_reclaiming),
             _permit: self.permit,
         }
+    }
+}
+fn export_error(error: Error) -> &'static str {
+    match error {
+        Error::Full => {
+            "Not enough free storage to prepare this export. Free some space and try again."
+        }
+        Error::Capacity => {
+            "Export limit exceeded or export resources are busy. Bulk ZIPs support up to 2 GiB and 10,000 sessions; each session supports up to 128 MiB. Try CSV or export sessions individually."
+        }
+        _ => "Unable to prepare the export. Your sessions have been preserved. Please try again.",
     }
 }
 impl BackendService {
@@ -258,9 +293,127 @@ impl BackendService {
         format: ExportFormat,
         now_ms: u64,
     ) -> Result<(u64, FileWork)> {
+        self.begin_selected_export(owner, session, format, false, now_ms)
+    }
+    pub fn begin_board_export(
+        &mut self,
+        owner: u64,
+        board: &str,
+        format: ExportFormat,
+        now_ms: u64,
+    ) -> Result<(u64, FileWork)> {
+        self.begin_selected_export(owner, board, format, true, now_ms)
+    }
+    pub fn begin_tracked_board_export(
+        &mut self,
+        owner: u64,
+        board: &str,
+        format: ExportFormat,
+        operation: &str,
+        now_ms: u64,
+    ) -> Result<(u64, FileWork)> {
+        if operation.is_empty()
+            || operation.len() > 128
+            || !operation
+                .bytes()
+                .all(|v| v.is_ascii_alphanumeric() || v == b'-')
+        {
+            return Err(Error::InvalidInput);
+        }
+        if let Some(previous) = self.files.export.as_ref().map(|e| e.operation_id.clone()) {
+            let _ = self.export_progress(&previous, false);
+        }
+        if self.files.export.as_ref().is_some_and(|e| {
+            matches!(e.phase, "exporting" | "cancelling") || e.operation_id == operation
+        }) {
+            return Err(Error::Busy);
+        }
+        let (id, work) = match self.begin_board_export(owner, board, format, now_ms) {
+            Ok(work) => work,
+            Err(error) => {
+                self.files.export = Some(TrackedExport {
+                    operation_id: operation.into(),
+                    transfer_id: 0,
+                    completed: Arc::new(AtomicUsize::new(0)),
+                    total: 0,
+                    phase: "failed",
+                    error: Some(export_error(error)),
+                });
+                return Err(error);
+            }
+        };
+        if let Some(transfer) = self.files.entries.get_mut(&id) {
+            transfer.deadline = now_ms.saturating_add(10 * 60_000);
+        }
+        let FileTask::BoardExport(export, completed) = &work.task else {
+            unreachable!()
+        };
+        self.files.export = Some(TrackedExport {
+            operation_id: operation.into(),
+            transfer_id: id,
+            completed: completed.clone(),
+            total: export.session_count(),
+            phase: "exporting",
+            error: None,
+        });
+        Ok((id, work))
+    }
+    pub fn export_progress(&mut self, operation: &str, cancel: bool) -> Result<ExportProgress> {
+        let tracked = self
+            .files
+            .export
+            .as_mut()
+            .filter(|e| e.operation_id == operation)
+            .ok_or(Error::NotFound)?;
+        if matches!(tracked.phase, "exporting" | "cancelling")
+            && self.files.entries.get(&tracked.transfer_id).is_none_or(
+                |t| matches!(&t.state, State::Working { live, .. } if live.strong_count() == 0),
+            )
+        {
+            tracked.phase = if tracked.phase == "cancelling" {
+                "cancelled"
+            } else {
+                "failed"
+            };
+            self.files.entries.remove(&tracked.transfer_id);
+            tracked.error =
+                (tracked.phase == "failed").then_some("Export interrupted. Please try again.");
+        }
+        if cancel
+            && tracked.phase == "exporting"
+            && let Some(transfer) = self.files.entries.get_mut(&tracked.transfer_id)
+            && let State::Working { cancel, .. } = &transfer.state
+        {
+            cancel.cancel();
+            transfer.cancelled = true;
+            tracked.phase = "cancelling";
+        }
+        Ok(ExportProgress {
+            operation_id: tracked.operation_id.clone(),
+            phase: tracked.phase.into(),
+            completed_sessions: tracked.completed.load(Ordering::Acquire),
+            total_sessions: tracked.total,
+            error: tracked.error.map(str::to_owned),
+        })
+    }
+    fn begin_selected_export(
+        &mut self,
+        owner: u64,
+        selector: &str,
+        format: ExportFormat,
+        board: bool,
+        now_ms: u64,
+    ) -> Result<(u64, FileWork)> {
         let id = self.files.admit()?;
         let permit = self.files.permit()?;
-        let export = self.store.prepare_export(session, format)?;
+        let task = if board {
+            FileTask::BoardExport(
+                Box::new(self.store.prepare_board_export(selector, format)?),
+                Arc::new(AtomicUsize::new(0)),
+            )
+        } else {
+            FileTask::Export(Box::new(self.store.prepare_export(selector, format)?))
+        };
         let cancel = FileCancellation::default();
         let live = Arc::new(());
         self.files.entries.insert(
@@ -280,7 +433,7 @@ impl BackendService {
             id,
             FileWork {
                 id,
-                task: FileTask::Export(Box::new(export)),
+                task,
                 cancel,
                 permit,
                 live,
@@ -292,6 +445,39 @@ impl BackendService {
         completion: FileCompletion,
         now_ms: u64,
     ) -> Result<FileResult> {
+        if let Some(tracked) = self
+            .files
+            .export
+            .as_mut()
+            .filter(|e| e.transfer_id == completion.id)
+        {
+            tracked.error = completion
+                .result
+                .as_ref()
+                .err()
+                .map(|error| export_error(*error));
+            tracked.phase = if self
+                .files
+                .entries
+                .get(&completion.id)
+                .is_some_and(|t| t.cancelled)
+                || matches!(completion.result, Err(Error::Cancelled))
+            {
+                "cancelled"
+            } else if completion.result.is_ok() {
+                "ready"
+            } else {
+                "failed"
+            };
+        }
+        if let Some(tracked) = self
+            .files
+            .export
+            .as_mut()
+            .filter(|e| e.transfer_id == completion.id && e.phase == "cancelled")
+        {
+            tracked.error = None;
+        }
         let mut transfer = self
             .files
             .entries
@@ -700,5 +886,109 @@ mod tests {
         let transfer = other.begin_import_transfer(1, None, 0).unwrap();
         other.expire_file_transfers(IDLE_MS);
         assert!(other.write_import(1, transfer, 0, b"x", 1).is_err());
+    }
+}
+
+#[cfg(test)]
+mod export_progress_tests {
+    use super::*;
+    #[test]
+    fn cancellation_keeps_resources_until_worker_exit_and_progress_is_correlated() {
+        let dir = tempfile_for_export();
+        let mut service = BackendService::open(&dir).unwrap();
+        let mut input = service
+            .store
+            .begin_import(
+                include_bytes!("../../../fixtures/public-baseline/100/recording.floatview").len()
+                    as u64,
+            )
+            .unwrap();
+        for (index, bytes) in
+            include_bytes!("../../../fixtures/public-baseline/100/recording.floatview")
+                .chunks(65_536)
+                .enumerate()
+        {
+            input.write((index * 65_536) as u64, bytes).unwrap();
+        }
+        let archive = input.validate(&FileCancellation::default()).unwrap();
+        service.store.attach_import(archive).unwrap();
+        let board = service.store.boards().unwrap().remove(0).saved_device_id;
+        let (_, work) = service
+            .begin_tracked_board_export(1, &board, ExportFormat::Archive, "first-operation", 0)
+            .unwrap();
+        assert_eq!(
+            service
+                .export_progress("first-operation", false)
+                .unwrap()
+                .completed_sessions,
+            0
+        );
+        assert!(matches!(
+            service.export_progress("other", true),
+            Err(Error::NotFound)
+        ));
+        assert_eq!(
+            service
+                .export_progress("first-operation", true)
+                .unwrap()
+                .phase,
+            "cancelling"
+        );
+        assert_eq!(
+            service
+                .export_progress("first-operation", true)
+                .unwrap()
+                .phase,
+            "cancelling"
+        );
+        assert!(matches!(
+            service.begin_tracked_board_export(1, &board, ExportFormat::Csv, "second-operation", 0),
+            Err(Error::Busy)
+        ));
+        assert!(matches!(
+            service.complete_file_work(work.run(), 1),
+            Err(Error::Cancelled)
+        ));
+        assert_eq!(
+            service
+                .export_progress("first-operation", false)
+                .unwrap()
+                .phase,
+            "cancelled"
+        );
+        let (_, work) = service
+            .begin_tracked_board_export(1, &board, ExportFormat::Archive, "second-operation", 2)
+            .unwrap();
+        assert!(matches!(
+            service.export_progress("first-operation", true),
+            Err(Error::NotFound)
+        ));
+        let completion = work.run();
+        assert_eq!(
+            service
+                .export_progress("second-operation", false)
+                .unwrap()
+                .completed_sessions,
+            1
+        );
+        service.complete_file_work(completion, 3).unwrap();
+        assert_eq!(
+            service
+                .export_progress("second-operation", true)
+                .unwrap()
+                .phase,
+            "ready"
+        );
+        drop(service);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    fn tempfile_for_export() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "float-view-export-progress-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&root).unwrap();
+        root
     }
 }

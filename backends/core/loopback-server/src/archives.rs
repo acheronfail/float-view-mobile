@@ -143,10 +143,15 @@ pub(crate) async fn export(State(app): State<Arc<App>>, request: Request) -> Res
         return status(StatusCode::BAD_REQUEST);
     };
     let p = Params(object);
-    let (Ok(id), Ok(format)) = (p.text("sessionId"), p.text("format")) else {
+    let (Ok((id, board)), Ok(format)) = (p.export_selector(), p.text("format")) else {
         return status(StatusCode::BAD_REQUEST);
     };
-    if p.only(&["sessionId", "format"]).is_err()
+    let operation_id = match p.export_operation(board) {
+        Ok(id) => id,
+        Err(_) => return status(StatusCode::BAD_REQUEST),
+    };
+    if p.only(&["sessionId", "savedDeviceId", "format", "operationId"])
+        .is_err()
         || format != "csv" && format != "float-view-archive"
     {
         return status(StatusCode::BAD_REQUEST);
@@ -170,6 +175,8 @@ pub(crate) async fn export(State(app): State<Arc<App>>, request: Request) -> Res
             client.id,
             Operation::ExportSession {
                 id,
+                board,
+                operation_id,
                 format: format.clone(),
                 present: false,
                 transfer_id: transfer.id,
@@ -221,7 +228,7 @@ pub(crate) async fn export(State(app): State<Arc<App>>, request: Request) -> Res
         [
             (
                 header::CONTENT_TYPE,
-                if format == "csv" {
+                if board || format == "csv" {
                     "application/zip".to_owned()
                 } else {
                     "application/octet-stream".to_owned()

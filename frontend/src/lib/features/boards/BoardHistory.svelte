@@ -5,6 +5,7 @@
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
+  import type { SessionExportFormat } from '$lib/backend/session-export-client';
   import SessionList from '$lib/features/sessions/SessionList.svelte';
   import FullScreenOverlay from '$lib/ui/FullScreenOverlay.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
@@ -70,6 +71,16 @@
           onactivate: (closeMenu: () => void) => openConfigure(closeMenu),
         },
         {
+          label: 'Export all · Float View archives',
+          disabled: backendState.busy || board.summary.sessionCount === 0,
+          onactivate: (closeMenu: () => void) => exportAll(closeMenu, 'float-view-archive'),
+        },
+        {
+          label: 'Export all · CSV ZIPs',
+          disabled: backendState.busy || board.summary.sessionCount === 0,
+          onactivate: (closeMenu: () => void) => exportAll(closeMenu, 'csv'),
+        },
+        {
           label: 'Forget board',
           appearance: 'destructive' as const,
           disabled: active || backendState.busy,
@@ -86,6 +97,12 @@
       void goto('#/sessions', { replaceState: true });
     }
   });
+
+  async function exportAll(closeMenu: () => void, format: SessionExportFormat) {
+    if (backendState.busy || !board || board.summary.sessionCount === 0) return;
+    closeMenu();
+    await backendState.exportBoardSessions(savedDeviceId, format);
+  }
 
   function openConfigure(closeMenu: () => void) {
     closeMenu();
@@ -148,6 +165,14 @@
         <p class="text-xl">{formatDate(board.summary.mostRecentSessionAt)}</p>
       </div>
     </section>
+
+    {#if backendState.error}
+      <p role="alert" class="text-warning">{backendState.error}</p>
+    {/if}
+    {#if backendState.exportStatus}
+      <p role="status" class="text-muted">{backendState.exportStatus}</p>
+    {/if}
+    <p class="text-sm text-muted">Export all saves one ZIP. Active recordings are skipped.</p>
 
     <section aria-label="Board sessions" class="space-y-3">
       <h2 class="text-xl font-semibold">Sessions</h2>

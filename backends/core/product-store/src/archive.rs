@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{
     fs::{self, File},
+    io::{Read, Write},
     sync::Arc,
 };
 const META: &str =
@@ -179,31 +180,34 @@ pub enum ExportFormat {
     Csv,
 }
 pub struct ArchiveExport {
-    source: SessionLease,
     stage: StagedFile,
+    session: PreparedExport,
+}
+struct PreparedExport {
+    source: SessionLease,
     manifest: Manifest,
     format: ExportFormat,
     gps: bool,
     name_prefix: String,
 }
 impl ArchiveExport {
-    pub fn run(mut self, cancel: &FileCancellation) -> Result<StagedFile> {
+    pub fn run(self, cancel: &FileCancellation) -> Result<StagedFile> {
+        let Self { mut stage, session } = self;
         cancel.check()?;
-        root::require_kind(self.source.path(), false)?;
+        root::require_kind(session.source.path(), false)?;
         let source =
-            Connection::open_with_flags(self.source.path(), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            Connection::open_with_flags(session.source.path(), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         configure(&source, cancel)?;
         // Name the staging file before encoding so the CSV entry shares its basename.
-        let timestamp = export_timestamp(&source, self.manifest.started_at_ms)?;
-        let destination = self
-            .stage
+        let timestamp = export_timestamp(&source, session.manifest.started_at_ms)?;
+        let destination = stage
             .path
-            .with_file_name(format!("{}-{timestamp}.tmp", self.name_prefix));
-        fs::rename(&self.stage.path, &destination)?;
-        self.stage.path = destination;
-        match self.format {
+            .with_file_name(format!("{}-{timestamp}.tmp", session.name_prefix));
+        fs::rename(&stage.path, &destination)?;
+        stage.path = destination;
+        match session.format {
             ExportFormat::Archive => {
-                let mut dest = open(&self.stage, cancel)?;
+                let mut dest = open(&stage, cancel)?;
                 {
                     let backup = Backup::new(&source, &mut dest)?;
                     loop {
@@ -213,32 +217,32 @@ impl ArchiveExport {
                             StepResult::More => {}
                             _ => return Err(Error::Busy),
                         }
-                        if self.stage.len()? > limits::MAX_EXPORT_BYTES {
+                        if stage.len()? > limits::MAX_EXPORT_BYTES {
                             return Err(Error::Capacity);
                         }
                     }
                 }
                 dest.execute_batch(META)?;
-                dest.execute("INSERT INTO float_view_archive_metadata(key,value) VALUES ('format_version',?),('session',?)",params![ARCHIVE_FORMAT_VERSION,json(&self.manifest,MAX_MANIFEST)?])?;
+                dest.execute("INSERT INTO float_view_archive_metadata(key,value) VALUES ('format_version',?),('session',?)",params![ARCHIVE_FORMAT_VERSION,json(&session.manifest,MAX_MANIFEST)?])?;
                 dest.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
                 dest.close().map_err(|(_, e)| Error::from(e))?;
             }
-            ExportFormat::Csv => crate::csv::write(&source, &self.stage, self.gps, cancel)?,
+            ExportFormat::Csv => crate::csv::write(&source, &stage, session.gps, cancel)?,
         }
         cancel.check()?;
-        if self.stage.len()? > limits::MAX_EXPORT_BYTES {
+        if stage.len()? > limits::MAX_EXPORT_BYTES {
             return Err(Error::Capacity);
         }
-        let suffix = if self.format == ExportFormat::Archive {
+        let suffix = if session.format == ExportFormat::Archive {
             "floatview"
         } else {
             "csv.zip"
         };
-        let destination = self.stage.path.with_extension(suffix);
-        fs::rename(&self.stage.path, &destination)?;
-        self.stage.path = destination;
-        File::open(&self.stage.path)?.sync_all()?;
-        Ok(self.stage)
+        let destination = stage.path.with_extension(suffix);
+        fs::rename(&stage.path, &destination)?;
+        stage.path = destination;
+        File::open(&stage.path)?.sync_all()?;
+        Ok(stage)
     }
 }
 fn export_timestamp(db: &Connection, started_at_ms: i64) -> Result<String> {
@@ -278,8 +282,127 @@ fn export_name_prefix(name: &str) -> String {
     }
 }
 
+fn require_export_space(root: &std::path::Path, needed: u64) -> Result<()> {
+    let space = rustix::fs::statvfs(root).map_err(|_| Error::Io)?;
+    check_export_space(space.f_bavail.saturating_mul(space.f_frsize), needed)
+}
+fn check_export_space(available: u64, needed: u64) -> Result<()> {
+    if available < needed {
+        Err(Error::Full)
+    } else {
+        Ok(())
+    }
+}
+
+/// One output and one reusable scratch file; session bytes never accumulate in memory.
+pub struct BoardExport {
+    sessions: Vec<PreparedExport>,
+    stage: StagedFile,
+    scratch: StagedFile,
+}
+impl BoardExport {
+    pub fn session_count(&self) -> usize {
+        self.sessions.len()
+    }
+    pub fn run(self, cancel: &FileCancellation) -> Result<StagedFile> {
+        self.run_with_progress(cancel, |_| {})
+    }
+    pub fn run_with_progress(
+        self,
+        cancel: &FileCancellation,
+        progress: impl Fn(usize),
+    ) -> Result<StagedFile> {
+        let Self {
+            sessions,
+            mut stage,
+            mut scratch,
+        } = self;
+        cancel.check()?;
+        let prefix = &sessions.first().ok_or(Error::NotFound)?.name_prefix;
+        let kind = if sessions[0].format == ExportFormat::Csv {
+            "csv"
+        } else {
+            "archives"
+        };
+        let destination = stage
+            .path
+            .with_file_name(format!("{prefix}-all-sessions-{kind}.zip"));
+        fs::rename(&stage.path, &destination)?;
+        stage.path = destination;
+        let mut output = zip::ZipWriter::new(File::create(stage.path())?);
+        let mut budget = 0_u64;
+        let mut buffer = [0_u8; 65_536];
+        for (index, session) in sessions.into_iter().enumerate() {
+            cancel.check()?;
+            require_export_space(
+                &stage.root,
+                session
+                    .source
+                    .path()
+                    .metadata()?
+                    .len()
+                    .saturating_mul(2)
+                    .saturating_add(limits::EXPORT_FREE_SPACE_HEADROOM),
+            )?;
+            scratch = ArchiveExport {
+                stage: scratch,
+                session,
+            }
+            .run(cancel)?;
+            // Include a conservative bound for each ZIP local/central header and filename.
+            budget = budget
+                .checked_add(scratch.len()?)
+                .and_then(|v| v.checked_add(512))
+                .filter(|v| *v <= limits::MAX_BOARD_EXPORT_BYTES)
+                .ok_or(Error::Capacity)?;
+            let name = scratch
+                .path()
+                .file_name()
+                .and_then(|v| v.to_str())
+                .ok_or(Error::UnsafePath)?;
+            output
+                .start_file(
+                    format!("{:05}-{name}", index + 1),
+                    zip::write::SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Stored),
+                )
+                .map_err(|_| Error::Io)?;
+            let mut input = File::open(scratch.path())?;
+            loop {
+                cancel.check()?;
+                let count = input.read(&mut buffer)?;
+                if count == 0 {
+                    break;
+                }
+                output.write_all(&buffer[..count])?;
+            }
+            drop(input);
+            // SQLite archives must start with an empty file on the next iteration.
+            File::create(scratch.path())?;
+            progress(index + 1);
+        }
+        cancel.check()?;
+        output.finish().map_err(|_| Error::Io)?.sync_all()?;
+        if stage.len()? > limits::MAX_BOARD_EXPORT_BYTES {
+            return Err(Error::Capacity);
+        }
+        Ok(stage)
+    }
+}
+
 impl ProductStore {
     pub fn prepare_export(&self, id: &str, format: ExportFormat) -> Result<ArchiveExport> {
+        Ok(ArchiveExport {
+            session: self.prepare_export_source(id, format, false)?,
+            stage: self.stage(true, limits::MAX_EXPORT_BYTES * 2)?,
+        })
+    }
+    fn prepare_export_source(
+        &self,
+        id: &str,
+        format: ExportFormat,
+        bulk: bool,
+    ) -> Result<PreparedExport> {
         let s = self.session(id)?;
         if s.state == "active" {
             return Err(Error::ActiveSession);
@@ -317,17 +440,68 @@ impl ProductStore {
             max_duty_cycle: s.max_duty_cycle,
         };
         manifest.validate()?;
-        let source = self.lease_session(id)?;
+        let source = if bulk {
+            self.lease_bulk_export_session(id)?
+        } else {
+            self.lease_session(id)?
+        };
         if source.path().metadata()?.len() > limits::MAX_EXPORT_BYTES {
             return Err(Error::Capacity);
         }
-        Ok(ArchiveExport {
+        Ok(PreparedExport {
             source,
-            stage: self.stage(true, limits::MAX_EXPORT_BYTES * 2)?,
             manifest,
             format,
             gps: self.settings()?.include_gps_location_when_exporting,
             name_prefix: export_name_prefix(&board_name),
+        })
+    }
+    pub fn prepare_board_export(&self, id: &str, format: ExportFormat) -> Result<BoardExport> {
+        let board = self.board(id)?;
+        let mut statement = self.catalog.prepare(
+            "SELECT session_id FROM session_catalog WHERE device_history_id=? AND pending_delete=0 AND state!='active' ORDER BY started_at_ms,session_id LIMIT ?"
+        )?;
+        let ids = statement
+            .query_map(
+                params![
+                    board.device_history_id,
+                    limits::MAX_BOARD_EXPORT_SESSIONS + 1
+                ],
+                |r| r.get::<_, String>(0),
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        if ids.is_empty() {
+            return Err(Error::NotFound);
+        }
+        if ids.len() > limits::MAX_BOARD_EXPORT_SESSIONS {
+            return Err(Error::Capacity);
+        }
+        let sessions = ids
+            .iter()
+            .map(|id| self.prepare_export_source(id, format, true))
+            .collect::<Result<Vec<_>>>()?;
+        let sizes = sessions
+            .iter()
+            .map(|s| {
+                s.source
+                    .path()
+                    .metadata()
+                    .map(|m| m.len())
+                    .map_err(Error::from)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let estimated = sizes
+            .iter()
+            .sum::<u64>()
+            .saturating_mul(2)
+            .min(limits::MAX_BOARD_EXPORT_BYTES)
+            .saturating_add(sizes.iter().max().copied().unwrap_or(0).saturating_mul(2))
+            .saturating_add(limits::EXPORT_FREE_SPACE_HEADROOM);
+        require_export_space(&self.root, estimated)?;
+        Ok(BoardExport {
+            sessions,
+            stage: self.stage(true, limits::MAX_BOARD_EXPORT_BYTES)?,
+            scratch: self.stage(true, limits::MAX_EXPORT_BYTES * 2)?,
         })
     }
     /// A short owner transaction attaches a validated, service-issued file.
@@ -482,5 +656,16 @@ mod export_name_tests {
         ] {
             assert_eq!(export_timestamp(&db, ms).unwrap(), expected);
         }
+    }
+}
+
+#[cfg(test)]
+mod disk_admission_tests {
+    use super::*;
+    #[test]
+    fn insufficient_space_is_rejected_at_the_estimated_boundary() {
+        assert_eq!(check_export_space(99, 100), Err(Error::Full));
+        assert_eq!(check_export_space(100, 100), Ok(()));
+        assert_eq!(check_export_space(101, 100), Ok(()));
     }
 }

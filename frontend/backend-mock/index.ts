@@ -21,7 +21,7 @@ import {
   type ReferenceEvent,
   type ReferenceSample,
 } from '../src/lib/backend/session-reference.ts';
-import { gzip } from 'node:zlib';
+import { gzip, crc32 } from 'node:zlib';
 import { promisify } from 'node:util';
 
 export const MOCK_BACKEND_PORT = 11003;
@@ -98,24 +98,72 @@ app.post('/api/session-export', (request, response) => {
     bytes += chunk.byteLength;
     if (bytes <= 16_384) chunks.push(chunk);
   });
-  request.on('end', () => {
+  request.on('end', async () => {
     if (bytes > 16_384) {
       response.status(413).end();
       return;
     }
     try {
-      const payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { sessionId?: unknown; format?: unknown };
-      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
+      const payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
+      const hasBoard = Object.hasOwn(payload, 'savedDeviceId');
+      const selector = hasBoard ? payload.savedDeviceId : payload.sessionId;
       const format = payload.format === 'csv' || payload.format === 'float-view-archive' ? payload.format : undefined;
-      if (!sessionId || !format) {
+      if (
+        (Object.hasOwn(payload, 'operationId') &&
+          (!hasBoard ||
+            typeof payload.operationId !== 'string' ||
+            !/^[a-zA-Z0-9-]{1,128}$/.test(payload.operationId))) ||
+        typeof selector !== 'string' ||
+        !selector ||
+        !format ||
+        hasBoard === Object.hasOwn(payload, 'sessionId') ||
+        Object.keys(payload).some((key) => !['sessionId', 'savedDeviceId', 'format', 'operationId'].includes(key))
+      ) {
         response.status(400).end();
         return;
       }
-      if (!activeMockBackend?.hasSession(sessionId)) {
+      const sessions = hasBoard
+        ? activeMockBackend?.boardExportSessions(selector)
+        : activeMockBackend?.hasSession(selector)
+          ? [selector]
+          : null;
+      if (!sessions) {
         response.status(404).end();
         return;
       }
-      const exported = createMockExport(sessionId, format, activeMockBackend.archiveIdentity(sessionId));
+      if (!sessions.length || sessions.length > 10_000) {
+        response.status(400).end();
+        return;
+      }
+      const backend = activeMockBackend!;
+      const operationId = typeof payload.operationId === 'string' ? payload.operationId : undefined;
+      if (operationId && !backend.beginBoardExportProgress(operationId, selector)) {
+        response.status(400).end();
+        return;
+      }
+      const artifacts: ReturnType<typeof createMockExport>[] = [];
+      for (const [index, sessionId] of sessions.entries()) {
+        if (operationId) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          if (!backend.advanceBoardExport(operationId, index + 1)) {
+            response.status(400).end();
+            return;
+          }
+        }
+        artifacts.push(createMockExport(sessionId, format, backend.archiveIdentity(sessionId)));
+      }
+      const exported = hasBoard
+        ? {
+            fileName: `float-view-all-sessions-${format}.zip`,
+            contentType: 'application/zip',
+            body: storedZip(
+              artifacts.map((artifact, index) => ({
+                name: `${String(index + 1).padStart(5, '0')}-${artifact.fileName}`,
+                body: artifact.body,
+              }))
+            ),
+          }
+        : artifacts[0]!;
       response.set({
         'Content-Type': exported.contentType,
         'Content-Disposition': `attachment; filename="${exported.fileName}"`,
@@ -488,6 +536,40 @@ export function getMockBootstrap(port: number) {
     origin: expectedOrigin,
     platform: 'web' as const,
   };
+}
+
+function storedZip(entries: { name: string; body: Buffer }[]): Buffer {
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(crc32(entry.body), 14);
+    local.writeUInt32LE(entry.body.length, 18);
+    local.writeUInt32LE(entry.body.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    local.copy(central, 16, 14, 26);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, name, entry.body);
+    centrals.push(central, name);
+    offset += local.length + name.length + entry.body.length;
+  }
+  const directory = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
 }
 
 function createMockExport(

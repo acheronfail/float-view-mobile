@@ -68,18 +68,7 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
     productionBluetooth: true,
     prepareSuite,
     prepareLocation,
-    async verifyFilePresentation() {
-      const deadline = performance.now() + 5_000;
-      while (performance.now() < deadline) {
-        const activities = adbOutput(deviceSerial, 'shell', 'dumpsys', 'activity', 'activities');
-        if (androidDocumentPickerIsResumed(activities)) {
-          await dismissAndroidFilePicker(deviceSerial);
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      throw new Error('Android scoped save picker did not appear');
-    },
+    verifyFilePresentation: () => verifyAndroidFilePresentation(deviceSerial),
     async start() {
       await prepareSuite();
       adb(deviceSerial, 'shell', 'am', 'force-stop', applicationId);
@@ -181,6 +170,7 @@ export function makeAndroidTarget(configuredSerial?: string, replay?: SpeechRepl
       await fixture?.close();
     },
     endpoint: bootstrap,
+    verifyFilePresentation: () => verifyAndroidFilePresentation(serial),
     async background() {
       adb(serial, 'shell', 'input', 'keyevent', 'KEYCODE_HOME');
       await waitForAndroidBackground(serial);
@@ -250,6 +240,19 @@ function adbBestEffort(serial: string, ...args: string[]) {
   try {
     execFileSync('adb', ['-s', serial, ...args], { stdio: 'ignore' });
   } catch {}
+}
+
+async function verifyAndroidFilePresentation(serial: string) {
+  const deadline = performance.now() + 5_000;
+  while (performance.now() < deadline) {
+    const activities = adbOutput(serial, 'shell', 'dumpsys', 'activity', 'activities');
+    if (androidDocumentPickerIsResumed(activities)) {
+      await dismissAndroidFilePicker(serial);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('Android scoped save picker did not appear');
 }
 
 async function dismissAndroidFilePicker(serial: string) {

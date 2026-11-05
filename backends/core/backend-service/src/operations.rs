@@ -129,6 +129,8 @@ pub enum Operation {
     },
     ExportSession {
         id: String,
+        board: bool,
+        operation_id: Option<String>,
         format: String,
         present: bool,
         transfer_id: u64,

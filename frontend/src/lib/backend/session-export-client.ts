@@ -1,5 +1,6 @@
 import { reportSessionRequestFailure } from './request-failures';
 import { bootstrapSessionExportUrl, type BootstrapDocument } from './bootstrap';
+import type { BackendParams } from './contract';
 
 export type SessionExportFormat = 'float-view-archive' | 'csv';
 
@@ -23,10 +24,27 @@ export class SessionExportClient {
   }
 
   async download(sessionId: string, format: SessionExportFormat): Promise<SessionExportDownload> {
+    return this.downloadSelected({ sessionId, format });
+  }
+
+  async downloadBoard(
+    savedDeviceId: string,
+    format: SessionExportFormat,
+    operationId?: string,
+    signal?: AbortSignal
+  ): Promise<SessionExportDownload> {
+    return this.downloadSelected({ savedDeviceId, format, ...(operationId ? { operationId } : {}) }, signal);
+  }
+
+  private async downloadSelected(
+    selector: BackendParams<'session.export'>,
+    signal?: AbortSignal
+  ): Promise<SessionExportDownload> {
     return reportSessionRequestFailure(async () => {
       const response = await this.fetcher(this.endpoint, {
         method: 'POST',
-        body: JSON.stringify({ sessionId, format }),
+        signal,
+        body: JSON.stringify(selector),
         cache: 'no-store',
         headers: {
           Accept: 'application/octet-stream, application/zip',
@@ -38,11 +56,13 @@ export class SessionExportClient {
       return {
         fileName: fileNameFromContentDisposition(
           response.headers.get('Content-Disposition'),
-          fallbackFileName(sessionId, format)
+          'savedDeviceId' in selector
+            ? `float-view-all-sessions.${selector.format}.zip`
+            : fallbackFileName(selector.sessionId!, selector.format)
         ),
         blob: await response.blob(),
       };
-    });
+    }, signal);
   }
 }
 

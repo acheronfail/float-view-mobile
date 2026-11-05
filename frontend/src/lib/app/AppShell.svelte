@@ -17,6 +17,7 @@
   import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
   import { page } from '$app/state';
   import { backendState } from '$lib/backend/state.svelte';
+  import SessionExportProgress from '$lib/features/sessions/SessionExportProgress.svelte';
   import SessionPruneProgress from '$lib/features/sessions/SessionPruneProgress.svelte';
   import BottomTabBar from './BottomTabBar.svelte';
   import { installHostLayout } from './host-layout';
@@ -390,6 +391,7 @@
       {/if}
     </div>
   </div>
+  <SessionExportProgress />
   <BottomTabBar routeId={page.route.id} connection={backendState.snapshot?.activeConnection} />
 </main>
 

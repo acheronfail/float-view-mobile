@@ -486,7 +486,11 @@ impl Diagnostics {
 }
 impl BackendService {
     pub fn record_operation_failure(&mut self, method: &str, failure: &Failure) {
-        if method.starts_with("diagnostics.") {
+        if method.starts_with("diagnostics.")
+            || (matches!(method, "session.export.status" | "session.export.cancel")
+                && matches!(failure, Failure::NotFound))
+        {
+            // A progress poll may precede HTTP export registration.
             return;
         }
         // Method strings come from untrusted envelopes; retain only known API

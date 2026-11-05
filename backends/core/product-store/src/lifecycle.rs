@@ -15,11 +15,13 @@ pub(crate) type Leases = Arc<Mutex<BTreeMap<String, LeaseCount>>>;
 #[derive(Default)]
 pub(crate) struct LeaseCount {
     pub readers: usize,
+    pub bulk_readers: usize,
     pub exclusive: bool,
 }
 /// A worker retains this lease until its file access has actually ended.
 pub struct SessionLease {
     id: String,
+    bulk: bool,
     path: PathBuf,
     leases: Leases,
     _root_lock: crate::root::RootLock,
@@ -35,6 +37,9 @@ impl Drop for SessionLease {
             && let Some(n) = leases.get_mut(&self.id)
         {
             n.readers -= 1;
+            if self.bulk {
+                n.bulk_readers -= 1;
+            }
             if n.readers == 0 {
                 leases.remove(&self.id);
             }
@@ -46,9 +51,36 @@ impl ProductStore {
         self.acquire_session_lease(id, false)
     }
     pub(crate) fn acquire_session_lease(&self, id: &str, exclusive: bool) -> Result<SessionLease> {
+        self.acquire_session_lease_kind(id, exclusive, false)
+    }
+    pub(crate) fn lease_bulk_export_session(&self, id: &str) -> Result<SessionLease> {
+        self.acquire_session_lease_kind(id, false, true)
+    }
+    fn acquire_session_lease_kind(
+        &self,
+        id: &str,
+        exclusive: bool,
+        bulk: bool,
+    ) -> Result<SessionLease> {
         let path = self.session_path(id)?;
         let mut leases = self.leases.lock().map_err(|_| Error::Database)?;
-        if leases.values().map(|n| n.readers).sum::<usize>() >= 6 {
+        let admitted = leases
+            .values()
+            .map(|n| {
+                if bulk {
+                    n.bulk_readers
+                } else {
+                    n.readers - n.bulk_readers
+                }
+            })
+            .sum::<usize>();
+        if admitted
+            >= if bulk {
+                limits::MAX_BOARD_EXPORT_SESSIONS
+            } else {
+                6
+            }
+        {
             return Err(Error::Capacity);
         }
         if leases.get(id).is_some_and(|n| exclusive || n.exclusive) {
@@ -56,8 +88,12 @@ impl ProductStore {
         }
         let count = leases.entry(id.into()).or_default();
         count.readers += 1;
+        if bulk {
+            count.bulk_readers += 1;
+        }
         count.exclusive = exclusive;
         Ok(SessionLease {
+            bulk,
             id: id.into(),
             path,
             leases: self.leases.clone(),

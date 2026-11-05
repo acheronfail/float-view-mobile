@@ -883,3 +883,222 @@ fn connection_context_alone_does_not_keep_an_unridden_session() {
     ));
     assert!(!path.exists());
 }
+
+#[test]
+fn board_bundles_include_all_pages_skip_active_and_keep_collision_free_individual_exports() {
+    let (_dir, mut store, first) = setup();
+    let board = store.boards().unwrap().remove(0);
+    // Same timestamp deliberately gives every artifact the same original basename.
+    for _ in 0..51 {
+        let session = store
+            .create_session(&board.saved_device_id, 1, u64::MAX)
+            .unwrap();
+        let mut writer =
+            SessionWriter::open(store.session_path(&session.session_id).unwrap()).unwrap();
+        let mut point = sample(1, 1000);
+        point.ride_state = RideState::Riding;
+        writer.append_samples(&[point]).unwrap();
+        writer.close().unwrap();
+        store
+            .close_session(&session.session_id, 100_000, "disconnect")
+            .unwrap();
+    }
+    let other = store
+        .ensure_board("other", Some("Other"), Some(&[2; 12]), 1)
+        .unwrap();
+    let unrelated = store
+        .create_session(&other.saved_device_id, 1, u64::MAX)
+        .unwrap();
+    let mut writer =
+        SessionWriter::open(store.session_path(&unrelated.session_id).unwrap()).unwrap();
+    let mut point = sample(1, 1000);
+    point.ride_state = RideState::Riding;
+    writer.append_samples(&[point]).unwrap();
+    writer.close().unwrap();
+    store
+        .close_session(&unrelated.session_id, 100_000, "disconnect")
+        .unwrap();
+    let active = store
+        .create_session(&board.saved_device_id, 1, u64::MAX)
+        .unwrap();
+    for format in [ExportFormat::Archive, ExportFormat::Csv] {
+        let ordinary = (0..6)
+            .map(|_| store.lease_session(&first).unwrap())
+            .collect::<Vec<_>>();
+        assert!(matches!(store.lease_session(&first), Err(Error::Capacity)));
+        let output = store
+            .prepare_board_export(&board.saved_device_id, format)
+            .unwrap()
+            .run(&FileCancellation::default())
+            .unwrap();
+        let mut zip = zip::ZipArchive::new(fs::File::open(output.path()).unwrap()).unwrap();
+        assert_eq!(zip.len(), 52);
+        let mut names = std::collections::BTreeSet::new();
+        for index in 0..zip.len() {
+            let mut entry = zip.by_index(index).unwrap();
+            assert!(names.insert(entry.name().to_owned()));
+            assert!(!entry.name().contains('/'));
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).unwrap();
+            if format == ExportFormat::Archive {
+                assert!(entry.name().ends_with(".floatview"));
+                assert!(bytes.starts_with(b"SQLite format 3"));
+                // Each inner archive still goes through the established importer.
+                let mut sink = store.begin_import(bytes.len() as u64).unwrap();
+                for (index, chunk) in bytes.chunks(65_536).enumerate() {
+                    sink.write((index * 65_536) as u64, chunk).unwrap();
+                }
+                drop(sink.validate(&FileCancellation::default()).unwrap());
+            } else {
+                assert!(entry.name().ends_with(".csv.zip"));
+                let inner = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+                assert_eq!(inner.len(), 1);
+            }
+        }
+        drop(zip);
+        drop(output);
+        drop(ordinary);
+        assert!(store.session(&first).is_ok());
+        assert_eq!(store.session(&active.session_id).unwrap().state, "active");
+    }
+}
+
+#[test]
+fn board_export_empty_unknown_cancelled_and_failed_work_release_staging_and_leases() {
+    let (_dir, mut store, id) = setup();
+    let board = store.boards().unwrap().remove(0);
+    let empty = store
+        .ensure_board("empty", Some("Empty"), Some(&[3; 12]), 1)
+        .unwrap();
+    assert!(matches!(
+        store.prepare_board_export(&empty.saved_device_id, ExportFormat::Archive),
+        Err(Error::NotFound)
+    ));
+    assert!(matches!(
+        store.prepare_board_export("missing", ExportFormat::Archive),
+        Err(Error::NotFound)
+    ));
+    let work = store
+        .prepare_board_export(&board.saved_device_id, ExportFormat::Archive)
+        .unwrap();
+    let cancel = FileCancellation::default();
+    cancel.cancel();
+    assert!(matches!(work.run(&cancel), Err(Error::Cancelled)));
+    let work = store
+        .prepare_board_export(&board.saved_device_id, ExportFormat::Archive)
+        .unwrap();
+    // Operational failure never publishes a bundle or deletes the source.
+    let source = store.session_path(&id).unwrap();
+    let backup = fs::read(&source).unwrap();
+    fs::write(&source, b"corrupt").unwrap();
+    assert!(work.run(&FileCancellation::default()).is_err());
+    fs::write(&source, backup).unwrap();
+    let output = store
+        .prepare_board_export(&board.saved_device_id, ExportFormat::Archive)
+        .unwrap()
+        .run(&FileCancellation::default())
+        .unwrap();
+    drop(output);
+    assert_eq!(
+        fs::read_dir(store.root().join("Exports")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
+fn board_export_admission_rejects_oversized_sources_and_too_many_sessions_without_staging() {
+    let (_dir, store, id) = setup();
+    let board = store.boards().unwrap().remove(0);
+    let source = store.session_path(&id).unwrap();
+    let original = fs::metadata(&source).unwrap().len();
+    let file = fs::OpenOptions::new().write(true).open(&source).unwrap();
+    file.set_len(limits::MAX_EXPORT_BYTES + 1).unwrap();
+    assert!(matches!(
+        store.prepare_board_export(&board.saved_device_id, ExportFormat::Archive),
+        Err(Error::Capacity)
+    ));
+    file.set_len(original).unwrap();
+    drop(file);
+    // Construct catalog-only entries to establish count rejection before file work.
+    let db = Connection::open(store.root().join("catalog.sqlite")).unwrap();
+    let columns = db
+        .prepare("PRAGMA table_info(session_catalog)")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(1))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let values = columns
+        .iter()
+        .map(|column| match column.as_str() {
+            "session_id" | "job_id" | "file_name" => format!("printf('bounded-{column}-%d',n)"),
+            _ => column.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    db.execute(&format!("WITH RECURSIVE numbers(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM numbers WHERE n<?1) INSERT INTO session_catalog SELECT {values} FROM session_catalog CROSS JOIN numbers WHERE session_id=?2"),
+        rusqlite::params![limits::MAX_BOARD_EXPORT_SESSIONS, id]).unwrap();
+    assert!(matches!(
+        store.prepare_board_export(&board.saved_device_id, ExportFormat::Archive),
+        Err(Error::Capacity)
+    ));
+    assert_eq!(
+        fs::read_dir(store.root().join("Exports"))
+            .map(|entries| entries.count())
+            .unwrap_or(0),
+        0
+    );
+}
+
+#[test]
+fn board_zip_can_exceed_the_individual_128_mib_limit() {
+    let (_dir, mut store, first) = setup();
+    let board = store.boards().unwrap().remove(0);
+    let second = store
+        .create_session(&board.saved_device_id, 2, u64::MAX)
+        .unwrap();
+    let mut writer = SessionWriter::open(store.session_path(&second.session_id).unwrap()).unwrap();
+    let mut point = sample(1, 1000);
+    point.ride_state = RideState::Riding;
+    writer.append_samples(&[point]).unwrap();
+    writer.close().unwrap();
+    store
+        .close_session(&second.session_id, 100_000, "disconnect")
+        .unwrap();
+    // SQLite backups retain free pages; grow valid source databases without
+    // allocating a large in-memory telemetry fixture or changing their schemas.
+    for id in [&first, &second.session_id] {
+        let db = Connection::open(store.session_path(id).unwrap()).unwrap();
+        db.execute_batch("CREATE TABLE export_padding(data BLOB); INSERT INTO export_padding VALUES(zeroblob(71303168)); DROP TABLE export_padding; PRAGMA wal_checkpoint(TRUNCATE);").unwrap();
+    }
+    let export = store
+        .prepare_board_export(&board.saved_device_id, ExportFormat::Archive)
+        .unwrap();
+    let completed = std::cell::RefCell::new(Vec::new());
+    let file = export
+        .run_with_progress(&FileCancellation::default(), |count| {
+            completed.borrow_mut().push(count)
+        })
+        .unwrap();
+    assert_eq!(*completed.borrow(), vec![1, 2]);
+    let zip = zip::ZipArchive::new(fs::File::open(file.path()).unwrap()).unwrap();
+    assert_eq!(zip.len(), 2);
+    assert!(file.len().unwrap() > limits::MAX_EXPORT_BYTES);
+    assert!(file.len().unwrap() < limits::MAX_BOARD_EXPORT_BYTES);
+    drop(zip);
+    drop(file);
+    let cancel = FileCancellation::default();
+    let work = store
+        .prepare_board_export(&board.saved_device_id, ExportFormat::Archive)
+        .unwrap();
+    assert!(matches!(
+        work.run_with_progress(&cancel, |completed| {
+            if completed == 1 {
+                cancel.cancel();
+            }
+        }),
+        Err(Error::Cancelled)
+    ));
+    assert!(store.session(&first).is_ok());
+    assert!(store.session(&second.session_id).is_ok());
+}

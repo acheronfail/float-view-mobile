@@ -1,3 +1,4 @@
+import type { SessionExportProgress } from './contract';
 import { validateRideMarker } from './session-data';
 import type {
   AppState,
@@ -49,6 +50,27 @@ export function permissionOutcome(state: BluetoothState): PermissionOutcome {
 }
 
 export class BackendState {
+  boardExport = $state<
+    | (Omit<SessionExportProgress, 'phase'> & {
+        phase: SessionExportProgress['phase'] | 'preparing' | 'downloading';
+        cancelRequested: boolean;
+      })
+    | null
+  >(null);
+  private exportAbort: AbortController | null = null;
+
+  async cancelBoardExport(): Promise<void> {
+    const current = this.boardExport;
+    if (!current || current.cancelRequested) return;
+    if (current.phase === 'downloading' || (current.phase === 'ready' && this.platform === 'web')) {
+      current.cancelRequested = true;
+      this.exportAbort?.abort();
+      return;
+    }
+    if (current.phase === 'ready') return;
+    current.cancelRequested = true;
+  }
+
   private pruneRefresh: { operationId: string; sessionId: string } | null = null;
   status = $state<BackendConnectionStatus>('starting');
   snapshot = $state<AppState | null>(null);
@@ -675,6 +697,89 @@ export class BackendState {
           ? `${result.fileName} is ready to save or share.`
           : `${result.fileName} is staged by the test backend.`;
     });
+  }
+
+  async exportBoardSessions(savedDeviceId: string, format: SessionExportFormat): Promise<void> {
+    if (this.busy || this.boardExport) return;
+    const operationId = crypto.randomUUID();
+    this.exportStatus = null;
+    this.boardExport = {
+      operationId,
+      phase: 'preparing',
+      completedSessions: 0,
+      totalSessions: 0,
+      error: null,
+      cancelRequested: false,
+    };
+    const abort = new AbortController();
+    this.exportAbort = abort;
+    try {
+      await this.run(async (client) => {
+        let settled = false;
+        let failure: unknown;
+        let deliver: (() => void) | undefined;
+        const task = (async () => {
+          if (this.platform === 'web') {
+            if (!this.sessionExportClient) throw new Error('Session export download is not connected');
+            const download = await this.sessionExportClient.downloadBoard(
+              savedDeviceId,
+              format,
+              operationId,
+              abort.signal
+            );
+            deliver = () => {
+              triggerBrowserDownload(download);
+              this.exportStatus = `${download.fileName} downloaded.`;
+            };
+          } else {
+            const result = await client.request('session.export', { savedDeviceId, format, operationId }, 10 * 60_000);
+            deliver = () => {
+              this.exportStatus =
+                result.delivery === 'presented'
+                  ? `${result.fileName} is ready to save or share.`
+                  : `${result.fileName} is staged by the test backend.`;
+            };
+          }
+        })()
+          .catch((error) => {
+            failure = error;
+          })
+          .finally(() => {
+            settled = true;
+          });
+        while (!settled) {
+          const current = this.boardExport;
+          if (!current) break;
+          try {
+            const progress = await client.request(
+              current.cancelRequested ? 'session.export.cancel' : 'session.export.status',
+              { operationId }
+            );
+            Object.assign(current, progress);
+            if (progress.phase === 'ready' && this.platform === 'web') current.phase = 'downloading';
+          } catch {
+            /* Export response is authoritative; registration may still be in flight. */
+          }
+          if (!settled) await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        await task;
+        let final: SessionExportProgress | undefined;
+        try {
+          final = await client.request('session.export.status', { operationId });
+        } catch {
+          /* Preserve the original export failure. */
+        }
+        if (final?.phase === 'cancelled' || abort.signal.aborted) {
+          this.exportStatus = 'Export cancelled.';
+          return;
+        }
+        if (failure) throw new Error(final?.error ?? (failure instanceof Error ? failure.message : String(failure)));
+        deliver?.();
+      });
+    } finally {
+      this.boardExport = null;
+      this.exportAbort = null;
+    }
   }
 
   async importSession(file: Blob): Promise<string | null> {

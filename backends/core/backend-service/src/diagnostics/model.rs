@@ -93,6 +93,8 @@ vocabulary!(ApiMethod {
     ApiSessionExtendPause => "session.extendPause",
     ApiSessionGet => "session.get",
     ApiSessionExport => "session.export",
+    ApiSessionExportStatus => "session.export.status",
+    ApiSessionExportCancel => "session.export.cancel",
     ApiSessionDelete => "session.delete",
     ApiSessionDeleteCancel => "session.delete.cancel",
     ApiSessionPrunePreview => "session.prune.preview",

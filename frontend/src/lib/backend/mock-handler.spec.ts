@@ -340,6 +340,35 @@ describe('deterministic mock backend', () => {
     }
   });
 
+  it('correlates export progress and treats cancellation as idempotent', () => {
+    const backend = new MockBackend();
+    const call = (method: string, operationId: string) => backend.handle({ id: 1, method, params: { operationId } });
+    expect(backend.beginBoardExportProgress('first-export', 'saved-board')).toBe(true);
+    expect(call('session.export.status', 'first-export')).toHaveProperty('result.phase', 'exporting');
+    expect(call('session.export.cancel', 'unknown-export')).toHaveProperty('error.code', 'not_found');
+    expect(call('session.export.cancel', 'first-export')).toHaveProperty('result.phase', 'cancelled');
+    expect(call('session.export.cancel', 'first-export')).toHaveProperty('result.phase', 'cancelled');
+    expect(backend.advanceBoardExport('first-export', 1)).toBe(false);
+    expect(backend.beginBoardExportProgress('next-export', 'saved-board')).toBe(true);
+    backend.advanceBoardExport('next-export', backend.boardExportSessions('saved-board')!.length);
+    expect(call('session.export.cancel', 'next-export')).toHaveProperty('result.phase', 'ready');
+    expect(call('session.export.status', 'first-export')).toHaveProperty('error.code', 'not_found');
+  });
+
+  it('validates board export selectors and excludes active sessions', () => {
+    const backend = new MockBackend();
+    const request = (params: Record<string, unknown>) => backend.handle({ id: 1, method: 'session.export', params });
+    expect(request({ savedDeviceId: 'saved-board', format: 'csv' })).toHaveProperty('result.fileName');
+    expect(request({ savedDeviceId: 'missing', format: 'csv' })).toHaveProperty('error.code', 'not_found');
+    for (const params of [
+      { format: 'csv' },
+      { savedDeviceId: 'saved-board', sessionId: 'session-1', format: 'csv' },
+      { savedDeviceId: 'saved-board', format: 'bad' },
+    ])
+      expect(request(params)).toHaveProperty('error.code', 'invalid_request');
+    expect(backend.boardExportSessions('saved-board')).toContain('session-1');
+  });
+
   it('covers every mandatory method', () => {
     const backend = new MockBackend();
     const request = (id: number, method: string, params: Record<string, unknown> = {}) =>

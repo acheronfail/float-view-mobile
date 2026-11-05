@@ -1660,3 +1660,56 @@ Configuration summaries SHALL report distinct bounded reasons for active IMU tim
 
 - **WHEN** a beta2 board has an active timeout or lacks fresh confirmed inactive alert state
 - **THEN** the configuration summary reports the corresponding reason and guarded writes remain unavailable before request submission
+
+### Requirement: Board-scoped session export
+
+`session.export` and the authenticated session-export HTTP endpoint SHALL accept exactly one of `sessionId` or `savedDeviceId`, plus the existing format. A board selector SHALL produce one ZIP of existing individual exports, with collision-free portable entry names and unchanged archive/GPS semantics. Existing native presentation and browser download delivery SHALL apply without a new host interface.
+
+#### Scenario: Invalid selector
+
+- **WHEN** a request supplies both selectors, neither selector, or an unknown board
+- **THEN** export fails without presenting a file or mutating history
+
+#### Scenario: Bounded atomic bundle
+
+- **WHEN** a board export exceeds an admission bound, encounters a failed session, or is cancelled by its owner disconnecting
+- **THEN** export fails without delivering a partial bundle, releases temporary resources, and preserves source sessions
+
+#### Scenario: Cross-platform delivery
+
+- **WHEN** Apple, Android or web requests either board export format
+- **THEN** the same shared policy selects sessions and produces one ZIP, delivered through native save/share or authenticated browser download
+
+### Requirement: Correlated bulk export progress and cancellation
+
+Board export SHALL accept an optional bounded operationId. Authenticated `session.export.status` and `session.export.cancel` SHALL address that ID across the existing control and HTTP transports. The process owner SHALL retain at most one ephemeral progress record with phase and completed/total counts, without paths or session collections. Progress SHALL NOT change product revisions. Accepted cancellation SHALL stop encoding and prevent delivery.
+
+#### Scenario: Unknown or stale operation
+
+- **WHEN** progress or cancellation names an unknown or replaced operation
+- **THEN** it returns not_found without affecting another export
+
+#### Scenario: Cancellation races completion
+
+- **WHEN** cancellation arrives before worker completion is accepted
+- **THEN** cancellation is idempotent, temporary resources remain owned until the worker exits, and no partial artifact is presented
+- **AND** cancellation after preparation completes returns ready without claiming that the export was cancelled
+
+#### Scenario: Shared host policy
+
+- **WHEN** web, Apple or Android starts a correlated board export
+- **THEN** the same shared worker reports bounded monotonic completed counts and honours cancellation without new host interfaces
+
+### Requirement: Bulk export disk admission
+
+Bulk export SHALL support ZIPs larger than the individual-session bound using a separate bounded disk budget. It SHALL check estimated free storage before encoding and between sessions, preserve the existing individual archive compatibility bounds, and report actionable storage or size failures. A failed export SHALL release temporary files and preserve all source sessions.
+
+#### Scenario: Insufficient storage
+
+- **WHEN** estimated free storage is insufficient or storage is exhausted during encoding
+- **THEN** export fails without presenting a partial ZIP and explains that storage must be freed before retrying
+
+#### Scenario: Large board backup
+
+- **WHEN** eligible individual sessions fit their supported bounds and together exceed the individual-session byte limit
+- **THEN** the board exports successfully within the separate bulk ZIP and disk budgets

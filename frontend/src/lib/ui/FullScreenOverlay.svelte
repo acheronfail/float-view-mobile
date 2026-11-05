@@ -11,6 +11,7 @@
     title,
     titleId,
     closeLabel = 'Done',
+    closeDisabled = false,
     fixedContent = false,
     headerShadow = false,
     onclose,
@@ -19,6 +20,7 @@
     title: string;
     titleId: string;
     closeLabel?: string;
+    closeDisabled?: boolean;
     fixedContent?: boolean;
     headerShadow?: boolean;
     onclose: Activation;
@@ -54,7 +56,7 @@
   });
 
   async function close() {
-    if (closing) return;
+    if (closing || closeDisabled) return;
     closing = true;
     try {
       await onclose();
@@ -119,7 +121,7 @@
         bind:this={closeButton}
         type="button"
         class="min-h-11 shrink-0 touch-manipulation rounded-lg border border-outline px-4"
-        disabled={closing}
+        disabled={closing || closeDisabled}
         onpointerdown={(event) => activateFromPointer(event, close)}
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, close)}
         >{closing ? 'Saving…' : closeLabel}</button

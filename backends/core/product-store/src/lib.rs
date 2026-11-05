@@ -13,7 +13,7 @@ mod boards;
 mod csv;
 mod dashboard;
 mod files;
-pub use archive::{ArchiveExport, ArchiveImport, ExportFormat};
+pub use archive::{ArchiveExport, ArchiveImport, BoardExport, ExportFormat};
 pub use files::{FileCancellation, ImportSink, StagedFile};
 mod cache;
 mod lifecycle;
@@ -67,8 +67,12 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 impl From<std::io::Error> for Error {
-    fn from(_: std::io::Error) -> Self {
-        Self::Io
+    fn from(error: std::io::Error) -> Self {
+        if error.kind() == std::io::ErrorKind::StorageFull {
+            Self::Full
+        } else {
+            Self::Io
+        }
     }
 }
 impl From<rusqlite::Error> for Error {

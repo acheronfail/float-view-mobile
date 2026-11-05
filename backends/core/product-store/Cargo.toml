@@ -19,5 +19,7 @@ base64 = "=0.22.1"
 zip = { version = "=6.0.0", default-features = false, features = ["deflate-flate2"] }
 flate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }
 
+rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs"] }
+
 [dev-dependencies]
 float-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }

@@ -10,6 +10,30 @@ use serde_json::{Map, Value, json};
 
 pub(crate) struct Params<'a>(pub &'a Map<String, Value>);
 impl Params<'_> {
+    pub fn export_operation(&self, board: bool) -> Result<Option<String>, Failure> {
+        match self.0.get("operationId") {
+            None => Ok(None),
+            Some(Value::String(id))
+                if board
+                    && !id.is_empty()
+                    && id.len() <= 128
+                    && id.bytes().all(|v| v.is_ascii_alphanumeric() || v == b'-') =>
+            {
+                Ok(Some(id.clone()))
+            }
+            _ => Err(Failure::InvalidRequest),
+        }
+    }
+    pub fn export_selector(&self) -> Result<(String, bool), Failure> {
+        match (
+            self.0.contains_key("sessionId"),
+            self.0.contains_key("savedDeviceId"),
+        ) {
+            (true, false) => Ok((self.text("sessionId")?, false)),
+            (false, true) => Ok((self.text("savedDeviceId")?, true)),
+            _ => Err(Failure::InvalidRequest),
+        }
+    }
     pub fn text(&self, key: &str) -> Result<String, Failure> {
         self.0
             .get(key)
@@ -636,14 +660,28 @@ impl Backend {
                     id: p.text("sessionId")?,
                 }
             }
+            "session.export.status" | "session.export.cancel" => {
+                p.only(&["operationId"])?;
+                let id = p.export_operation(true)?.ok_or(Failure::InvalidRequest)?;
+                let progress = self
+                    .service
+                    .lock()
+                    .map_err(|_| Failure::Internal)?
+                    .export_progress(&id, method.ends_with("cancel"))
+                    .map_err(|_| Failure::NotFound)?;
+                return Ok(projection::value(&progress));
+            }
             "session.export" => {
-                p.only(&["sessionId", "format"])?;
+                p.only(&["sessionId", "savedDeviceId", "format", "operationId"])?;
+                let (id, board) = p.export_selector()?;
                 let format = p.text("format")?;
                 if format != "csv" && format != "float-view-archive" {
                     return Err(Failure::InvalidRequest);
                 }
                 Operation::ExportSession {
-                    id: p.text("sessionId")?,
+                    operation_id: p.export_operation(board)?,
+                    id,
+                    board,
                     format,
                     present: true,
                     transfer_id: 0,

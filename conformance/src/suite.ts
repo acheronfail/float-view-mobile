@@ -18,7 +18,7 @@ import type {
   RefloatConfigurationSchemaPage,
 } from '../../frontend/src/lib/backend/contract.ts';
 import { ConformanceClient, ConformanceError } from './client.ts';
-import { exerciseTransport } from './transport.ts';
+import { exerciseTransport, exerciseBoardExports } from './transport.ts';
 
 export interface Target {
   name: string;
@@ -27,6 +27,7 @@ export interface Target {
   background?(): Promise<void>;
   foreground?(): Promise<void>;
   recreateFrontend?(): Promise<void>;
+  verifyFilePresentation?(): Promise<void>;
   loseFixture?(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -38,7 +39,38 @@ export interface PhysicalTarget extends Target {
   /** Prepare OS-level location permissions without changing app settings. */
   prepareLocation?(report: (message: string) => void): Promise<void>;
   finishSuite?(report: (message: string) => void): Promise<void>;
-  verifyFilePresentation?(): Promise<void>;
+}
+
+/** Focused board export coverage through each production host without unrelated permission flows. */
+export async function runBoardExportConformance(target: Target) {
+  let client: ConformanceClient | undefined;
+  try {
+    const endpoint = await target.start();
+    client = await ConformanceClient.open(endpoint.url, endpoint.origin);
+    const initial = await client.request('state.get', {});
+    await client.request('settings.update', {
+      expectedRevision: initial.settings.revision,
+      patch: { safetyDisclaimerAccepted: true, minimumSessionDistance: 0 },
+    });
+    await client.request('bluetooth.requestPermission', {});
+    await client.request('bluetooth.scan', { timeoutMs: 10000 });
+    const scanned = await client.waitForState((state) => state.discoveredDevices.length > 0);
+    await client.request('device.connect', { deviceId: scanned.discoveredDevices[0]!.deviceId, trackingMode: 'saved' });
+    const ready = await client.waitForState(
+      (state) =>
+        state.activeConnection?.state === 'ready' &&
+        !!state.activeConnection?.latestSample &&
+        !!state.activeConnection?.activeSession
+    );
+    const board = ready.activeConnection!.savedDeviceId!;
+    await client.request('session.end', { sessionId: ready.activeConnection!.activeSession!.sessionId });
+    await client.waitForState((state) => !state.activeConnection && !state.pausedRide);
+    await exerciseBoardExports(endpoint, client, board, target.verifyFilePresentation?.bind(target));
+    return { target: target.name, revision: (await client.request('state.get', {})).revision };
+  } finally {
+    client?.close();
+    await target.stop();
+  }
 }
 
 /** Exact beta admission, schema, recovered timeout and saved/guest lifecycle. */
@@ -419,7 +451,7 @@ export async function runConformance(target: Target) {
       target.recreateFrontend
     );
     if (['android', 'ios', 'macos', 'direct'].includes(target.name)) {
-      await exerciseTransport(await target.endpoint());
+      await exerciseTransport(await target.endpoint(), target.verifyFilePresentation?.bind(target));
     }
     client = await exerciseAutoConnect(target, client);
     if (target.loseFixture) {
@@ -1058,6 +1090,16 @@ async function exerciseProductMethods(
     format: 'csv',
   });
   assert.ok(csvExport.fileName.endsWith('.csv.zip'));
+  await expectError(
+    client.request('session.export', {
+      savedDeviceId: profileDevice.savedDeviceId,
+      sessionId: session.sessionId,
+      format: 'csv',
+    } as never),
+    'invalid_request'
+  );
+  await expectError(client.request('session.export', { format: 'csv' } as never), 'invalid_request');
+
   await expectError(client.request('session.get', { sessionId: 'missing-session' }), 'not_found');
 
   const beforeDelete = await client.request('state.get', {});
@@ -2146,6 +2188,8 @@ export const mandatoryMethods: BackendMethod[] = [
   'session.get',
   'session.marker.add',
   'session.export',
+  'session.export.status',
+  'session.export.cancel',
   'session.delete',
   'session.delete.cancel',
   'session.prune.preview',

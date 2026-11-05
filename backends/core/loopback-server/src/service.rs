@@ -236,6 +236,8 @@ impl Backend {
             }
             Operation::ExportSession {
                 id,
+                board,
+                operation_id,
                 format,
                 present,
                 transfer_id,
@@ -248,8 +250,14 @@ impl Backend {
                 let (local, work) = {
                     let mut s = service.lock().map_err(|_| Failure::Internal)?;
                     let now = s.monotonic_ms();
-                    s.begin_export(client, &id, format, now)
-                        .map_err(|_| Failure::Unavailable)?
+                    if let Some(operation) = operation_id.as_deref() {
+                        s.begin_tracked_board_export(client, &id, format, operation, now)
+                    } else if board {
+                        s.begin_board_export(client, &id, format, now)
+                    } else {
+                        s.begin_export(client, &id, format, now)
+                    }
+                    .map_err(|_| Failure::Unavailable)?
                 };
                 self.service_transfers
                     .lock()
@@ -287,6 +295,11 @@ impl Backend {
                 } else {
                     false
                 };
+                // Control exports expose no transfer handle. A declined presenter
+                // has no remaining reader; release its stage before the next bundle.
+                if present && !presented {
+                    self.cleanup_service_transfer(transfer_id);
+                }
                 Ok(Completion::Export {
                     file_name,
                     presented,

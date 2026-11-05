@@ -1,3 +1,4 @@
+import type { SessionExportProgress } from '../src/lib/backend/contract.ts';
 import type { ConnectionContextEvent } from '../src/lib/backend/contract.ts';
 import { MockDiagnostics } from './diagnostics.ts';
 import { supportsRidingTuneApply } from '../src/lib/backend/refloat-tune-policy.ts';
@@ -289,6 +290,33 @@ export function detailedSeriesValues(overrides: Record<string, number>): Record<
 }
 
 export class MockBackend {
+  private exportProgress: SessionExportProgress | null = null;
+  beginBoardExportProgress(operationId: string, savedDeviceId: string): boolean {
+    const sessions = this.boardExportSessions(savedDeviceId);
+    if (
+      !sessions?.length ||
+      !/^[a-zA-Z0-9-]{1,128}$/.test(operationId) ||
+      this.exportProgress?.operationId === operationId ||
+      ['exporting', 'cancelling'].includes(this.exportProgress?.phase ?? '')
+    )
+      return false;
+    this.exportProgress = {
+      operationId,
+      phase: 'exporting',
+      completedSessions: 0,
+      totalSessions: sessions.length,
+      error: null,
+    };
+    return true;
+  }
+  advanceBoardExport(operationId: string, completed: number): boolean {
+    const progress = this.exportProgress;
+    if (!progress || progress.operationId !== operationId || progress.phase === 'cancelled') return false;
+    progress.completedSessions = completed;
+    if (completed === progress.totalSessions) progress.phase = 'ready';
+    return true;
+  }
+
   private readonly diagnostics = new MockDiagnostics();
   private refloatDrafts = new Map<string, RefloatEditorDraft>();
   private uiCheckpoint: UiCheckpoint | null = null;
@@ -1295,13 +1323,54 @@ export class MockBackend {
         const page = this.sessionList(board.deviceHistoryId, params.cursor, limit);
         return page.error ? failure(id, page.error.code, page.error.message) : success(id, page.value);
       }
-      case 'session.export':
-        return this.findSession(params)
-          ? success(id, {
-              fileName: `${string(params.sessionId)}.${params.format === 'csv' ? 'csv.zip' : 'floatview'}`,
-              delivery: 'staged',
-            })
-          : failure(id, 'not_found', 'Session was not found');
+      case 'session.export.status':
+      case 'session.export.cancel': {
+        const operationId = string(params.operationId);
+        if (
+          !operationId ||
+          !/^[a-zA-Z0-9-]{1,128}$/.test(operationId) ||
+          Object.keys(params).some((key) => key !== 'operationId')
+        )
+          return failure(id, 'invalid_request', 'Invalid operation ID');
+        if (this.exportProgress?.operationId !== operationId) return failure(id, 'not_found', 'Export was not found');
+        if (request.method === 'session.export.cancel' && this.exportProgress.phase === 'exporting')
+          this.exportProgress.phase = 'cancelled';
+        return success(id, { ...this.exportProgress });
+      }
+      case 'session.export': {
+        const hasSession = Object.hasOwn(params, 'sessionId');
+        const hasBoard = Object.hasOwn(params, 'savedDeviceId');
+        if (
+          (Object.hasOwn(params, 'operationId') &&
+            (!hasBoard ||
+              typeof params.operationId !== 'string' ||
+              !/^[a-zA-Z0-9-]{1,128}$/.test(params.operationId))) ||
+          hasSession === hasBoard ||
+          !['csv', 'float-view-archive'].includes(String(params.format)) ||
+          Object.keys(params).some((key) => !['sessionId', 'savedDeviceId', 'format', 'operationId'].includes(key)) ||
+          !(hasBoard ? string(params.savedDeviceId) : string(params.sessionId))
+        )
+          return failure(id, 'invalid_request', 'Choose one session or saved board and an export format');
+        if (hasBoard) {
+          const sessions = this.boardExportSessions(string(params.savedDeviceId)!);
+          if (sessions === null) return failure(id, 'not_found', 'Saved board was not found');
+          if (!sessions.length || sessions.length > 10_000)
+            return failure(id, 'unavailable', 'No exportable sessions or export limit exceeded');
+          if (typeof params.operationId === 'string') {
+            if (!this.beginBoardExportProgress(params.operationId, string(params.savedDeviceId)!))
+              return failure(id, 'unavailable', 'Export is already running');
+            this.advanceBoardExport(params.operationId, sessions.length);
+          }
+          return success(id, { fileName: `float-view-all-sessions-${params.format}.zip`, delivery: 'staged' });
+        }
+        const found = this.findSession(params);
+        if (!found) return failure(id, 'not_found', 'Session was not found');
+        if (found.state === 'active') return failure(id, 'invalid_state', 'End the ride before exporting');
+        return success(id, {
+          fileName: `${string(params.sessionId)}.${params.format === 'csv' ? 'csv.zip' : 'floatview'}`,
+          delivery: 'staged',
+        });
+      }
       case 'session.delete': {
         const found = this.findSession(params);
         if (!found) return accepted(id);
@@ -2092,6 +2161,14 @@ export class MockBackend {
       activeConnection: { ...pendingActive, refloatControls: complete },
     });
     return success(id, complete);
+  }
+
+  boardExportSessions(savedDeviceId: string): string[] | null {
+    const board = this.state.savedDevices.find((value) => value.savedDeviceId === savedDeviceId);
+    if (!board) return null;
+    return this.sessionCatalog
+      .filter((session) => session.deviceHistoryId === board.deviceHistoryId && session.state !== 'active')
+      .map((session) => session.sessionId);
   }
 
   hasSession(sessionId: string): boolean {

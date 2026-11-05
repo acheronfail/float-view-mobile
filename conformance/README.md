@@ -155,6 +155,7 @@ destination picker; iOS uses the lifecycle UI runner for its share sheet.
 | Beta2 IMU timeout over BLE       | `FLOAT_VIEW_PHYSICAL_SCENARIOS=imu-timeout-beta2 npm run physical -- macos <fixture-port>`             |
 | Beta2 software contract          | `FLOAT_VIEW_FIXTURE_REFLOAT=1.3.1-beta2 FLOAT_VIEW_CONFORMANCE_SCENARIOS=refloat-beta2 npm run direct` |
 | Beta3 software contract          | `FLOAT_VIEW_FIXTURE_REFLOAT=1.3.1-beta3 FLOAT_VIEW_CONFORMANCE_SCENARIOS=refloat-beta3 npm run direct` |
+| Board session export contract    | `FLOAT_VIEW_CONFORMANCE_SCENARIOS=board-export npm run direct`                                         |
 | Auto-connect software contract   | `FLOAT_VIEW_CONFORMANCE_SCENARIOS=auto-connect npm run direct`                                         |
 | Auto-connect over BLE            | `FLOAT_VIEW_PHYSICAL_SCENARIOS=auto-connect npm run physical -- android <fixture-port> <adb-serial>`   |
 | Announcement settings contract   | `FLOAT_VIEW_CONFORMANCE_SCENARIOS=announcements npm run direct`                                        |
