@@ -184,6 +184,7 @@ pub struct ArchiveExport {
     manifest: Manifest,
     format: ExportFormat,
     gps: bool,
+    name_prefix: String,
 }
 impl ArchiveExport {
     pub fn run(mut self, cancel: &FileCancellation) -> Result<StagedFile> {
@@ -192,6 +193,14 @@ impl ArchiveExport {
         let source =
             Connection::open_with_flags(self.source.path(), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         configure(&source, cancel)?;
+        // Name the staging file before encoding so the CSV entry shares its basename.
+        let timestamp = export_timestamp(&source, self.manifest.started_at_ms)?;
+        let destination = self
+            .stage
+            .path
+            .with_file_name(format!("{}-{timestamp}.tmp", self.name_prefix));
+        fs::rename(&self.stage.path, &destination)?;
+        self.stage.path = destination;
         match self.format {
             ExportFormat::Archive => {
                 let mut dest = open(&self.stage, cancel)?;
@@ -232,12 +241,54 @@ impl ArchiveExport {
         Ok(self.stage)
     }
 }
+fn export_timestamp(db: &Connection, started_at_ms: i64) -> Result<String> {
+    let timestamp: Option<String> = db.query_row(
+        "SELECT strftime('%Y-%m-%d_%H-%M-%SZ', ?1 / 1000, 'unixepoch')",
+        [started_at_ms],
+        |row| row.get(0),
+    )?;
+    // Preserve exportability for stored timestamps outside SQLite's calendar range.
+    Ok(timestamp.unwrap_or_else(|| format!("unix-ms-{started_at_ms}")))
+}
+
+fn export_name_prefix(name: &str) -> String {
+    // Keep names portable across native save/share destinations and HTTP headers.
+    let mut prefix = String::new();
+    let mut separator = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if separator && !prefix.is_empty() {
+                prefix.push('_');
+            }
+            prefix.push(ch.to_ascii_lowercase());
+            separator = false;
+        } else {
+            separator = true;
+        }
+        if prefix.len() >= 64 {
+            prefix.truncate(64);
+            break;
+        }
+    }
+    let prefix = prefix.trim_end_matches('_');
+    if prefix.is_empty() {
+        "board".into()
+    } else {
+        prefix.into()
+    }
+}
+
 impl ProductStore {
     pub fn prepare_export(&self, id: &str, format: ExportFormat) -> Result<ArchiveExport> {
         let s = self.session(id)?;
         if s.state == "active" {
             return Err(Error::ActiveSession);
         }
+        let board_name: String = self.catalog.query_row(
+            "SELECT COALESCE(NULLIF(custom_display_name,''),NULLIF(advertised_name,''),'board') FROM saved_device WHERE device_history_id=?",
+            [&s.device_history_id],
+            |row| row.get(0),
+        )?;
         let (idle,eidle,riding,eriding,reason):(u64,u64,u64,u64,Option<String>)=self.catalog.query_row("SELECT requested_idle_ms,effective_idle_ms,requested_riding_ms,effective_riding_ms,close_reason FROM session_catalog WHERE session_id=?",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
         let manifest = Manifest {
             session_id: s.session_id,
@@ -276,6 +327,7 @@ impl ProductStore {
             manifest,
             format,
             gps: self.settings()?.include_gps_location_when_exporting,
+            name_prefix: export_name_prefix(&board_name),
         })
     }
     /// A short owner transaction attaches a validated, service-issued file.
@@ -394,4 +446,41 @@ fn validate_schema(db: &Connection, archive: bool) -> Result<()> {
         return Err(Error::InvalidInput);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod export_name_tests {
+    use super::*;
+
+    #[test]
+    fn board_names_are_bounded_lowercase_and_path_safe() {
+        for (name, expected) in [
+            ("My Board", "my_board"),
+            ("  GT / Street: Board?!  ", "gt_street_board"),
+            ("../A\\B\r\n\"C.zip", "a_b_c_zip"),
+            ("Éclair 🛹", "clair"),
+            ("_?! 🛹", "board"),
+            ("", "board"),
+        ] {
+            assert_eq!(export_name_prefix(name), expected);
+        }
+        assert_eq!(export_name_prefix(&"A".repeat(128)), "a".repeat(64));
+        assert_eq!(
+            export_name_prefix(&format!("{} B", "A".repeat(63))),
+            "a".repeat(63)
+        );
+    }
+
+    #[test]
+    fn timestamps_use_utc_calendar_dates_and_preserve_extreme_values() {
+        let db = Connection::open_in_memory().unwrap();
+        for (ms, expected) in [
+            (0, "1970-01-01_00-00-00Z"),
+            (1_709_251_199_999, "2024-02-29_23-59-59Z"),
+            (1_709_251_200_000, "2024-03-01_00-00-00Z"),
+            (i64::MAX, "unix-ms-9223372036854775807"),
+        ] {
+            assert_eq!(export_timestamp(&db, ms).unwrap(), expected);
+        }
+    }
 }

@@ -305,6 +305,72 @@ fn read_csv_zip(path: &std::path::Path) -> String {
 }
 
 #[test]
+fn export_names_include_ride_start_with_isolated_staging_and_cleanup() {
+    let (dir, mut store, id) = setup();
+    let board = store.boards().unwrap().remove(0);
+    store
+        .update_board(
+            &board.saved_device_id,
+            board.revision,
+            Some("  My / Street Board?!  "),
+        )
+        .unwrap();
+    let cancel = FileCancellation::default();
+    let mut exports = Vec::new();
+    for format in [
+        ExportFormat::Archive,
+        ExportFormat::Archive,
+        ExportFormat::Csv,
+        ExportFormat::Csv,
+    ] {
+        // The staging byte budget admits two concurrent maximum-sized exports.
+        if exports.len() == 2 {
+            assert!(
+                exports
+                    .iter()
+                    .all(|file: &float_view_product_store::StagedFile| file.len().unwrap() > 0)
+            );
+            exports.clear();
+        }
+        let export = store
+            .prepare_export(&id, format)
+            .unwrap()
+            .run(&cancel)
+            .unwrap();
+        let name = export.path().file_name().unwrap().to_str().unwrap();
+        assert_eq!(
+            name,
+            if format == ExportFormat::Archive {
+                "my_street_board-1970-01-01_00-00-00Z.floatview"
+            } else {
+                "my_street_board-1970-01-01_00-00-00Z.csv.zip"
+            }
+        );
+        assert!(
+            exports
+                .iter()
+                .all(|file: &float_view_product_store::StagedFile| file.path() != export.path())
+        );
+        if format == ExportFormat::Csv {
+            read_csv_zip(export.path());
+        }
+        exports.push(export);
+    }
+    assert!(exports.iter().all(|file| file.len().unwrap() > 0));
+    drop(exports);
+    assert_eq!(fs::read_dir(dir.path().join("Exports")).unwrap().count(), 0);
+
+    // Simulate an interrupted process, including old flat staging files.
+    drop(store);
+    let stale = dir.path().join("Exports/interrupted-transfer");
+    fs::create_dir(&stale).unwrap();
+    fs::write(stale.join("float-view.tmp"), b"partial").unwrap();
+    fs::write(dir.path().join("Exports/float-view-old.tmp"), b"partial").unwrap();
+    let _reopened = ProductStore::open(dir.path()).unwrap();
+    assert_eq!(fs::read_dir(dir.path().join("Exports")).unwrap().count(), 0);
+}
+
+#[test]
 fn csv_columns_gps_privacy_ties_and_tolerance_match_native_encoding() {
     let (_dir, mut store, id) = setup();
     let cancel = FileCancellation::default();

@@ -173,6 +173,20 @@ Apple, Android and the direct Rust test host SHALL use the same shared service. 
 - **WHEN** source, symbols, dependencies and affected host packages are audited
 - **THEN** both host families select one shared service through their existing artifacts and contain no superseded portable implementation
 
+### Requirement: Dated session export filenames
+
+Archive and CSV export filenames SHALL use `<board-name>-<ride-start-UTC>` with `.floatview` and `.csv.zip` extensions respectively. The ride start SHALL be formatted as `YYYY-MM-DD_HH-MM-SSZ`, using the session start rather than the export time. Timestamps outside the supported calendar range SHALL use `unix-ms-<milliseconds>` instead.
+
+#### Scenario: Use the configured board name
+
+- **WHEN** a ride is exported after the board has been renamed
+- **THEN** the prefix uses the current configured name, falling back to the advertised name when unconfigured, lowercases ASCII letters, replaces runs outside ASCII letters and digits with one underscore, removes edge underscores, caps the prefix at 64 characters, and uses `board` if nothing usable remains
+
+#### Scenario: Export the same ride repeatedly
+
+- **WHEN** a completed ride is exported more than once or concurrently
+- **THEN** suggested filenames use the same ride start without a UUID, each export retains independent staging, and the CSV entry matches the ZIP filename with only `.zip` removed
+
 ### Requirement: Compressed CSV exports
 
 CSV export SHALL produce a ZIP containing exactly one DEFLATE-compressed CSV by default on every platform. The CSV SHALL preserve existing telemetry content and GPS opt-in behavior. Download and save/share filenames SHALL end in `.csv.zip`; HTTP downloads SHALL use `application/zip`. Export SHALL retain existing byte bounds, cancellation and staging cleanup without buffering the complete CSV.

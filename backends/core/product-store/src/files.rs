@@ -36,6 +36,7 @@ impl FileCancellation {
 /// Drop only when the actual reader/presenter has released its access.
 pub struct StagedFile {
     pub(crate) path: PathBuf,
+    staging_dir: Option<PathBuf>,
     pub(crate) root: PathBuf,
     pub(crate) budget: FileBudgets,
     pub(crate) reserved: u64,
@@ -69,6 +70,9 @@ impl Drop for StagedFile {
     fn drop(&mut self) {
         if self.owned {
             let _ = crate::sessions::remove_session_files(&self.path);
+            if let Some(dir) = &self.staging_dir {
+                let _ = fs::remove_dir(dir);
+            }
         }
         if let Ok(mut b) = self.budget.lock() {
             b.count -= 1;
@@ -142,7 +146,9 @@ impl ProductStore {
                 fs::create_dir(&dir)?;
             }
             root::require_kind(&dir, true)?;
-            dir.join(format!("float-view-{id}.tmp"))
+            let transfer_dir = dir.join(id);
+            fs::create_dir(&transfer_dir)?;
+            transfer_dir.join("float-view.tmp")
         } else {
             self.root.join(format!("import-{id}.floatview.tmp"))
         };
@@ -153,6 +159,7 @@ impl ProductStore {
         b.count += 1;
         b.reserved += reserved;
         Ok(StagedFile {
+            staging_dir: export.then(|| path.parent().unwrap().to_owned()),
             path,
             root: self.root.clone(),
             budget: self.file_budget.clone(),
@@ -187,6 +194,19 @@ impl ProductStore {
                     return Err(Error::Capacity);
                 }
                 let path = entry?.path();
+                if path.symlink_metadata()?.is_dir() {
+                    root::require_kind(&path, true)?;
+                    for (j, file) in fs::read_dir(&path)?.enumerate() {
+                        if j >= limits::MAX_DIRECTORY_ENTRIES {
+                            return Err(Error::Capacity);
+                        }
+                        let file = file?.path();
+                        root::require_kind(&file, false)?;
+                        fs::remove_file(file)?;
+                    }
+                    fs::remove_dir(path)?;
+                    continue;
+                }
                 root::require_kind(&path, false)?;
                 fs::remove_file(path)?;
             }
