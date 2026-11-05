@@ -495,12 +495,27 @@ function createMockExport(
   format: 'float-view-archive' | 'csv',
   identity: { deviceHistoryId: string; displayName: string } | null
 ): { fileName: string; contentType: string; body: Buffer } {
-  const fileName = `float-view-${sessionId}.${format === 'csv' ? 'csv' : 'floatview'}`;
+  const fileName = `float-view-${sessionId}.${format === 'csv' ? 'csv.zip' : 'floatview'}`;
   if (format === 'csv') {
+    // Fixed DEFLATE payload; replace its entry name to match the download.
+    const fixture = Buffer.from(
+      'UEsDBBQAAAAIAAAAIVzeTEUlOgAAAEAAAAAIAAAAcmlkZS5jc3YrTi0sTc1LTtVJzUksKE5Nic8t1ikuSAUysgsydFIyi0sSgbLxuVwGOmDIZahjZgAEOkYGOsYGBlwAUEsBAhQDFAAAAAgAAAAhXN5MRSU6AAAAQAAAAAgAAAAAAAAAAAAAAIABAAAAAHJpZGUuY3N2UEsFBgAAAAABAAEANgAAAGAAAAAAAA==',
+      'base64'
+    );
+    const name = Buffer.from(fileName.slice(0, -'.zip'.length), 'utf8');
+    const local = Buffer.from(fixture.subarray(0, 30));
+    const end = Buffer.from(fixture.subarray(-22));
+    const centralOffset = end.readUInt32LE(16);
+    const central = Buffer.from(fixture.subarray(centralOffset, centralOffset + 46));
+    const compressed = fixture.subarray(30 + local.readUInt16LE(26), centralOffset);
+    local.writeUInt16LE(name.length, 26);
+    central.writeUInt16LE(name.length, 28);
+    end.writeUInt32LE(central.length + name.length, 12);
+    end.writeUInt32LE(local.length + name.length + compressed.length, 16);
     return {
       fileName,
-      contentType: 'text/csv',
-      body: Buffer.from('sequence,elapsed_ms,speed_kph,distance_m\n0,0,0,0\n1,60000,20,300\n', 'utf8'),
+      contentType: 'application/zip',
+      body: Buffer.concat([local, name, compressed, central, name, end]),
     };
   }
 

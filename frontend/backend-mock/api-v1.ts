@@ -1298,7 +1298,7 @@ export class MockBackend {
       case 'session.export':
         return this.findSession(params)
           ? success(id, {
-              fileName: `${string(params.sessionId)}.${params.format === 'csv' ? 'csv' : 'floatview'}`,
+              fileName: `${string(params.sessionId)}.${params.format === 'csv' ? 'csv.zip' : 'floatview'}`,
               delivery: 'staged',
             })
           : failure(id, 'not_found', 'Session was not found');

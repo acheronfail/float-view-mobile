@@ -222,7 +222,7 @@ pub(crate) async fn export(State(app): State<Arc<App>>, request: Request) -> Res
             (
                 header::CONTENT_TYPE,
                 if format == "csv" {
-                    "text/csv".to_owned()
+                    "application/zip".to_owned()
                 } else {
                     "application/octet-stream".to_owned()
                 },

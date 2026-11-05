@@ -13,7 +13,21 @@ pub(crate) fn write(
     gps: bool,
     cancel: &FileCancellation,
 ) -> Result<()> {
-    let mut output = BufWriter::with_capacity(65536, File::create(stage.path())?);
+    let csv_path = stage.path().with_extension("csv");
+    let csv_name = csv_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or(Error::UnsafePath)?;
+    let file = BufWriter::with_capacity(65536, File::create(stage.path())?);
+    let mut output = zip::ZipWriter::new(file);
+    output
+        .start_file(
+            csv_name,
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated)
+                .compression_level(Some(6)),
+        )
+        .map_err(|_| Error::Io)?;
     let mut written = 0_u64;
     let header = format!(
         "{HEADER}{}\n",
@@ -77,7 +91,8 @@ pub(crate) fn write(
         line.push('\n');
         emit(&mut output, &mut written, line.as_bytes())?;
     }
-    output.flush()?;
+    cancel.check()?;
+    output.finish().map_err(|_| Error::Io)?.flush()?;
     Ok(())
 }
 fn emit(out: &mut impl Write, written: &mut u64, data: &[u8]) -> Result<()> {
@@ -127,6 +142,16 @@ fn location_candidate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn uncompressed_limit_is_enforced_before_writing() {
+        let mut output = Vec::new();
+        let mut written = limits::MAX_EXPORT_BYTES - 1;
+        emit(&mut output, &mut written, b"x").unwrap();
+        assert_eq!(emit(&mut output, &mut written, b"y"), Err(Error::Capacity));
+        assert_eq!(output, b"x");
+        assert_eq!(written, limits::MAX_EXPORT_BYTES);
+    }
+
     #[test]
     fn indexed_gps_candidates_match_neighborhood_sort_with_ties_gaps_and_limits() {
         let db = Connection::open_in_memory().unwrap();

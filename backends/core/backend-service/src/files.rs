@@ -588,6 +588,29 @@ mod tests {
         );
     }
     #[test]
+    fn csv_zip_presentation_uses_service_filename_and_preserves_lease() {
+        let (_dir, mut service, id) = setup();
+        let (transfer, work) = service.begin_export(1, &id, ExportFormat::Csv, 0).unwrap();
+        let FileResult::Exported { file_name, .. } =
+            service.complete_file_work(work.run(), 1).unwrap()
+        else {
+            panic!("expected export");
+        };
+        assert!(file_name.ends_with(".csv.zip"));
+        let path = service.present_export(1, transfer, 2).unwrap();
+        assert_eq!(path.file_name().unwrap().to_str().unwrap(), file_name);
+        service.disconnect_file_client(1);
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
+        assert_eq!(
+            zip.by_index(0).unwrap().name(),
+            file_name.strip_suffix(".zip").unwrap()
+        );
+        drop(zip);
+        service.finish_presentation(transfer).unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
     fn presentation_outlives_disconnect_and_ack_or_expiry_reclaims_it() {
         let (dir, mut s, id) = setup();
         let transfer = export(&mut s, &id, 1);

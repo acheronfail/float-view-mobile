@@ -1,3 +1,4 @@
+import { inflateRawSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type ViteDevServer } from 'vite';
 import WebSocket from 'ws';
@@ -113,8 +114,17 @@ describe.sequential('mock transport authentication', () => {
       body: JSON.stringify({ sessionId: 'session-1', format: 'csv' }),
     });
     expect(accepted.status).toBe(200);
-    expect(accepted.headers.get('content-disposition')).toContain('.csv');
-    expect(await accepted.text()).toContain('sequence,elapsed_ms');
+    expect(accepted.headers.get('content-disposition')).toContain('.csv.zip');
+    expect(accepted.headers.get('content-type')).toContain('application/zip');
+    const zip = Buffer.from(await accepted.arrayBuffer());
+    const nameLength = zip.readUInt16LE(26);
+    const csvName = 'float-view-session-1.csv';
+    expect(zip.subarray(30, 30 + nameLength).toString()).toBe(csvName);
+    const centralOffset = zip.readUInt32LE(zip.length - 6);
+    expect(zip.subarray(centralOffset + 46, centralOffset + 46 + nameLength).toString()).toBe(csvName);
+    expect(inflateRawSync(zip.subarray(30 + nameLength, centralOffset)).toString()).toBe(
+      'sequence,elapsed_ms,speed_kph,distance_m\n0,0,0,0\n1,60000,20,300\n'
+    );
   });
 
   it('serves gzip event pages with no-store disclosure', async () => {

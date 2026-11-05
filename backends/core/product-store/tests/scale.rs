@@ -350,7 +350,15 @@ fn archive_csv_scale() {
             start.elapsed().as_secs_f64() * 1000.
         );
         if format == ExportFormat::Csv {
-            let count = std::io::BufReader::new(std::fs::File::open(file.path()).unwrap())
+            let mut zip = zip::ZipArchive::new(std::fs::File::open(file.path()).unwrap()).unwrap();
+            let csv = zip.by_index(0).unwrap();
+            println!(
+                "csv uncompressed_bytes={} compressed_bytes={}",
+                csv.size(),
+                csv.compressed_size()
+            );
+            assert!(csv.compressed_size() < csv.size());
+            let count = std::io::BufReader::new(csv)
                 .lines()
                 .try_fold(0_usize, |count, line| line.map(|_| count + 1))
                 .unwrap();

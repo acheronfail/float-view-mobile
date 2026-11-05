@@ -2,12 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { SessionExportClient } from './session-export-client';
 
 describe('session export download client', () => {
+  it('falls back to a compressed CSV filename without response metadata', async () => {
+    const client = new SessionExportClient(
+      { webSocketUrl: 'ws://127.0.0.1/api/ws' },
+      true,
+      'http://127.0.0.1/',
+      vi.fn<typeof fetch>(async () => new Response('zip bytes'))
+    );
+    expect((await client.download('session-1', 'csv')).fileName).toBe('float-view-session-1.csv.zip');
+  });
+
   it('posts authenticated export requests and uses the response filename', async () => {
     const fetcher = vi.fn<typeof fetch>(
       async () =>
         new Response('csv body', {
           status: 200,
-          headers: { 'Content-Disposition': 'attachment; filename="ride.csv"' },
+          headers: { 'Content-Disposition': 'attachment; filename="ride.csv.zip"' },
         })
     );
     const client = new SessionExportClient(
@@ -23,7 +33,7 @@ describe('session export download client', () => {
 
     const download = await client.download('session-1', 'csv');
 
-    expect(download.fileName).toBe('ride.csv');
+    expect(download.fileName).toBe('ride.csv.zip');
     expect(await download.blob.text()).toBe('csv body');
     expect(fetcher).toHaveBeenCalledWith(
       new URL('http://127.0.0.1:11003/api/session-export'),

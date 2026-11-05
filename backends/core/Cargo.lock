@@ -371,6 +371,7 @@ name = "float-view-product-store"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "flate2",
  "float-view-refloat-configuration-codec",
  "float-view-refloat-telemetry-service",
  "float-view-session-sqlite",
@@ -379,6 +380,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "zip",
 ]
 
 [[package]]
@@ -1224,6 +1226,7 @@ checksum = "eb2a05c7c36fde6c09b08576c9f7fb4cda705990f73b58fe011abf7dfb24168b"
 dependencies = [
  "arbitrary",
  "crc32fast",
+ "flate2",
  "indexmap",
  "memchr",
 ]

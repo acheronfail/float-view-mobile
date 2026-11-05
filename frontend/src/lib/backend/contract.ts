@@ -1328,6 +1328,7 @@ export interface BackendMethods {
   };
   'session.get': { params: { sessionId: string }; result: SessionMetadata };
   'session.export': {
+    // CSV exports are ZIP files containing one CSV.
     params: { sessionId: string; format: 'float-view-archive' | 'csv' };
     result: ExportResult;
   };

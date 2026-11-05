@@ -1053,10 +1053,11 @@ async function exerciseProductMethods(
 
   const cancelledPrune = await client.request('session.prune.cancel', { operationId: prune.operationId });
   assert.ok(['completed', 'cancelled'].includes(cancelledPrune.status));
-  await client.request('session.export', {
+  const csvExport = await client.request('session.export', {
     sessionId: session.sessionId,
     format: 'csv',
   });
+  assert.ok(csvExport.fileName.endsWith('.csv.zip'));
   await expectError(client.request('session.get', { sessionId: 'missing-session' }), 'not_found');
 
   const beforeDelete = await client.request('state.get', {});

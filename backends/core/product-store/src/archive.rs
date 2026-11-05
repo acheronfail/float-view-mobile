@@ -223,7 +223,7 @@ impl ArchiveExport {
         let suffix = if self.format == ExportFormat::Archive {
             "floatview"
         } else {
-            "csv"
+            "csv.zip"
         };
         let destination = self.stage.path.with_extension(suffix);
         fs::rename(&self.stage.path, &destination)?;

@@ -29,7 +29,7 @@ export class SessionExportClient {
         body: JSON.stringify({ sessionId, format }),
         cache: 'no-store',
         headers: {
-          Accept: 'application/octet-stream, text/csv',
+          Accept: 'application/octet-stream, application/zip',
           'Content-Type': 'application/json',
           'X-Float-View-Token': this.token,
         },
@@ -59,7 +59,7 @@ export function triggerBrowserDownload(download: SessionExportDownload): void {
 }
 
 function fallbackFileName(sessionId: string, format: SessionExportFormat): string {
-  return `float-view-${sessionId}.${format === 'csv' ? 'csv' : 'floatview'}`;
+  return `float-view-${sessionId}.${format === 'csv' ? 'csv.zip' : 'floatview'}`;
 }
 
 function fileNameFromContentDisposition(header: string | null, fallback: string): string {

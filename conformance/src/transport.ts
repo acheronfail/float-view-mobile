@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import WebSocket from 'ws';
@@ -79,6 +83,30 @@ export async function exerciseTransport(endpoint: { url: string; origin: string 
     ).flatMap((page) => page.items);
     const original = sessions.sort((a, b) => b.sampleCount - a.sampleCount)[0];
     assert.ok(original, 'archive fixture requires a completed session');
+    const csvExport = await fetch(endpoint.origin + '/api/session-export', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ sessionId: original.sessionId, format: 'csv' }),
+    });
+    assert.equal(csvExport.status, 200);
+    assert.equal(csvExport.headers.get('content-type'), 'application/zip');
+    assert.match(csvExport.headers.get('content-disposition')!, /\.csv\.zip"$/);
+    const csvName = csvExport.headers.get('content-disposition')!.match(/filename="([^"]+)\.zip"/)![1]!;
+    const temporary = mkdtempSync(join(tmpdir(), 'float-view-csv-'));
+    try {
+      const path = join(temporary, 'ride.csv.zip');
+      writeFileSync(path, new Uint8Array(await csvExport.arrayBuffer()));
+      assert.equal(execFileSync('unzip', ['-Z1', path], { encoding: 'utf8' }).trim(), csvName);
+      execFileSync('unzip', ['-t', path]);
+      const csv = execFileSync('unzip', ['-p', path, csvName], {
+        encoding: 'utf8',
+        maxBuffer: 128 * 1024 * 1024,
+      });
+      assert.ok(csv.startsWith('sequence,observed_at_ms,slow_observed_at_ms,elapsed_ms,'));
+      assert.ok(csv.trimEnd().split('\n').length > 1);
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
     const exported = await fetch(endpoint.origin + '/api/session-export', {
       method: 'POST',
       headers,

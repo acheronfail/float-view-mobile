@@ -290,6 +290,20 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
         serde_json::json!([])
     );
 }
+fn read_csv_zip(path: &std::path::Path) -> String {
+    use std::io::Read;
+    assert!(path.to_str().unwrap().ends_with(".csv.zip"));
+    let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
+    assert_eq!(zip.len(), 1);
+    let mut csv = zip.by_index(0).unwrap();
+    assert_eq!(csv.name(), path.file_stem().unwrap().to_str().unwrap());
+    assert_eq!(csv.compression(), zip::CompressionMethod::Deflated);
+    let mut text = String::new();
+    csv.read_to_string(&mut text).unwrap();
+    assert!(csv.compressed_size() < csv.size());
+    text
+}
+
 #[test]
 fn csv_columns_gps_privacy_ties_and_tolerance_match_native_encoding() {
     let (_dir, mut store, id) = setup();
@@ -299,7 +313,7 @@ fn csv_columns_gps_privacy_ties_and_tolerance_match_native_encoding() {
         .unwrap()
         .run(&cancel)
         .unwrap();
-    let plain = fs::read_to_string(export.path()).unwrap();
+    let plain = read_csv_zip(export.path());
     assert_eq!(plain.lines().next().unwrap().split(',').count(), 54);
     assert!(!plain.contains("gpsLatitude"));
     assert_eq!(
@@ -323,7 +337,7 @@ fn csv_columns_gps_privacy_ties_and_tolerance_match_native_encoding() {
         .unwrap()
         .run(&cancel)
         .unwrap();
-    let text = fs::read_to_string(export.path()).unwrap();
+    let text = read_csv_zip(export.path());
     let lines: Vec<_> = text.lines().collect();
     assert!(lines[0].ends_with(",gpsAccuracy,gpsLongitude,gpsLatitude"));
     assert!(lines[1].ends_with(",3.0,2.0,1.0"));
@@ -346,9 +360,11 @@ fn transfer_bounds_offsets_and_cancellation_cleanup() {
     drop(a);
     drop(b);
     let cancel = FileCancellation::default();
-    let work = store.prepare_export(&id, ExportFormat::Archive).unwrap();
     cancel.cancel();
-    assert!(matches!(work.run(&cancel), Err(Error::Cancelled)));
+    for format in [ExportFormat::Archive, ExportFormat::Csv] {
+        let work = store.prepare_export(&id, format).unwrap();
+        assert!(matches!(work.run(&cancel), Err(Error::Cancelled)));
+    }
     assert_eq!(fs::read_dir(dir.file("Exports")).unwrap().count(), 0);
     assert!(fs::read_dir(dir.path()).unwrap().all(|e| {
         !e.unwrap()
