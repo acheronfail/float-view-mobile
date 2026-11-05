@@ -27,6 +27,7 @@ struct WebView: UIViewRepresentable {
   func makeUIView(context: Context) -> WKWebView {
     let configuration = WKWebViewConfiguration()
     configuration.applicationNameForUserAgent = "FloatView/\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development")"
+    configuration.userContentController.add(context.coordinator, name: "floatViewBackNavigation")
 
     #if DEBUG
       configuration.userContentController.add(context.coordinator, name: "floatViewPerformance")
@@ -36,6 +37,7 @@ struct WebView: UIViewRepresentable {
     webView.navigationDelegate = context.coordinator
     webView.uiDelegate = context.coordinator
     webView.allowsLinkPreview = false
+    context.coordinator.installEdgeBack(in: webView)
 
     #if DEBUG
       webView.isInspectable = true
@@ -52,6 +54,16 @@ struct WebView: UIViewRepresentable {
     context.coordinator.load(url, in: webView)
   }
 
+  static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+    coordinator.stopEdgeBack()
+    webView.configuration.userContentController.removeScriptMessageHandler(forName: "floatViewBackNavigation")
+    #if DEBUG
+      webView.configuration.userContentController.removeScriptMessageHandler(forName: "floatViewPerformance")
+    #endif
+    webView.navigationDelegate = nil
+    webView.uiDelegate = nil
+  }
+
   private func applyCanvasColor(to webView: WKWebView) {
     let traits = UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
     let color = UIColor(named: "Canvas")!.resolvedColor(with: traits)
@@ -62,11 +74,21 @@ struct WebView: UIViewRepresentable {
     webView.scrollView.backgroundColor = color
   }
 
-  final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+  final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler,
+    UIGestureRecognizerDelegate
+  {
     private let onContentProcessTerminated: () -> Void
     private let onLoadComplete: () -> Void
     private let onLoadFailure: () -> Void
     private var loadedURL: URL?
+    private weak var edgeBack: UIScreenEdgePanGestureRecognizer?
+    private enum EdgePhase { case idle, dragging, waitingForSnapshot, navigating, settling }
+    private var edgePhase = EdgePhase.idle
+    private var captureDeadline: DispatchWorkItem?
+    private var edgePresentation: EdgeBackPresentation?
+    private var edgeGeneration = 0
+    private var snapshotPending = false
+    private var edgeOffset: CGFloat = 0
 
     init(
       onContentProcessTerminated: @escaping () -> Void,
@@ -81,6 +103,198 @@ struct WebView: UIViewRepresentable {
     func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
       onLoadComplete()
       (webView as? HostLayoutWebView)?.documentLoaded()
+    }
+
+    func installEdgeBack(in webView: WKWebView) {
+      let gesture = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleEdgeBack(_:)))
+      gesture.edges = .left
+      gesture.maximumNumberOfTouches = 1
+      gesture.delegate = self
+      gesture.isEnabled = false
+      webView.addGestureRecognizer(gesture)
+      // A vertical edge gesture fails the direction gate promptly, releasing ordinary scrolling.
+      webView.scrollView.panGestureRecognizer.require(toFail: gesture)
+      edgeBack = gesture
+      NotificationCenter.default.addObserver(self, selector: #selector(resetEdgePresentation),
+                                             name: UIApplication.willResignActiveNotification, object: nil)
+      NotificationCenter.default.addObserver(self, selector: #selector(resetEdgePresentation),
+                                             name: UIDevice.orientationDidChangeNotification, object: nil)
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+      guard let gesture = gestureRecognizer as? UIScreenEdgePanGestureRecognizer, edgePhase == .idle
+      else {
+        return false
+      }
+      let velocity = gesture.velocity(in: gesture.view)
+      return velocity.x > 0 && velocity.x > abs(velocity.y)
+    }
+
+    func gestureRecognizer(_: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith _: UIGestureRecognizer) -> Bool
+    {
+      // WebKit's content-touch recognizers must coexist with the native edge recognizer.
+      // The explicit failure rule above still arbitrates document scrolling.
+      true
+    }
+
+    @objc private func handleEdgeBack(_ gesture: UIScreenEdgePanGestureRecognizer) {
+      guard let webView = gesture.view as? WKWebView else { return }
+      let translation = gesture.translation(in: webView)
+      edgeOffset = translation.x
+      switch gesture.state {
+      case .began:
+        edgePhase = .dragging
+        edgeGeneration += 1
+        // An older cancelled capture may still be in flight. Keep capture bounded to one request.
+        guard !snapshotPending else { return }
+        let generation = edgeGeneration
+        snapshotPending = true
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = webView.bounds
+        webView.takeSnapshot(with: configuration) { [weak self, weak webView] image, _ in
+          let accept = { [weak self, weak webView] in
+            guard let self else { return }
+            self.snapshotPending = false
+            guard self.edgeGeneration == generation,
+                  self.edgePhase == .dragging || self.edgePhase == .waitingForSnapshot,
+                  let webView else { return }
+            if let image {
+              self.edgePresentation = EdgeBackPresentation(webView: webView, image: image)
+              self.edgePresentation?.track(self.edgeOffset)
+            }
+            if self.edgePhase == .waitingForSnapshot {
+              if self.edgePresentation != nil {
+                self.recordEdgeTest("capture-after-release")
+              }
+              self.dispatchEdgeBack(in: webView)
+            }
+          }
+          #if DEBUG && targetEnvironment(simulator)
+            // Explicit simulator-only fault injection; no identifiers, images or telemetry are logged.
+            if let value = ProcessInfo.processInfo.environment["FLOAT_VIEW_EDGE_SNAPSHOT_DELAY_MS"],
+               let milliseconds = Double(value), milliseconds > 0, milliseconds <= 1000
+            {
+              DispatchQueue.main.asyncAfter(deadline: .now() + milliseconds / 1000, execute: accept)
+              return
+            }
+          #endif
+          accept()
+        }
+      case .changed:
+        edgePresentation?.track(edgeOffset)
+      case .ended:
+        guard edgePhase == .dragging else { return }
+        let velocity = gesture.velocity(in: webView)
+        let distance = max(64, webView.bounds.width * 0.2)
+        let completed = translation.x > abs(translation.y) && velocity.x >= 0 &&
+          (translation.x >= distance || (translation.x >= 24 && velocity.x >= 600))
+        guard completed else {
+          settleEdgePresentation(completed: false)
+          return
+        }
+        edgePhase = .waitingForSnapshot
+        guard snapshotPending else { dispatchEdgeBack(in: webView); return }
+        let generation = edgeGeneration
+        let deadline = DispatchWorkItem { [weak self, weak webView] in
+          guard let self, let webView, self.edgeGeneration == generation,
+                self.edgePhase == .waitingForSnapshot else { return }
+          self.dispatchEdgeBack(in: webView)
+        }
+        captureDeadline = deadline
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: deadline)
+      case .cancelled, .failed:
+        settleEdgePresentation(completed: false)
+      default:
+        break
+      }
+    }
+
+    private func dispatchEdgeBack(in webView: WKWebView) {
+      captureDeadline?.cancel()
+      captureDeadline = nil
+      edgePhase = .navigating
+      let generation = edgeGeneration
+      let interactive = edgePresentation != nil
+      if !interactive {
+        recordEdgeTest("capture-fallback")
+      }
+      // The callback distinguishes accepted/restored navigation from consumed save or dismissal guards.
+      let script = """
+      return await new Promise(resolve => {
+        let settled = false;
+        const finish = accepted => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(accepted === true);
+        };
+        const timer = setTimeout(() => finish(false), 10000);
+        const event = new CustomEvent('floatview:back', {
+          cancelable: true, detail: {source: 'edge', interactive, complete: finish}
+        });
+        if (window.dispatchEvent(event)) finish(false);
+      });
+      """
+      webView
+        .callAsyncJavaScript(script, arguments: ["interactive": interactive], in: nil,
+                             in: .page)
+        { [weak self] result in
+          guard let self, self.edgeGeneration == generation else { return }
+          let accepted: Bool
+          switch result {
+          case let .success(value): accepted = value as? Bool == true
+          case .failure: accepted = false
+          }
+          self.settleEdgePresentation(completed: accepted)
+        }
+    }
+
+    private func settleEdgePresentation(completed: Bool) {
+      captureDeadline?.cancel()
+      captureDeadline = nil
+      edgeGeneration += 1
+      guard let presentation = edgePresentation else {
+        edgePhase = .idle
+        return
+      }
+      edgePhase = .settling
+      presentation.settle(completed: completed) { [weak self] in
+        guard let self, self.edgePresentation === presentation else { return }
+        self.edgePresentation = nil
+        self.edgePhase = .idle
+      }
+    }
+
+    @objc private func resetEdgePresentation() {
+      edgeGeneration += 1
+      captureDeadline?.cancel()
+      captureDeadline = nil
+      edgePresentation?.remove()
+      edgePresentation = nil
+      edgePhase = .idle
+    }
+
+    private func recordEdgeTest(_ outcome: String) {
+      #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.environment["FLOAT_VIEW_EDGE_SNAPSHOT_DELAY_MS"] != nil {
+          print("[FloatView edge test] \(outcome)")
+        }
+      #endif
+    }
+
+    func stopEdgeBack() {
+      resetEdgePresentation()
+      NotificationCenter.default.removeObserver(self)
+      if let gesture = edgeBack {
+        gesture.view?.removeGestureRecognizer(gesture)
+      }
+      edgeBack = nil
+    }
+
+    func webView(_: WKWebView, didStartProvisionalNavigation _: WKNavigation!) {
+      edgeBack?.isEnabled = false
+      resetEdgePresentation()
     }
 
     func webView(_: WKWebView, decidePolicyFor action: WKNavigationAction,
@@ -130,16 +344,22 @@ struct WebView: UIViewRepresentable {
 
     func webView(_: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: Error) {
       guard (error as NSError).code != NSURLErrorCancelled else { return }
+      edgeBack?.isEnabled = false
+      resetEdgePresentation()
       onLoadFailure()
     }
 
     func webView(_: WKWebView, didFail _: WKNavigation!, withError error: Error) {
       guard (error as NSError).code != NSURLErrorCancelled else { return }
+      edgeBack?.isEnabled = false
+      resetEdgePresentation()
       onLoadFailure()
     }
 
     func load(_ url: URL, in webView: WKWebView) {
       guard loadedURL != url else { return }
+      edgeBack?.isEnabled = false
+      resetEdgePresentation()
       loadedURL = url
       #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.environment["FLOAT_VIEW_LAYOUT_CAPTURE"] == "1" {
@@ -153,6 +373,8 @@ struct WebView: UIViewRepresentable {
     }
 
     func webViewWebContentProcessDidTerminate(_: WKWebView) {
+      edgeBack?.isEnabled = false
+      resetEdgePresentation()
       #if DEBUG
         print("[FloatView WebView] web content process terminated; recovering frontend")
       #endif
@@ -162,6 +384,14 @@ struct WebView: UIViewRepresentable {
     }
 
     func userContentController(_: WKUserContentController, didReceive message: WKScriptMessage) {
+      if message.name == "floatViewBackNavigation" {
+        guard message.frameInfo.isMainFrame,
+              isBackendPage(message.frameInfo.request.url, backendURL: loadedURL),
+              let available = message.body as? Bool
+        else { return }
+        edgeBack?.isEnabled = available
+        return
+      }
       #if DEBUG
         guard message.name == "floatViewPerformance" else { return }
         guard

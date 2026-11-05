@@ -86,55 +86,56 @@ export class NavigationContext {
     this.stopRestore?.();
   }
 
-  restore(url: URL, content: HTMLElement, reveal: () => void) {
+  restore(url: URL, content: HTMLElement): Promise<void> {
     this.cancel();
     const position = this.has(url) ? this.positions.get(this.key(url)) : undefined;
     if (!position) {
       window.scrollTo({ top: 0, behavior: 'instant' });
-      reveal();
-      return;
+      return Promise.resolve();
     }
-    let frame = 0;
-    const finish = () => {
-      cancelAnimationFrame(frame);
-      clearTimeout(timeout);
-      observer.disconnect();
-      for (const event of ['pointerdown', 'wheel', 'keydown', 'touchstart'])
-        window.removeEventListener(event, finish, true);
-      this.stopRestore = undefined;
-      // Reveal synchronously so restored keyboard focus can target the content.
-      content.style.visibility = '';
-      reveal();
-    };
-    const apply = () => {
-      frame = 0;
-      if (content.querySelector('[data-navigation-pending="true"]')) return;
-      const links = Array.from(content.querySelectorAll<HTMLAnchorElement>('a[href]'));
-      const anchor = position.anchors
-        .map((saved) => ({ saved, node: links.find((node) => node.getAttribute('href') === saved.href) }))
-        .find((anchor) => anchor.node);
-      window.scrollTo({
-        top: anchor ? window.scrollY + anchor.node!.getBoundingClientRect().top - anchor.saved.top : position.y,
-        behavior: 'instant',
+    return new Promise<void>((resolve) => {
+      let frame = 0;
+      const finish = () => {
+        cancelAnimationFrame(frame);
+        clearTimeout(timeout);
+        observer.disconnect();
+        for (const event of ['pointerdown', 'wheel', 'keydown', 'touchstart'])
+          window.removeEventListener(event, finish, true);
+        this.stopRestore = undefined;
+        // Reveal synchronously so restored keyboard focus can target the content.
+        content.style.visibility = '';
+        resolve();
+      };
+      const apply = () => {
+        frame = 0;
+        if (content.querySelector('[data-navigation-pending="true"]')) return;
+        const links = Array.from(content.querySelectorAll<HTMLAnchorElement>('a[href]'));
+        const anchor = position.anchors
+          .map((saved) => ({ saved, node: links.find((node) => node.getAttribute('href') === saved.href) }))
+          .find((anchor) => anchor.node);
+        window.scrollTo({
+          top: anchor ? window.scrollY + anchor.node!.getBoundingClientRect().top - anchor.saved.top : position.y,
+          behavior: 'instant',
+        });
+        finish();
+        if (position.focus && document.documentElement.dataset.keyboardNavigation)
+          links.find((node) => node.getAttribute('href') === position.focus)?.focus({ preventScroll: true });
+      };
+      const schedule = () => {
+        if (!frame) frame = requestAnimationFrame(apply);
+      };
+      const observer = new MutationObserver(schedule);
+      observer.observe(content, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['data-navigation-pending'],
       });
-      finish();
-      if (position.focus && document.documentElement.dataset.keyboardNavigation)
-        links.find((node) => node.getAttribute('href') === position.focus)?.focus({ preventScroll: true });
-    };
-    const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(apply);
-    };
-    const observer = new MutationObserver(schedule);
-    observer.observe(content, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['data-navigation-pending'],
+      const timeout = setTimeout(finish, 8000);
+      for (const event of ['pointerdown', 'wheel', 'keydown', 'touchstart'])
+        window.addEventListener(event, finish, { capture: true, passive: true });
+      this.stopRestore = finish;
+      schedule();
     });
-    const timeout = setTimeout(finish, 8000);
-    for (const event of ['pointerdown', 'wheel', 'keydown', 'touchstart'])
-      window.addEventListener(event, finish, { capture: true, passive: true });
-    this.stopRestore = finish;
-    schedule();
   }
 }

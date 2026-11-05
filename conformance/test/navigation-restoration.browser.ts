@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { chromium, webkit, type Page } from 'playwright';
 import { startMockServer, stopMockServer, getMockBootstrap } from '../../frontend/backend-mock/index.ts';
+import { dispatchEdgeBack } from './support/edge-back.ts';
 
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 async function settled(page: Page) {
@@ -31,6 +32,22 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           reducedMotion: 'reduce',
         });
         page.setDefaultTimeout(7000);
+        await page.addInitScript(() => {
+          const messages: boolean[] = [];
+          const routeMotionStarts = { count: 0 };
+          const animate = Element.prototype.animate;
+          Element.prototype.animate = function (this: Element, ...args: Parameters<Element['animate']>) {
+            if (this.hasAttribute('data-route-content')) routeMotionStarts.count++;
+            return animate.apply(this, args);
+          };
+          Object.assign(window, {
+            routeMotionStarts,
+            edgeBackMessages: messages,
+            webkit: {
+              messageHandlers: { floatViewBackNavigation: { postMessage: (value: boolean) => messages.push(value) } },
+            },
+          });
+        });
         if (name === 'chromium')
           await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
         const errors: string[] = [];
@@ -132,6 +149,16 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           await route.fulfill({ response, json: result });
         });
         await page.goto(`${endpoint.origin}/#/sessions`);
+        await page.waitForFunction(
+          () => (window as Window & { edgeBackMessages?: boolean[] }).edgeBackMessages?.at(-1) === false
+        );
+        assert.equal(
+          await page.evaluate(() =>
+            window.dispatchEvent(new CustomEvent('floatview:back', { cancelable: true, detail: { source: 'edge' } }))
+          ),
+          true,
+          'edge Back does nothing on primary destinations'
+        );
         const boards = page.getByRole('region', { name: 'Saved boards', exact: true });
         const boardLink = boards.getByRole('link').nth(10);
         await boardLink.scrollIntoViewIfNeeded();
@@ -140,6 +167,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await boardLink.tap();
         await settled(page);
         assert.equal(await page.evaluate(() => scrollY), 0, 'new board starts at top');
+        await page.waitForFunction(
+          () => (window as Window & { edgeBackMessages?: boolean[] }).edgeBackMessages?.at(-1) === true
+        );
         const sessions = page.getByRole('region', { name: 'Sessions', exact: true });
         for (const row of [99, 128]) {
           await sessions.getByLabel('Load more sessions').scrollIntoViewIfNeeded();
@@ -152,7 +182,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const deepY = await page.evaluate(() => scrollY);
         assert.ok(deepY > 5000);
         const headerBack = page.getByRole('link', { name: 'Board sessions', exact: true });
-        for (const back of ['header', 'browser', 'native', 'keyboard']) {
+        const motionCount = () =>
+          page.evaluate(() => (window as Window & { routeMotionStarts?: { count: number } }).routeMotionStarts!.count);
+        for (const back of ['header', 'browser', 'native', 'edge', 'edge-fallback', 'keyboard']) {
+          if (back.startsWith('edge')) await page.emulateMedia({ reducedMotion: 'no-preference' });
+          const beforeOpenMotion = await motionCount();
           if (back === 'keyboard') {
             await page.keyboard.press('Tab');
             await target.focus();
@@ -160,14 +194,29 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           } else await target.tap();
           await page.waitForURL('**/#/sessions/row-128?*');
           await headerBack.waitFor();
+          if (back.startsWith('edge'))
+            assert.ok((await motionCount()) > beforeOpenMotion, 'ordinary route entry still animates');
           assert.equal(await page.evaluate(() => scrollY), 0, 'new session starts at top');
           const requestCount = cursors.length;
           if (back === 'browser') await page.goBack();
           else if (back === 'native')
             await page.evaluate(() => window.dispatchEvent(new Event('floatview:back', { cancelable: true })));
-          else if (back === 'keyboard') await headerBack.press('Enter');
+          else if (back.startsWith('edge')) {
+            const beforeBackMotion = await motionCount();
+            assert.deepEqual(
+              await dispatchEdgeBack(page, back === 'edge'),
+              { consumed: true, navigated: true },
+              'interactive Back acknowledges restored presentation'
+            );
+            assert.equal(
+              (await motionCount()) - beforeBackMotion,
+              back === 'edge' ? 0 : 1,
+              'native slide suppresses route fade; capture fallback keeps ordinary motion'
+            );
+            await page.emulateMedia({ reducedMotion: 'reduce' });
+          } else if (back === 'keyboard') await headerBack.press('Enter');
           else await headerBack.tap();
-          await settled(page);
+          if (!back.startsWith('edge')) await settled(page);
           assert.ok(Math.abs((await target.boundingBox())!.y - targetY) < 3, `${back}: same row offset`);
           assert.equal(cursors.length, requestCount, 'retained pages need no refetch');
           if (back === 'keyboard') assert.equal(await target.evaluate((node) => node === document.activeElement), true);

@@ -38,6 +38,114 @@ final class FloatViewLifecycleTests: XCTestCase {
   }
 
   #if targetEnvironment(simulator)
+    func testNativeFastEdgeBackWithDelayedSnapshot() {
+      exerciseFastEdgeBack(snapshotDelay: "200", cancelFirst: false)
+    }
+
+    func testNativeFastEdgeBackWithCaptureFallback() {
+      exerciseFastEdgeBack(snapshotDelay: "1000", cancelFirst: true)
+    }
+
+    private func exerciseFastEdgeBack(snapshotDelay: String, cancelFirst: Bool) {
+      continueAfterFailure = false
+      application.terminate()
+      application.launchEnvironment["FLOAT_VIEW_EDGE_SNAPSHOT_DELAY_MS"] = snapshotDelay
+      defer { application.launchEnvironment.removeValue(forKey: "FLOAT_VIEW_EDGE_SNAPSHOT_DELAY_MS") }
+      application.launch()
+      acceptSafetyIfNeeded()
+      application.links["settings"].tap()
+      let notices = application.links["View licences and notices"]
+      for _ in 0 ..< 15 {
+        if notices.isHittable, notices.frame.minY > 120,
+           notices.frame.maxY < application.links["settings"].frame.minY - 12
+        {
+          break
+        }
+        application.swipeUp()
+      }
+      let parentOffset = notices.frame.minY
+      notices.tap()
+      XCTAssertTrue(application.buttons["Project licence"].waitForExistence(timeout: 10))
+      let edge = application.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.55))
+      if cancelFirst {
+        edge.press(forDuration: 0.01,
+                   thenDragTo: application.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.55)),
+                   withVelocity: .fast, thenHoldForDuration: 0)
+        XCTAssertTrue(application.links["Settings"].isHittable, "Cancelled capture navigated")
+      }
+      edge.press(forDuration: 0.01,
+                 thenDragTo: application.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.55)),
+                 withVelocity: .fast, thenHoldForDuration: 0)
+      XCTAssertTrue(application.links["settings"].waitForExistence(timeout: 10))
+      XCTAssertEqual(notices.frame.minY, parentOffset, accuracy: 3, "Fast Back lost parent position")
+      // Late captures from the completed/cancelled gesture must not cover the next page.
+      notices.tap()
+      XCTAssertTrue(application.buttons["Project licence"].waitForExistence(timeout: 10))
+      application.links["Settings"].tap()
+      XCTAssertTrue(notices.isHittable)
+    }
+
+    func testNativeEdgeBackGesture() {
+      continueAfterFailure = false
+      application.launch()
+      acceptSafetyIfNeeded()
+      application.links["settings"].tap()
+      let notices = application.links["View licences and notices"]
+      for _ in 0 ..< 15 {
+        if notices.isHittable, notices.frame.minY > 120,
+           notices.frame.maxY < application.links["settings"].frame.minY - 12
+        {
+          break
+        }
+        application.swipeUp()
+      }
+      XCTAssertTrue(notices.isHittable)
+      let parentOffset = notices.frame.minY
+      notices.tap()
+      let licence = application.buttons["Project licence"]
+      XCTAssertTrue(licence.waitForExistence(timeout: 10))
+
+      func drag(from: CGVector, to: CGVector) {
+        application.coordinate(withNormalizedOffset: from)
+          .press(forDuration: 0.05, thenDragTo: application.coordinate(withNormalizedOffset: to),
+                 withVelocity: .slow, thenHoldForDuration: 0.1)
+      }
+      // Too short, away from the edge, and vertical gestures must leave this route intact.
+      drag(from: CGVector(dx: 0.005, dy: 0.55), to: CGVector(dx: 0.05, dy: 0.55))
+      XCTAssertTrue(licence.isHittable)
+      drag(from: CGVector(dx: 0.3, dy: 0.55), to: CGVector(dx: 0.8, dy: 0.55))
+      XCTAssertTrue(licence.isHittable)
+      drag(from: CGVector(dx: 0.005, dy: 0.7), to: CGVector(dx: 0.005, dy: 0.4))
+      XCTAssertTrue(application.links["Settings"].isHittable)
+
+      drag(from: CGVector(dx: 0.005, dy: 0.55), to: CGVector(dx: 0.75, dy: 0.55))
+      XCTAssertTrue(application.links["settings"].waitForExistence(timeout: 10))
+      XCTAssertEqual(notices.frame.minY, parentOffset, accuracy: 3, "Back lost the parent's scroll position")
+      // A primary destination has no edge-back navigation.
+      drag(from: CGVector(dx: 0.005, dy: 0.55), to: CGVector(dx: 0.75, dy: 0.55))
+      XCTAssertTrue(notices.isHittable)
+
+      // Fresh WebViews must receive the current capability again.
+      notices.tap()
+      XCTAssertTrue(licence.waitForExistence(timeout: 10))
+      application.terminate()
+      application.launch()
+      acceptSafetyIfNeeded()
+      application.links["settings"].tap()
+      for _ in 0 ..< 15 {
+        if notices.isHittable, notices.frame.minY > 120,
+           notices.frame.maxY < application.links["settings"].frame.minY - 12
+        {
+          break
+        }
+        application.swipeUp()
+      }
+      notices.tap()
+      XCTAssertTrue(licence.waitForExistence(timeout: 10))
+      drag(from: CGVector(dx: 0.005, dy: 0.55), to: CGVector(dx: 0.75, dy: 0.55))
+      XCTAssertTrue(application.links["settings"].waitForExistence(timeout: 10))
+    }
+
     func testLocalConnectionFailureCanRetry() {
       application.terminate()
       var listener = socket(AF_INET, SOCK_STREAM, 0)

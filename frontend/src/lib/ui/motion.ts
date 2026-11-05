@@ -29,7 +29,7 @@ function disclosure(node: HTMLElement, enabled: boolean): TransitionConfig {
 }
 
 // Read context during component initialization, never from a transition callback.
-export function createMotion() {
+export function createMotion({ contentEnabled = () => true }: { contentEnabled?: () => boolean } = {}) {
   const context = getContext<MotionContext | undefined>(MOTION_CONTEXT);
   const enabled = () => context?.enabled() ?? true;
   const running = new WeakMap<HTMLElement, Animation>();
@@ -59,7 +59,10 @@ export function createMotion() {
 
   function enter(node: HTMLElement, kind: Surface) {
     running.get(node)?.cancel();
-    const ms = enabled() ? duration(node, kind === 'panel' ? 'panel' : kind === 'dialog' ? 'normal' : 'fast') : 0;
+    const ms =
+      enabled() && (kind !== 'content' || contentEnabled())
+        ? duration(node, kind === 'panel' ? 'panel' : kind === 'dialog' ? 'normal' : 'fast')
+        : 0;
     if (!ms) return;
     const offset = kind === 'panel' ? 8 : kind === 'dialog' ? 6 : kind === 'menu' ? -4 : 0;
     const animation = node.animate(

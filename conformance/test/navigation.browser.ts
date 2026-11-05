@@ -4,13 +4,21 @@ import { test } from 'node:test';
 import { chromium, webkit, type Page } from 'playwright';
 import { startMockServer, stopMockServer, getMockBootstrap } from '../../frontend/backend-mock/index.ts';
 import { ConformanceClient } from '../src/client.ts';
+import { dispatchEdgeBack } from './support/edge-back.ts';
 
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
-async function nativeBack(page: Page) {
-  assert.equal(
-    await page.evaluate(() => window.dispatchEvent(new Event('floatview:back', { cancelable: true }))),
-    false
-  );
+async function nativeBack(page: Page, edge = false) {
+  if (edge) {
+    assert.deepEqual(
+      await dispatchEdgeBack(page),
+      { consumed: true, navigated: false },
+      'surface/save guards settle the page back'
+    );
+  } else
+    assert.equal(
+      await page.evaluate(() => window.dispatchEvent(new Event('floatview:back', { cancelable: true }))),
+      false
+    );
 }
 
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
@@ -153,7 +161,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await displayName.inputValue(), 'Unsaved history edit');
       await page.keyboard.press('Escape');
       assert.equal(await panel.isVisible(), true, 'Escape uses the same save guard');
-      await nativeBack(page);
+      await nativeBack(page, true);
       assert.equal(await panel.isVisible(), true, 'system Back uses the same save guard');
       assert.equal(updateRequests, 1, 'dismissal does not double-submit failed edits');
       await panel.getByRole('button', { name: 'Close without saving failed changes' }).tap();
@@ -163,7 +171,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await panel.getByRole('spinbutton', { name: 'Preferred BMS CAN ID (optional)' }).fill('11');
       await panel.getByRole('button', { name: 'Done', exact: true }).tap();
       await panel.getByRole('alert').filter({ hasText: 'Navigation test save failure' }).waitFor();
-      await nativeBack(page);
+      await nativeBack(page, true);
       assert.equal(await panel.isVisible(), true, 'history profile failures also prevent dismissal');
       await panel.getByRole('button', { name: 'Close without saving failed changes' }).tap();
       await panel.waitFor({ state: 'hidden' });

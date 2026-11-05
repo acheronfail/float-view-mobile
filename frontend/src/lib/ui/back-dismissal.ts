@@ -38,14 +38,38 @@ export function dismissTopSurface(): boolean {
 }
 
 /** Escape dismisses surfaces; native Back also follows the current route's return link. */
-export function installBackNavigation(back: () => boolean) {
+export function installBackNavigation(
+  back: (source: 'edge' | 'system', interactive: boolean) => boolean | Promise<boolean>,
+  canEdgeBack: () => boolean = () => true
+) {
   const escape = (event: KeyboardEvent) => {
     if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented || !dismissTopSurface()) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   };
   const nativeBack = (event: Event) => {
-    if (dismissTopSurface() || back()) event.preventDefault();
+    const detail = (
+      event as CustomEvent<{ source?: string; interactive?: boolean; complete?: (navigated: boolean) => void }>
+    ).detail;
+    const complete = typeof detail?.complete === 'function' ? detail.complete : undefined;
+    if (detail?.source === 'edge' && !canEdgeBack()) {
+      complete?.(false);
+      return;
+    }
+    if (dismissTopSurface()) {
+      event.preventDefault();
+      complete?.(false);
+      return;
+    }
+    const result = back(
+      detail?.source === 'edge' ? 'edge' : 'system',
+      detail?.source === 'edge' && detail.interactive !== false
+    );
+    if (result !== false) event.preventDefault();
+    void Promise.resolve(result).then(
+      (navigated) => complete?.(navigated),
+      () => complete?.(false)
+    );
   };
   window.addEventListener('keydown', escape, true);
   window.addEventListener('floatview:back', nativeBack);

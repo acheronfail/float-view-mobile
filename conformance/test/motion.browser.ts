@@ -28,6 +28,19 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      await page.routeWebSocket('**/api/ws?*', (socket) => {
+        const server = socket.connectToServer();
+        socket.onMessage((raw) => server.send(raw));
+        server.onMessage((raw) => {
+          const message = JSON.parse(String(raw));
+          // This tests confirmation motion, not admission against the mock's riding telemetry.
+          const state = message.event === 'state.changed' ? message.data : message.result;
+          if (state?.activeConnection?.refloatConfiguration)
+            state.activeConnection.refloatConfiguration.writeBlockReason = null;
+          if (message.result && 'writeBlockReason' in message.result) message.result.writeBlockReason = null;
+          socket.send(JSON.stringify(message));
+        });
+      });
       await page.goto(`${endpoint.origin}/#/live`);
       const trigger = page.getByRole('button', { name: 'Board actions', exact: true });
       const actions = page.getByRole('dialog', { name: 'Board actions', exact: true });
@@ -85,7 +98,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await search.waitFor();
       assert.equal(await search.inputValue(), 'Duty');
       assert.equal(await search.evaluate((node) => !!node.closest('[inert]')), false);
-      await editor.getByRole('spinbutton').first().fill('0.85');
+      await editor.getByRole('spinbutton', { name: 'Duty Tiltback', exact: true }).fill('0.85');
       const write = editor.getByRole('button', { name: 'Write configuration', exact: true });
       await page.waitForFunction((node) => !(node as HTMLButtonElement).disabled, await write.elementHandle());
       await write.focus();

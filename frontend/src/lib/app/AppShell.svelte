@@ -30,6 +30,7 @@
   import { connectionReturnHref, connectionRedirect } from './connection-navigation';
   import { dismissTopSurface, installBackNavigation } from '$lib/ui/back-dismissal';
   import { trackKeyboardNavigation } from './focus';
+  import { publishHostBackNavigation } from './host-back-navigation';
 
   let { children }: { children: Snippet } = $props();
   let themeController = $state<ThemeController | undefined>(undefined);
@@ -72,7 +73,8 @@
   });
   let motionReady = $state(false);
   setContext(MOTION_CONTEXT, { enabled: () => motionReady });
-  const motion = createMotion();
+  let nativeBackTransition = false;
+  const motion = createMotion({ contentEnabled: () => !nativeBackTransition });
   $effect(() => {
     if (starting) {
       motionReady = false;
@@ -91,11 +93,14 @@
   let startupGeneration = 0;
   let restoringNavigation = false;
   let cancelledStartup = false;
+  let presentationReady = Promise.resolve();
   afterNavigate(() => {
     const generation = ++positionGeneration;
-    void tick().then(() => {
+    presentationReady = tick().then(() => {
       if (generation !== positionGeneration || !routeContent) return;
-      navigationContext.restore(page.url, routeContent, () => (restoringPosition = false));
+      return navigationContext.restore(page.url, routeContent).then(() => {
+        if (generation === positionGeneration) restoringPosition = false;
+      });
     });
     if (cancelledStartup) {
       cancelledStartup = false;
@@ -243,26 +248,44 @@
       ...(headerRegistration?.owner === page.route.id ? headerRegistration.patch : {}),
     })
   );
+  const nestedBackAvailable = $derived(!starting && safetyCleared && !restoreError && !!appHeader.backHref);
+  $effect(() => publishHostBackNavigation(nestedBackAvailable));
 
   onMount(() => {
     const stopHostLayout = installHostLayout();
     const stopKeyboardNavigation = trackKeyboardNavigation();
-    const stopBackNavigation = installBackNavigation(() => {
-      const href =
-        appHeader.backHref ??
-        (page.route.id === '/live' || page.route.id === '/bms'
-          ? connectionReturnHref
-          : page.route.id === '/settings'
-            ? backendState.snapshot?.activeConnection
-              ? connectionReturnHref
-              : '#/'
-            : page.route.id === '/sessions' && !backendState.snapshot?.activeConnection
-              ? '#/'
-              : null);
-      if (!href) return false;
-      void goto(href);
-      return true;
-    });
+    const stopBackNavigation = installBackNavigation(
+      (source, interactive) => {
+        const href =
+          appHeader.backHref ??
+          (page.route.id === '/live' || page.route.id === '/bms'
+            ? connectionReturnHref
+            : page.route.id === '/settings'
+              ? backendState.snapshot?.activeConnection
+                ? connectionReturnHref
+                : '#/'
+              : page.route.id === '/sessions' && !backendState.snapshot?.activeConnection
+                ? '#/'
+                : null);
+        if (!href) return false;
+        const previous = page.url.href;
+        nativeBackTransition = source === 'edge' && interactive;
+        return goto(href)
+          .then(async () => {
+            if (page.url.href === previous) return false;
+            await presentationReady;
+            if (source === 'edge') {
+              // Let restored DOM/scroll changes paint before the native backdrop starts revealing them.
+              await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            }
+            return true;
+          })
+          .finally(() => {
+            nativeBackTransition = false;
+          });
+      },
+      () => nestedBackAvailable
+    );
     themeController = new ThemeController(browserThemeEnvironment());
     const stopTheme = themeController.start();
     const handleNativeImportStarted = () => {

@@ -862,23 +862,22 @@
   oncancel={cancelControllerShutdown}
 />
 
-{#if configuration}
+<!-- Keep the editor target alive while its overlay fades out. -->
+{#each configuration ? [configuration] : [] as target (target.savedDeviceId)}
   <FullScreenOverlay
-    title={configuration.batteryOnly ? 'Battery configuration' : 'Board configuration'}
+    title={target.batteryOnly ? 'Battery configuration' : 'Board configuration'}
     titleId="configure-overlay-title"
     onclose={closeConfigure}
   >
-    {#key configuration.savedDeviceId}
-      <BoardEditor
-        bind:this={editor}
-        savedDeviceId={configuration.savedDeviceId}
-        batteryOnly={configuration.batteryOnly}
-        embedded
-        onclose={closeConfigure}
-      />
-    {/key}
+    <BoardEditor
+      bind:this={editor}
+      savedDeviceId={target.savedDeviceId}
+      batteryOnly={target.batteryOnly}
+      embedded
+      onclose={closeConfigure}
+    />
   </FullScreenOverlay>
-{/if}
+{/each}
 
 {#if connection?.state === 'selecting_controller'}
   <ControllerSelection {connection} ondisconnect={disconnect} />
