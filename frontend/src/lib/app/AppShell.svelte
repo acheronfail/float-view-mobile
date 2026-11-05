@@ -4,7 +4,8 @@
   import { navigationLink } from '$lib/ui/navigation-link';
   import { installUiErrorReporting } from '$lib/backend/ui-errors';
   import { createMotion, MOTION_CONTEXT } from '$lib/ui/motion';
-  import { onMount, setContext } from 'svelte';
+  import { onMount, setContext, tick } from 'svelte';
+  import { NAVIGATION_CONTEXT, NavigationContext } from './navigation-context';
   import { ApiRequestError } from '$lib/backend/client';
   import {
     UI_RESTORATION,
@@ -14,7 +15,7 @@
     resolveUiCheckpoint,
     uiDiagnostic,
   } from './ui-restoration.svelte';
-  import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+  import { afterNavigate, beforeNavigate, onNavigate, goto } from '$app/navigation';
   import { page } from '$app/state';
   import { backendState } from '$lib/backend/state.svelte';
   import SessionExportProgress from '$lib/features/sessions/SessionExportProgress.svelte';
@@ -34,6 +35,11 @@
   let themeController = $state<ThemeController | undefined>(undefined);
   const restoration = new UiRestoration((checkpoint) => backendState.setUiCheckpoint(checkpoint));
   setContext(UI_RESTORATION, restoration);
+  const navigationContext = new NavigationContext();
+  setContext(NAVIGATION_CONTEXT, navigationContext);
+  let routeContent = $state<HTMLElement>();
+  let restoringPosition = $state(false);
+  let positionGeneration = 0;
   let starting = $state(true);
   let safetyCleared = $state(false);
   onMount(() => installUiErrorReporting((error) => backendState.diagnosticRequest('diagnostics.uiError', error)));
@@ -86,6 +92,11 @@
   let restoringNavigation = false;
   let cancelledStartup = false;
   afterNavigate(() => {
+    const generation = ++positionGeneration;
+    void tick().then(() => {
+      if (generation !== positionGeneration || !routeContent) return;
+      navigationContext.restore(page.url, routeContent, () => (restoringPosition = false));
+    });
     if (cancelledStartup) {
       cancelledStartup = false;
       starting = false;
@@ -109,6 +120,13 @@
       startupGeneration++;
       restoration.pending = null;
     }
+  });
+  onNavigate((navigation) => {
+    if (navigation.from && routeContent && !starting && !restoringPosition)
+      navigationContext.capture(navigation.from.url, routeContent);
+    navigationContext.cancel();
+    positionGeneration++;
+    restoringPosition = !!navigation.to && navigationContext.has(navigation.to.url);
   });
   async function resume() {
     const generation = ++startupGeneration;
@@ -281,6 +299,7 @@
       themeController = undefined;
       startupGeneration++;
       restoration.dispose();
+      navigationContext.cancel();
       backendState.close();
     };
   });
@@ -358,6 +377,9 @@
     />
 
     <div
+      data-route-content
+      bind:this={routeContent}
+      style:visibility={restoringPosition ? 'hidden' : undefined}
       use:motion.change={`${page.route.id}:${JSON.stringify(page.params)}`}
       class="flex flex-1 flex-col"
       class:min-h-0={liveRoute}

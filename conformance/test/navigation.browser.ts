@@ -15,7 +15,7 @@ async function nativeBack(page: Page) {
 
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   test(`${name}: connected navigation, stable returns and guarded dismissal`, { timeout: 60_000 }, async () => {
-    const port = await startMockServer(0, { safetyDisclaimerAccepted: true });
+    const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
     const browser = await engine.launch();
@@ -196,6 +196,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await backToBoard.waitFor();
       await client.request('device.disconnect', {});
       await client.waitForState((s) => !s.activeConnection);
+      // Disconnect now pauses the ride; explicitly finish it to exercise completion returns.
+      await client.request('session.end', { sessionId: connection.activeSession!.sessionId });
       await page.getByRole('heading', { name: 'Current ride', exact: true }).waitFor({ state: 'hidden' });
       assert.equal(await backToBoard.getAttribute('href'), '#/live', 'completion preserves the entry destination');
       await backToBoard.tap();

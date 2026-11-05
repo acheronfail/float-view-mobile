@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { getContext, onMount } from 'svelte';
+  import { NAVIGATION_CONTEXT, type NavigationContext } from '$lib/app/navigation-context';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import type { SessionListPage, SessionSummary } from '$lib/backend/contract';
   import { ApiRequestError } from '$lib/backend/client';
@@ -14,6 +15,22 @@
   let { savedDeviceId }: { savedDeviceId: string } = $props();
 
   const PAGE_SIZE = 50;
+  const navigation = getContext<NavigationContext | undefined>(NAVIGATION_CONTEXT);
+  let restoreCount = 0;
+  let restoringPages = $state(false);
+  let disposed = false;
+
+  function retainPages() {
+    if (!navigation || loadedCatalogRevision === null) return;
+    const items = groups.flatMap((group) => group.sessions.map((session) => session.summary));
+    navigation.retainSessions(savedDeviceId, {
+      items,
+      catalogRevision: loadedCatalogRevision,
+      nextCursor,
+      // A return interrupted halfway through loading must retain its intended depth.
+      targetCount: Math.max(items.length, restoreCount),
+    });
+  }
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
 
   type LoadedSession = {
@@ -81,8 +98,10 @@
           label: sessionStartDateLabel(summary.startedAt) ?? 'Unknown date',
           sessions: [],
         };
-        groupedByDate.set(key, group);
         groups.push(group);
+        // Keep the reactive proxy: later pages can append to an existing date group.
+        group = groups[groups.length - 1]!;
+        groupedByDate.set(key, group);
       }
       group.sessions.push({ summary, date, dateKey: key, dateLabel: group.label });
     }
@@ -103,7 +122,7 @@
 
     try {
       const page = await backendState.listSessions(savedDeviceId, PAGE_SIZE, cursor);
-      if (generation !== requestGeneration) return;
+      if (disposed || generation !== requestGeneration) return;
 
       // A state event can arrive while the page is in flight. Do not append a
       // page from the old catalog revision; restart from the first cursor.
@@ -117,8 +136,9 @@
       hasMore = page.nextCursor !== null;
       initialized = true;
       loadedCatalogRevision = page.catalogRevision;
+      retainPages();
     } catch (cause) {
-      if (generation === requestGeneration) {
+      if (!disposed && generation === requestGeneration) {
         if (cause instanceof ApiRequestError && cause.code === 'conflict' && conflictRetries > 0) {
           // A close, import, or expired paused ride can invalidate even the
           // first page. Restart once with a fresh cursor, then show the error.
@@ -128,10 +148,13 @@
       }
     } finally {
       loading = false;
-      if (pendingReset) {
+      if (!disposed && pendingReset) {
         pendingReset = false;
         clearLoadedSessions();
         void loadPage(true, conflictRetries);
+      } else if (!disposed && restoringPages) {
+        if (!error && hasMore && loadedSessionIds.size < restoreCount) void loadPage();
+        else restoringPages = false;
       }
     }
   }
@@ -139,6 +162,8 @@
   $effect(() => {
     const currentRevision = backendState.sessionCatalogRevision;
     if (!initialized || loadedCatalogRevision === null || currentRevision === loadedCatalogRevision) return;
+    restoreCount = Math.min(loadedSessionIds.size, navigation?.maxRetainedSessions ?? PAGE_SIZE);
+    restoringPages = restoreCount > PAGE_SIZE;
     pendingReset = true;
     if (!loading) {
       pendingReset = false;
@@ -165,12 +190,35 @@
             { rootMargin: '640px 0px' }
           );
     observerReady = true;
-    void loadPage(true);
-    return () => observer?.disconnect();
+    const retained = navigation?.sessions.get(savedDeviceId);
+    if (retained?.catalogRevision === backendState.sessionCatalogRevision) {
+      appendPage(retained);
+      nextCursor = retained.nextCursor;
+      hasMore = nextCursor !== null;
+      initialized = true;
+      loadedCatalogRevision = retained.catalogRevision;
+      restoreCount = retained.targetCount;
+      restoringPages = hasMore && loadedSessionIds.size < restoreCount;
+      if (restoringPages) void loadPage();
+    } else {
+      restoreCount = retained?.targetCount ?? 0;
+      restoringPages = restoreCount > PAGE_SIZE;
+      void loadPage(true);
+    }
+    return () => {
+      disposed = true;
+      requestGeneration++;
+      observer?.disconnect();
+    };
   });
 </script>
 
-<section aria-label="Sessions" aria-busy={loading} class="flex flex-col gap-4">
+<section
+  data-navigation-pending={(!initialized && !error) || restoringPages}
+  aria-label="Sessions"
+  aria-busy={loading}
+  class="flex flex-col gap-4"
+>
   {#if error && !groups.length}
     <p role="alert" class="text-warning">Unable to load sessions: {error}</p>
     <button class="self-start rounded bg-surface px-3 py-2 text-sm" type="button" onclick={() => loadPage(true)}>

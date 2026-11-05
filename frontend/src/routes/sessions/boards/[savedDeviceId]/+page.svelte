@@ -6,7 +6,9 @@
 </script>
 
 {#if savedDeviceId.length > 0 && savedDeviceId.length <= 512}
-  <BoardHistory {savedDeviceId} />
+  {#key savedDeviceId}
+    <BoardHistory {savedDeviceId} />
+  {/key}
 {:else}
   <section class="rounded-2xl border border-outline bg-surface p-5">
     <p role="alert" class="mt-3 text-warning">This board identifier is invalid.</p>
