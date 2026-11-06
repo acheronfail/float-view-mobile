@@ -34,6 +34,8 @@ function remote(dir: string) {
   const origin = `${dir}-origin`;
   directories.push(origin);
   git(['init', '--bare', origin]);
+  git(['config', 'user.email', 'test@example.invalid'], origin);
+  git(['config', 'user.name', 'Test'], origin);
   git(['remote', 'add', 'origin', origin], dir);
   git(['push', '-u', 'origin', 'master', '--tags'], dir);
   return origin;
