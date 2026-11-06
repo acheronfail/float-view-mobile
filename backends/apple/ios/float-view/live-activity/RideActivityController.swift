@@ -11,7 +11,10 @@ final class RideActivityController: @unchecked Sendable {
   private var latest: LiveActivityState?
   private var worker: Task<Void, Never>?
   private var timer: Task<Void, Never>?
+  private var reconnectTimer: Task<Void, Never>?
   private var activityObserver: Task<Void, Never>?
+  @MainActor private var reconnectTask: UIBackgroundTaskIdentifier = .invalid
+  @MainActor private var reconnectToken: UUID?
   private let wake: AsyncStream<Void>.Continuation
   @MainActor private var activity: Activity<RideActivityAttributes>?
   @MainActor private var lifecycle = LiveActivityLifecyclePolicy()
@@ -97,17 +100,14 @@ final class RideActivityController: @unchecked Sendable {
     let state = snapshot()
     lifecycle.receive(generation: state?.generation)
     if let current = activity, current.attributes.generation != state?.generation {
-      activityObserver?.cancel()
-      activityObserver = nil
-      await current.end(nil, dismissalPolicy: .immediate)
-      activity = nil
-      policy = LiveActivityUpdatePolicy()
-      lastContent = nil
-      Self.logger.info("activity_ended reason=connection_finished")
+      await endActivity(current, reason: "connection_finished")
+      wake.yield(())
+      return
     }
     if let current = activity,
        current.activityState == .dismissed || current.activityState == .ended
     {
+      releaseReconnectTask()
       let dismissed = current.activityState == .dismissed
       lifecycle.activityFinished(dismissed ? .dismissed : .ended)
       activityObserver?.cancel()
@@ -120,6 +120,41 @@ final class RideActivityController: @unchecked Sendable {
     if explicitlyRequested {
       lifecycle.show()
       explicitlyRequested = false
+    }
+    let foreground = UIApplication.shared.applicationState == .active
+    let reconnecting = state?.status == "Reconnecting"
+    let uptime = ProcessInfo.processInfo.systemUptime
+    lifecycle.reconnectChanged(reconnecting: reconnecting, foreground: foreground, uptime: uptime)
+    if let current = activity, lifecycle.reconnectDeadline != nil {
+      if lifecycle.shouldEndReconnect(uptime: uptime) {
+        await endActivity(current, reason: "reconnect_grace_expired")
+        return
+      }
+      if reconnectTask == .invalid {
+        let activityID = current.id
+        let token = UUID()
+        reconnectToken = token
+        reconnectTask = UIApplication.shared.beginBackgroundTask(withName: "Live Activity reconnect") { [weak self] in
+          Task { @MainActor [weak self] in
+            await self?.expireReconnect(token: token, activityID: activityID, reason: "background_execution_expired")
+          }
+        }
+        if reconnectTask == .invalid {
+          await endActivity(current, reason: "background_execution_denied")
+          return
+        }
+        let remaining = max(0, (lifecycle.reconnectDeadline ?? uptime) - uptime)
+        reconnectTimer = Task { @MainActor [weak self] in
+          do {
+            try await Task.sleep(for: .seconds(remaining))
+          } catch { return }
+          guard let self, self.reconnectToken == token else { return }
+          self.reconnectTimer = nil
+          await self.expireReconnect(token: token, activityID: activityID, reason: "reconnect_grace_expired")
+        }
+      }
+    } else {
+      releaseReconnectTask()
     }
     if let state {
       let content = RideActivityAttributes.ContentState(
@@ -159,6 +194,8 @@ final class RideActivityController: @unchecked Sendable {
           Self.logger
             .info("update_begin reason=\(reason.rawValue, privacy: .public) source_age_ms=\(age, privacy: .public)")
           await current.update(payload)
+          // Expiration can end this activity while ActivityKit suspends update.
+          guard activity?.id == current.id else { return }
           let duration = Int((ProcessInfo.processInfo.systemUptime - uptime) * 1000)
           let completedAge = Self.sourceAgeMilliseconds(content.observedAt)
           Self.logger
@@ -169,7 +206,7 @@ final class RideActivityController: @unchecked Sendable {
           lastContent = content
         }
       } else if lifecycle.canStart(
-        foreground: UIApplication.shared.applicationState == .active,
+        foreground: foreground,
         enabled: ActivityAuthorizationInfo().areActivitiesEnabled, uptime: uptime
       ) {
         do {
@@ -197,6 +234,55 @@ final class RideActivityController: @unchecked Sendable {
     }
   }
 
+  @MainActor
+  private func expireReconnect(token: UUID, activityID: String, reason: String) async {
+    guard reconnectToken == token, let current = activity, current.id == activityID else { return }
+    // The latest mailbox may have recovered while the serial worker awaits update.
+    let latest = snapshot()
+    if UIApplication.shared.applicationState == .active ||
+      (latest?.generation == current.attributes.generation && latest?.status != "Reconnecting")
+    {
+      releaseReconnectTask()
+      wake.yield(())
+      return
+    }
+    await endActivity(current, reason: reason)
+  }
+
+  @MainActor
+  private func releaseReconnectTask() {
+    reconnectTimer?.cancel()
+    reconnectTimer = nil
+    let task = reconnectTask
+    reconnectTask = .invalid
+    reconnectToken = nil
+    if task != .invalid {
+      UIApplication.shared.endBackgroundTask(task)
+    }
+  }
+
+  @MainActor
+  private func endActivity(_ current: Activity<RideActivityAttributes>, reason: String) async {
+    guard activity?.id == current.id else { return }
+    // Detach before awaiting so expiry and the serial worker cannot end it twice.
+    activity = nil
+    activityObserver?.cancel()
+    activityObserver = nil
+    policy = LiveActivityUpdatePolicy()
+    lastContent = nil
+    reconnectTimer?.cancel()
+    reconnectTimer = nil
+    let task = reconnectTask
+    reconnectTask = .invalid
+    reconnectToken = nil
+    await current.end(nil, dismissalPolicy: .immediate)
+    // Keep execution until ActivityKit finishes; never release a replacement's task.
+    if task != .invalid {
+      UIApplication.shared.endBackgroundTask(task)
+    }
+    Self.logger.info("activity_ended reason=\(reason, privacy: .public)")
+  }
+
   private static func sourceAgeMilliseconds(_ observedAt: Date?) -> Int {
     guard let observedAt else { return -1 }
     return Int(min(86_400_000, max(0, Date().timeIntervalSince(observedAt) * 1000)))
@@ -215,6 +301,7 @@ final class RideActivityController: @unchecked Sendable {
     wake.finish()
     worker?.cancel()
     timer?.cancel()
+    reconnectTimer?.cancel()
     activityObserver?.cancel()
   }
 }

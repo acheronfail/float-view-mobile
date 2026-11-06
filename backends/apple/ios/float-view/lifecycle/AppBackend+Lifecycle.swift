@@ -3,6 +3,7 @@ import Foundation
 extension AppBackend {
   func enterBackground() {
     service?.setForeground(false)
+    rideActivity.foregroundChanged()
     guard frontend != nil else { return }
     #if DEBUG
       print("[FloatViewState] frontend state=stopped reason=background")
