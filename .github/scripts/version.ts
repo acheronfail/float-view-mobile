@@ -77,7 +77,7 @@ export function latestStable(commit: string, cwd = process.cwd(), before?: strin
 }
 
 // Incremental RC/nightly notes advance through milestones; nightly tags are not milestones.
-function compareRelease(left: string, right: string): number {
+export function compareRelease(left: string, right: string): number {
   const version = compareStable(left, right);
   if (version) return version;
   const a = candidatePattern.exec(left), b = candidatePattern.exec(right);

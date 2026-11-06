@@ -22,7 +22,9 @@ If a helper push fails, its local tag remains for inspection and an explicit
 
 `just release candidate` fetches version tags and pushes the next annotated,
 immutable candidate tag from clean `master` matching `origin/master`. Before the
-first stable v1.0.0 it targets `v1.0.0-rc.N`; afterward it targets the next patch.
+confirmation prompt, it lists all numbered RC tags newer than the latest stable
+ancestor on the current history, across all version targets (or states there are none).
+Before the first stable v1.0.0 it targets `v1.0.0-rc.N`; afterward it targets the next patch.
 Pass `patch`, `minor` or `major` explicitly to choose the bump from the latest
 stable ancestor: `just release candidate minor` after v1.0.0 creates
 `v1.1.0-rc.1`, then `v1.1.0-rc.2` on the next invocation.

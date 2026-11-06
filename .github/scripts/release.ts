@@ -1,7 +1,7 @@
 import { readSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { releaseNotes, releaseNotesBase } from './notes.ts';
-import { bumpVersion, git, latestStable, parseVersion, type Bump } from './version.ts';
+import { bumpVersion, compareRelease, git, isCandidateVersion, latestStable, parseVersion, type Bump } from './version.ts';
 
 export function preview(ref = 'HEAD', cwd = process.cwd()) {
   const commit = git(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], cwd);
@@ -44,9 +44,18 @@ export function release(
   const commit = git(['rev-parse', 'HEAD'], cwd);
   if (commit !== git(['rev-parse', 'origin/master'], cwd))
     throw new Error('Master must match origin/master; push or pull first');
-  const base = latestStable(commit, cwd) ?? 'v0.0.0';
+  const stable = latestStable(commit, cwd);
+  const base = stable ?? 'v0.0.0';
   let version: string;
   if (bump === 'candidate') {
+    const candidates = git(['tag', '--list', '--merged', commit], cwd)
+      .split('\n')
+      .filter((tag) => isCandidateVersion(tag) && (!stable || compareRelease(tag, stable) > 0))
+      .sort(compareRelease);
+    process.stderr.write(
+      `Current release candidates since ${stable ?? 'the start of history'}:\n` +
+      (candidates.length ? candidates.map((tag) => `  ${tag}\n`).join('') : '  (none)\n')
+    );
     const target = candidateBump
       ? bumpVersion(base, candidateBump as Bump)
       : parseVersion(base).major < 1

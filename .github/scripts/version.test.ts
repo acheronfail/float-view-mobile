@@ -319,6 +319,62 @@ test('candidate bumps reserve separate immutable sequences and CLI supports mino
   assert.throws(() => release('minor', dir, 'minor'), /Usage/);
 });
 
+test('candidate CLI lists fetched RCs across version targets before confirmation', () => {
+  const dir = repository();
+  git(['tag', 'v1.2.1-rc.1'], dir);
+  commit(dir);
+  git(['tag', 'v1.2.1'], dir);
+  // Candidates may share the stable commit and must still be shown.
+  git(['tag', 'v1.3.0-rc.10'], dir);
+  git(['tag', 'v1.3.0-rc.2'], dir);
+  git(['tag', 'v2.0.0-rc.1'], dir);
+  git(['tag', 'v1.3.0-rc.0'], dir);
+  git(['tag', 'v1.2.2-nightly.1.gabcdef0'], dir);
+  const origin = remote(dir);
+  git(['tag', '-a', 'v1.2.2-rc.1', '-m', 'remote candidate', 'master'], origin);
+  git(['checkout', '-b', 'unrelated'], dir);
+  commit(dir);
+  git(['tag', 'v9.0.0-rc.1'], dir);
+  git(['tag', 'v9.0.0'], dir);
+  git(['checkout', 'master'], dir);
+  const tagsBefore = git(['tag', '--list'], origin);
+  const result = spawnSync(
+    process.execPath,
+    ['--strip-types', new URL('./release.ts', import.meta.url).pathname, 'candidate'],
+    { cwd: dir, encoding: 'utf8', input: 'n\n' }
+  );
+  assert.notEqual(result.status, 0);
+  assert.ok(result.stderr.includes(
+    'Current release candidates since v1.2.1:\n' +
+    '  v1.2.2-rc.1\n  v1.3.0-rc.2\n  v1.3.0-rc.10\n  v2.0.0-rc.1\nCreate tag v1.2.2-rc.2'
+  ), result.stderr);
+  assert.doesNotMatch(result.stderr, /v1\.2\.1-rc|v9\.0\.0|rc\.0|nightly/);
+  assert.match(result.stderr, /Release cancelled/);
+  assert.equal(git(['tag', '--list', 'v1.2.2-rc.2'], dir), '');
+  assert.equal(git(['tag', '--list'], origin), tagsBefore);
+});
+
+for (const stable of [null, 'v1.2.1']) {
+  test(`candidate CLI shows an empty list with stable base ${stable}`, () => {
+    const dir = repository();
+    if (stable) {
+      git(['tag', 'v1.2.1-rc.1'], dir);
+      git(['tag', stable], dir);
+    }
+    remote(dir);
+    const result = spawnSync(
+      process.execPath,
+      ['--strip-types', new URL('./release.ts', import.meta.url).pathname, 'candidate', 'minor'],
+      { cwd: dir, encoding: 'utf8', input: 'n\n' }
+    );
+    assert.notEqual(result.status, 0);
+    assert.ok(result.stderr.includes(
+      `Current release candidates since ${stable ?? 'the start of history'}:\n  (none)\nCreate tag `
+    ), result.stderr);
+    assert.match(result.stderr, /Release cancelled/);
+  });
+}
+
 test('candidate metadata rejects zero, padded, malformed or overflowing numbers', () => {
   assert.equal(parseVersion('v1.0.0-rc.12').appVersion, '1.0.0');
   for (const value of ['v1.0.0-rc.0', 'v1.0.0-rc.01', 'v1.0.0-rc.1.extra', 'v1.0.0-rc.9007199254740992'])
