@@ -19,7 +19,7 @@ fn bytes(relative: &str) -> Vec<u8> {
 // Expected shared test evidence, independent of runtime release admission.
 fn fixture_version(version: &str) -> &str {
     match version {
-        "1.3.1-beta3" => "1.3.1-beta2",
+        "1.3.1-beta3" | "1.3.1" => "1.3.1-beta2",
         other => other,
     }
 }
@@ -84,7 +84,7 @@ fn load_current(version: &str, route: Route, generation: Generation) -> Configur
 
 #[test]
 fn every_catalogue_release_and_legacy_patch_is_admitted_from_exact_cache() {
-    assert_eq!(CATALOG.len(), 12);
+    assert_eq!(CATALOG.len(), 13);
     for entry in CATALOG {
         let compressed = bytes(&format!(
             "schemas/{}.qcompress",

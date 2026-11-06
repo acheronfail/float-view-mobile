@@ -1849,29 +1849,90 @@ fn invalid_present_battery_charge_setting_preserves_supported_storage() {
 }
 
 #[test]
-fn beta_tunes_with_identical_schemas_remain_isolated_and_durable() {
+fn stable_and_beta_tunes_share_existing_rows_pagination_and_durable_identity() {
     let root = Root::new();
-    let (mut beta2, values, schema) = tune_fixture();
-    beta2.package_version = "1.3.1-beta2".into();
-    let mut beta3 = beta2.clone();
-    beta3.package_version = "1.3.1-beta3".into();
+    let (mut identity, values, schema) = tune_fixture();
+    let versions = ["1.3.1-beta2", "1.3.1-beta3", "1.3.1"];
     let mut store = root.open();
-    let old = store
-        .create_tune("Beta2", None, &beta2, &values, &schema, 1)
-        .unwrap();
-    assert!(store.tunes(&beta3, 50, None).unwrap().items.is_empty());
-    let new = store
-        .create_tune("Beta3", None, &beta3, &values, &schema, 2)
-        .unwrap();
+    let mut created = Vec::new();
+    for (index, version) in versions.iter().enumerate() {
+        identity.package_version = (*version).into();
+        let tune = store
+            .create_tune(version, None, &identity, &values, &schema, index as i64 + 1)
+            .unwrap();
+        assert_eq!(tune.identity.package_version, "1.3.1");
+        // Recreate previously supported beta-labelled rows without rewriting them on open.
+        Connection::open(root.0.join("catalog.sqlite"))
+            .unwrap()
+            .execute(
+                "UPDATE refloat_configuration SET package_version=? WHERE configuration_id=?",
+                rusqlite::params![version, tune.configuration_id],
+            )
+            .unwrap();
+        created.push(tune);
+    }
     drop(store);
-    let store = root.open();
+    let mut store = root.open();
+    let mut cursor = None;
+    let mut ids = Vec::new();
+    for version in versions {
+        identity.package_version = version.into();
+        assert_eq!(store.tunes(&identity, 50, None).unwrap().items.len(), 3);
+        let page = store.tunes(&identity, 1, cursor.as_deref()).unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].identity.package_version, "1.3.1");
+        ids.push(page.items[0].configuration_id.clone());
+        cursor = page.next_cursor;
+    }
+    assert!(cursor.is_none());
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), 3);
+    for tune in &created {
+        assert_eq!(store.tune(&tune.configuration_id).unwrap(), *tune);
+    }
+    for version in ["1.3.1-beta1", "1.3.1-beta4", "1.3.0", "1.3.2"] {
+        identity.package_version = version.into();
+        assert!(store.tunes(&identity, 50, None).unwrap().items.is_empty());
+        assert!(!identity.compatible_with(&created[0].identity));
+    }
+    identity.package_version = "1.3.1".into();
+    for version in versions {
+        let mut target = identity.clone();
+        target.package_version = version.into();
+        assert!(identity.compatible_with(&target));
+        target.schema_fingerprint = "b".repeat(64);
+        assert!(!identity.compatible_with(&target));
+        target.schema_fingerprint = identity.schema_fingerprint.clone();
+        target.wire_signature += 1;
+        assert!(!identity.compatible_with(&target));
+    }
+    let old = &created[0];
+    let updated = store
+        .update_tune(
+            &old.configuration_id,
+            old.revision,
+            "Updated",
+            None,
+            &values,
+            &schema,
+            4,
+        )
+        .unwrap();
+    assert_eq!(updated.identity.package_version, "1.3.1");
+    assert_eq!(updated.revision, 2);
+    let raw: String = Connection::open(root.0.join("catalog.sqlite"))
+        .unwrap()
+        .query_row(
+            "SELECT package_version FROM refloat_configuration WHERE configuration_id=?",
+            [&old.configuration_id],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(
-        store.tunes(&beta2, 50, None).unwrap().items,
-        vec![old.clone()]
+        raw, "1.3.1-beta2",
+        "reads and edits preserve existing storage"
     );
-    assert_eq!(store.tunes(&beta3, 50, None).unwrap().items, vec![new]);
-    assert_eq!(store.tune(&old.configuration_id).unwrap(), old);
-    assert_eq!(store.tunes_filtered(None, 50, None).unwrap().items.len(), 2);
 }
 
 #[test]

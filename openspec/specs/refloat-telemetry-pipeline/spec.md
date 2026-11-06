@@ -40,7 +40,7 @@ The backends and conformance simulator SHALL implement source-faithful telemetry
 
 #### Scenario: Unknown or prerelease package
 
-- **WHEN** INFO reports a release outside the audited catalog, including another prerelease or stable 1.3.1
+- **WHEN** INFO reports a release outside the audited catalog, including another prerelease or stable 1.3.2
 - **THEN** discovery reports unsupported Refloat even if its command numbers are recognizable
 
 #### Scenario: Unsupported write command
@@ -336,5 +336,15 @@ In addition to existing audited releases, the shared backend and simulator SHALL
 
 #### Scenario: Neighboring unaudited release
 
-- **WHEN** INFO reports beta1, beta4, stable 1.3.1 or a malformed suffix
+- **WHEN** INFO reports beta1, beta4, stable 1.3.2 or a malformed suffix
 - **THEN** discovery remains unsupported without write traffic
+
+### Requirement: Stable Refloat 1.3.1 admission
+
+The shared backend and simulator SHALL admit exact stable Refloat 1.3.1 using beta3's selectable telemetry, stable controls, typed IMU-timeout alerts, history and mutation safety rules. Beta2 and beta3 SHALL remain supported; observed identities SHALL remain exact.
+
+#### Scenario: Stable release connects
+
+- **WHEN** supported VESC firmware reports exact stable 1.3.1
+- **THEN** readiness uses command 33 and command 35 with no dynamic-layout negotiation or duplicate command-10 fault probe
+- **AND** reconnect and saved session context preserve `1.3.1`

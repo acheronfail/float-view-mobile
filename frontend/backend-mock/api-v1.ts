@@ -1,7 +1,11 @@
 import type { SessionExportProgress } from '../src/lib/backend/contract.ts';
 import type { ConnectionContextEvent } from '../src/lib/backend/contract.ts';
 import { MockDiagnostics } from './diagnostics.ts';
-import { supportsRidingTuneApply } from '../src/lib/backend/refloat-tune-policy.ts';
+import {
+  supportsRidingTuneApply,
+  sameRefloatTuneIdentity,
+  tunePackageVersion,
+} from '../src/lib/backend/refloat-tune-policy.ts';
 import { validBoardAppearance } from '../src/lib/backend/board-appearance.ts';
 import { validRefloatEditorDraft } from '../src/lib/backend/refloat-editor-draft.ts';
 import type { RefloatEditorDraft } from '../src/lib/backend/contract.ts';
@@ -474,7 +478,10 @@ export class MockBackend {
   ) {
     this.publish = publish;
     for (const tune of (options.initialRefloatTunes ?? []).slice(0, 1000))
-      this.tunes.set(tune.tuneId, structuredClone(tune));
+      this.tunes.set(tune.tuneId, {
+        ...structuredClone(tune),
+        identity: { ...tune.identity, packageVersion: tunePackageVersion(tune.identity.packageVersion) },
+      });
     this.state.settings.safetyDisclaimerAccepted = options.safetyDisclaimerAccepted ?? false;
     this.state.settings.autoConnectSavedDeviceId = options.autoConnectSavedDeviceId ?? null;
     this.advertising = options.advertising ?? true;
@@ -1039,10 +1046,12 @@ export class MockBackend {
         const tune = string(params.tuneId) ? this.tunes.get(String(params.tuneId)) : undefined;
         if (!tune) return failure(id, 'not_found', 'Tune was not found');
         if (integer(params.expectedRevision) !== tune.revision) return failure(id, 'conflict', 'Tune revision changed');
+        if (!sameRefloatTuneIdentity(tune.identity, refloatIdentity))
+          return failure(id, 'invalid_state', 'Tune configuration is incompatible');
         return this.writeRefloatConfiguration(
           id,
           {
-            packageVersion: tune.identity.packageVersion,
+            packageVersion: refloatIdentity.packageVersion,
             schemaFingerprint: tune.identity.schemaFingerprint,
             wireSignature: tune.identity.wireSignature,
             baseRevision: params.baseRevision,
@@ -1955,7 +1964,7 @@ export class MockBackend {
       return failure(id, 'invalid_request', 'Tune list parameters are invalid');
     }
     const matching = [...this.tunes.values()]
-      .filter((tune) => !identity || sameRefloatIdentity(tune.identity, identity))
+      .filter((tune) => !identity || sameRefloatTuneIdentity(tune.identity, identity))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.tuneId.localeCompare(right.tuneId));
     const items = matching.slice(offset, offset + limit).map((tune) => ({
       tuneId: tune.tuneId,
@@ -1993,7 +2002,7 @@ export class MockBackend {
       revision: 1,
       name,
       description,
-      identity,
+      identity: { ...identity, packageVersion: tunePackageVersion(identity.packageVersion) },
       values: values as Record<string, RefloatConfigurationValue>,
       createdAt: now,
       updatedAt: now,
@@ -2026,7 +2035,7 @@ export class MockBackend {
       typeof name !== 'string' ||
       description === undefined ||
       !values ||
-      (!unchanged && (!sameRefloatIdentity(current.identity, refloatIdentity) || !validRefloatTuneValues(values)))
+      (!unchanged && (!sameRefloatTuneIdentity(current.identity, refloatIdentity) || !validRefloatTuneValues(values)))
     ) {
       return failure(id, 'invalid_request', 'Tune update parameters are invalid');
     }
@@ -2296,7 +2305,10 @@ export class MockBackend {
     for (const tune of value.tunes) {
       if (this.tunes.has(tune.tuneId)) summary.tunesSkipped++;
       else {
-        this.tunes.set(tune.tuneId, structuredClone(tune));
+        this.tunes.set(tune.tuneId, {
+          ...structuredClone(tune),
+          identity: { ...tune.identity, packageVersion: tunePackageVersion(tune.identity.packageVersion) },
+        });
         summary.tunesAdded++;
       }
     }
@@ -2816,7 +2828,7 @@ function decodeTuneCursor(value: unknown, identity: RefloatConfigurationIdentity
     return (identity === null
       ? decoded.identity === null
       : !!validRefloatIdentity(decoded.identity) &&
-        sameRefloatIdentity(decoded.identity as RefloatConfigurationIdentity, identity)) &&
+        sameRefloatTuneIdentity(decoded.identity as RefloatConfigurationIdentity, identity)) &&
       Number.isInteger(decoded.offset) &&
       Number(decoded.offset) >= 0
       ? Number(decoded.offset)

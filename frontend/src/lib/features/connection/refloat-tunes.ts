@@ -1,4 +1,4 @@
-import { sameRefloatIdentity } from './refloat-configuration.svelte';
+import { sameRefloatTuneIdentity } from '$lib/backend/refloat-tune-policy';
 import type {
   RefloatConfigurationIdentity,
   RefloatConfigurationValue,
@@ -50,7 +50,7 @@ export async function overwriteCurrentRefloatTune(
 ): Promise<{ current: RefloatConfigurationValues; tune: RefloatTune } | null> {
   const captured = await readCurrentTune(backend, tuneFieldNames);
   if (!captured) return null;
-  if (!sameRefloatIdentity(existing.identity, captured.current.identity))
+  if (!sameRefloatTuneIdentity(existing.identity, captured.current.identity))
     throw new Error('This tune uses a different Refloat version or configuration.');
   const tune = await backend.updateRefloatTune(
     existing.tuneId,

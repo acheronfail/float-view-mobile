@@ -17,6 +17,7 @@
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import { sameRefloatIdentity, sameRefloatValue } from './refloat-configuration.svelte';
+  import { sameRefloatTuneIdentity, tunePackageVersion } from '$lib/backend/refloat-tune-policy';
   import { captureCurrentRefloatTune, overwriteCurrentRefloatTune } from './refloat-tunes';
   import { refloatConfigurationWriteUnavailableReason } from './live';
   import RefloatConfigurationDiff from './RefloatConfigurationDiff.svelte';
@@ -38,10 +39,10 @@
   const packageVersion = $derived(current?.identity.packageVersion ?? connection.refloatConfiguration?.packageVersion);
   function incompatibility(identity: RefloatConfigurationIdentity): string | null {
     if (!current) return 'Read the board tune before applying.';
-    if (identity.packageVersion !== current.identity.packageVersion) {
+    if (tunePackageVersion(identity.packageVersion) !== tunePackageVersion(current.identity.packageVersion)) {
       return `Requires Refloat ${identity.packageVersion}. This board uses ${current.identity.packageVersion}.`;
     }
-    if (!sameRefloatIdentity(identity, current.identity)) {
+    if (!sameRefloatTuneIdentity(identity, current.identity)) {
       return `This tune uses a different configuration and cannot be applied to this board.`;
     }
     return null;
@@ -49,7 +50,11 @@
   const sortedTunes = $derived(
     [...tunes].sort((a, b) => {
       const rank = (tune: RefloatTuneSummary) =>
-        !incompatibility(tune.identity) ? 0 : tune.identity.packageVersion === packageVersion ? 1 : 2;
+        !incompatibility(tune.identity)
+          ? 0
+          : tunePackageVersion(tune.identity.packageVersion) === tunePackageVersion(packageVersion ?? '')
+            ? 1
+            : 2;
       return rank(a) - rank(b);
     })
   );

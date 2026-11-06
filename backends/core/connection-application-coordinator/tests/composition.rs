@@ -62,75 +62,93 @@ fn refloat_1_3_0_skips_layout_and_starts_selectable_float32_telemetry() {
 }
 
 #[test]
-fn refloat_beta2_skips_layout_and_starts_selectable_float32_telemetry() {
-    let mut coordinator = ConnectionApplicationCoordinator::default();
-    coordinator.apply(Command::Begin(begin_facts(10))).unwrap();
-    receive(&mut coordinator, motor_configuration_payload(42), 20);
-    let mut beta_info = selectable_info_payload();
-    beta_info[27] = 1;
-    beta_info[28..33].copy_from_slice(b"beta2");
-    let ready = receive(&mut coordinator, beta_info, 30);
-    assert!(ready.iter().all(|effect| match effect {
-        Effect::Write(request) => request.payload != [36, 101, 32],
-        _ => true,
-    }));
-    let activation = coordinator
-        .snapshot()
-        .awaiting_activation
-        .expect("1.3 activation");
-    assert_eq!(activation.refloat_version.to_string(), "1.3.1-beta2");
+fn refloat_audited_1_3_1_skips_layout_and_starts_selectable_float32_telemetry() {
+    for (suffix, version) in [
+        ("beta2", "1.3.1-beta2"),
+        ("beta3", "1.3.1-beta3"),
+        ("", "1.3.1"),
+        ("1", "1.3.1"),
+    ] {
+        let mut coordinator = ConnectionApplicationCoordinator::default();
+        coordinator.apply(Command::Begin(begin_facts(10))).unwrap();
+        receive(&mut coordinator, motor_configuration_payload(42), 20);
+        let mut beta_info = selectable_info_payload();
+        beta_info[27] = 1;
+        beta_info[28..48].fill(0);
+        beta_info[28..28 + suffix.len()].copy_from_slice(suffix.as_bytes());
+        let ready = receive(&mut coordinator, beta_info, 30);
+        assert!(ready.iter().all(|effect| match effect {
+            Effect::Write(request) => request.payload != [36, 101, 32],
+            _ => true,
+        }));
+        let activation = coordinator
+            .snapshot()
+            .awaiting_activation
+            .expect("1.3 activation");
+        assert_eq!(activation.refloat_version.to_string(), version);
 
-    let effects = activate_with_cache(
-        &mut coordinator,
-        40,
-        Some(
-            include_bytes!("../../../fixtures/refloat-configuration/schemas/1.3.1-beta2.qcompress")
+        let effects = activate_with_cache(
+            &mut coordinator,
+            40,
+            Some(
+                include_bytes!(
+                    "../../../fixtures/refloat-configuration/schemas/1.3.1-beta2.qcompress"
+                )
                 .to_vec(),
-        ),
-    );
-    assert_eq!(write(&effects).payload, [93, 0]);
-    let effects = receive(&mut coordinator, configuration_current_response_1_3_0(), 50);
-    assert_eq!(write(&effects).payload, [14]);
-    let effects = receive(
-        &mut coordinator,
-        current_limits_payload(0x2EFD_0142, Some(15)),
-        60,
-    );
-    assert_eq!(
-        write(&effects).payload,
-        [36, 101, 33, 1, 0x7f, 0xff, 0xbf, 0xc3, 0, 0, 0, 0]
-    );
-    let effects = receive(&mut coordinator, selectable_fast_payload(), 70);
-    assert!(
-        effects
-            .iter()
-            .any(|effect| matches!(effect, Effect::PublishTelemetry(_)))
-    );
+            ),
+        );
+        assert_eq!(write(&effects).payload, [93, 0]);
+        let effects = receive(&mut coordinator, configuration_current_response_1_3_0(), 50);
+        assert_eq!(write(&effects).payload, [14]);
+        let effects = receive(
+            &mut coordinator,
+            current_limits_payload(0x2EFD_0142, Some(15)),
+            60,
+        );
+        assert_eq!(
+            write(&effects).payload,
+            [36, 101, 33, 1, 0x7f, 0xff, 0xbf, 0xc3, 0, 0, 0, 0]
+        );
+        let effects = receive(&mut coordinator, selectable_fast_payload(), 70);
+        assert!(
+            effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::PublishTelemetry(_)))
+        );
+    }
 }
 
 #[test]
-fn refloat_beta2_is_admitted_through_express_can_without_a_new_wire_profile() {
-    let mut coordinator = ConnectionApplicationCoordinator::default();
-    let mut facts = begin_facts(10);
-    facts.preferred_controller_can_id = Some(1);
-    coordinator.apply(Command::Begin(facts)).unwrap();
-    receive(&mut coordinator, gateway_payload(1), 20);
-    receive_can_motor(&mut coordinator, motor_configuration_payload(42), 1, 30);
-    let mut info = selectable_info_payload();
-    info[27] = 1;
-    info[28..33].copy_from_slice(b"beta2");
-    receive(&mut coordinator, info, 40);
-    let activation = coordinator
-        .snapshot()
-        .awaiting_activation
-        .expect("beta2 activation");
-    assert_eq!(activation.refloat_version.to_string(), "1.3.1-beta2");
-    assert_eq!(activation.selected.route, Route::Can(1));
-    assert!(activation.compatibility.imu_timeout_available);
-    assert_eq!(
-        activation.compatibility.telemetry,
-        TelemetryProfile::Selectable
-    );
+fn refloat_audited_1_3_1_is_admitted_through_express_can_without_a_new_wire_profile() {
+    for (suffix, version) in [
+        ("beta2", "1.3.1-beta2"),
+        ("beta3", "1.3.1-beta3"),
+        ("", "1.3.1"),
+        ("1", "1.3.1"),
+    ] {
+        let mut coordinator = ConnectionApplicationCoordinator::default();
+        let mut facts = begin_facts(10);
+        facts.preferred_controller_can_id = Some(1);
+        coordinator.apply(Command::Begin(facts)).unwrap();
+        receive(&mut coordinator, gateway_payload(1), 20);
+        receive_can_motor(&mut coordinator, motor_configuration_payload(42), 1, 30);
+        let mut info = selectable_info_payload();
+        info[27] = 1;
+        info[28..48].fill(0);
+        info[28..28 + suffix.len()].copy_from_slice(suffix.as_bytes());
+        receive(&mut coordinator, info, 40);
+        let activation = coordinator
+            .snapshot()
+            .awaiting_activation
+            .expect("beta2 activation");
+        assert_eq!(activation.refloat_version.to_string(), version);
+        assert_eq!(activation.selected.route, Route::Can(1));
+        assert!(activation.compatibility.imu_timeout_available);
+        assert_eq!(
+            activation.compatibility.telemetry,
+            TelemetryProfile::Selectable
+        );
+    }
 }
 
 #[test]

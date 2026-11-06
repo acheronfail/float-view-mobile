@@ -23,7 +23,7 @@ For each audited stable Refloat 1.0.0–1.3.0 or exact 1.3.1-beta2 connection, t
 #### Scenario: Same-version beta2 Tune
 
 - **WHEN** a Tune saved against the exact beta2 configuration identity is applied to a beta2 board with current revision and all safety conditions satisfied
-- **THEN** the existing confirmation, complete target-schema write, and mandatory readback rules apply; a Tune from another exact version remains unavailable
+- **THEN** the existing confirmation, complete target-schema write, and mandatory readback rules apply; only Tunes outside its audited compatible family remain unavailable
 
 #### Scenario: Valid dynamic schema
 
@@ -47,7 +47,7 @@ For each audited stable Refloat 1.0.0–1.3.0 or exact 1.3.1-beta2 connection, t
 
 #### Scenario: Unsupported package
 
-- **WHEN** an unaudited package, including another prerelease or stable 1.3.1, supplies a syntactically valid custom schema
+- **WHEN** an unaudited package, including another prerelease or stable 1.3.2, supplies a syntactically valid custom schema
 - **THEN** Float View does not use runtime parsing to broaden compatibility or enable configuration
 
 ### Requirement: Exact signed value codec
@@ -120,9 +120,7 @@ A Refloat configuration write SHALL require the active ready read/write connecti
 
 ### Requirement: Exact-version saved configurations
 
-Native persistence SHALL store bounded application-wide named complete Refloat configurations with opaque ID, revision, name, optional description, package name, exact package version, full-schema fingerprint, wire signature, complete typed values, and timestamps. List and apply workflows SHALL match the active exact package version, fingerprint, and signature; configurations MUST NOT be automatically migrated, merged, or offered as applicable across versions. Create or update from device current values SHALL require a fresh authoritative normal-mode current revision and MUST reject stale or flywheel-temporary values. Create, update, and delete SHALL otherwise use bounded values and revision conflict semantics. Applying a saved configuration SHALL pass through the same fresh-base, safety, serialization, scheduler, and readback lifecycle as an edited draft.
-
-Portable Tune application on an explicitly supported Refloat release at or above 1.1.0 SHALL permit a known idle or riding state and an authoritatively ready or running package in normal mode, without requiring released footpads. This exception SHALL apply only to Tune application; general configuration writes and Refloat 1.0.0/1.0.1 Tune application SHALL retain the idle and ready requirements. Footpad contact, including missing or unknown footpad evidence, SHALL NOT restrict configuration writes or Tune application. Exact identity, fresh base revision, read/write access, exclusive mutation ownership, and mandatory verified readback SHALL remain required.
+Native persistence SHALL store bounded revisioned named Tunes with opaque ID, optional description, package name, Tune-family version, full-schema fingerprint, wire signature, typed values and timestamps. List/apply SHALL match family, fingerprint and signature. Only audited beta2/beta3/stable 1.3.1 share a family. Other versions SHALL stay isolated without automatic migration. Create/update/delete SHALL retain revision-conflict rules.
 
 #### Scenario: Apply Tune while riding
 
@@ -271,7 +269,7 @@ The editor SHALL show actionable write-block guidance in its fixed footer and op
 
 ### Requirement: Exact beta3 configuration support
 
-The backend and simulator SHALL additionally support exact Refloat 1.3.1-beta3 with its audited full-schema fingerprint and wire signature using the existing bounded schema/value codec, configuration write/readback, cache and Tune policies. Beta3 and beta2 SHALL retain separate exact-version Tune namespaces even when their schemas match. Supported stored data SHALL remain readable.
+The backend and simulator SHALL additionally support exact Refloat 1.3.1-beta3 with its audited full-schema fingerprint and wire signature using the existing bounded schema/value codec, configuration write/readback, cache and Tune policies. Beta2, beta3 and stable 1.3.1 SHALL share the audited `1.3.1` Tune family, with matching full-schema fingerprint and wire signature. Supported stored data SHALL remain readable.
 
 #### Scenario: Beta3 schema and verified writes
 
@@ -280,10 +278,58 @@ The backend and simulator SHALL additionally support exact Refloat 1.3.1-beta3 w
 
 #### Scenario: Matching schema does not authorize another release's Tune
 
-- **WHEN** beta3 is connected and a saved beta2 Tune has the same schema fingerprint and wire signature
+- **WHEN** beta3 is connected and a saved unaudited beta4 Tune has the same schema fingerprint and wire signature
 - **THEN** that Tune remains retained but is not offered or applied as compatible with beta3
+
+#### Scenario: Audited beta and stable Tunes are interchangeable
+
+- **WHEN** beta3 is connected and a saved beta2 Tune has the same schema fingerprint and wire signature
+- **THEN** that Tune is presented as `1.3.1` and may be applied with normal confirmation, fresh authority and verified readback
 
 #### Scenario: Reconnect invalidates current authority
 
 - **WHEN** beta3 disconnects and reconnects
 - **THEN** old revisions cannot authorize writes and fresh current-generation identity, timeout evidence and current values are required
+
+### Requirement: Stable Refloat 1.3.1 configuration
+
+Exact stable 1.3.1 SHALL use the audited beta3 schema fingerprint, wire signature and bounded configuration lifecycle. Its cache and configuration drafts SHALL retain exact observed versions. Tunes for audited beta2, beta3 and stable SHALL share canonical version `1.3.1`, while matching package, full schema fingerprint and wire signature.
+
+#### Scenario: Stable schema and Tune
+
+- **WHEN** stable 1.3.1 supplies the audited 172-field schema
+- **THEN** current/default reads, safe writes, verified readback and compatible-family Tunes are available
+- **AND** existing beta Tunes remain readable, listable, editable and applicable on all three audited versions without data migration
+
+### Requirement: Bounded Tune family compatibility
+
+Only exact `1.3.1-beta2`, `1.3.1-beta3` and `1.3.1` SHALL share the `1.3.1` Tune family. New Tunes and public saved-Tune identities SHALL use `1.3.1`. Existing beta-labelled rows SHALL participate in family-filtered pagination without changing their IDs, revisions, values or timestamps. Other versions and schemas SHALL remain incompatible.
+
+#### Scenario: Existing beta Tune on stable
+
+- **WHEN** a supported stored beta2 or beta3 Tune is listed, read, updated or applied on stable 1.3.1
+- **THEN** its public Tune version is `1.3.1` and family matching succeeds only with the matching full schema and signature
+- **AND** fresh current revision, confirmation, mutation safety and verified readback remain required
+
+#### Scenario: Incompatible neighbor
+
+- **WHEN** beta1, beta4, 1.3.0, 1.3.2 or a mismatched schema or signature is supplied
+- **THEN** the Tune remains incompatible without a device write
+
+### Requirement: Fresh saved-Tune capture
+
+Creating or updating a Tune from current board values SHALL require a fresh authoritative normal-mode current revision and reject stale or flywheel-temporary values. Complete typed portable values SHALL remain bounded and schema-validated. Family equivalence SHALL NOT relax revision, value or mode validation.
+
+#### Scenario: Stale source
+
+- **WHEN** a caller saves current values from an old revision or flywheel mode
+- **THEN** the request fails without modifying the saved Tune
+
+### Requirement: Portable Tune application safety
+
+Portable Tune apply SHALL retain fresh-base, read/write, exclusive-mutation and verified-readback rules in normal mode. Audited releases at or above 1.1.0 MAY apply with known idle/riding state and ready/running package; 1.0.0/1.0.1 SHALL require idle/ready. Footpad readings SHALL NOT restrict application or configuration writes. General edited writes SHALL retain idle/ready rules.
+
+#### Scenario: Shared family keeps write gates
+
+- **WHEN** a compatible-family Tune is applied
+- **THEN** the shared mutation authority uses the target board's exact version and existing safety checks, with success only after complete mandatory readback

@@ -8,7 +8,7 @@ import {
   runAutoConnectConformance,
   runDiagnosticsConformance,
   runRideContinuityConformance,
-  runRefloatBetaConformance,
+  runRefloatReleaseConformance,
 } from './suite.ts';
 import { externalTarget } from '../targets/external.ts';
 import { mockTarget } from '../targets/mock.ts';
@@ -40,13 +40,13 @@ if (name === 'physical') {
   );
   process.exit(0);
 }
-const betaVersion = process.env.FLOAT_VIEW_FIXTURE_REFLOAT;
+const refloatVersion = process.env.FLOAT_VIEW_FIXTURE_REFLOAT;
 const target =
   name === 'direct'
-    ? betaVersion === '1.3.1-beta2' || betaVersion === '1.3.1-beta3'
+    ? refloatVersion === '1.3.1-beta2' || refloatVersion === '1.3.1-beta3' || refloatVersion === '1.3.1'
       ? makeDirectTarget({
           telemetry: new InteractiveTelemetrySource(),
-          refloatVersion: betaVersion,
+          refloatVersion,
           onSpeech: () => {},
         })
       : directTarget
@@ -64,8 +64,10 @@ const result = await (
     ? runBoardExportConformance
     : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'announcements'
       ? runAnnouncementsConformance
-      : ['refloat-beta2', 'refloat-beta3'].includes(process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS ?? '')
-        ? runRefloatBetaConformance
+      : ['refloat-beta2', 'refloat-beta3', 'refloat-stable'].includes(
+            process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS ?? ''
+          )
+        ? runRefloatReleaseConformance
         : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'connection-context'
           ? runConnectionContextConformance
           : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'ride-continuity'

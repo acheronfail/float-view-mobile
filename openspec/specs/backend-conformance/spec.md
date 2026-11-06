@@ -1230,7 +1230,7 @@ Canonical conformance SHALL exercise exact beta2 admission, the existing selecta
 
 #### Scenario: Adjacent identities and malformed alerts
 
-- **WHEN** a fixture reports beta1, beta4, stable 1.3.1, malformed suffixes, or invalid beta2 command-35 records
+- **WHEN** a fixture reports beta1, beta4, stable 1.3.2, malformed suffixes, or invalid beta2 command-35 records
 - **THEN** admission or the malformed response fails at its boundary without write traffic, partial history, or stale-generation state
 
 #### Scenario: Saved and guest histories
@@ -1286,3 +1286,17 @@ Canonical conformance SHALL verify exact beta3 admission, direct/CAN telemetry, 
 - **WHEN** the available damaged controller reports beta3 through the production macOS BLE host
 - **THEN** the checkpoint verifies discovery, advancing fast/slow telemetry, schema/current/default reads, a non-actuating write/readback/restore, unchanged same-version Tune apply, saved stationary samples and reconnect
 - **AND** raw evidence remains local and public results identify the exercised route and exclude motor output, riding and unreliable duty/eRPM assertions
+
+### Requirement: Stable Refloat 1.3.1 evidence
+
+Canonical conformance SHALL exercise exact stable 1.3.1 identity, telemetry, timeout history, configuration and same-version Tunes through direct and CAN routes using source-pinned shared fixtures. Existing beta support SHALL remain covered. Identical audited beta3/stable firmware source MAY reuse existing beta3 physical interoperability evidence. Tune-family changes SHALL receive focused software safety coverage.
+
+#### Scenario: Stable software coverage
+
+- **WHEN** the stable profile exercises the shared production service
+- **THEN** admission, schema, verified writes, durable history and saved/guest reconnect preserve exact identity
+
+#### Scenario: Reuse unchanged firmware evidence
+
+- **WHEN** the complete application source is identical between audited beta3 and stable
+- **THEN** the source equality and prior beta3 physical result establish unchanged wire interoperability without a repeated physical checkpoint

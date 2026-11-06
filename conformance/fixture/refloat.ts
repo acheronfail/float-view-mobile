@@ -65,7 +65,7 @@ export const runtimeRealtimeFields = [
 ] as const;
 
 const provenance =
-  'Immutable read-only wire profiles audited from https://github.com/lukash/refloat stable tags v1.0.0 through v1.3.0 and exact v1.3.1-beta2/v1.3.1-beta3';
+  'Immutable read-only wire profiles audited from https://github.com/lukash/refloat stable tags v1.0.0 through v1.3.1 and exact v1.3.1-beta2/v1.3.1-beta3';
 
 export const refloatCodecs = {
   '1.0.0': legacyCodec('1.0.0'),
@@ -80,6 +80,7 @@ export const refloatCodecs = {
   '1.3.0': selectableCodec('1.3.0'),
   '1.3.1-beta2': selectableCodec('1.3.1-beta2', true),
   '1.3.1-beta3': selectableCodec('1.3.1-beta3', true),
+  '1.3.1': selectableCodec('1.3.1', true),
 } as const satisfies Record<string, RefloatCodec>;
 
 export type RefloatVersion = keyof typeof refloatCodecs;

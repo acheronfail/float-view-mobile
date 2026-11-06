@@ -156,7 +156,7 @@ An unknown Refloat release SHALL receive limited support only after bounded vali
 
 #### Scenario: Future version uses an existing public read interface
 
-- **WHEN** a supported VESC controller reports a valid unknown Refloat version such as beta4, stable 1.3.1 or 1.4.0 and passes the public core probe
+- **WHEN** a supported VESC controller reports a valid unknown Refloat version such as beta4, stable 1.3.2 or 1.4.0 and passes the public core probe
 - **THEN** it reaches ready with limited support and its actual bounded version/suffix, without a release registration or an alias to an audited version
 - **AND** connecting and app-side recording are available while board mutations remain unavailable
 
@@ -172,5 +172,5 @@ An unknown Refloat release SHALL receive limited support only after bounded vali
 
 #### Scenario: Stable release does not retire working betas
 
-- **WHEN** stable 1.3.1 becomes available or gains an audited profile
+- **WHEN** stable 1.3.2 becomes available or gains an audited profile
 - **THEN** existing beta2/beta3 mappings retain their audited capabilities and exact provenance; shared implementation/evidence cleanup does not remove those boards' access

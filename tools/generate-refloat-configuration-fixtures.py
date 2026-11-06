@@ -33,7 +33,7 @@ VERSIONS = (
     "1.3.1-beta2",
 )
 # Explicitly audited reuse of fixture bytes, independent of runtime release admission.
-FIXTURE_REUSE = {"1.3.1-beta3": "1.3.1-beta2"}
+FIXTURE_REUSE = {"1.3.1-beta3": "1.3.1-beta2", "1.3.1": "1.3.1-beta2"}
 VERSIONS += tuple(FIXTURE_REUSE)
 SOURCE_PATH = "src/conf/settings.xml"
 MAX_COMPRESSED_BYTES = 32 * 1024

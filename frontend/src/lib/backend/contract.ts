@@ -525,6 +525,7 @@ export interface RefloatEditorDraft {
 }
 export const MAX_REFLOAT_EDITOR_DRAFT_BYTES = 60_000;
 
+/** Audited 1.3.1-beta2/beta3/stable Tunes use canonical version 1.3.1; board identities stay exact. */
 export interface RefloatTuneSummary {
   tuneId: string;
   revision: number;

@@ -94,7 +94,31 @@ struct Cursor {
     updated: i64,
     id: String,
 }
+/// Audited Tune-only equivalence; observed firmware and editor identities stay exact.
+#[must_use]
+fn tune_package_version(version: &str) -> &str {
+    match version {
+        "1.3.1-beta2" | "1.3.1-beta3" => "1.3.1",
+        other => other,
+    }
+}
 impl TuneIdentity {
+    #[must_use]
+    fn canonical(&self) -> Self {
+        Self {
+            package_version: tune_package_version(&self.package_version).to_owned(),
+            ..self.clone()
+        }
+    }
+    #[must_use]
+    pub fn compatible_with(&self, other: &Self) -> bool {
+        self.package_name == other.package_name
+            && tune_package_version(&self.package_version)
+                == tune_package_version(&other.package_version)
+            && self.schema_fingerprint == other.schema_fingerprint
+            && self.wire_signature == other.wire_signature
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.package_name != "refloat"
             || self.package_version.is_empty()
@@ -110,7 +134,7 @@ impl TuneIdentity {
         Ok(())
     }
     fn digest(&self) -> Result<String> {
-        Ok(Sha256::digest(json(self, 512)?.as_bytes())
+        Ok(Sha256::digest(json(&self.canonical(), 512)?.as_bytes())
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect())
@@ -174,7 +198,7 @@ impl ProductStore {
         validate_text(name, description)?;
         validate_tune_values(identity, values, schema)?;
         let id = identifier()?;
-        self.catalog.execute("INSERT INTO refloat_configuration(configuration_id,revision,name,description,package_name,package_version,schema_fingerprint,wire_signature,values_json,created_at_ms,updated_at_ms) VALUES (?,1,?,?,?,?,?,?,?,?,?)",params![id,name,description,identity.package_name,identity.package_version,identity.schema_fingerprint,identity.wire_signature,json(values,limits::MAX_TUNE_VALUES_BYTES)?,at_ms,at_ms])?;
+        self.catalog.execute("INSERT INTO refloat_configuration(configuration_id,revision,name,description,package_name,package_version,schema_fingerprint,wire_signature,values_json,created_at_ms,updated_at_ms) VALUES (?,1,?,?,?,?,?,?,?,?,?)",params![id,name,description,identity.package_name,tune_package_version(&identity.package_version),identity.schema_fingerprint,identity.wire_signature,json(values,limits::MAX_TUNE_VALUES_BYTES)?,at_ms,at_ms])?;
         self.tune(&id)
     }
     #[allow(
@@ -268,11 +292,11 @@ impl ProductStore {
         } else {
             ""
         };
-        let mut statement = self.catalog.prepare_cached(&format!("{SELECT} WHERE (?1 IS NULL OR (package_name=?1 AND package_version=?2 AND schema_fingerprint=?3 AND wire_signature=?4)){cursor_filter} ORDER BY updated_at_ms DESC,configuration_id DESC LIMIT ?7"))?;
+        let mut statement = self.catalog.prepare_cached(&format!("{SELECT} WHERE (?1 IS NULL OR (package_name=?1 AND (CASE package_version WHEN '1.3.1-beta2' THEN '1.3.1' WHEN '1.3.1-beta3' THEN '1.3.1' ELSE package_version END)=?2 AND schema_fingerprint=?3 AND wire_signature=?4)){cursor_filter} ORDER BY updated_at_ms DESC,configuration_id DESC LIMIT ?7"))?;
         let rows = statement.query_map(
             params![
                 identity.map(|i| &i.package_name),
-                identity.map(|i| &i.package_version),
+                identity.map(|i| tune_package_version(&i.package_version)),
                 identity.map(|i| &i.schema_fingerprint),
                 identity.map(|i| i.wire_signature),
                 cursor.as_ref().map(|c| c.updated),
@@ -336,7 +360,7 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Tune> {
         description: r.get(3)?,
         identity: TuneIdentity {
             package_name: r.get(4)?,
-            package_version: r.get(5)?,
+            package_version: tune_package_version(&r.get::<_, String>(5)?).to_owned(),
             schema_fingerprint: r.get(6)?,
             wire_signature: r.get(7)?,
         },

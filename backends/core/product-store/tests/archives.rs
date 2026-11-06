@@ -1171,7 +1171,7 @@ fn app_transfer_merges_empty_boards_current_profiles_settings_and_stable_session
     source.update_settings(source.settings().unwrap().revision,
         &serde_json::json!({"unitPreference":"imperial","autoConnectSavedDeviceId":first.saved_device_id,"safetyDisclaimerAccepted":true}).to_string()).unwrap();
     let db = Connection::open(source_dir.file("catalog.sqlite")).unwrap();
-    db.execute("INSERT INTO refloat_configuration VALUES ('portable-tune',1,'My tune',NULL,'refloat','6.0',?,42,?,1,2)", rusqlite::params!["a".repeat(64),r#"{"kp":{"type":"double","value":3.0}}"#]).unwrap();
+    db.execute("INSERT INTO refloat_configuration VALUES ('portable-tune',1,'My tune',NULL,'refloat','1.3.1-beta2',?,42,?,1,2)", rusqlite::params!["a".repeat(64),r#"{"kp":{"type":"double","value":3.0}}"#]).unwrap();
     drop(db);
     let exported = source
         .prepare_app_export()
@@ -1185,6 +1185,28 @@ fn app_transfer_merges_empty_boards_current_profiles_settings_and_stable_session
     assert!(!text.contains("PRIVATE-LOCAL-ID"));
     assert!(!text.contains(&first.saved_device_id));
     assert_eq!(manifest["settings"]["safetyDisclaimerAccepted"], false);
+    assert_eq!(manifest["tunes"][0]["identity"]["packageVersion"], "1.3.1");
+    // Existing supported archives can still carry the old beta identity.
+    let mut legacy_entries = entries.clone();
+    let mut legacy_manifest = manifest.clone();
+    legacy_manifest["tunes"][0]["identity"]["packageVersion"] = "1.3.1-beta3".into();
+    legacy_entries[0].1 = serde_json::to_vec(&legacy_manifest).unwrap();
+    let legacy_path = source_dir.file("beta-tunes.zip");
+    write_app(&legacy_path, &legacy_entries);
+    let legacy_target = TestDirectory::new();
+    let mut legacy_store = ProductStore::open(legacy_target.path()).unwrap();
+    assert_eq!(
+        import_app(&mut legacy_store, &legacy_path, false).tunes_added,
+        1
+    );
+    assert_eq!(
+        legacy_store
+            .tune("portable-tune")
+            .unwrap()
+            .identity
+            .package_version,
+        "1.3.1"
+    );
     let target = TestDirectory::new();
     let mut destination = ProductStore::open(target.path()).unwrap();
     destination
@@ -1198,6 +1220,14 @@ fn app_transfer_merges_empty_boards_current_profiles_settings_and_stable_session
             first_import.tunes_added
         ),
         (2, 1, 1)
+    );
+    assert_eq!(
+        destination
+            .tune("portable-tune")
+            .unwrap()
+            .identity
+            .package_version,
+        "1.3.1"
     );
     assert!(first_import.settings_imported);
     let boards = destination.boards().unwrap();

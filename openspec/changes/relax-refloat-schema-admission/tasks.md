@@ -10,7 +10,7 @@
 
 - [ ] 2.1 Compute the cosmetic admission key in the existing bounded XML validation pass. Independently derive keys from pinned sources; positive label/help cases and negative protected properties, grouping, ignored properties, malformed/nested text and identical-CRC cases must define the boundary. Keep the full fingerprint and value encoding unchanged; document the protected-byte rule beside the codec/profile constants.
 - [ ] 2.2 Select shared profiles through the compatibility owner, with limited-mode profile matching for reads only. Delete the non-legacy configuration fingerprint catalogue; retain only INFO `1.0` identity exceptions. Own actual version/full-fingerprint strings, preserve current/default mode rules, and keep configuration rejection local to that feature. Verify known/limited/legacy selection and local schema failure with focused service tests.
-- [ ] 2.3 Revalidate cached raw bytes through the same path with existing exact keys/integrity and bounded refetch. Verify missing/zero/changed CRC, corrupt/incompatible entries, fresh generation/current reads, exact draft/Tune namespaces and supported saved session/Tune/archive preservation without migrations or identity rewrites.
+- [ ] 2.3 Revalidate cached raw bytes through the same path with existing exact keys/integrity and bounded refetch. Verify missing/zero/changed CRC, corrupt/incompatible entries, fresh generation/current reads, exact draft identities and audited Tune-family namespaces and supported saved session/Tune/archive preservation without migrations or identity rewrites.
 
 ## 3. Contract, UI and consumers
 
@@ -19,7 +19,7 @@
 
 ## 4. Evidence and completion
 
-- [ ] 4.1 Extend existing independent direct/CAN conformance with unknown beta4, stable 1.3.1 and 1.4.0 identities, usable/unusable public reads, optional feature isolation and zero mutation assertions. Verify retained beta2/beta3 capabilities after simulated stable admission. Reuse source fixtures and small variations; add payloads only for new bytes/semantics and retain supported-data fixtures.
+- [ ] 4.1 Extend existing independent direct/CAN conformance with unknown beta4, stable 1.3.2 and 1.4.0 identities, usable/unusable public reads, optional feature isolation and zero mutation assertions. Verify retained beta2/beta3 capabilities after existing stable admission. Reuse source fixtures and small variations; add payloads only for new bytes/semantics and retain supported-data fixtures.
 - [ ] 4.2 Run focused affected Rust crates/consumers, warnings-denied Clippy and formatting, frontend checks and relevant browser tests, TypeScript fixture checks, direct/mock contract conformance and affected Apple/Android boundary checks. Select and record any required physical interoperability checkpoint separately from synthetic future-version evidence, preserving local raw evidence and safe restoration. Fix failures caused by the change and record actual coverage/limits.
 - [ ] 4.3 Review the final scope for one compatibility owner, bounded public reads, no unknown-firmware mutations, exact observed identity and no beta retirement, duplicate registry, schema migration or storage/archive format change. Update brief procedures/source comments, reconcile tasks/specs, validate affected canonical specs, confirm readiness for spec sync after implementation and required checks complete.
 

@@ -19,7 +19,7 @@ For every audited or validated limited connection, the backend and simulator SHA
 #### Scenario: Same-version beta2 Tune
 
 - **WHEN** a Tune saved against the exact beta2 configuration identity is applied to a beta2 board with current revision and all safety conditions satisfied
-- **THEN** the existing confirmation, complete target-schema write, and mandatory readback rules apply; a Tune from another exact version remains unavailable
+- **THEN** the existing confirmation, complete target-schema write, and mandatory readback rules apply; only Tunes outside its audited compatible family remain unavailable
 
 #### Scenario: Valid dynamic schema
 
@@ -94,7 +94,7 @@ Configuration state SHALL remain generation-scoped and independent of WebView li
 
 ### Requirement: Exact beta3 configuration support
 
-Exact Refloat 1.3.1-beta3 SHALL use its selected shared schema-admission profile and the normal bounded codec, cache, verified-write and Tune policies. Beta3 and beta2 SHALL retain separate exact-version Tune namespaces, including when their schema bytes or admission keys match. Supported stored data SHALL remain readable.
+Exact Refloat 1.3.1-beta3 SHALL use its selected shared schema-admission profile and the normal bounded codec, cache, verified-write and Tune policies. Beta2, beta3 and stable 1.3.1 SHALL retain their audited shared `1.3.1` Tune family, with matching full fingerprint and wire signature. Supported stored data SHALL remain readable.
 
 #### Scenario: Beta3 schema and verified writes
 
@@ -103,8 +103,13 @@ Exact Refloat 1.3.1-beta3 SHALL use its selected shared schema-admission profile
 
 #### Scenario: Matching schema does not authorize another release's Tune
 
-- **WHEN** beta3 is connected and a saved beta2 Tune has the same schema fingerprint and wire signature
+- **WHEN** beta3 is connected and a saved unaudited beta4 Tune has the same schema fingerprint and wire signature
 - **THEN** that Tune remains retained but is not offered or applied as compatible with beta3
+
+#### Scenario: Audited beta and stable Tunes are interchangeable
+
+- **WHEN** beta3 is connected and a saved beta2 Tune has the same schema fingerprint and wire signature
+- **THEN** that Tune is presented as `1.3.1` and may be applied with normal confirmation, fresh authority and verified readback
 
 #### Scenario: Reconnect invalidates current authority
 
@@ -199,4 +204,4 @@ A limited connection matching a known shared schema profile SHALL expose the act
 #### Scenario: Saved identity remains exact
 
 - **WHEN** configuration is read or saved from a limited version or cosmetic full-fingerprint variant
-- **THEN** existing exact identity and fresh-current rules govern app-local data operations, stored Tunes remain preserved and no conversion or cross-version apply is enabled
+- **THEN** existing exact identity and fresh-current rules govern app-local data operations, stored Tunes remain preserved and no conversion or application outside the audited Tune family is enabled

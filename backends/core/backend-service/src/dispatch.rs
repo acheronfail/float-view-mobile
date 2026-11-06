@@ -373,13 +373,17 @@ impl BackendService {
                     .ok_or(Failure::InvalidState)?;
                 store::validate_tune_values(&tune.identity, &tune.values, schema)
                     .map_err(store_failure)?;
-                let values = self
-                    .runtime
-                    .snapshot()
-                    .application
-                    .configuration
-                    .current
-                    .ok_or(Failure::InvalidState)?;
+                let configuration = self.runtime.snapshot().application.configuration;
+                let actual = configuration.identity.ok_or(Failure::InvalidState)?;
+                if !tune.identity.compatible_with(&store::TuneIdentity {
+                    package_name: "refloat".into(),
+                    package_version: actual.package_version.into(),
+                    schema_fingerprint: actual.fingerprint.into(),
+                    wire_signature: actual.wire_signature,
+                }) {
+                    return Err(Failure::InvalidState);
+                }
+                let values = configuration.current.ok_or(Failure::InvalidState)?;
                 if values.revision != base_revision {
                     return Err(Failure::Conflict);
                 }
@@ -390,7 +394,7 @@ impl BackendService {
                     c::Command::WriteConfiguration {
                         generation,
                         mutation: c::mutation::ConfigurationMutation::TuneApply,
-                        package_version: tune.identity.package_version,
+                        package_version: actual.package_version.into(),
                         fingerprint: tune.identity.schema_fingerprint,
                         wire_signature: tune.identity.wire_signature,
                         base_revision,

@@ -87,7 +87,7 @@ Canonical conformance SHALL exercise exact beta2 admission, the existing selecta
 
 #### Scenario: Adjacent identities and malformed alerts
 
-- **WHEN** a fixture reports a valid unknown beta1, beta4 or stable 1.3.1 identity, malformed suffixes, or invalid beta2 command-35 records
+- **WHEN** a fixture reports a valid unknown beta1, beta4 or stable 1.3.2 identity, malformed suffixes, or invalid beta2 command-35 records
 - **THEN** valid unknown identities may pass limited public read admission without write authority, while malformed identity/alerts fail at their respective boundaries without partial history or stale-generation state
 
 #### Scenario: Saved and guest histories
@@ -132,7 +132,7 @@ Canonical conformance SHALL verify unknown-version public reads, feature isolati
 
 #### Scenario: Future release matrix
 
-- **WHEN** fixtures identify as 1.3.1-beta4, stable 1.3.1 and stable 1.4.0 with valid INFO v2 and the compatible public core read protocol
+- **WHEN** fixtures identify as 1.3.1-beta4, stable 1.3.2 and stable 1.4.0 with valid INFO v2 and the compatible public core read protocol
 - **THEN** each reaches ready and records actual bounded identity without a runtime release entry, while every board-change request remains denied
 - **AND** saved/guest tracking, reconnect, frontend recreation and supported session/export/archive reads retain their existing boundaries
 
@@ -165,9 +165,9 @@ Conformance SHALL preserve beta2/beta3 live capabilities and stored-data access 
 
 #### Scenario: Stable release added to shared profiles
 
-- **WHEN** an isolated compatibility fixture adds a stable 1.3.1 mapping to existing verified profiles
+- **WHEN** an isolated compatibility fixture adds a stable 1.3.2 mapping to existing verified profiles
 - **THEN** beta2 and beta3 retain exact discovery, telemetry, alert safety, configuration write/readback and same-version Tune behavior
-- **AND** stable/beta Tune namespaces stay exact and supported beta-created sessions, events and archives remain readable
+- **AND** the audited 1.3.1 Tune family stays shared while other versions remain isolated and supported beta-created sessions, events and archives remain readable
 
 #### Scenario: Maintenance follows protocol changes
 

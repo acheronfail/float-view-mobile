@@ -321,7 +321,7 @@ const STABLE_CONTROL: ControlProfile = ControlProfile {
 };
 
 /// Exact audited source-release compatibility catalogue.
-pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 12] = [
+pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 13] = [
     CompatibilityEntry {
         imu_timeout_available: false,
         source: SourceVersion::new(1, 0, 0),
@@ -407,6 +407,13 @@ pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 12] = [
             .with_suffix(VersionSuffix::new("beta3").expect("valid catalogue suffix")),
         wire: WireVersion::patched(1, 3, 1)
             .with_suffix(VersionSuffix::new("beta3").expect("valid catalogue suffix")),
+        telemetry: TelemetryProfile::Selectable,
+        control: STABLE_CONTROL,
+    },
+    CompatibilityEntry {
+        imu_timeout_available: true,
+        source: SourceVersion::new(1, 3, 1),
+        wire: WireVersion::patched(1, 3, 1),
         telemetry: TelemetryProfile::Selectable,
         control: STABLE_CONTROL,
     },
@@ -849,7 +856,7 @@ mod tests {
             ("beta2", true),
             ("beta3", true),
             ("beta4", false),
-            ("", false),
+            ("", true),
         ] {
             let mut payload = info_v2(1, 3, 1);
             payload[28..28 + suffix.len()].copy_from_slice(suffix.as_bytes());
@@ -869,6 +876,7 @@ mod tests {
         let beta2 = version.with_suffix(VersionSuffix::new("beta2").unwrap());
         let beta3 = version.with_suffix(VersionSuffix::new("beta3").unwrap());
         assert_eq!(compatibility(beta3), compatibility(beta2));
+        assert_eq!(compatibility(version), compatibility(beta3));
         assert!(compatibility(beta3).unwrap().imu_timeout_available);
     }
 
@@ -882,7 +890,8 @@ mod tests {
             ((1, 3, 0), "00"),
             ((1, 3, 0), "1"),
             ((1, 2, 3), "0"),
-            ((1, 3, 1), "1"),
+            ((1, 3, 1), "0"),
+            ((1, 3, 2), "2"),
             ((2, 0, 0), "0"),
         ] {
             let mut payload = info_v2(version.0, version.1, version.2);
@@ -1051,6 +1060,7 @@ mod tests {
             SourceVersion::new(1, 3, 0),
             SourceVersion::new(1, 3, 1).with_suffix(VersionSuffix::new("beta2").unwrap()),
             SourceVersion::new(1, 3, 1).with_suffix(VersionSuffix::new("beta3").unwrap()),
+            SourceVersion::new(1, 3, 1),
         ];
         assert_eq!(
             COMPATIBILITY_ENTRIES.map(|entry| entry.source),
@@ -1094,6 +1104,7 @@ mod tests {
             "1.3.0",
             "1.3.1-beta2",
             "1.3.1-beta3",
+            "1.3.1",
         ] {
             let version = parse_wire_version(text).unwrap();
             assert_eq!(version.to_string(), text);
@@ -1106,7 +1117,7 @@ mod tests {
             WireVersion::legacy(1, 1),
             WireVersion::patched(1, 0, 0),
             WireVersion::patched(1, 2, 4),
-            WireVersion::patched(1, 3, 1),
+            WireVersion::patched(1, 3, 2),
         ] {
             assert_eq!(compatibility(version), None);
         }

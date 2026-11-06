@@ -1,5 +1,5 @@
 import { validatePermissions } from '../../frontend/src/lib/backend/permissions.ts';
-import { supportsRidingTuneApply } from '../../frontend/src/lib/backend/refloat-tune-policy.ts';
+import { supportsRidingTuneApply, tunePackageVersion } from '../../frontend/src/lib/backend/refloat-tune-policy.ts';
 import assert from 'node:assert/strict';
 import {
   liveWidgetFields,
@@ -75,9 +75,9 @@ export async function runBoardExportConformance(target: Target) {
   }
 }
 
-/** Exact beta admission, schema, recovered timeout and saved/guest lifecycle. */
-export async function runRefloatBetaConformance(target: Target) {
-  const version = process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'refloat-beta3' ? '1.3.1-beta3' : '1.3.1-beta2';
+/** Exact release admission, schema, recovered timeout and saved/guest lifecycle. */
+export async function runRefloatReleaseConformance(target: Target) {
+  const version = process.env.FLOAT_VIEW_FIXTURE_REFLOAT ?? '1.3.1-beta2';
   let client: ConformanceClient | undefined;
   try {
     const endpoint = await target.start();
@@ -112,7 +112,7 @@ export async function runRefloatBetaConformance(target: Target) {
       assert.equal(opened.packageVersion, version);
       if (trackingMode === 'saved') {
         await exerciseRefloatConfiguration(client, ready, true);
-        const sessionId = required(ready.activeConnection!.activeSession, 'saved beta session').sessionId;
+        const sessionId = required(ready.activeConnection!.activeSession, 'saved Refloat session').sessionId;
         const metadata = await client.request('session.get', { sessionId });
         const history = await client.sessionData({
           kind: 'events',
@@ -1606,6 +1606,7 @@ export async function exerciseRefloatConfiguration(
     sourceRevision: current.revision,
     values: tuneValues,
   });
+  assert.equal(tune.identity.packageVersion, tunePackageVersion(current.identity.packageVersion));
   const listed = await client.request('refloat.tune.list', { identity: current.identity, limit: 1, cursor: null });
   assert.ok(listed.items.some((item) => item.tuneId === tune.tuneId));
   const library = await client.request('refloat.tune.list', { identity: null, limit: 50 });
