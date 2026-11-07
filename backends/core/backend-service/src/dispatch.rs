@@ -29,6 +29,9 @@ pub(crate) struct Pending {
     pub owner: u64,
     pub kind: PendingKind,
     pub deadline: u64,
+    pub diagnostic_kind: Option<&'static str>,
+    pub started_ms: u64,
+    pub application_generation: u64,
     pub sender: oneshot::Sender<Result<f::Completion, Failure>>,
 }
 impl BackendService {
@@ -744,6 +747,9 @@ impl BackendService {
                 owner,
                 kind,
                 deadline: self.policy.exchange.now.saturating_add(timeout),
+                diagnostic_kind: None,
+                started_ms: self.policy.exchange.now,
+                application_generation: self.runtime.snapshot().application.generation.0,
                 sender,
             },
         );
@@ -756,15 +762,41 @@ impl BackendService {
         kind: PendingKind,
         command: c::Command,
     ) -> Result<Dispatch, Failure> {
+        if matches!(
+            command,
+            c::Command::WriteConfiguration { .. } | c::Command::ReadConfiguration { .. }
+        ) {
+            self.record_configuration_contents(Some(&command));
+        }
+        let context = self.operation_context(&command);
         if self.pending.values().any(|p| {
             matches!(
                 p.kind,
                 PendingKind::Controls | PendingKind::Read(_) | PendingKind::Write
             )
         }) {
+            if let Some(mut context) = context {
+                if let Some((&id, pending)) = self
+                    .pending
+                    .iter()
+                    .find(|(_, p)| p.diagnostic_kind.is_some())
+                {
+                    context["blocking_operation"] = serde_json::json!(id);
+                    context["blocking_kind"] = serde_json::json!(pending.diagnostic_kind);
+                }
+                self.operation_event(context, "rejected", Some("service_busy"));
+            }
             return Err(Failure::InvalidState);
         }
         let (id, receiver) = self.add_pending(owner, kind, 3_250)?;
+        self.pending
+            .get_mut(&id)
+            .expect("new pending")
+            .diagnostic_kind = crate::diagnostics::operations::operation_kind(&command);
+        if let Some(mut context) = context {
+            context["operation"] = serde_json::json!(id);
+            self.operation_event(context, "submitted", None);
+        }
         if let Err(error) = self.runtime_command(Command::Application(command)) {
             self.finish_pending(id, Err(error.clone()));
             return Err(error);
@@ -775,6 +807,23 @@ impl BackendService {
     }
     pub(crate) fn finish_pending(&mut self, id: u64, result: Result<f::Completion, Failure>) {
         if let Some(pending) = self.pending.remove(&id) {
+            if let Some(kind) = pending.diagnostic_kind {
+                let application_generation = pending.application_generation;
+                let facts = serde_json::json!({"kind":kind,"operation":id,
+                    "application_generation":application_generation,
+                    "duration_ms":self.policy.exchange.now.saturating_sub(pending.started_ms)});
+                let outcome = if result.is_ok() {
+                    "completed"
+                } else {
+                    "failed"
+                };
+                // Public failure codes are a closed enum; retain them alongside causal events.
+                let mut facts = facts;
+                if let Err(error) = &result {
+                    facts["code"] = serde_json::json!(error);
+                }
+                self.operation_event(facts, outcome, None);
+            }
             self.cancel_timer(crate::policy::Timer::Request(id));
             let _ = pending.sender.send(result);
         }
@@ -872,7 +921,7 @@ impl BackendService {
             self.finish_pending(id, self.configuration_result(defaults));
         }
     }
-    pub(crate) fn fail_kernel_requests(&mut self) {
+    pub(crate) fn fail_kernel_requests(&mut self, reason: &'static str) {
         let ids: Vec<_> = self
             .pending
             .iter()
@@ -885,6 +934,7 @@ impl BackendService {
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
+            self.cancel_operation(id, reason);
             self.finish_pending(id, Err(Failure::Unavailable));
         }
     }
@@ -897,6 +947,7 @@ impl BackendService {
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
+            self.cancel_operation(id, "client_disconnected");
             self.finish_pending(id, Err(Failure::Unavailable));
         }
         self.disconnect_file_client(owner);

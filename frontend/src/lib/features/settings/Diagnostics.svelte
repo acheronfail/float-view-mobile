@@ -32,8 +32,8 @@
 <section id="diagnostics" aria-label="Diagnostics" class="space-y-3">
   <SectionTitle title="Help with a problem" />
   <p class="text-sm text-muted">
-    Save a troubleshooting file to help us understand what went wrong. It doesn’t include device identifiers. Nothing is
-    sent automatically.
+    Save a troubleshooting file with configuration values, telemetry and protocol details. Device identifiers and
+    locations are excluded. Nothing is sent automatically.
   </p>
   <button
     type="button"

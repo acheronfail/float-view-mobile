@@ -32,7 +32,7 @@ export class MockDiagnostics {
         ageMs: 0,
         created: now,
       });
-      this.incidents = this.incidents.slice(-3);
+      this.incidents = this.incidents.slice(-10);
     }
   }
   handle(id: number, method: string, params: Record<string, unknown>, owner: number): Response {
@@ -61,7 +61,7 @@ export class MockDiagnostics {
       this.lastManual = now;
       const incidentId = String(++this.next);
       this.incidents.push({ incidentId, reason: 'manual', complete: false, clipped: false, ageMs: 0, created: now });
-      this.incidents = this.incidents.slice(-3);
+      this.incidents = this.incidents.slice(-10);
       return ok({ incidentId, capturing: true });
     }
     if (method === 'diagnostics.prepare') {
@@ -86,7 +86,7 @@ export class MockDiagnostics {
       const complete = !incident || now - incident.created >= 10_000;
       const preview = {
         reportId,
-        summary: `Float View diagnostic report ${reportId}\nBuild: mock\nReason: ${incident?.reason ?? 'manual'}\nComplete capture: ${complete}\nController/motor/battery: unknown\n\nIncludes structured connection, protocol, lifecycle and timing facts.\nExcludes routes, device identifiers, raw packets, configurations and telemetry values.\n`,
+        summary: `Float View diagnostic report ${reportId}\nBuild: mock\nReason: ${incident?.reason ?? 'manual'}\nComplete capture: ${complete}\nController/motor/battery: unknown\n\nIncludes structured connection, protocol, lifecycle and timing facts.\nIncludes configuration contents, schema identities, non-location telemetry and classified protocol payloads.\nExcludes routes, device identifiers, credentials, raw errors and unclassified or location-bearing packets.\n`,
         complete,
         clipped: false,
         droppedRecords: 0,
@@ -145,7 +145,7 @@ export class MockDiagnostics {
           ageMs: 0,
           created: now,
         });
-        this.incidents = this.incidents.slice(-3);
+        this.incidents = this.incidents.slice(-10);
       }
       return ok({ accepted: true });
     }

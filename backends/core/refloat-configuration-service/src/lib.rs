@@ -224,12 +224,28 @@ pub enum ValueSource {
     Default,
 }
 
+/// Validated schema structure observed before audited write admission.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObservedSchema {
+    pub fingerprint: String,
+    pub wire_signature: u32,
+}
+impl From<&ConfigurationSchema> for ObservedSchema {
+    fn from(schema: &ConfigurationSchema) -> Self {
+        Self {
+            fingerprint: schema.fingerprint.clone(),
+            wire_signature: schema.wire_signature,
+        }
+    }
+}
+
 /// Deterministic publishable state.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Snapshot {
     pub availability: Availability,
     pub writable: bool,
     pub identity: Option<SchemaIdentity>,
+    pub observed_schema: Option<ObservedSchema>,
     pub current: Option<LoadedValues>,
     pub defaults: Option<LoadedValues>,
     pub pending: Option<PendingOperation>,
@@ -388,6 +404,7 @@ pub struct ConfigurationService {
     requested_offset: usize,
     schema: Option<ConfigurationSchema>,
     identity: Option<SchemaIdentity>,
+    observed_schema: Option<ObservedSchema>,
     current: Option<LoadedValues>,
     defaults: Option<LoadedValues>,
     expected_readback: Option<ConfigurationValues>,
@@ -419,6 +436,7 @@ impl ConfigurationService {
             requested_offset: 0,
             schema: None,
             identity: None,
+            observed_schema: None,
             current: None,
             defaults: None,
             expected_readback: None,
@@ -450,6 +468,7 @@ impl ConfigurationService {
                 && let Some(entry) =
                     resolve_catalog(self.reported_version.as_deref().unwrap_or(""), &decoded)
             {
+                self.observed_schema = Some(ObservedSchema::from(&decoded));
                 self.schema = Some(decoded);
                 self.identity = Some(schema_identity(entry));
                 self.availability = Availability::Ready;
@@ -493,6 +512,7 @@ impl ConfigurationService {
                 && !self.flywheel
                 && self.current.is_some(),
             identity: self.identity.clone(),
+            observed_schema: self.observed_schema.clone(),
             current: if self.flywheel {
                 None
             } else {
@@ -735,6 +755,7 @@ impl ConfigurationService {
             }));
         }
         let decoded = decode_qt_compressed(&self.assembly)?;
+        self.observed_schema = Some(ObservedSchema::from(&decoded));
         let Some(entry) = resolve_catalog(self.reported_version.as_deref().unwrap_or(""), &decoded)
         else {
             self.fail_active();
@@ -889,6 +910,7 @@ impl ConfigurationService {
         self.requested_offset = 0;
         self.schema = None;
         self.identity = None;
+        self.observed_schema = None;
         self.current = None;
         self.defaults = None;
         self.expected_readback = None;

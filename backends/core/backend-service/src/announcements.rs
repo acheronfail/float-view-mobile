@@ -371,6 +371,9 @@ impl BackendService {
             crate::dispatch::Pending {
                 owner,
                 kind: crate::dispatch::PendingKind::Speech,
+                diagnostic_kind: None,
+                started_ms: self.policy.exchange.now,
+                application_generation: self.runtime.snapshot().application.generation.0,
                 deadline: self.policy.exchange.now.saturating_add(10_000),
                 sender,
             },

@@ -1,6 +1,8 @@
 //! Payload-free diagnostics. Bounded capture; persistence never runs on telemetry's path.
 use crate::{BackendService, operations::Failure};
+mod content;
 mod model;
+pub(crate) mod operations;
 mod report;
 mod store;
 use model::*;
@@ -78,6 +80,9 @@ pub(crate) struct Diagnostics {
     pub(crate) generation: u64,
     epoch: i64,
     incidents: VecDeque<Incident>,
+    incident_sizes: BTreeMap<u64, usize>,
+    last_telemetry_content: Option<u64>,
+    last_configuration_content: Option<(u64, Option<u64>, Option<u64>, u64)>,
     next_incident: u64,
     capture_until: Option<u64>,
     last_incident_save: u64,
@@ -158,6 +163,15 @@ impl Diagnostics {
                 .max()
                 .unwrap_or(0)
                 .saturating_add(1);
+            this.incident_sizes = incidents
+                .iter()
+                .map(|i| {
+                    (
+                        i.id,
+                        serde_json::to_vec(i).map_or(MAX_INCIDENT_BYTES, |b| b.len()) + 128,
+                    )
+                })
+                .collect();
             this.incidents = incidents.into();
             this.sink = Sink::new(store).ok();
         }
@@ -171,6 +185,8 @@ impl Diagnostics {
         now: u64,
         epoch: i64,
         error: &float_view_application_runtime::coordinator::configuration::ServiceError,
+        application_generation: u64,
+        operation: Option<u64>,
     ) {
         use float_view_application_runtime::coordinator::configuration::ServiceError as E;
         let code = match error {
@@ -186,7 +202,7 @@ impl Diagnostics {
             now,
             epoch,
             "configuration_failure",
-            json!({"code":code}),
+            json!({"code":code,"detail":operations::configuration_error(error),"application_generation":application_generation,"operation":operation}),
             true,
         );
         self.capture(now, epoch, "configuration_failure", true);
@@ -206,6 +222,17 @@ impl Diagnostics {
         data: Value,
         persist: bool,
     ) {
+        self.event_with_content(now, epoch, event, data, persist, None);
+    }
+    fn event_with_content(
+        &mut self,
+        now: u64,
+        epoch: i64,
+        event: &'static str,
+        data: Value,
+        persist: bool,
+        content: Option<Content>,
+    ) {
         let Some(kind) = Kind::parse(event) else {
             return;
         };
@@ -223,6 +250,14 @@ impl Diagnostics {
                     Some(Datum::Count(v))
                 } else if let Some(v) = value.as_bool() {
                     Some(Datum::Flag(v))
+                } else if matches!(
+                    key,
+                    Key::SchemaFingerprint | Key::RequestedSchemaFingerprint
+                ) {
+                    value
+                        .as_str()
+                        .filter(|v| fingerprint_valid(v))
+                        .map(|v| Datum::Fingerprint(v.to_owned()))
                 } else {
                     value.as_str().and_then(|value| {
                         Code::parse(value)
@@ -256,6 +291,25 @@ impl Diagnostics {
                 }
             }
         }
+        if kind == Kind::Metadata
+            && let Some(version) = data.get("package").and_then(Value::as_str)
+            && let Some(version) =
+                float_view_application_runtime::coordinator::compatibility::parse_wire_version(
+                    version,
+                )
+        {
+            facts.insert(Key::PackageMajor, Datum::Count(u64::from(version.major)));
+            facts.insert(Key::PackageMinor, Datum::Count(u64::from(version.minor)));
+            if let Some(patch) = version.patch {
+                facts.insert(Key::PackagePatch, Datum::Count(u64::from(patch)));
+            }
+            let suffix = match version.suffix.as_str() {
+                "beta2" => Code::Beta2,
+                "beta3" => Code::Beta3,
+                _ => Code::StableRelease,
+            };
+            facts.insert(Key::PackageSuffix, Datum::Code(suffix));
+        }
         if kind == Kind::Native
             && let Some(version) = data.get("os_version").and_then(Value::as_str)
             && version.len() <= 24
@@ -276,6 +330,7 @@ impl Diagnostics {
             elapsed_ms: now,
             kind,
             facts,
+            content,
         };
         if !record.valid() {
             return;
@@ -292,6 +347,7 @@ impl Diagnostics {
             self.context.insert(kind, record.clone());
         }
         let encoded = serde_json::to_string(&record).unwrap_or_default();
+        let encoded_len = encoded.len();
         self.ring.push_back((now, encoded));
         if persist || self.capture_until.is_some() {
             self.pending.push(record.clone());
@@ -302,7 +358,30 @@ impl Diagnostics {
         }
         // Keep coalesced API failures in the exported incident even after its
         // follow-up window has closed. Do not extend that window or its budget.
-        let coalesced_failure = kind == Kind::ApiRequestFailure
+        let configuration_request = kind == Kind::Request
+            && matches!(
+                record.facts.get(&Key::RequestKind),
+                Some(Datum::Code(Code::Configuration))
+            );
+        let configuration_content = kind == Kind::Content
+            && record.content.as_ref().is_some_and(|c| {
+                matches!(
+                    c.category,
+                    ContentKind::ConfigurationCurrent
+                        | ContentKind::ConfigurationDefault
+                        | ContentKind::ConfigurationWrite
+                )
+            });
+        let coalesced_failure = (configuration_request
+            || configuration_content
+            || matches!(
+                kind,
+                Kind::ApiRequestFailure
+                    | Kind::ConfigurationOperation
+                    | Kind::RuntimeFailure
+                    | Kind::MutationFailure
+                    | Kind::ConfigurationFailure
+            ))
             && self
                 .last_capture
                 .is_some_and(|at| now.saturating_sub(at) < 60_000);
@@ -310,10 +389,23 @@ impl Diagnostics {
             && let Some(i) = self.incidents.back_mut()
         {
             if i.events.len() < 768 {
+                *self.incident_sizes.entry(i.id).or_default() += encoded_len + 1;
                 i.events.push(record);
             } else {
                 i.clipped = true;
             }
+        }
+        self.trim_incidents();
+    }
+    fn trim_incidents(&mut self) {
+        while self.incidents.len() > MAX_INCIDENTS
+            || self.incident_sizes.values().sum::<usize>() > MAX_RETAINED_INCIDENT_BYTES
+        {
+            let Some(old) = self.incidents.pop_front() else {
+                self.incident_sizes.clear();
+                break;
+            };
+            self.incident_sizes.remove(&old.id);
         }
     }
     pub fn capture(&mut self, now: u64, epoch: i64, reason: &'static str, _force: bool) {
@@ -363,9 +455,6 @@ impl Diagnostics {
             .filter(|(at, _)| now.saturating_sub(*at) <= 30_000)
             .filter_map(|(_, s)| serde_json::from_str(s).ok())
             .collect();
-        if self.incidents.len() == MAX_INCIDENTS {
-            self.incidents.pop_front();
-        }
         self.incidents.push_back(Incident {
             id,
             created_ms: epoch,
@@ -376,6 +465,13 @@ impl Diagnostics {
             events,
             context: self.context.values().cloned().collect(),
         });
+        self.incident_sizes.insert(
+            id,
+            serde_json::to_vec(self.incidents.back().expect("new incident"))
+                .map_or(MAX_INCIDENT_BYTES, |b| b.len())
+                + 128,
+        );
+        self.trim_incidents();
         if let Some(s) = &self.sink {
             s.incident(self.incidents.back().unwrap().clone());
         }
@@ -445,7 +541,9 @@ impl Diagnostics {
             .front()
             .is_some_and(|i| epoch.saturating_sub(i.created_ms) > RETENTION_MS)
         {
-            self.incidents.pop_front();
+            if let Some(old) = self.incidents.pop_front() {
+                self.incident_sizes.remove(&old.id);
+            }
         }
         self.reports.retain(|_, r| now < r.expires);
         if now.saturating_sub(self.last_summary) < 10_000 {
@@ -496,6 +594,7 @@ impl BackendService {
         // Method strings come from untrusted envelopes; retain only known API
         // names, never parameters, peer text, IDs or formatted error messages.
         let method = ApiMethod::parse(method).unwrap_or(ApiMethod::Unknown);
+        self.record_configuration_contents(None);
         let now = self.policy.exchange.now;
         let epoch = self.policy.exchange.epoch;
         self.diagnostics.event(
@@ -576,7 +675,7 @@ mod tests {
                 0,
                 1000,
                 "request",
-                json!({"application_generation":application,"outcome":"sent_only"}),
+                json!({"application_generation":application,"operation":application,"blocking_operation":transport,"configuration_operation":application,"outcome":"sent_only"}),
                 true,
             );
         }
@@ -604,6 +703,9 @@ mod tests {
             assert_eq!(record["facts"]["generation"], transport);
             assert_eq!(record["facts"]["application_generation"], application);
             assert_eq!(record["facts"]["outcome"], "sent_only");
+            assert_eq!(record["facts"]["operation"], application);
+            assert_eq!(record["facts"]["blocking_operation"], transport);
+            assert_eq!(record["facts"]["configuration_operation"], application);
         }
         assert!(!text.contains("9001") && !text.contains("9002") && !text.contains("9003"));
     }
@@ -939,5 +1041,659 @@ mod tests {
         assert!(preview.summary.contains("THOR300"));
         assert!(!preview.summary.contains("VESC Express T"));
         assert!(preview.summary.contains("\"generation\": 1"));
+    }
+    // Populate the production runtime from frozen wire/schema fixtures, without an OS radio.
+    fn configuration_service(root: &std::path::Path, patch: u8) -> BackendService {
+        use float_view_application_runtime::{Command as R, coordinator as c};
+        let mut s = BackendService::open(root).unwrap();
+        let apply =
+            |s: &mut BackendService, command| s.runtime.apply(R::Application(command)).unwrap();
+        apply(
+            &mut s,
+            c::Command::Begin(c::BeginFacts {
+                now_ms: 10,
+                settings: c::telemetry::Settings::new(1000, 5000).unwrap(),
+                preferred_controller_can_id: None,
+                routing_hint: None,
+                continuity: c::discovery::Continuity::default(),
+                preferred_bms_can_id: None,
+            }),
+        );
+        let generation = s.runtime.snapshot().application.generation;
+        let mut firmware = vec![0, 6, 6];
+        firmware.extend_from_slice(b"THOR300\0");
+        firmware.extend_from_slice(&[7; 12]);
+        firmware.extend_from_slice(&[1, 0, 0, 1, 1, 0, 1, 0]);
+        firmware.extend_from_slice(b"Float\0");
+        firmware.extend_from_slice(&123_u32.to_be_bytes());
+        let mut info = vec![0; 61];
+        info[..5].copy_from_slice(&[36, 101, 0, 2, 0]);
+        info[5..12].copy_from_slice(b"refloat");
+        info[25..28].copy_from_slice(&[1, 3, patch]);
+        for (payload, now_ms) in [(firmware, 20), (info, 30)] {
+            apply(
+                &mut s,
+                c::Command::Receive {
+                    generation,
+                    payload,
+                    now_ms,
+                    observed_at_epoch_ms: 1000 + now_ms as i64,
+                },
+            );
+        }
+        let schema = if patch == 0 {
+            include_bytes!("../../../fixtures/refloat-configuration/schemas/1.3.0.qcompress")
+                .as_slice()
+        } else {
+            include_bytes!("../../../fixtures/refloat-configuration/schemas/1.3.1-beta2.qcompress")
+                .as_slice()
+        };
+        apply(
+            &mut s,
+            c::Command::Activate {
+                generation,
+                now_ms: 40,
+                session_started: true,
+                cached_configuration_schema: Some(schema.to_vec()),
+            },
+        );
+        let mut payload = vec![93, 0];
+        payload.extend_from_slice(include_bytes!(
+            "../../../fixtures/refloat-configuration/values/1.3.0-current.bin"
+        ));
+        apply(
+            &mut s,
+            c::Command::Receive {
+                generation,
+                payload,
+                now_ms: 50,
+                observed_at_epoch_ms: 1050,
+            },
+        );
+        assert!(
+            s.runtime
+                .snapshot()
+                .application
+                .configuration
+                .current
+                .is_some()
+        );
+        s.policy.exchange.now = 100;
+        s.policy.exchange.epoch = 1100;
+        s
+    }
+
+    fn write_operation(s: &BackendService) -> crate::operations::Operation {
+        use crate::facts::ConfigurationValue as F;
+        use float_view_application_runtime::coordinator::configuration_codec::ConfigurationValue as V;
+        let config = s.runtime.snapshot().application.configuration;
+        let identity = config.identity.unwrap();
+        let current = config.current.unwrap();
+        crate::operations::Operation::WriteConfiguration {
+            package_version: identity.package_version.into(),
+            fingerprint: identity.fingerprint.into(),
+            signature: identity.wire_signature,
+            revision: current.revision,
+            values: current
+                .values
+                .into_iter()
+                .map(|(key, value)| {
+                    (
+                        key,
+                        match value {
+                            V::Decimal(v) => F::Double(v),
+                            V::Integer(v) => F::Integer(v),
+                            V::Boolean(v) => F::Boolean(v),
+                            V::String(v) => F::String(v),
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn latest(s: &BackendService, kind: &str) -> Value {
+        s.diagnostics
+            .ring
+            .iter()
+            .rev()
+            .map(|(_, row)| serde_json::from_str::<Value>(row).unwrap())
+            .find(|r| r["kind"] == kind)
+            .unwrap()["facts"]
+            .clone()
+    }
+
+    #[test]
+    fn diagnostic_write_rejections_distinguish_identity_revision_and_imu_authority() {
+        use crate::operations::Operation;
+        for mismatch in [
+            "package_matches",
+            "schema_matches",
+            "signature_matches",
+            "revision_matches",
+        ] {
+            let t = Temp::new();
+            let mut s = configuration_service(&t.0, 0);
+            let mut request = write_operation(&s);
+            let Operation::WriteConfiguration {
+                package_version,
+                fingerprint,
+                signature,
+                revision,
+                ..
+            } = &mut request
+            else {
+                unreachable!()
+            };
+            match mismatch {
+                "package_matches" => *package_version = "PRIVATE-package".into(),
+                "schema_matches" => *fingerprint = "PRIVATE-fingerprint".into(),
+                "signature_matches" => *signature ^= 1,
+                _ => *revision += 1,
+            }
+            assert!(matches!(s.dispatch(1, request), Err(Failure::InvalidState)));
+            let facts = latest(&s, "runtime_failure");
+            assert_eq!(facts["layer"], "configuration");
+            assert_eq!(facts["code"], "InvalidState");
+            assert_eq!(facts[mismatch], false);
+            assert_eq!(facts["current_loaded"], true);
+            for other in [
+                "package_matches",
+                "schema_matches",
+                "signature_matches",
+                "revision_matches",
+            ] {
+                assert_eq!(facts[other], other != mismatch);
+            }
+            assert!(
+                !serde_json::to_string(&s.diagnostics.ring)
+                    .unwrap()
+                    .contains("PRIVATE")
+            );
+        }
+        let t = Temp::new();
+        let mut s = configuration_service(&t.0, 1);
+        assert!(matches!(
+            s.dispatch(1, write_operation(&s)),
+            Err(Failure::InvalidState)
+        ));
+        let facts = latest(&s, "runtime_failure");
+        assert_eq!(facts["layer"], "mutation");
+        assert_eq!(facts["write_block"], "imu_timeout_unconfirmed");
+        assert_eq!(facts["revision_matches"], true);
+    }
+
+    #[test]
+    fn diagnostic_operation_busy_timeout_and_cancellation_keep_correlation() {
+        use crate::operations::Operation;
+        let t = Temp::new();
+        let mut s = configuration_service(&t.0, 0);
+        assert!(matches!(
+            s.dispatch(
+                1,
+                Operation::ReadConfiguration {
+                    defaults: false,
+                    refresh: true
+                }
+            ),
+            Ok(crate::Dispatch::Pending(_))
+        ));
+        let submitted = latest(&s, "configuration_operation");
+        let id = submitted["operation"].as_u64().unwrap();
+        assert!(matches!(
+            s.dispatch(1, write_operation(&s)),
+            Err(Failure::InvalidState)
+        ));
+        let busy = latest(&s, "configuration_operation");
+        assert_eq!(busy["code"], "service_busy");
+        assert_eq!(busy["blocking_operation"], id);
+        assert_eq!(busy["blocking_kind"], "read_current");
+        let (timer, due) = s
+            .policy
+            .timers
+            .iter()
+            .find_map(|(timer, entry)| {
+                matches!(entry.kind, crate::policy::Timer::Request(p) if p == id)
+                    .then_some((*timer, entry.due))
+            })
+            .unwrap();
+        s.apply_os(crate::os::Envelope {
+            lifetime: s.policy.exchange.lifetime,
+            sequence: s.policy.exchange.sequence + 1,
+            monotonic_ms: due,
+            epoch_ms: 1000 + due as i64,
+            fact: crate::os::Fact::Timer { id: timer },
+        })
+        .unwrap();
+        let completed = latest(&s, "configuration_operation");
+        assert_eq!(completed["operation"], id);
+        assert_eq!(completed["outcome"], "failed");
+        assert_eq!(completed["duration_ms"], 3250);
+        assert!(
+            s.diagnostics
+                .ring
+                .iter()
+                .any(|(_, r)| r.contains("request_timeout"))
+        );
+        assert!(s.pending.is_empty());
+        // A connection replacement cancels accepted work with its cause retained.
+        let t = Temp::new();
+        let mut s = configuration_service(&t.0, 0);
+        s.dispatch(
+            1,
+            Operation::ReadConfiguration {
+                defaults: true,
+                refresh: true,
+            },
+        )
+        .unwrap();
+        s.fail_kernel_requests("connection_replaced");
+        assert!(
+            s.diagnostics
+                .ring
+                .iter()
+                .any(|(_, r)| r.contains("connection_replaced"))
+        );
+        assert!(s.pending.is_empty());
+    }
+
+    #[test]
+    fn diagnostic_metadata_distinguishes_stable_and_audited_beta_without_peer_text() {
+        for (version, suffix) in [
+            ("1.3.1", "stable"),
+            ("1.3.1-beta2", "beta2"),
+            ("1.3.1-beta3", "beta3"),
+        ] {
+            let mut d = Diagnostics::default();
+            d.metadata(0, 1000, json!({"package":version}));
+            let record: Value = serde_json::from_str(&d.ring.back().unwrap().1).unwrap();
+            assert_eq!(record["facts"]["package_major"], 1);
+            assert_eq!(record["facts"]["package_minor"], 3);
+            assert_eq!(record["facts"]["package_patch"], 1);
+            assert_eq!(record["facts"]["package_suffix"], suffix);
+            d.metadata(1, 1001, json!({"package":"1.3.1-PRIVATE"}));
+            let record: Value = serde_json::from_str(&d.ring.back().unwrap().1).unwrap();
+            assert!(record["facts"].get("package_suffix").is_none());
+            assert!(!serde_json::to_string(&d.ring).unwrap().contains("PRIVATE"));
+        }
+    }
+
+    #[test]
+    fn diagnostic_failure_context_fits_limits_with_maximum_counters() {
+        let t = Temp::new();
+        let mut s = configuration_service(&t.0, 0);
+        let mut request = write_operation(&s);
+        if let crate::operations::Operation::WriteConfiguration { revision, .. } = &mut request {
+            *revision += 1;
+        }
+        assert!(s.dispatch(1, request).is_err());
+        let mut facts = latest(&s, "runtime_failure");
+        for key in [
+            "application_generation",
+            "operation",
+            "current_revision",
+            "base_revision",
+            "generation",
+        ] {
+            facts[key] = json!(9_007_199_254_740_991_u64);
+        }
+        facts["write_block"] = json!("imu_timeout_unconfirmed");
+        facts["configuration_pending"] = json!("configuration_write");
+        facts["mutation_pending"] = json!("configuration_write");
+        s.diagnostics.sequence = 9_007_199_254_740_990;
+        let before = s.diagnostics.ring.len();
+        s.diagnostics
+            .event(9_007_199_254_740_991, 1100, "runtime_failure", facts, true);
+        // The new timestamp evicts earlier ring rows. A dropped over-size record would leave it empty.
+        assert!(before > 0);
+        assert_eq!(s.diagnostics.ring.len(), 1);
+        let record: Record = serde_json::from_str(&s.diagnostics.ring.back().unwrap().1).unwrap();
+        assert_eq!(record.elapsed_ms, 9_007_199_254_740_991);
+        assert!(record.valid());
+    }
+
+    #[test]
+    fn diagnostic_late_failure_context_survives_export_and_remains_bounded() {
+        use std::io::Read;
+        let t = Temp::new();
+        let mut s = configuration_service(&t.0, 0);
+        s.diagnostics.capture(100, 1100, "reconnect", false);
+        s.policy.exchange.now = 20100;
+        s.policy.exchange.epoch = 21100;
+        s.diagnostics.tick(20100, 21100);
+        let mut request = write_operation(&s);
+        if let crate::operations::Operation::WriteConfiguration {
+            revision, values, ..
+        } = &mut request
+        {
+            *revision += 1;
+            values.insert(
+                "PRIVATE-field".into(),
+                crate::facts::ConfigurationValue::String("PRIVATE-value".into()),
+            );
+        }
+        assert!(s.dispatch(1, request).is_err());
+        s.diagnostics.configuration_failure(20100,21100,&float_view_application_runtime::coordinator::configuration::ServiceError::Codec(float_view_application_runtime::coordinator::configuration_codec::ConfigurationError::InvalidValue), s.runtime.snapshot().application.generation.0, None);
+        assert!(s.diagnostics.capture_until.is_none());
+        assert!(
+            s.diagnostics.incidents[0]
+                .events
+                .iter()
+                .any(|r| r.kind == Kind::RuntimeFailure)
+        );
+        let completion = s.begin_diagnostic_report(1, None).unwrap().run().unwrap();
+        let preview = s.complete_diagnostic_report(completion).unwrap();
+        let (transfer, _) = s.diagnostic_export(1, &preview.report_id).unwrap();
+        let path = s.present_export(1, transfer, 0).unwrap();
+        let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
+        let mut text = String::new();
+        zip.by_name("events.jsonl")
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        let records: Vec<Record> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert!(records.iter().all(Record::valid));
+        let failure = records
+            .iter()
+            .find(|r| r.kind == Kind::RuntimeFailure)
+            .unwrap();
+        assert!(matches!(
+            failure.facts.get(&Key::RevisionMatches),
+            Some(Datum::Flag(false))
+        ));
+        assert!(text.contains("invalid_value"));
+        assert!(!text.contains("PRIVATE"));
+        // Late storms retain numeric caps and disclose clipping.
+        for _ in 0..1000 {
+            s.operation_event(
+                json!({"kind":"configuration_write"}),
+                "rejected",
+                Some("service_busy"),
+            );
+        }
+        assert_eq!(s.diagnostics.incidents[0].events.len(), 768);
+        assert!(s.diagnostics.incidents[0].clipped);
+        assert!(s.diagnostics.incidents[0].valid());
+    }
+    fn captured_records(s: &BackendService) -> Vec<Record> {
+        s.diagnostics
+            .ring
+            .iter()
+            .map(|(_, row)| serde_json::from_str(row).unwrap())
+            .collect()
+    }
+    fn content_bytes(records: &[Record], category: ContentKind) -> Vec<u8> {
+        let first = records
+            .iter()
+            .find(|r| r.content.as_ref().is_some_and(|c| c.category == category))
+            .unwrap();
+        let Datum::Count(id) = first.facts[&Key::ContentId] else {
+            panic!("content id")
+        };
+        let mut chunks = records
+            .iter()
+            .filter(|r| matches!(r.facts.get(&Key::ContentId),Some(Datum::Count(i)) if *i==id))
+            .collect::<Vec<_>>();
+        chunks.sort_by_key(|r| match r.facts[&Key::Offset] {
+            Datum::Count(n) => n,
+            _ => panic!("offset"),
+        });
+        let mut bytes = Vec::new();
+        for r in chunks {
+            assert_eq!(
+                serde_json::to_value(&r.facts[&Key::Offset]).unwrap(),
+                bytes.len()
+            );
+            let hex = &r.content.as_ref().unwrap().hex;
+            bytes.extend(
+                (0..hex.len())
+                    .step_by(2)
+                    .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()),
+            );
+        }
+        bytes
+    }
+    #[test]
+    fn configuration_contents_and_actual_identities_survive_sanitized_zip_export() {
+        use std::io::Read;
+        let t = Temp::new();
+        let mut s = configuration_service(&t.0, 0);
+        let identity = s
+            .runtime
+            .snapshot()
+            .application
+            .configuration
+            .identity
+            .unwrap();
+        let private_hex = "e".repeat(64);
+        let mut request = write_operation(&s);
+        if let crate::operations::Operation::WriteConfiguration {
+            revision,
+            values,
+            fingerprint,
+            ..
+        } = &mut request
+        {
+            *revision += 1;
+            *fingerprint = private_hex.clone();
+            values.insert(
+                "PRIVATE-unknown-field".into(),
+                crate::facts::ConfigurationValue::String("PRIVATE-token".into()),
+            );
+        }
+        assert!(matches!(s.dispatch(1, request), Err(Failure::InvalidState)));
+        let records = captured_records(&s);
+        assert!(
+            !serde_json::to_string(&records)
+                .unwrap()
+                .contains(&private_hex)
+        );
+        let current = content_bytes(&records, ContentKind::ConfigurationCurrent);
+        let draft = content_bytes(&records, ContentKind::ConfigurationWrite);
+        let values: Value = serde_json::from_slice(&current).unwrap();
+        assert!(!values.as_object().unwrap().is_empty());
+        assert_eq!(serde_json::from_slice::<Value>(&draft).unwrap(), values);
+        assert!(!String::from_utf8(draft).unwrap().contains("PRIVATE"));
+        assert!(records.iter().any(|r| matches!(r.facts.get(&Key::SchemaFingerprint),Some(Datum::Fingerprint(v)) if v==identity.fingerprint)));
+        assert!(records.iter().all(Record::valid));
+        let completion = s.begin_diagnostic_report(1, None).unwrap().run().unwrap();
+        let preview = s.complete_diagnostic_report(completion).unwrap();
+        let (transfer, _) = s.diagnostic_export(1, &preview.report_id).unwrap();
+        let path = s.present_export(1, transfer, 0).unwrap();
+        let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
+        let mut jsonl = String::new();
+        zip.by_name("events.jsonl")
+            .unwrap()
+            .read_to_string(&mut jsonl)
+            .unwrap();
+        assert!(!jsonl.contains(&private_hex));
+        let exported = jsonl
+            .lines()
+            .map(|line| serde_json::from_str::<Record>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            content_bytes(&exported, ContentKind::ConfigurationCurrent),
+            current
+        );
+        let mut manifest = String::new();
+        zip.by_name("manifest.json")
+            .unwrap()
+            .read_to_string(&mut manifest)
+            .unwrap();
+        let manifest: Value = serde_json::from_str(&manifest).unwrap();
+        assert_eq!(manifest["version"], 2);
+        assert!(
+            !manifest["omissions"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("configuration"))
+        );
+    }
+    #[test]
+    fn content_chunks_disclose_truncation_and_old_records_remain_readable() {
+        let mut d = Diagnostics::default();
+        let bytes = vec![0xab; MAX_CONTENT_BYTES + 99];
+        d.content_event(
+            0,
+            1000,
+            "diagnostic_content",
+            json!({}),
+            (ContentKind::ConfigurationWrite, &bytes),
+            true,
+        );
+        let records = d
+            .ring
+            .iter()
+            .map(|(_, row)| serde_json::from_str::<Record>(row).unwrap())
+            .collect::<Vec<_>>();
+        assert!(records.iter().all(Record::valid));
+        assert_eq!(
+            content_bytes(&records, ContentKind::ConfigurationWrite),
+            bytes[..MAX_CONTENT_BYTES]
+        );
+        assert!(
+            records
+                .iter()
+                .all(|r| matches!(r.facts.get(&Key::Truncated), Some(Datum::Flag(true))))
+        );
+        let record: Record = serde_json::from_str(
+            r#"{"run":1,"sequence":1,"elapsed_ms":0,"kind":"link","facts":{"state":"ready"}}"#,
+        )
+        .unwrap();
+        assert!(record.content.is_none());
+        assert!(record.valid());
+        let mut invalid = record;
+        invalid.content = Some(Content {
+            category: ContentKind::PacketRx,
+            hex: "PRIVATE".into(),
+        });
+        assert!(!invalid.valid());
+    }
+    #[test]
+    fn telemetry_contents_include_numbers_without_extension_names_or_observation_times() {
+        use float_view_application_runtime::{Command, Effect, coordinator as c};
+        let t = Temp::new();
+        let mut s = configuration_service(&t.0, 0);
+        let generation = s.runtime.snapshot().application.generation;
+        let mut limits = vec![14];
+        limits.extend_from_slice(&0x2EFD_0142_u32.to_be_bytes());
+        limits.extend_from_slice(&[0; 4]);
+        for v in [100_f32, -100., 50., -20.] {
+            limits.extend_from_slice(&v.to_be_bytes());
+        }
+        s.runtime
+            .apply(Command::Application(c::Command::Receive {
+                generation,
+                payload: limits,
+                now_ms: 110,
+                observed_at_epoch_ms: 1110,
+            }))
+            .unwrap();
+        let document: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/refloat/detailed-source-provenance.json"
+        ))
+        .unwrap();
+        let hex = document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["name"] == "1.3.0-command-33-fast-float32")
+            .unwrap()["payloadHex"]
+            .as_str()
+            .unwrap();
+        let payload = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        let effects = s
+            .runtime
+            .apply(Command::Application(c::Command::Receive {
+                generation,
+                payload,
+                now_ms: 120,
+                observed_at_epoch_ms: 1120,
+            }))
+            .unwrap();
+        let mut sample = effects
+            .into_iter()
+            .find_map(|e| match e {
+                Effect::Application(c::Effect::PublishTelemetry(v)) => Some(v),
+                _ => None,
+            })
+            .unwrap();
+        sample.extensions.push(c::telemetry::ExtensionValue {
+            name: "PRIVATE-location-name".into(),
+            value: 123.456,
+        });
+        s.record_telemetry_contents(&sample);
+        let records = captured_records(&s);
+        let bytes = content_bytes(&records, ContentKind::Telemetry);
+        let values: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(values["pack_voltage_v"], json!(sample.pack_voltage_v));
+        for key in [
+            "extensions",
+            "latitude",
+            "longitude",
+            "observed_at_epoch_ms",
+            "slow_observed_at_epoch_ms",
+        ] {
+            assert!(values.get(key).is_none());
+        }
+        assert!(!String::from_utf8(bytes).unwrap().contains("PRIVATE"));
+        let before = s.diagnostics.ring.len();
+        s.record_telemetry_contents(&sample);
+        assert_eq!(s.diagnostics.ring.len(), before);
+    }
+    #[test]
+    fn in_memory_retention_keeps_ten_then_evicts_and_expiry_releases_the_budget() {
+        let mut d = Diagnostics::default();
+        for id in 1..=11_u64 {
+            let now = id * 60_001;
+            d.event(
+                now,
+                1000 + now as i64,
+                "link",
+                json!({"state":"failed"}),
+                true,
+            );
+            d.capture(now, 1000 + now as i64, "connection_failure", false);
+        }
+        assert_eq!(d.incidents.len(), 10);
+        assert_eq!(d.incidents.front().unwrap().id, 2);
+        assert_eq!(d.incident_sizes.len(), 10);
+        d.tick(1_000_000, RETENTION_MS + 1_000_000);
+        assert!(d.incidents.is_empty());
+        assert!(d.incident_sizes.is_empty());
+    }
+    #[test]
+    fn current_context_export_includes_configuration_without_creating_an_incident() {
+        use std::io::Read;
+        let t = Temp::new();
+        let mut s = configuration_service(&t.0, 0);
+        let revision = s.service_revision();
+        assert!(s.diagnostics.incidents.is_empty());
+        let completion = s.begin_diagnostic_report(1, None).unwrap().run().unwrap();
+        let preview = s.complete_diagnostic_report(completion).unwrap();
+        let (transfer, _) = s.diagnostic_export(1, &preview.report_id).unwrap();
+        let path = s.present_export(1, transfer, 0).unwrap();
+        let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
+        let mut jsonl = String::new();
+        zip.by_name("events.jsonl")
+            .unwrap()
+            .read_to_string(&mut jsonl)
+            .unwrap();
+        let records = jsonl
+            .lines()
+            .map(|line| serde_json::from_str::<Record>(line).unwrap())
+            .collect::<Vec<_>>();
+        let values: Value =
+            serde_json::from_slice(&content_bytes(&records, ContentKind::ConfigurationCurrent))
+                .unwrap();
+        assert!(!values.as_object().unwrap().is_empty());
+        assert!(s.diagnostics.incidents.is_empty());
+        assert_eq!(s.service_revision(), revision);
     }
 }

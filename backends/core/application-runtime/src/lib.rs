@@ -177,6 +177,15 @@ impl ApplicationRuntime {
         self.application.configuration_schema()
     }
 
+    pub fn configuration_mutation_block_reason(
+        &self,
+        mutation: coordinator::mutation::ConfigurationMutation,
+        now_ms: u64,
+    ) -> Option<coordinator::ConfigurationWriteBlockReason> {
+        self.application
+            .configuration_mutation_block_reason(mutation, now_ms)
+    }
+
     pub fn apply(&mut self, command: Command) -> Result<Vec<Effect>, RuntimeError> {
         match command {
             Command::Application(command) => {

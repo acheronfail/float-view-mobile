@@ -510,6 +510,20 @@ fn configuration_write_holds_one_lease_through_ack_and_verified_readback() {
         );
         assert_eq!(coordinator.snapshot().mutations.pending, None);
         assert_eq!(coordinator.snapshot().configuration.pending, None);
+        let timings = coordinator.take_request_timings();
+        let ack = timings
+            .iter()
+            .find(|r| r.stage == Some("write_ack") && r.outcome == "response")
+            .unwrap();
+        let readback = timings
+            .iter()
+            .find(|r| r.stage == Some("readback") && r.outcome == "response")
+            .unwrap();
+        assert_eq!(
+            ack.configuration_operation,
+            readback.configuration_operation
+        );
+        assert!(ack.configuration_operation.is_some());
     }
 }
 
@@ -1008,6 +1022,10 @@ fn beta_riding_tune_apply_reports_expired_timeout_authority() {
     );
     let identity = snapshot.configuration.identity.unwrap();
     let current = snapshot.configuration.current.unwrap();
+    assert_eq!(
+        coordinator.configuration_mutation_block_reason(ConfigurationMutation::TuneApply, 60_000),
+        Some(ConfigurationWriteBlockReason::ImuTimeoutUnconfirmed)
+    );
     assert_eq!(
         coordinator.apply(Command::WriteConfiguration {
             generation: snapshot.generation,

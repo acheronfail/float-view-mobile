@@ -1,0 +1,15 @@
+# Verification
+
+Implemented locally on base `fae17623447fb2f5ba540ff3308a3684a69a37ed`, following the archived `explain-configuration-failures` work.
+
+- The full affected Rust run passed 262 tests across backend-service, refloat-configuration-service, connection-application-coordinator, application-runtime, loopback-server, application-runtime-host, Apple FFI/ABI and Android JNI. It ran outside the socket-restricted sandbox. Earlier sandbox transport failures were bind restrictions; the unrestricted transport suite passed.
+- The final focused diagnostics run passed 35 tests after adding current-context export coverage and tightening requested-fingerprint handling. It covers ten-slot rollover/reopen/clear, v1 row preservation and interrupted marker upgrade, unchanged byte-budget eviction and expiry, fragment reassembly/truncation, actual identities, arbitrary text/credential exclusion, numeric telemetry and report immutability. The additional current-context case proves configuration inclusion without creating an incident or changing product state.
+- Four protocol capture tests passed: direct/CAN payloads, stripped routing wrappers, identity/GNSS/unknown/malformed response omissions, selected-schema configuration validation and configuration-text omission. The unaudited-schema test preserves its observed digest/signature without granting write authority and clears them on reset.
+- Warnings-denied all-targets Clippy passed for all eight affected Rust packages. Final backend/server Clippy was repeated after export and privacy refinements.
+- Frontend diagnostics tests passed (4), Svelte check reported zero errors/warnings, and affected ESLint/Prettier checks passed. Mock retention now matches ten incidents, and settings copy discloses configuration/telemetry/protocol contents and manual sharing.
+- Production direct diagnostics conformance passed at revision 3, including a final rerun after current-context export support. Stable Refloat 1.3.1 direct conformance passed at revision 230. Both ran with loopback access outside the sandbox.
+- Rust formatting, changed Markdown formatting, diff checks, strict change validation and canonical support-diagnostics validation passed.
+
+Diagnostic marker/report version 2 preserves supported v1 incident and journal bytes through an explicit marker transition. Product baseline 100, archive format 4, public/native envelopes, device mutation authority, seven-day expiry, 30/10-second capture windows, event bounds, total journal/incident budget and report limits are unchanged. Up to ten incidents fit subject to the existing byte budget.
+
+Packet data is classified VESC payload content, without CAN wrappers or transport framing. Identity, location-bearing, unclassified and arbitrary-text payloads remain omitted; nonempty configuration text is redacted. Decoded numeric telemetry has a bounded one-second diagnostic cadence; device polling is unchanged. Content fragments retain category, relative correlation, byte offsets, total extent and truncation flags. No automatic upload, commit or online change was performed.

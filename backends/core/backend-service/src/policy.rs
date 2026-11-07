@@ -336,7 +336,7 @@ impl BackendService {
             .map(|(id, _)| *id)
             .collect();
         for id in expired {
-            self.finish_pending(id, Err(Failure::Unavailable));
+            self.timeout_operation(id);
         }
         if self
             .policy
@@ -946,7 +946,7 @@ impl BackendService {
             )
         });
         self.policy.capture = None;
-        self.fail_kernel_requests();
+        self.fail_kernel_requests("connection_replaced");
         self.diagnostics.event(
             self.policy.exchange.now,
             self.policy.exchange.epoch,
@@ -1072,13 +1072,14 @@ impl BackendService {
         if !self.policy.foreground {
             self.clear_connection_editor_state()?;
         }
+        self.record_configuration_contents(None);
         self.diagnostics.capture(
             self.policy.exchange.now,
             self.policy.exchange.epoch,
             "reconnect",
             true,
         );
-        self.fail_kernel_requests();
+        self.fail_kernel_requests("connection_replaced");
         let Some(a) = self.policy.active.as_mut() else {
             return Ok(());
         };
@@ -1205,7 +1206,7 @@ impl BackendService {
                             None,
                         )?;
                     } else {
-                        self.finish_pending(request, Err(Failure::Unavailable));
+                        self.timeout_operation(request);
                     }
                 }
             }
@@ -1288,11 +1289,20 @@ impl BackendService {
     }
     pub(crate) fn runtime_command(&mut self, command: Command) -> Result<(), Failure> {
         let runtime_started = std::time::Instant::now();
-        let mut effects: VecDeque<_> = self
-            .runtime
-            .apply(command)
-            .map_err(|_| Failure::InvalidState)?
-            .into();
+        let context = match &command {
+            Command::Application(command) => self.operation_context(command),
+            _ => None,
+        };
+        let mut effects: VecDeque<_> = match self.runtime.apply(command) {
+            Ok(effects) => effects.into(),
+            Err(error) => {
+                for request in self.runtime.take_request_timings() {
+                    self.record_request_diagnostic(&request, true);
+                }
+                self.runtime_failure(&error, context);
+                return Err(Failure::InvalidState);
+            }
+        };
         let mut count = 0;
         while let Some(effect) = effects.pop_front() {
             count += 1;
@@ -1367,7 +1377,13 @@ impl BackendService {
                         }
                     }
                 }
-                RuntimeEffect::Failure(_) => {
+                RuntimeEffect::Failure(
+                    float_view_application_runtime::RuntimeFailure::Persistence(error),
+                ) => {
+                    self.runtime_failure(
+                        &float_view_application_runtime::RuntimeError::Persistence(error),
+                        None,
+                    );
                     self.disconnect("storage_failure")?;
                     return Err(Failure::Unavailable);
                 }
@@ -1409,6 +1425,7 @@ impl BackendService {
                         }
                     }
                     c::Effect::PublishTelemetry(sample) => {
+                        self.record_telemetry_contents(&sample);
                         self.observe_announcement(&sample);
                         self.step_announcements()?;
                         self.diagnostics.sample(
@@ -1525,13 +1542,23 @@ impl BackendService {
                         c::MutationEvent::Failed { .. } => self.complete_mutation(false),
                         c::MutationEvent::Released(_) => {}
                     },
+                    c::Effect::Failure(c::Failure::Mutation { token, reason }) => {
+                        self.record_mutation_failure(token, reason);
+                        self.fail_kernel_requests("mutation");
+                    }
                     c::Effect::Failure(c::Failure::Configuration(error)) => {
+                        self.record_configuration_contents(None);
                         self.diagnostics.configuration_failure(
                             self.policy.exchange.now,
                             self.policy.exchange.epoch,
                             &error,
+                            self.runtime.snapshot().application.generation.0,
+                            self.pending
+                                .iter()
+                                .find(|(_, p)| p.diagnostic_kind.is_some())
+                                .map(|(id, _)| *id),
                         );
-                        self.fail_kernel_requests();
+                        self.fail_kernel_requests("configuration");
                     }
                     c::Effect::Failure(_) => {
                         self.diagnostics.event(
@@ -1547,7 +1574,7 @@ impl BackendService {
                             "protocol_failure",
                             false,
                         );
-                        self.fail_kernel_requests();
+                        self.fail_kernel_requests("protocol");
                     }
                     c::Effect::Diagnostic(value) => {
                         self.diagnostics.event(
@@ -1600,7 +1627,7 @@ impl BackendService {
             }
             let anomaly =
                 request.outcome == "timeout" || request.queue_ms > 500 || request.response_ms > 500;
-            self.diagnostics.event(self.policy.exchange.now, self.policy.exchange.epoch, "request", serde_json::json!({"application_generation":request.generation,"sequence":request.sequence,"kind":request.kind,"outcome":request.outcome,"queue_ms":request.queue_ms,"response_ms":request.response_ms}), anomaly);
+            self.record_request_diagnostic(&request, anomaly || request.kind == "configuration");
             if anomaly {
                 self.diagnostics.capture(
                     self.policy.exchange.now,

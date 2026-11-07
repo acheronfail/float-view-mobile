@@ -2,6 +2,7 @@
 use super::model::*;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -17,6 +18,7 @@ pub(super) type Lease = Arc<Mutex<rusqlite::Connection>>;
 const SEGMENT: u64 = 2 * 1_048_576;
 const NAMES: &[&str] = &[
     "version",
+    "version.tmp",
     ".lock",
     ".lock-journal",
     ".lock-wal",
@@ -26,6 +28,13 @@ const NAMES: &[&str] = &[
     "incident-0.json",
     "incident-1.json",
     "incident-2.json",
+    "incident-3.json",
+    "incident-4.json",
+    "incident-5.json",
+    "incident-6.json",
+    "incident-7.json",
+    "incident-8.json",
+    "incident-9.json",
     "incident.tmp",
     "float-view-diagnostics-0.zip",
     "float-view-diagnostics-1.zip",
@@ -67,6 +76,9 @@ struct Row {
     record: Record,
 }
 fn validate_journal(path: &Path) -> Io<()> {
+    validate_journal_version(path, 2)
+}
+fn validate_journal_version(path: &Path, max_version: u8) -> Io<()> {
     let b = read(path, SEGMENT)?;
     let mut lines = b.split(|c| *c == b'\n').peekable();
     while let Some(line) = lines.next() {
@@ -78,9 +90,11 @@ fn validate_journal(path: &Path) -> Io<()> {
         }
         match serde_json::from_slice::<Row>(line) {
             Ok(row)
-                if row.v == 1
+                if matches!(row.v, 1 | 2)
+                    && row.v <= max_version
                     && row.at >= 0
                     && row.at <= 253_402_300_799_999
+                    && (row.v == 2 || row.record.content.is_none())
                     && row.record.valid() => {}
             // A torn final append is the only recoverable malformed extent.
             Err(error) if error.is_eof() && lines.peek().is_none() && !b.ends_with(b"\n") => {}
@@ -100,7 +114,7 @@ fn validate_incident(path: &Path) -> Io<Incident> {
 fn check_entries(root: &Path) -> Io<()> {
     let mut total = 0u64;
     for (n, entry) in fs::read_dir(root)?.enumerate() {
-        if n >= 16 {
+        if n >= NAMES.len() {
             return Err(bad());
         }
         let e = entry?;
@@ -145,6 +159,7 @@ pub(super) struct Store {
     pub lease: Lease,
     journal_bytes: u64,
     segment: usize,
+    slots: BTreeMap<usize, (u64, usize)>,
 }
 impl Store {
     pub fn open(path: &Path, epoch: i64) -> Io<(Self, Vec<Incident>)> {
@@ -176,7 +191,17 @@ impl Store {
         if fresh && fs::read_dir(&root)?.next().is_some() {
             return Err(bad());
         }
-        if !fresh && read(&marker, 16)? != b"1\n" {
+        let version = if fresh {
+            b"2\n".to_vec()
+        } else {
+            read(&marker, 16)?
+        };
+        if version != b"1\n" && version != b"2\n" {
+            return Err(bad());
+        }
+        if version == b"1\n"
+            && (3..MAX_INCIDENTS).any(|slot| root.join(format!("incident-{slot}.json")).exists())
+        {
             return Err(bad());
         }
         let lock = rusqlite::Connection::open(root.join(".lock")).map_err(|_| bad())?;
@@ -190,17 +215,22 @@ impl Store {
                 .write(true)
                 .create_new(true)
                 .open(&marker)?;
-            f.write_all(b"1\n")?;
+            f.write_all(b"2\n")?;
             f.sync_all()?;
         }
         let mut incidents = Vec::new();
-        for slot in 0..3 {
+        let mut slots = BTreeMap::new();
+        for slot in 0..MAX_INCIDENTS {
             let p = root.join(format!("incident-{slot}.json"));
             if p.exists() {
                 let i = validate_incident(&p)?;
                 if epoch.saturating_sub(i.created_ms) > RETENTION_MS {
                     fs::remove_file(p)?;
                 } else {
+                    slots.insert(
+                        slot,
+                        (i.id, serde_json::to_vec(&i).map_err(|_| bad())?.len()),
+                    );
                     incidents.push(i);
                 }
             }
@@ -208,8 +238,32 @@ impl Store {
         for n in ["journal-0.jsonl", "journal-1.jsonl"] {
             let p = root.join(n);
             if p.exists() {
-                validate_journal(&p)?;
+                validate_journal_version(&p, if version == b"1\n" { 1 } else { 2 })?;
             }
+        }
+        let temp = root.join("incident.tmp");
+        if temp.exists() {
+            let _ = read(&temp, MAX_INCIDENT_BYTES as u64)?;
+        }
+        let staging = root.join("version.tmp");
+        if staging.exists() {
+            let bytes = read(&staging, 2)?;
+            if ![b"".as_slice(), b"2".as_slice(), b"2\n".as_slice()].contains(&bytes.as_slice()) {
+                return Err(bad());
+            }
+        }
+        if version == b"1\n" {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(&staging)?;
+            file.write_all(b"2\n")?;
+            file.sync_all()?;
+            fs::rename(&staging, &marker)?;
+            File::open(&root)?.sync_all()?;
+        } else if staging.exists() {
+            fs::remove_file(&staging)?;
         }
         let temp = root.join("incident.tmp");
         if temp.exists() {
@@ -232,17 +286,21 @@ impl Store {
             lease,
             journal_bytes,
             segment: 0,
+            slots,
         };
         store.prune(epoch)?;
+        store.evict_for_bytes(None, 0)?;
+        incidents.retain(|i| store.slots.values().any(|(id, _)| *id == i.id));
         Ok((store, incidents))
     }
     fn prune(&mut self, epoch: i64) -> Io<()> {
-        for slot in 0..3 {
+        for slot in 0..MAX_INCIDENTS {
             let path = self.root.join(format!("incident-{slot}.json"));
             if path.exists() {
                 let incident = validate_incident(&path)?;
                 if epoch.saturating_sub(incident.created_ms) > RETENTION_MS {
                     fs::remove_file(path)?;
+                    self.slots.remove(&slot);
                 }
             }
         }
@@ -278,7 +336,7 @@ impl Store {
             serde_json::to_writer(
                 &mut b,
                 &Row {
-                    v: 1,
+                    v: 2,
                     at,
                     record: r.clone(),
                 },
@@ -304,9 +362,50 @@ impl Store {
         self.journal_bytes += b.len() as u64;
         Ok(())
     }
-    fn incident(&self, incident: &Incident) -> Io<()> {
+    fn evict_for_bytes(&mut self, except: Option<usize>, incoming: usize) -> Io<()> {
+        while self
+            .slots
+            .iter()
+            .filter(|(slot, _)| Some(**slot) != except)
+            .map(|(_, (_, bytes))| bytes)
+            .sum::<usize>()
+            + incoming
+            > MAX_RETAINED_INCIDENT_BYTES
+        {
+            let slot = self
+                .slots
+                .iter()
+                .filter(|(slot, _)| Some(**slot) != except)
+                .min_by_key(|(_, (id, _))| id)
+                .map(|(slot, _)| *slot)
+                .ok_or_else(bad)?;
+            validate_incident(&self.root.join(format!("incident-{slot}.json")))?;
+            fs::remove_file(self.root.join(format!("incident-{slot}.json")))?;
+            self.slots.remove(&slot);
+        }
+        Ok(())
+    }
+    fn incident(&mut self, incident: &Incident) -> Io<()> {
         if !incident.valid() {
             return Err(bad());
+        }
+        let bytes = serde_json::to_vec(incident).map_err(|_| bad())?;
+        let slot = self
+            .slots
+            .iter()
+            .find(|(_, (id, _))| *id == incident.id)
+            .map(|(slot, _)| *slot)
+            .or_else(|| (0..MAX_INCIDENTS).find(|slot| !self.slots.contains_key(slot)))
+            .or_else(|| {
+                self.slots
+                    .iter()
+                    .min_by_key(|(_, (id, _))| id)
+                    .map(|(slot, _)| *slot)
+            })
+            .ok_or_else(bad)?;
+        let target = self.root.join(format!("incident-{slot}.json"));
+        if target.exists() {
+            validate_incident(&target)?;
         }
         let p = self.root.join("incident.tmp");
         if p.exists() {
@@ -317,19 +416,17 @@ impl Store {
             .truncate(true)
             .write(true)
             .open(&p)?;
-        serde_json::to_writer(&mut f, incident)?;
+        f.write_all(&bytes)?;
         f.sync_all()?;
-        let target = self.root.join(format!("incident-{}.json", incident.id % 3));
-        if target.exists() {
-            validate_incident(&target)?;
-        }
+        self.evict_for_bytes(Some(slot), bytes.len())?;
         fs::rename(p, target)?;
+        self.slots.insert(slot, (incident.id, bytes.len()));
         File::open(&self.root)?.sync_all()?;
         Ok(())
     }
     fn clear(&mut self) -> Io<()> {
         check_entries(&self.root)?;
-        for slot in 0..3 {
+        for slot in 0..MAX_INCIDENTS {
             let p = self.root.join(format!("incident-{slot}.json"));
             if p.exists() {
                 validate_incident(&p)?;
@@ -348,6 +445,7 @@ impl Store {
             }
         }
         self.journal_bytes = 0;
+        self.slots.clear();
         Ok(())
     }
 }
@@ -505,6 +603,7 @@ mod tests {
             elapsed_ms: 0,
             kind: Kind::Link,
             facts: Default::default(),
+            content: None,
         }
     }
     #[test]
@@ -553,7 +652,7 @@ mod tests {
         assert!(Store::open(&path, 1000).is_err());
         assert_eq!(fs::read(&journal).unwrap(), b"{invalid committed row}\n");
         let future =
-            serde_json::to_vec(&serde_json::json!({"v":2,"at":1000,"record":row()})).unwrap();
+            serde_json::to_vec(&serde_json::json!({"v":99,"at":1000,"record":row()})).unwrap();
         fs::write(&journal, &future).unwrap();
         assert!(Store::open(&path, RETENTION_MS + 1001).is_err());
         assert_eq!(fs::read(&journal).unwrap(), future);
@@ -617,5 +716,121 @@ mod tests {
         let work: Vec<_> = receiver.try_iter().collect();
         assert_eq!(work.len(), 9);
         assert!(matches!(work.last(), Some(Work::Clear(_))));
+    }
+    fn incident(id: u64) -> Incident {
+        Incident {
+            id,
+            created_ms: 1000,
+            reason: Reason::Manual,
+            complete: true,
+            clipped: false,
+            occurrences: 1,
+            events: vec![row()],
+            context: vec![],
+        }
+    }
+    #[test]
+    fn ten_slots_preserve_v1_incidents_and_roll_over_after_reopen() {
+        let t = Temp::new();
+        let path = t.0.join("diagnostics");
+        drop(Store::open(&path, 1000).unwrap());
+        fs::write(path.join("version"), b"1\n").unwrap();
+        let journal =
+            serde_json::to_vec(&serde_json::json!({"v":1,"at":1000,"record":row()})).unwrap();
+        let mut journal = journal;
+        journal.push(b'\n');
+        fs::write(path.join("journal-0.jsonl"), &journal).unwrap();
+        let originals = (101..104)
+            .map(|id| {
+                let file = path.join(format!("incident-{}.json", id % 3));
+                let bytes = serde_json::to_vec(&incident(id)).unwrap();
+                fs::write(&file, &bytes).unwrap();
+                (file, bytes)
+            })
+            .collect::<Vec<_>>();
+        fs::write(path.join("version.tmp"), b"2").unwrap();
+        let (mut store, loaded) = Store::open(&path, 1000).unwrap();
+        assert_eq!(loaded.len(), 3);
+        assert_eq!(fs::read(path.join("version")).unwrap(), b"2\n");
+        assert_eq!(fs::read(path.join("journal-0.jsonl")).unwrap(), journal);
+        for (file, bytes) in &originals {
+            assert_eq!(&fs::read(file).unwrap(), bytes);
+        }
+        for id in 104..111 {
+            store.incident(&incident(id)).unwrap();
+        }
+        assert_eq!(store.slots.len(), 10);
+        drop(store);
+        let (mut store, loaded) = Store::open(&path, 1000).unwrap();
+        assert_eq!(
+            loaded.iter().map(|i| i.id).collect::<Vec<_>>(),
+            (101..111).collect::<Vec<_>>()
+        );
+        store.incident(&incident(111)).unwrap();
+        drop(store);
+        let (mut store, loaded) = Store::open(&path, 1000).unwrap();
+        assert_eq!(
+            loaded.iter().map(|i| i.id).collect::<Vec<_>>(),
+            (102..112).collect::<Vec<_>>()
+        );
+        store.clear().unwrap();
+        drop(store);
+        assert!(Store::open(&path, 1000).unwrap().1.is_empty());
+    }
+    #[test]
+    fn upgrade_is_restartable_and_corruption_never_advances_the_marker() {
+        for partial in [b"".as_slice(), b"2".as_slice(), b"2\n".as_slice()] {
+            let t = Temp::new();
+            let path = t.0.join("diagnostics");
+            drop(Store::open(&path, 1000).unwrap());
+            fs::write(path.join("version"), b"1\n").unwrap();
+            fs::write(path.join("version.tmp"), partial).unwrap();
+            drop(Store::open(&path, 1000).unwrap());
+            assert_eq!(fs::read(path.join("version")).unwrap(), b"2\n");
+            assert!(!path.join("version.tmp").exists());
+        }
+        let t = Temp::new();
+        let path = t.0.join("diagnostics");
+        drop(Store::open(&path, 1000).unwrap());
+        fs::write(path.join("version"), b"1\n").unwrap();
+        fs::write(path.join("journal-0.jsonl"), b"BROKEN\n").unwrap();
+        assert!(Store::open(&path, 1000).is_err());
+        assert_eq!(fs::read(path.join("version")).unwrap(), b"1\n");
+        assert_eq!(fs::read(path.join("journal-0.jsonl")).unwrap(), b"BROKEN\n");
+    }
+    #[test]
+    fn richer_incidents_obey_the_unchanged_byte_budget_and_expiry() {
+        let t = Temp::new();
+        let path = t.0.join("diagnostics");
+        let (mut store, _) = Store::open(&path, 1000).unwrap();
+        let mut large = row();
+        large.facts.insert(Key::ContentId, Datum::Count(1));
+        large.facts.insert(Key::Offset, Datum::Count(0));
+        large
+            .facts
+            .insert(Key::TotalBytes, Datum::Count(CONTENT_CHUNK_BYTES as u64));
+        large.facts.insert(Key::Truncated, Datum::Flag(false));
+        large.content = Some(Content {
+            category: ContentKind::PacketRx,
+            hex: "ab".repeat(CONTENT_CHUNK_BYTES),
+        });
+        for id in 1..=10 {
+            let mut next = incident(id);
+            next.events = vec![large.clone(); 768];
+            assert!(next.valid());
+            store.incident(&next).unwrap();
+        }
+        assert!(store.slots.len() < 10);
+        assert!(
+            store.slots.values().map(|(_, bytes)| bytes).sum::<usize>()
+                <= MAX_RETAINED_INCIDENT_BYTES
+        );
+        drop(store);
+        let (store, loaded) = Store::open(&path, 1000).unwrap();
+        assert_eq!(loaded.last().unwrap().id, 10);
+        drop(store);
+        let (store, loaded) = Store::open(&path, RETENTION_MS + 1001).unwrap();
+        assert!(loaded.is_empty());
+        assert!(store.slots.is_empty());
     }
 }

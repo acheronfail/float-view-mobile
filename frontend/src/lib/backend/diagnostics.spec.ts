@@ -3,6 +3,21 @@ import { MockDiagnostics } from '../../../backend-mock/diagnostics';
 import { installUiErrorReporting } from './ui-errors';
 
 describe('diagnostics contract', () => {
+  it('retains the ten newest incidents with unchanged seven-day expiry', () => {
+    let now = 100_000;
+    const mock = new MockDiagnostics(() => now);
+    for (let i = 0; i < 11; i++) {
+      mock.recordRequestFailure();
+      now += 60_001;
+    }
+    const listed = mock.handle(1, 'diagnostics.list', {}, 1);
+    expect(listed).toMatchObject({
+      result: { incidents: Array.from({ length: 10 }, (_, i) => ({ incidentId: String(11 - i) })) },
+    });
+    now += 7 * 86_400_000;
+    expect(mock.handle(2, 'diagnostics.list', {}, 1)).toMatchObject({ result: { incidents: [] } });
+  });
+
   it('keeps captures immutable, bounded, client owned and clearable', () => {
     let now = 100_000;
     const mock = new MockDiagnostics(() => now);

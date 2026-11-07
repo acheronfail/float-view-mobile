@@ -8,7 +8,9 @@
 
 use std::collections::VecDeque;
 
+mod diagnostic_packet;
 mod reply_health;
+pub use diagnostic_packet::PacketCapture;
 pub use reply_health::WARNING as CAN_REPLY_WARNING;
 
 pub use float_view_controller_discovery as discovery;
@@ -408,7 +410,10 @@ pub struct RequestTiming {
     pub generation: u64,
     pub sequence: u64,
     pub kind: &'static str,
+    pub stage: Option<&'static str>,
+    pub configuration_operation: Option<u64>,
     pub outcome: &'static str,
+    pub packet: Option<PacketCapture>,
     pub queue_ms: u64,
     pub response_ms: u64,
 }
@@ -527,6 +532,7 @@ impl ConnectionApplicationCoordinator {
         request: &scheduler::ScheduledRequest,
         outcome: &'static str,
         now_ms: u64,
+        response: Option<&[u8]>,
     ) {
         use scheduler::RequestContext as C;
         let kind = match request.context {
@@ -555,11 +561,36 @@ impl ConnectionApplicationCoordinator {
         if self.timings.len() == 128 {
             self.timings.pop_front();
         }
+        let (stage, configuration_operation) = match request.context {
+            C::RefloatConfigurationSchema { operation, .. } => (Some("schema"), Some(operation)),
+            C::RefloatConfigurationValues {
+                defaults,
+                operation,
+                ..
+            } => (
+                Some(if defaults {
+                    "read_default"
+                } else {
+                    "read_current"
+                }),
+                Some(operation),
+            ),
+            C::RefloatConfigurationWrite { operation, .. } => (Some("write_ack"), Some(operation)),
+            C::RefloatConfigurationVerification { operation, .. } => {
+                (Some("readback"), Some(operation))
+            }
+            _ => (None, None),
+        };
         self.timings.push_back(RequestTiming {
             generation: request.generation.0,
             sequence: request.sequence,
             kind,
+            stage,
+            configuration_operation,
             outcome,
+            packet: matches!(outcome, "sent" | "response").then(|| {
+                diagnostic_packet::capture(request, response, self.configuration.loaded_schema())
+            }),
             queue_ms: request
                 .dispatched_at_ms
                 .unwrap_or(now_ms)
@@ -591,6 +622,18 @@ impl ConnectionApplicationCoordinator {
     }
 
     fn configuration_write_block_reason(&self) -> Option<ConfigurationWriteBlockReason> {
+        self.configuration_mutation_block_reason(
+            mutation::ConfigurationMutation::Write,
+            self.last_now_ms.unwrap_or(0),
+        )
+    }
+
+    /// Read the same admission policy at an attempt's clock without changing state.
+    pub fn configuration_mutation_block_reason(
+        &self,
+        mutation: mutation::ConfigurationMutation,
+        now_ms: u64,
+    ) -> Option<ConfigurationWriteBlockReason> {
         use ConfigurationWriteBlockReason as R;
         use mutation::ConfigurationBlockReason as M;
         if self.phase != Phase::Ready || self.standalone_bms {
@@ -603,19 +646,16 @@ impl ConnectionApplicationCoordinator {
             configuration::Availability::Ready => {}
         }
         if self.imu_timeout_available() {
-            match self
-                .telemetry
-                .imu_timeout_state(self.last_now_ms.unwrap_or(0))
-            {
+            match self.telemetry.imu_timeout_state(now_ms) {
                 Some(true) => return Some(R::ImuTimeoutActive),
                 Some(false) => {}
                 None => return Some(R::ImuTimeoutUnconfirmed),
             }
         }
-        if let Some(reason) = self.mutations.configuration_block_reason(
-            self.scheduler.snapshot().generation,
-            mutation::ConfigurationMutation::Write,
-        ) {
+        if let Some(reason) = self
+            .mutations
+            .configuration_block_reason(self.scheduler.snapshot().generation, mutation)
+        {
             return Some(match reason {
                 M::Reconnecting => R::Reconnecting,
                 M::ReadOnly => R::ReadOnly,
@@ -1512,7 +1552,7 @@ impl ConnectionApplicationCoordinator {
                         pending.extend(self.scheduler.resume(now_ms)?);
                         continue;
                     }
-                    self.record_request(&request, "sent", now_ms);
+                    self.record_request(&request, "sent", now_ms, None);
                     push_effect(effects, Effect::Write(request))?;
                 }
                 scheduler::Effect::Complete { request, outcome } => {
@@ -1530,6 +1570,10 @@ impl ConnectionApplicationCoordinator {
                             scheduler::Completion::StaleGeneration => "stale",
                         },
                         now_ms,
+                        match &outcome {
+                            scheduler::Completion::Response(payload) => Some(payload),
+                            _ => None,
+                        },
                     );
                     self.dispatch_completion(
                         request,

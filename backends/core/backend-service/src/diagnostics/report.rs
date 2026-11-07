@@ -76,16 +76,26 @@ impl ReportWork {
         }
         let mut transport_generations = BTreeMap::new();
         let mut application_generations = BTreeMap::new();
+        let mut operations = BTreeMap::new();
+        let mut configuration_operations = BTreeMap::new();
+        let mut content_ids = BTreeMap::new();
         for record in self.events.iter_mut().chain(self.context.iter_mut()) {
             record.run = 1;
             for (key, aliases) in [
                 (Key::Generation, &mut transport_generations),
                 (Key::ApplicationGeneration, &mut application_generations),
+                (Key::Operation, &mut operations),
+                (Key::ConfigurationOperation, &mut configuration_operations),
+                (Key::ContentId, &mut content_ids),
             ] {
                 if let Some(Datum::Count(g)) = record.facts.get_mut(&key) {
                     let next = aliases.len() as u64 + 1;
                     *g = *aliases.entry(*g).or_insert(next);
                 }
+            }
+            if let Some(Datum::Count(operation)) = record.facts.get_mut(&Key::BlockingOperation) {
+                let next = operations.len() as u64 + 1;
+                *operation = *operations.entry(*operation).or_insert(next);
             }
         }
         let build = env!("FLOAT_VIEW_BUILD_REVISION");
@@ -101,7 +111,7 @@ impl ReportWork {
         };
         let reason = serde_json::to_value(self.reason).map_err(|_| Failure::Internal)?;
         let summary = format!(
-            "Float View diagnostic report {id}\nBuild: {build}\nVersion: {version}\nChannel: {channel}\nDevice model: unknown\nReason: {}\nEvents: {}\nOccurrences: {}\nComplete capture: {}\nContext clipped: {}\nDropped records: {}\nController/motor/battery: unknown unless recognized facts appear in events.\n\nIncludes structured connection, protocol, lifecycle and timing facts.\nExcludes routes, device identifiers, raw packets, configurations and telemetry values.\n",
+            "Float View diagnostic report {id}\nBuild: {build}\nVersion: {version}\nChannel: {channel}\nDevice model: unknown\nReason: {}\nEvents: {}\nOccurrences: {}\nComplete capture: {}\nContext clipped: {}\nDropped records: {}\nController/motor/battery: unknown unless recognized facts appear in events.\n\nIncludes structured connection, protocol, lifecycle and timing facts, configuration contents, schema identities, non-location telemetry and classified protocol payloads.\nExcludes routes, device identifiers, credentials, arbitrary firmware/error text and unclassified or location-bearing raw packets.\n",
             reason.as_str().unwrap_or("unknown"),
             self.events.len(),
             self.occurrences,
@@ -118,13 +128,13 @@ impl ReportWork {
         )
         .map_err(|_| Failure::Internal)?;
         let summary = format!(
-            "{summary}\nConnection correlation: generation identifies the transport connection; application_generation identifies the controller protocol generation. Both are report-local.\n\nAvailable environment/compatibility facts:\n{context}\n"
+            "{summary}\nConnection correlation: generation identifies the transport connection; application_generation identifies the controller protocol generation. Both are report-local. Operation and configuration_operation use separate report-local namespaces; blocking_operation refers to operation.\nOccurrences count coalesced incident triggers, not failed writes.\nContent fragments: group by report-local content_id and category, order by byte offset, then hex-decode and concatenate. Configuration and telemetry contents are UTF-8 JSON; nonempty configuration text is redacted to exclude credentials, paths and identifiers. Packet contents are VESC payload bytes without CAN wrappers or transport framing. total_bytes is the original extent; truncated flags disclose the 32 KiB content cap. Event clipping can also omit fragments. Decoded telemetry is sampled at most once per second.\n\nAvailable environment/compatibility facts:\n{context}\n"
         );
         if summary.len() > 8192 {
             return Err(Failure::Unavailable);
         }
         self.prepared.preview.summary = summary.clone();
-        let manifest = json!({"version":1,"reportId":id,"complete":self.prepared.preview.complete,"clipped":self.prepared.preview.clipped,"droppedRecords":self.prepared.preview.dropped_records,"eventCount":self.events.len(),"preWindowMs":30000,"postWindowMs":10000,"run":"run-1","omissions":["locations","identifiers","rawPackets","configuration","telemetryValues","rawErrors"],"maxReportBytes":MAX_REPORT_BYTES});
+        let manifest = json!({"version":2,"reportId":id,"complete":self.prepared.preview.complete,"clipped":self.prepared.preview.clipped,"droppedRecords":self.prepared.preview.dropped_records,"eventCount":self.events.len(),"preWindowMs":30000,"postWindowMs":10000,"run":"run-1","omissions":["locations","identifiers","credentials","arbitraryFirmwareText","rawErrors","unclassifiedPackets","locationBearingPackets"],"maxReportBytes":MAX_REPORT_BYTES});
         let path = self.prepared.file.path();
         let f = OpenOptions::new()
             .write(true)
@@ -173,6 +183,7 @@ impl BackendService {
         json!({"persistence":if d.sink.as_ref().is_some_and(|s|s.available.load(Ordering::Relaxed)){"available"}else{"memoryOnly"},"droppedRecords":d.sink.as_ref().map_or(0,|s|s.dropped.load(Ordering::Relaxed)),"incidents":d.incidents.iter().rev().map(|i|json!({"incidentId":i.id.to_string(),"reason":i.reason,"complete":i.complete,"clipped":i.clipped,"ageMs":epoch.saturating_sub(i.created_ms).max(0) as u64})).collect::<Vec<_>>()})
     }
     pub fn diagnostic_capture(&mut self) -> Result<Value, Failure> {
+        self.record_configuration_contents(None);
         let now = self.monotonic_ms();
         let epoch = self.epoch_ms();
         let id = self
@@ -185,6 +196,9 @@ impl BackendService {
         owner: u64,
         incident: Option<&str>,
     ) -> Result<ReportWork, Failure> {
+        if incident.is_none() {
+            self.record_configuration_contents(None);
+        }
         let now = self.monotonic_ms();
         let epoch = self.epoch_ms();
         self.diagnostics.tick(now, epoch);
@@ -325,6 +339,9 @@ impl BackendService {
         d.report_generation = d.report_generation.saturating_add(1);
         d.reports.clear();
         d.incidents.clear();
+        d.incident_sizes.clear();
+        d.last_telemetry_content = None;
+        d.last_configuration_content = None;
         d.ring.clear();
         d.pending.clear();
         d.context.clear();

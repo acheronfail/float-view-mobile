@@ -398,3 +398,53 @@ fn flywheel_fail_abort_and_reset_match_native_recovery() {
     assert!(service.snapshot().identity.is_none());
     assert!(service.snapshot().defaults.is_none());
 }
+
+#[test]
+fn unaudited_schema_retains_only_its_observed_identity_until_reset() {
+    let route = Route(42);
+    let generation = Generation(9);
+    let source = bytes("schemas/1.2.3.qcompress");
+    let expected = decode_qt_compressed(&source).unwrap();
+    let mut service = ConfigurationService::new();
+    let mut transition = service.begin(facts("1.3.0", route, generation, None));
+    loop {
+        let RequestEffect::SchemaChunk {
+            length,
+            offset,
+            operation,
+            ..
+        } = transition.request.unwrap()
+        else {
+            panic!("schema request")
+        };
+        let end = (offset + length).min(source.len());
+        match service.accept(
+            Response::SchemaChunk {
+                index: 0,
+                total: source.len(),
+                offset,
+                bytes: source[offset..end].to_vec(),
+            },
+            RequestContext::Schema {
+                route,
+                index: 0,
+                offset,
+                operation,
+            },
+            generation,
+        ) {
+            Ok(next) => transition = next,
+            Err(ServiceError::UnauditedSchema) => break,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    let snapshot = service.snapshot();
+    let observed = snapshot.observed_schema.unwrap();
+    assert_eq!(observed.fingerprint, expected.fingerprint);
+    assert_eq!(observed.wire_signature, expected.wire_signature);
+    assert!(snapshot.identity.is_none());
+    assert!(!snapshot.writable);
+    assert!(snapshot.current.is_none());
+    service.reset();
+    assert!(service.snapshot().observed_schema.is_none());
+}
