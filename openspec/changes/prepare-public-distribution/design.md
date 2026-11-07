@@ -40,7 +40,8 @@ commits, manual master runs and nightlies cannot select store jobs. A manual
 retry/check must target an existing stable or candidate release tag and receives a fresh run
 number without replacing already published GitHub assets. Corrected source needs
 a new release tag; existing tags stay immutable. Both protected environments allow
-version tags and retain owner review; upload readiness remains a separate gate.
+version tags without required reviewers; signing and enabled delivery proceed
+automatically for stable and RC tags. Upload readiness remains a separate gate.
 Candidate tags allow TestFlight processing/device acceptance before the stable
 tag. Complete repository and applicable TestFlight checks before creating it;
 production store review/release remains a separate owner action.
@@ -235,9 +236,9 @@ Primary licence references:
 
 ### Google Play CI internal delivery
 
-The owner selected one Android signing approval for both signing and subsequent
-internal upload. `google-play-upload` is a separate tag-restricted credential
-environment without an additional reviewer. Explicit repository/environment
+Android signing and enabled internal upload proceed automatically for stable
+and RC tags without required environment reviewers. `google-play-upload` is a
+separate tag-restricted credential environment without required reviewers. Explicit repository/environment
 readiness switches are enabled after owner credential installation and a passing
 local authentication/app-access inspection. The account is
 limited to this app and testing releases; closed/production promotion stays

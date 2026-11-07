@@ -72,7 +72,7 @@ Both iOS and Mac use one Apple Distribution identity in the shared protected
 `apple-store-signing` environment; do not duplicate its certificate/password
 under platform-specific names. Profiles and readiness switches remain separate.
 Before enabling CI, create that GitHub environment with
-a required reviewer and release-tag deployment rules. Configure these secrets:
+release-tag deployment rules and no required reviewers. Configure these secrets:
 `APPLE_DISTRIBUTION_P12_BASE64`, `APPLE_DISTRIBUTION_P12_PASSWORD`,
 `MAC_INSTALLER_P12_BASE64`, `MAC_INSTALLER_P12_PASSWORD`, and
 `MAC_STORE_PROFILE_BASE64`. Set environment variables `APPLE_TEAM_ID` and
@@ -214,9 +214,9 @@ remain separate from the completed stable GitHub release and Apple uploads.
 ## Shared protected Apple upload
 
 Both Apple platforms use `apple-store-upload`, one Developer-role team API key,
-and a `v*` tag-only deployment policy. The required owner approval remains on
-`apple-store-signing`; it authorizes signing and subsequent selected delivery
-for that run. The upload environment has no additional required reviewer.
+and a `v*` tag-only deployment policy. Signing and enabled delivery proceed
+automatically for stable and RC tags; both `apple-store-signing` and
+`apple-store-upload` have no required reviewers.
 Keep the former environment during migration until both paths are verified.
 
 Configure `ASC_API_PRIVATE_KEY_BASE64` as its sole secret. Configure
@@ -233,8 +233,8 @@ an explicitly read-only check on its immutable tag:
 gh workflow run build-apps.yml --ref vX.Y.Z-rc.N -f mac-delivery=check --repo acheronfail/float-view-mobile
 ```
 
-This selects a fresh Mac signed build and number. Review the source and approve
-`apple-store-signing`. The check verifies the exact signed PKG, embedded app and
+This automatically selects a fresh Mac signed build and number. The check verifies
+the exact signed PKG, embedded app and
 profile, notices, privacy manifest, team, source/run/build and digest; it then
 queries Apple's app record and consumed build number. It never uploads and can
 run while Mac upload readiness and the repository upload switch are off.
@@ -243,7 +243,7 @@ RC7 predates these audit/record changes and must not be used to bypass validatio
 After that check and owner acceptance, set the environment variable
 `MACOS_STORE_UPLOAD_READY=true` and repository variable
 `MACOS_STORE_UPLOAD_ENABLED=true`. An explicit `just release ...` stable or
-candidate tag then selects Mac upload, subject to signing approval. A deliberate
+candidate tag then automatically selects Mac signing and upload. A deliberate
 store-only retry uses the actual immutable tag with `mac-delivery=upload`;
 ordinary master/nightly builds never select this job. Neither flag is required
 for the existing direct-download ZIP.

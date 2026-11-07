@@ -61,6 +61,9 @@ Implementation order: 1–2 establish repository readiness; 3 proves the largest
 - [x] 5.7 Perform the explicitly approved one-time pre-v1 GitHub cleanup: enumerate exact releases/assets and matching local/remote version tags, record the manifest, pause publication/drain jobs, remove the enumerated old releases/tags (including v0.x entries labelled stable), verify remaining refs/history and resume the rolling nightly. Do not rewrite commits, delete unrelated refs or create the stable v1.0.0 tag; verify fresh preparation IPA/APK/ZIP publication afterward.
       Applied the exact docs/pre-v1-release-cleanup.json manifest after pausing Build apps and confirming zero active runs: removed 49 v0 releases/70 assets, 50 remote tags and 51 local tags. Verified all six v1.0.0 candidates, rolling Nightly/assets, other refs and HEAD history unchanged; restored the workflow. Post-cleanup master run 39009005958 passed and correctly skipped unchanged-source packaging and all store jobs. Fresh three-platform nightly packaging/publication subsequently passed run 39009233662; both store jobs skipped.
 
+- [x] 5.8 Remove required reviewers from the shared Apple and Android store-signing environments for stable/RC builds; preserve tag restrictions, credentials and readiness gates, and update operational guidance.
+      GitHub API readback confirms both active signing environments have only branch-policy protection and retain their existing `v*` tag-only deployment rules. Workflow environment bindings remain intact; no release or build was triggered. OpenSpec validation reports no issues.
+
 ## 6. Privacy, permissions and package audit
 
 - [ ] 6.1 Inventory actual shipped data/network/backup/log/export behavior, including map tiles and speech services. Check tile-provider usage policy and attribution. Publish accurate privacy/support content and add accessible in-app links; verify URLs and affected frontend interactions.

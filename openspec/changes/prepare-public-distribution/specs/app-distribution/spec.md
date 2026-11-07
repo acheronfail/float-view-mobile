@@ -80,7 +80,7 @@ The README SHALL link to verified live iOS App Store, Google Play and Mac App St
 
 ### Requirement: Store publication is explicit and traceable
 
-Store jobs SHALL select only stable `vX.Y.Z` or numbered `vX.Y.Z-rc.N` release tags (N is a positive integer), use Release packages and record exact source/version/native build identity. Master, nightly and pull-request runs SHALL NOT select them. Signing/upload credentials SHALL remain in reviewed release environments with explicit upload readiness. Retries SHALL inspect previous Apple state before resubmission.
+Store jobs SHALL use Release packages from stable `vX.Y.Z` or numbered `vX.Y.Z-rc.N` tags (positive N), recording source/version/native build identity. Master, nightly and PR runs SHALL NOT select them. Credentials SHALL remain in tag-restricted environments with explicit upload readiness. Apple and Android signing and enabled delivery SHALL proceed without required reviewers. Retries SHALL inspect prior Apple state before resubmission.
 
 #### Scenario: Master commit is built
 
@@ -95,7 +95,12 @@ Store jobs SHALL select only stable `vX.Y.Z` or numbered `vX.Y.Z-rc.N` release t
 #### Scenario: Prepare TestFlight before stable publication
 
 - **WHEN** `just release candidate` runs on clean master matching origin/master
-- **THEN** it pushes the next immutable numbered candidate tag for v1.0.0 before launch, or the next patch after launch; its Release builds share the CI native number, keep Apple marketing version vX.Y.Z, publish a separate GitHub prerelease without changing Latest/Nightly, and use the same protected store approval/upload gates
+- **THEN** it pushes the next immutable numbered candidate tag for v1.0.0 before launch, or the next patch after launch; its Release builds share the CI native number, keep Apple marketing version vX.Y.Z, publish a separate GitHub prerelease without changing Latest/Nightly, and use the same tag-restricted store signing/upload readiness gates
+
+#### Scenario: Signing proceeds without manual approval
+
+- **WHEN** a stable or RC tag selects a ready Apple or Android signing job
+- **THEN** signing and enabled delivery proceed without environment approval while tag restrictions, credential separation and readiness gates remain enforced
 
 #### Scenario: Retry an existing stable release
 
@@ -145,17 +150,17 @@ Store artifacts SHALL include platform distribution signatures, required metadat
 - **WHEN** a user downloads the production direct-distribution ZIP onto a clean supported Mac
 - **THEN** signature and notarization validation succeed without requiring removal of quarantine attributes
 
-### Requirement: Google internal delivery follows Android signing approval
+### Requirement: Google internal delivery follows verified Android signing
 
 Google delivery SHALL consume the exact verified signed AAB from its CI run after
-Android signing approval, with separate credential storage and explicit readiness.
+successful Android signing, with separate credential storage and explicit readiness.
 It SHALL write only the internal track and SHALL NOT manage testers or promote
 closed/production releases. Delivery failure SHALL NOT gate sideload publication.
 
-#### Scenario: Owner approves a ready Android release
+#### Scenario: A ready Android release uploads automatically
 
-- **WHEN** a stable/RC tag requests upload and Android signing is approved
-- **THEN** enabled delivery verifies the source/run/build/hash/signature, uploads once and confirms the matching completed internal release, without a second approval
+- **WHEN** a stable/RC tag requests upload and Android signing succeeds
+- **THEN** enabled delivery verifies the source/run/build/hash/signature, uploads once and confirms the matching completed internal release, without an environment approval
 
 #### Scenario: Google delivery is interrupted
 

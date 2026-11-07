@@ -111,9 +111,9 @@ Ordinary master/nightly runs skip it. A deliberate manual retry must select an
 existing stable/candidate tag and set the `android-store` input; a fresh run
 receives a fresh shared CI number without replacing published GitHub downloads.
 
-Configure environment `android-store-signing` with an owner review and tag-only
-`v*` deployment rules. Self-approval may be enabled by the owner for this personal
-repository. Keep these environment settings:
+Configure environment `android-store-signing` with tag-only `v*` deployment
+rules and no required reviewers. Stable and RC signing builds proceed
+automatically. Keep these environment settings:
 
 | Setting | Purpose |
 | --- | --- |
@@ -132,7 +132,7 @@ four-ABI native library inventory, 16 KB LOAD alignment on the 64-bit libraries,
 and the bundle's `PAGE_ALIGNMENT_16K` setting for generated APKs. These packaging
 checks do not establish operation on a 16 KB device.
 
-Download `FloatView-android-store-<build>-attempt-<attempt>` from the approved run.
+Download `FloatView-android-store-<build>-attempt-<attempt>` from the matching run.
 Retain its AAB and `package.json` together. Verify its source, version, build,
 hash and upload certificate before manually uploading it to **Testing → Internal
 testing → Create new release**. Never upload a local unversioned check bundle.
@@ -187,10 +187,11 @@ provider restore or manufacturer transfer; retain that coverage limit. See
 ## Protected Google Play delivery
 
 `android-store-upload` consumes the signed AAB and `package.json` from the same
-workflow run. One owner approval on `android-store-signing` authorizes signing
-and subsequent internal-test delivery. The separate `google-play-upload`
-environment holds only upload authentication and has tag-only `v*` deployment
-rules, with no second reviewer gate. The owner has installed the environment secret. Service-account authentication
+workflow run. Signing and enabled internal-test delivery proceed automatically
+for stable and RC tags. The separate `google-play-upload` environment holds only
+upload authentication. Both environments have tag-only `v*` deployment rules
+and no required reviewers. The owner has installed the environment secret.
+Service-account authentication
 and access to the existing bundle/internal track passed a local API inspection;
 both delivery readiness switches are enabled. Hosted delivery passed for the
 candidate recorded below.

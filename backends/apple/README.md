@@ -131,7 +131,8 @@ Only exact stable/candidate tags select store jobs; master/nightly builds do not
 See [Build apps](../../.github/workflows/build-apps.yml) for job inputs and
 [releases](../../docs/releases.md) for source/build-number continuity.
 
-Configure `apple-store-signing` with owner review and a tag-only deployment policy.
+Configure `apple-store-signing` with a tag-only deployment policy and no required
+reviewers. Stable and RC signing builds proceed automatically.
 iOS and Mac share `APPLE_DISTRIBUTION_P12_BASE64` and
 `APPLE_DISTRIBUTION_P12_PASSWORD`; profiles/readiness remain platform-specific,
 and Mac installer signing is separate. The workflow reuses `APPLE_TEAM_ID`.
@@ -167,9 +168,10 @@ gh workflow run build-apps.yml --ref vX.Y.Z -f ios-store=true --repo acheronfail
 
 ### Protected Apple delivery
 
-The single `apple-store-signing` approval covers signing and enabled delivery.
-`apple-store-upload` retains tag-only protection and credentials without a second
-reviewer. Keep `ASC_API_PRIVATE_KEY_BASE64` as its secret and `ASC_API_KEY_ID`,
+Signing and enabled delivery proceed automatically for stable and RC tags.
+`apple-store-signing` and `apple-store-upload` retain tag-only protection and
+separate credentials without required reviewers. Keep `ASC_API_PRIVATE_KEY_BASE64`
+as its secret and `ASC_API_KEY_ID`,
 `ASC_API_ISSUER_ID`, `ASC_IOS_APP_ID` and `ASC_MAC_APP_ID` as its variables.
 The Developer-role team key can access team apps; keep its downloaded key private.
 

@@ -78,8 +78,10 @@ Mac ZIPs. Local iOS Release archive/export preparation is documented in the
 [Apple host guide](../backends/apple/README.md#ios-app-store-preparation); it neither
 uploads to a store nor changes the GitHub packages. Android App Bundles have an independent protected signing job and
 [Google Play internal delivery path](../docs/android-distribution.md#protected-google-play-delivery).
-One `android-store-signing` approval covers signing and enabled internal upload;
-closed/production promotion remains manual. Tagged manual runs accept
+Apple and Android store signing and enabled delivery proceed automatically for
+stable and RC tags. Signing/upload environments retain tag-only restrictions and
+readiness gates, with no required reviewers. Closed/production promotion remains
+manual. Tagged manual runs accept
 `android-store=true` for build-only or `android-delivery=check|upload`;
 master/nightly store requests are rejected. Only stable `vX.Y.Z` or numbered `vX.Y.Z-rc.N` release tags select protected App Store jobs.
 `just release ...` pushes that tag and selects iOS signing/delivery; master
