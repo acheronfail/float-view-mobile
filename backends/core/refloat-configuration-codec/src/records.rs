@@ -115,6 +115,8 @@ pub fn encode_schema_record(schema: &ConfigurationSchema) -> Result<Vec<u8>, Rec
         flags |= u8::from(field.step.is_some()) << 2;
         flags |= u8::from(field.precision.is_some()) << 3;
         flags |= u8::from(field.scale.is_some()) << 4;
+        flags |= u8::from(field.editor_scale != 1.0) << 5;
+        flags |= u8::from(field.edit_as_percentage) << 6;
         output.extend_from_slice(&[
             field.field_type as u8,
             field.wire_type.map_or(0, |wire| wire as u8),
@@ -133,6 +135,9 @@ pub fn encode_schema_record(schema: &ConfigurationSchema) -> Result<Vec<u8>, Rec
         }
         if let Some(scale) = field.scale {
             output.extend_from_slice(&scale.to_bits().to_be_bytes());
+        }
+        if field.editor_scale != 1.0 {
+            output.extend_from_slice(&field.editor_scale.to_bits().to_be_bytes());
         }
         push_string(
             &mut output,
@@ -219,7 +224,7 @@ pub fn decode_schema_record(record: &[u8]) -> Result<ConfigurationSchema, Record
         let wire_type = wire_type(reader.u8()?)?;
         let default_kind = reader.u8()?;
         let flags = reader.u8()?;
-        if flags & !0x1f != 0 {
+        if flags & !0x7f != 0 {
             return Err(RecordError::InvalidSchemaRecord);
         }
         let default_value = reader.value(default_kind, MAX_STRING_VALUE_BYTES)?;
@@ -228,6 +233,8 @@ pub fn decode_schema_record(record: &[u8]) -> Result<ConfigurationSchema, Record
         let step = reader.optional_f64(flags & 4 != 0)?;
         let precision = (flags & 8 != 0).then(|| reader.i32()).transpose()?;
         let scale = reader.optional_f64(flags & 16 != 0)?;
+        let editor_scale = reader.optional_f64(flags & 32 != 0)?.unwrap_or(1.0);
+        let edit_as_percentage = flags & 64 != 0;
         let suffix = reader.string(MAX_RECORD_TEXT_BYTES, true)?;
         let choice_count = usize::from(reader.u16()?);
         if choice_count > MAX_ENUM_CHOICES || reader.u16()? != 0 {
@@ -247,6 +254,8 @@ pub fn decode_schema_record(record: &[u8]) -> Result<ConfigurationSchema, Record
             maximum,
             step,
             precision,
+            editor_scale,
+            edit_as_percentage,
             scale,
             suffix,
             choices,
@@ -401,10 +410,12 @@ fn validate_schema(schema: &ConfigurationSchema) -> Result<(), RecordError> {
                 RecordError::InvalidSchemaRecord,
             )?;
         }
-        if [field.minimum, field.maximum, field.step, field.scale]
-            .into_iter()
-            .flatten()
-            .any(|value| !value.is_finite())
+        if !field.editor_scale.is_finite()
+            || field.editor_scale <= 0.0
+            || [field.minimum, field.maximum, field.step, field.scale]
+                .into_iter()
+                .flatten()
+                .any(|value| !value.is_finite())
             || field
                 .minimum
                 .zip(field.maximum)
@@ -727,6 +738,8 @@ mod tests {
                 maximum: Some(3.0),
                 step: Some(0.1),
                 precision: Some(2),
+                editor_scale: 1.0,
+                edit_as_percentage: false,
                 scale: Some(100.0),
                 suffix: "%".into(),
                 choices: vec![],
@@ -742,6 +755,8 @@ mod tests {
                 maximum: None,
                 step: None,
                 precision: None,
+                editor_scale: 1.0,
+                edit_as_percentage: false,
                 scale: None,
                 suffix: String::new(),
                 choices: vec!["A".into(), "B".into()],
@@ -757,6 +772,8 @@ mod tests {
                 maximum: None,
                 step: None,
                 precision: None,
+                editor_scale: 1.0,
+                edit_as_percentage: false,
                 scale: None,
                 suffix: String::new(),
                 choices: vec![],
@@ -839,6 +856,29 @@ mod tests {
             decode_value_record(&noncanonical),
             Err(RecordError::InvalidValueRecord)
         );
+    }
+
+    #[test]
+    fn editor_metadata_round_trips_and_invalid_scale_is_rejected() {
+        let mut schema = schema();
+        // No flags is the original record layout and defaults to neutral metadata.
+        assert_eq!(
+            decode_schema_record(&encode_schema_record(&schema).unwrap()).unwrap(),
+            schema
+        );
+        schema.fields[0].editor_scale = 100.0;
+        schema.fields[0].edit_as_percentage = true;
+        assert_eq!(
+            decode_schema_record(&encode_schema_record(&schema).unwrap()).unwrap(),
+            schema
+        );
+        for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            schema.fields[0].editor_scale = scale;
+            assert_eq!(
+                encode_schema_record(&schema),
+                Err(RecordError::InvalidSchemaRecord)
+            );
+        }
     }
 
     #[test]

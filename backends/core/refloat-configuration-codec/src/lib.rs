@@ -232,6 +232,10 @@ pub struct ConfigurationField {
     pub step: Option<f64>,
     /// Optional editor precision.
     pub precision: Option<i32>,
+    /// Multiplier from canonical values to editor units.
+    pub editor_scale: f64,
+    /// Upstream whole-percentage editor mode.
+    pub edit_as_percentage: bool,
     /// Optional fixed-point wire scale.
     pub scale: Option<f64>,
     /// Display suffix.
@@ -622,6 +626,16 @@ fn normalize_field(name: &str, raw: &RawField) -> Result<ConfigurationField, Con
             raw.first("stepInt")
         })?,
         precision: raw.first("editorDecimalsDouble").parse().ok(),
+        editor_scale: match optional_finite(raw.first("editorScale"))? {
+            Some(value) if value > 0.0 => value,
+            None => 1.0,
+            _ => return Err(ConfigurationError::InvalidMetadata),
+        },
+        edit_as_percentage: match raw.first("editAsPercentage") {
+            "" | "0" => false,
+            "1" => true,
+            _ => return Err(ConfigurationError::InvalidMetadata),
+        },
         scale: optional_finite(raw.first("vTxDoubleScale"))?,
         suffix: raw.first("suffix").to_owned(),
         choices,

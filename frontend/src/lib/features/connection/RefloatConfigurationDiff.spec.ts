@@ -13,6 +13,8 @@ const field: RefloatConfigurationField = {
   maximum: 10,
   step: 0.1,
   precision: 1,
+  editorScale: 1,
+  editAsPercentage: false,
   suffix: 'A',
   choices: [],
   description: '',
@@ -33,7 +35,7 @@ describe('Refloat configuration differences', () => {
     });
     expect(body).toMatch(/1\s+setting will change/);
     expect(body).toContain('Current board → Saved tune');
-    expect(body).toMatch(/<strong>Gain:<\/strong>\s*1 A → 4 A/);
+    expect(body).toMatch(/<strong>Gain:<\/strong>\s*1\.0 A → 4\.0 A/);
     expect(body).not.toContain('<dl');
   });
 

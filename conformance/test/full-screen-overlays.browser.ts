@@ -41,7 +41,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               candidates: [],
               latestSnapshot: null,
             };
+            // This layout scenario opens and cancels confirmation without writing;
+            // admission is covered by the editor readiness scenarios.
+            if (state.activeConnection.refloatConfiguration)
+              state.activeConnection.refloatConfiguration.writeBlockReason = null;
           }
+          if (message.result && 'writeBlockReason' in message.result) message.result.writeBlockReason = null;
           socket.send(JSON.stringify(message));
         });
       });
@@ -93,7 +98,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           );
           await page.keyboard.press('Tab');
           assert.equal(await done.evaluate((el) => el === document.activeElement), true);
-          const scroll = panel.locator('div.overflow-y-auto');
+          const scroll =
+            title === 'Configure Refloat'
+              ? panel.locator('div.overflow-y-auto').filter({ has: page.getByRole('spinbutton') })
+              : panel.locator('div.overflow-y-auto');
           const headerY = (await done.boundingBox())!.y;
           await scroll.evaluate((el) => {
             el.scrollTop = el.scrollHeight;
@@ -103,7 +111,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             const footer = panel.getByRole('button', { name: 'Write configuration' }).locator('..');
             const footerBox = (await footer.boundingBox())!;
             assert.equal(Math.round(footerBox.y + footerBox.height), viewport.height, 'actions cover the bottom edge');
-            assert.ok(footerBox.height <= 80, 'actions remain compact');
+            const writeBox = (await panel.getByRole('button', { name: 'Write configuration' }).boundingBox())!;
+            assert.ok(writeBox.height <= 64, 'write action remains compact alongside readiness feedback');
             assert.notEqual(
               await panel.locator('header').evaluate((el) => getComputedStyle(el).boxShadow),
               'none',
@@ -209,13 +218,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await menu.tap();
       await actionOverlay.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
       const editor = page.getByRole('dialog', { name: 'Configure Refloat', exact: true });
-      await editor.getByRole('spinbutton').first().fill('0.85');
+      await editor.getByRole('spinbutton').first().fill('85');
       await editor.getByRole('button', { name: 'Done', exact: true }).tap();
       await editor.waitFor({ state: 'hidden' });
       await actionOverlay.waitFor();
       await actionOverlay.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
       await editor.getByRole('spinbutton').first().waitFor();
-      assert.equal(await editor.getByRole('spinbutton').first().inputValue(), '0.85', 'Done retains the draft');
+      assert.equal(await editor.getByRole('spinbutton').first().inputValue(), '85', 'Done retains the draft');
       await editor.getByRole('button', { name: 'Write configuration', exact: true }).tap();
       const confirmation = page.getByRole('alertdialog', {
         name: 'Write persistent Refloat configuration?',

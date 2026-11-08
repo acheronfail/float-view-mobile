@@ -1061,6 +1061,8 @@ fn schema(s: &c::configuration_codec::ConfigurationSchema) -> f::ConfigurationSc
                 maximum: v.maximum,
                 step: v.step,
                 precision: v.precision.and_then(|v| v.try_into().ok()),
+                editor_scale: v.editor_scale,
+                edit_as_percentage: v.edit_as_percentage,
                 scale: v.scale,
                 suffix: v.suffix.clone(),
                 choices: v.choices.clone(),

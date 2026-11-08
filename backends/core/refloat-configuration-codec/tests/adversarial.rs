@@ -294,6 +294,8 @@ fn test_field(
         maximum,
         step: None,
         precision: None,
+        editor_scale: 1.0,
+        edit_as_percentage: false,
         scale,
         suffix: String::new(),
         choices: choices.iter().map(|value| (*value).into()).collect(),
@@ -700,4 +702,32 @@ fn errors_are_deterministic_and_payload_free() {
     assert_eq!(first, second);
     assert!(!first.to_string().contains(payload_marker));
     assert!(!format!("{first:?}").contains(payload_marker));
+}
+
+#[test]
+fn editor_metadata_defaults_and_invalid_values_are_explicit() {
+    let base = "<type>1</type><vTx>7</vTx><valDouble>0</valDouble><vTxDoubleScale>100</vTxDoubleScale><description>test</description>";
+    let schema =
+        parse_schema(schema_xml(&field_xml("x", base), "<ser>x</ser>", "").as_bytes()).unwrap();
+    assert_eq!(schema.fields[0].editor_scale, 1.0);
+    assert!(!schema.fields[0].edit_as_percentage);
+    for extra in [
+        "<editorScale>0</editorScale>",
+        "<editorScale>-1</editorScale>",
+        "<editorScale>NaN</editorScale>",
+        "<editorScale>inf</editorScale>",
+        "<editAsPercentage>2</editAsPercentage>",
+    ] {
+        assert!(
+            parse_schema(
+                schema_xml(
+                    &field_xml("x", &format!("{base}{extra}")),
+                    "<ser>x</ser>",
+                    ""
+                )
+                .as_bytes()
+            )
+            .is_err()
+        );
+    }
 }

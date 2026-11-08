@@ -487,6 +487,10 @@ export interface RefloatConfigurationField {
   maximum: number | null;
   step: number | null;
   precision: number | null;
+  /** Multiplier from firmware units to editor units. */
+  editorScale: number;
+  /** Whole percentages of the maximum absolute bound. */
+  editAsPercentage: boolean;
   suffix: string;
   choices: string[];
   description: string;

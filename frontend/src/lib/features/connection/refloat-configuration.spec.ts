@@ -14,6 +14,9 @@ import RefloatConfigurationEditor from './RefloatConfigurationEditor.svelte';
 import {
   RefloatConfigurationController,
   formatRefloatValue,
+  refloatNumericEditor,
+  refloatNumericInput,
+  refloatNumericText,
   refloatConfigurationFieldHelp,
   refloatConfigurationFieldLabel,
   refloatConfigurationSectionKey,
@@ -43,6 +46,8 @@ const field = (
   maximum: null,
   step: null,
   precision: null,
+  editorScale: 1,
+  editAsPercentage: false,
   suffix: '',
   choices: [],
   description: `${name} help`,
@@ -463,5 +468,68 @@ describe('generated Refloat configuration', () => {
     expect(markup).not.toContain('gain help');
     expect(refloatConfigurationFieldLabel(fields.at(-1)!)).toBe('LEDs On (persistent startup default)');
     expect(refloatConfigurationFieldHelp({ ...fields[0]!, description: '' })).toBe('gain');
+  });
+});
+
+describe('VESC Tool numeric editor semantics', () => {
+  const brightness = field(
+    'brightness',
+    'double',
+    { type: 'double', value: 0.5 },
+    { minimum: 0, maximum: 1, editorScale: 100, precision: 0, step: 5, suffix: '%' }
+  );
+  it('uses editor units and steps for fields and review without changing canonical values', () => {
+    expect(refloatNumericEditor(brightness)).toMatchObject({ minimum: 0, maximum: 100, step: 5, precision: 0 });
+    expect(refloatNumericText(brightness, 0.5)).toBe('50');
+    expect(refloatNumericInput(brightness, '50')).toBe('0.5');
+    expect(refloatNumericInput(brightness, '55')).toBe('0.55');
+    expect(formatRefloatValue({ type: 'double', value: 0.5 }, brightness)).toBe('50 %');
+    const markup = render(RefloatConfigurationFieldView, {
+      props: {
+        field: brightness,
+        value: brightness.defaultValue,
+        onchange: () => {},
+        onhelp: () => {},
+      },
+    }).body;
+    expect(markup).toContain('max="100"');
+    expect(markup).toContain('step="5"');
+    expect(markup).toContain('value="50"');
+  });
+  it('matches mobile editor decimal rounding including signed half steps', () => {
+    const current = { ...brightness, editorScale: 1, minimum: -100, maximum: 100, precision: 1 };
+    expect(refloatNumericInput(current, '18.19')).toBe('18.2');
+    expect(refloatNumericInput(current, '1.25')).toBe('1.3');
+    expect(refloatNumericInput(current, '-1.25')).toBe('-1.2');
+    expect(refloatNumericText(current, -1.25)).toBe('-1.2');
+    expect(refloatNumericText(current, 100.01)).toBe('100.01');
+    expect(refloatNumericInput(current, '100.01')).toBe('100.01');
+    expect(refloatNumericInput(current, '')).toBe('');
+    expect(refloatNumericInput(current, '-')).toBe('-');
+    expect(refloatNumericInput(current, 'Infinity')).toBe('Infinity');
+  });
+  it('uses upstream percentage mode independently of editor scale', () => {
+    const duty = { ...brightness, editAsPercentage: true, editorScale: 1, step: 0.01, precision: 2 };
+    expect(refloatNumericEditor(duty)).toMatchObject({ scale: 100, precision: 0, step: 1, maximum: 100 });
+    expect(refloatNumericInput(duty, '85.4')).toBe('0.85');
+    expect(formatRefloatValue({ type: 'double', value: 0.85 }, duty)).toBe('85 %');
+    const signed = { ...duty, minimum: -2, maximum: 1 };
+    expect(refloatNumericInput(signed, '-50')).toBe('-1');
+  });
+  it('restores canonical numeric text and submits edited values in canonical units', async () => {
+    const backend = new FakeBackend();
+    backend.pages[0]!.fields = [brightness, ...backend.pages[0]!.fields];
+    backend.current.brightness = { type: 'double', value: 0.5 };
+    const first = new RefloatConfigurationController(backend, 'board');
+    await first.open();
+    first.setNumericInput('brightness', '0.55'); // Existing durable text is in firmware units.
+    await first.flush();
+    const second = new RefloatConfigurationController(backend, 'board');
+    await second.open();
+    expect(second.inputs.brightness).toBe('0.55');
+    expect(second.draft.brightness).toEqual({ type: 'double', value: 0.55 });
+    second.setNumericInput('brightness', refloatNumericInput(brightness, '60'));
+    await second.write();
+    expect(backend.writes.at(-1)!.values.brightness).toEqual({ type: 'double', value: 0.6 });
   });
 });

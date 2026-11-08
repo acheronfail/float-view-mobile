@@ -408,12 +408,12 @@ export function validateRefloatField(
   if (!value) return 'A value is required.';
   if (field.type === 'double') {
     if (value.type !== 'double' || !Number.isFinite(value.value)) return 'Enter a finite number.';
-    if (field.minimum !== null && value.value < field.minimum) return `Minimum ${field.minimum}.`;
-    if (field.maximum !== null && value.value > field.maximum) return `Maximum ${field.maximum}.`;
+    if (field.minimum !== null && value.value < field.minimum) return `Minimum ${refloatNumericEditor(field).minimum}.`;
+    if (field.maximum !== null && value.value > field.maximum) return `Maximum ${refloatNumericEditor(field).maximum}.`;
   } else if (['integer', 'enum', 'bitfield'].includes(field.type)) {
     if (value.type !== 'integer' || !Number.isSafeInteger(value.value)) return 'Enter a whole number.';
-    if (field.minimum !== null && value.value < field.minimum) return `Minimum ${field.minimum}.`;
-    if (field.maximum !== null && value.value > field.maximum) return `Maximum ${field.maximum}.`;
+    if (field.minimum !== null && value.value < field.minimum) return `Minimum ${refloatNumericEditor(field).minimum}.`;
+    if (field.maximum !== null && value.value > field.maximum) return `Maximum ${refloatNumericEditor(field).maximum}.`;
     if (field.type === 'enum' && (value.value < 0 || value.value >= field.choices.length))
       return 'Choose a listed value.';
   } else if (field.type === 'boolean' && value.type !== 'boolean') return 'Choose on or off.';
@@ -439,8 +439,57 @@ export function sameRefloatIdentity(left: RefloatConfigurationIdentity, right: R
   );
 }
 
+/** VESC Tool mobile editor units; wire values and persisted drafts stay canonical. */
+export function refloatNumericEditor(field: RefloatConfigurationField) {
+  const maximum = Math.max(Math.abs(field.minimum ?? 0), Math.abs(field.maximum ?? 0));
+  const scale = field.editAsPercentage ? 100 / maximum : field.editorScale;
+  return {
+    scale,
+    minimum: field.minimum === null ? undefined : field.minimum * scale,
+    maximum: field.maximum === null ? undefined : field.maximum * scale,
+    precision: field.editAsPercentage ? 0 : field.precision,
+    step: field.editAsPercentage ? 1 : (field.step ?? (field.type === 'double' ? 'any' : 1)),
+    suffix: field.editAsPercentage ? '%' : field.suffix.trim(),
+  };
+}
+
+export function refloatNumericText(field: RefloatConfigurationField, value: number): string {
+  const editor = refloatNumericEditor(field);
+  const displayed = value * editor.scale;
+  if (
+    editor.precision === null ||
+    (editor.minimum !== undefined && displayed < editor.minimum) ||
+    (editor.maximum !== undefined && displayed > editor.maximum)
+  )
+    return String(displayed);
+  const factor = 10 ** editor.precision;
+  return (Math.round(displayed * factor) / factor).toFixed(editor.precision);
+}
+
+/** Convert displayed input to the existing canonical input-text storage format. */
+export function refloatNumericInput(field: RefloatConfigurationField, input: string): string {
+  const number = Number(input);
+  if (!input.trim() || !Number.isFinite(number)) return input;
+  const editor = refloatNumericEditor(field);
+  let normalized = number;
+  // Keep invalid values invalid instead of rounding them into the allowed range.
+  if (
+    (editor.minimum === undefined || number >= editor.minimum) &&
+    (editor.maximum === undefined || number <= editor.maximum) &&
+    editor.precision !== null
+  ) {
+    const factor = 10 ** editor.precision;
+    normalized = Math.round(number * factor) / factor;
+  }
+  return String(normalized / editor.scale);
+}
+
 export function formatRefloatValue(value: RefloatConfigurationValue, field?: RefloatConfigurationField): string {
   if (value.type === 'boolean') return value.value ? 'On' : 'Off';
   if (value.type === 'integer' && field?.type === 'enum') return field.choices[value.value] ?? String(value.value);
-  return `${value.value}${field?.suffix ? ` ${field.suffix}` : ''}`;
+  if (field && (value.type === 'double' || value.type === 'integer')) {
+    const suffix = refloatNumericEditor(field).suffix;
+    return `${refloatNumericText(field, value.value)}${suffix ? ` ${suffix}` : ''}`;
+  }
+  return String(value.value);
 }

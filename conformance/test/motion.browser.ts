@@ -98,7 +98,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await search.waitFor();
       assert.equal(await search.inputValue(), 'Duty');
       assert.equal(await search.evaluate((node) => !!node.closest('[inert]')), false);
-      await editor.getByRole('spinbutton', { name: 'Duty Tiltback', exact: true }).fill('0.85');
+      await editor.getByRole('spinbutton', { name: 'Duty Tiltback', exact: true }).fill('85');
       const write = editor.getByRole('button', { name: 'Write configuration', exact: true });
       await page.waitForFunction((node) => !(node as HTMLButtonElement).disabled, await write.elementHandle());
       await write.focus();

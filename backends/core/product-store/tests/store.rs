@@ -710,6 +710,8 @@ fn tune_fixture() -> (
         maximum: Some(10.),
         step: Some(1.),
         precision: None,
+        editor_scale: 1.0,
+        edit_as_percentage: false,
         scale: None,
         suffix: String::new(),
         choices: vec![],

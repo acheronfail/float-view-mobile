@@ -2,7 +2,12 @@
   import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import type { RefloatConfigurationField, RefloatConfigurationValue } from '$lib/backend/contract';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
-  import { refloatConfigurationFieldLabel } from './refloat-configuration.svelte';
+  import {
+    refloatConfigurationFieldLabel,
+    refloatNumericEditor,
+    refloatNumericInput,
+    refloatNumericText,
+  } from './refloat-configuration.svelte';
 
   let {
     field,
@@ -32,6 +37,19 @@
     field.minimum !== null && field.minimum >= 0 ? (field.type === 'double' ? 'decimal' : 'numeric') : undefined
   );
   let helpButton = $state<HTMLButtonElement>();
+  const editor = $derived(refloatNumericEditor(field));
+  const displayed = $derived(
+    input !== undefined
+      ? input.trim() && Number.isFinite(Number(input))
+        ? refloatNumericText(field, Number(input))
+        : input
+      : value?.type === 'double' || value?.type === 'integer'
+        ? refloatNumericText(field, value.value)
+        : ''
+  );
+  let editing = $state(false);
+  let text = $state('');
+  let editingInput = $state<string | undefined>();
 </script>
 
 <div class="block rounded-lg border border-outline bg-elevated p-3 text-sm">
@@ -94,23 +112,35 @@
         type="number"
         inputmode={inputMode}
         class="min-w-0 flex-1 rounded-md border border-outline bg-surface px-3 py-2"
-        min={field.minimum ?? undefined}
-        max={field.maximum ?? undefined}
-        step={field.step ?? (field.type === 'double' ? 'any' : 1)}
+        min={editor.minimum}
+        max={editor.maximum}
+        step={editor.step}
         {disabled}
         aria-describedby={error ? errorId : undefined}
-        value={input ?? (value?.type === 'double' || value?.type === 'integer' ? value.value : '')}
+        value={editing && (!onnumericinput || input === editingInput) ? text : displayed}
+        onfocus={() => {
+          text = displayed;
+          editingInput = input;
+          editing = true;
+        }}
+        onblur={() => {
+          editing = false;
+        }}
         oninput={(event) => {
+          text = event.currentTarget.value;
+          const canonical = refloatNumericInput(field, text);
+          editingInput = canonical;
+          editing = true;
           if (onnumericinput) {
-            onnumericinput(event.currentTarget.value);
+            onnumericinput(canonical);
             return;
           }
-          const number = event.currentTarget.valueAsNumber;
+          const number = canonical.trim() ? Number(canonical) : NaN;
           if (!Number.isFinite(number)) return;
           onchange(field.type === 'double' ? { type: 'double', value: number } : { type: 'integer', value: number });
         }}
       />
-      {#if field.suffix}<span class="text-muted">{field.suffix}</span>{/if}
+      {#if editor.suffix}<span class="text-muted">{editor.suffix}</span>{/if}
     </div>
   {/if}
   {#if error}<span id={errorId} role="alert" class="mt-1 block text-xs text-warning">{error}</span>{/if}

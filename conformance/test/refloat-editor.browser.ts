@@ -43,7 +43,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
       await page.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
       const number = () => page.getByRole('spinbutton', { name: 'Duty Tiltback', exact: true });
-      await number().fill('0.85');
+      await number().fill('85');
       await page.getByRole('heading', { name: 'Duty Pushback', level: 4, exact: true }).waitFor();
       const controls = () => page.getByRole('button', { name: 'Section and search controls', exact: true });
       const section = () => page.locator('select[aria-label="Section"]');
@@ -154,7 +154,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       );
       await page.getByRole('searchbox').fill('');
       await page.getByRole('button', { name: 'Balance', exact: true }).tap();
-      assert.equal(await number().inputValue(), '0.85');
+      assert.equal(await number().inputValue(), '85');
       await number().fill('');
       await waitDraft((d) => d.inputs.tiltback_duty === '');
       await page.close();
@@ -187,13 +187,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await waitDraft(
         (d) => Object.keys(d.inputs).length === 0 && d.values.tiltback_duty?.value === 0.8 && d.source === 'current'
       );
-      assert.equal(await number().inputValue(), '0.8');
-      await number().fill('0.86');
+      assert.equal(await number().inputValue(), '80');
+      await number().fill('86');
       await page.getByRole('button', { name: 'Read defaults', exact: true }).tap();
       await waitDraft(
         (d) => Object.keys(d.inputs).length === 0 && d.values.tiltback_duty?.value === 0.8 && d.source === 'default'
       );
-      assert.equal(await number().inputValue(), '0.8');
+      assert.equal(await number().inputValue(), '80');
       assert.deepEqual(reads.slice(-2), [
         { source: 'current', refresh: true },
         { source: 'default', refresh: true },
@@ -209,7 +209,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await stopMockServer();
     }
   });
-  test(`${name}: configuration write failures stay visible in the confirmation`, { timeout: 60000 }, async () => {
+  test(`${name}: numeric edits and write failures stay consistent`, { timeout: 60000 }, async () => {
     const port = await startMockServer(11002, { safetyDisclaimerAccepted: true });
     const endpoint = getMockBootstrap(port);
     const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
@@ -218,7 +218,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await client.request('bluetooth.requestPermission', {});
       await client.request('bluetooth.scan', { timeoutMs: 100 });
       const scan = await client.waitForState((s) => s.discoveredDevices.length > 0);
-      await client.request('device.connect', { deviceId: scan.discoveredDevices[0]!.deviceId, trackingMode: 'saved' });
+      await client.request('device.connect', {
+        deviceId: scan.discoveredDevices[0]!.deviceId,
+        trackingMode: 'saved',
+      });
       await client.waitForState((s) => s.activeConnection?.state === 'ready');
       const context = await browser.newContext({ viewport: { width: 390, height: 600 }, hasTouch: true });
       if (name === 'chromium') await context.grantPermissions(['local-network-access'], { origin: endpoint.origin });
@@ -237,6 +240,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           if (snapshot?.activeConnection?.refloatConfiguration) {
             snapshot.activeConnection.refloatConfiguration.writeBlockReason = injectedBlockReason;
           }
+          // Exercise the same scaled, whole-number editor metadata as brightness.
+          const numeric = envelope.result?.fields?.find((field: { name: string }) => field.name === 'tiltback_duty');
+          if (numeric)
+            Object.assign(numeric, { editorScale: 100, editAsPercentage: false, precision: 0, step: 5, suffix: '%' });
           if (envelope.result && 'writeBlockReason' in envelope.result)
             envelope.result.writeBlockReason = injectedBlockReason;
           socket.send(JSON.stringify(envelope));
@@ -244,6 +251,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         socket.onMessage((raw) => {
           const request = JSON.parse(String(raw));
           if (request.method === 'refloat.configuration.write') {
+            assert.deepEqual(request.params.values.tiltback_duty, { type: 'double', value: 0.85 });
             writes++;
             if (failWrite) {
               if (writeFailure === 'timeout') return;
@@ -278,7 +286,16 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
       await page.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
       const input = page.getByRole('spinbutton', { name: 'Duty Tiltback', exact: true });
-      await input.fill('0.85');
+      assert.equal(await input.inputValue(), '80');
+      assert.equal(await input.getAttribute('max'), '100');
+      assert.equal(await input.getAttribute('step'), '5');
+      await input.press('ArrowUp');
+      await input.blur();
+      assert.equal(await input.inputValue(), '85');
+      await input.fill('84.6');
+      assert.equal(await input.inputValue(), '84.6', 'rounding disrupted active typing');
+      await input.blur();
+      assert.equal(await input.inputValue(), '85', 'editor precision was not applied on blur');
       await page.getByRole('button', { name: 'Section and search controls', exact: true }).tap();
       await page.setViewportSize({ width: 390, height: 400 });
       const scroller = page.locator('div.overflow-y-auto').filter({ has: input });
@@ -304,7 +321,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await dialog.getByText('Current → New', { exact: true }).waitFor();
       assert.match(
         (await dialog.getByRole('list', { name: 'Configuration differences' }).textContent()) ?? '',
-        /Duty Tiltback:\s*0\.8\s*→\s*0\.85/
+        /Duty Tiltback:\s*80\s*%\s*→\s*85\s*%/
       );
       const confirm = dialog.getByRole('button', { name: 'Write and verify', exact: true });
       injectedBlockReason = 'riding';
@@ -319,7 +336,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const warningBounds = await status.boundingBox();
       assert.ok(warningBounds && warningBounds.y >= 0 && warningBounds.y + warningBounds.height <= 400);
       assert.equal(await open.isDisabled(), true);
-      assert.equal(await input.inputValue(), '0.85');
+      assert.equal(await input.inputValue(), '85');
       injectedBlockReason = null;
       await page.waitForFunction(
         () => !document.querySelector<HTMLButtonElement>('button[aria-describedby="refloat-write-readiness"]')
@@ -339,7 +356,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await confirm.isEnabled(), true);
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).tap();
       await dialog.waitFor({ state: 'hidden' });
-      assert.equal(await input.inputValue(), '0.85');
+      assert.equal(await input.inputValue(), '85');
       const retainedFailure = page.getByRole('alert').filter({ hasText: 'Write could not be confirmed.' });
       await retainedFailure.waitFor();
       const failureBounds = await retainedFailure.boundingBox();
@@ -356,7 +373,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await alert.waitFor();
       assert.match((await alert.textContent()) ?? '', /controller may have timed out or disconnected/);
       assert.match((await alert.textContent()) ?? '', /Read current values before retrying/);
-      assert.equal(await input.inputValue(), '0.85');
+      assert.equal(await input.inputValue(), '85');
       const unavailableBounds = await alert.boundingBox();
       assert.ok(unavailableBounds && unavailableBounds.y >= 0 && unavailableBounds.y + unavailableBounds.height <= 600);
       writeFailure = 'timeout';
@@ -365,7 +382,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         .getByText('Timed out waiting for the configuration write to be confirmed.', { exact: false })
         .waitFor({ timeout: 10000 });
       assert.match((await alert.textContent()) ?? '', /write may have reached the controller/);
-      assert.equal(await input.inputValue(), '0.85');
+      assert.equal(await input.inputValue(), '85');
       failWrite = false;
       await confirm.focus();
       await page.keyboard.press('Enter');

@@ -1498,6 +1498,8 @@ export async function exerciseRefloatConfiguration(
     assert.deepEqual(page.identity, identity);
     for (const field of page.fields) {
       assert.equal(typeof field.tunable, 'boolean', 'schema field is missing its Tune eligibility');
+      assert.ok(Number.isFinite(field.editorScale) && field.editorScale > 0, 'missing editor scale');
+      assert.equal(typeof field.editAsPercentage, 'boolean', 'missing editor mode');
       assert.ok(
         field.heading === null || (typeof field.heading === 'string' && field.heading.trim().length > 0),
         'schema field is missing valid subsection context'
@@ -1522,6 +1524,14 @@ export async function exerciseRefloatConfiguration(
       assert.equal(fields.find((field) => field.name === name)?.heading, heading);
     }
   }
+
+  const brightness = fields.find((field) => field.name === 'leds.front.brightness');
+  if (brightness) {
+    assert.equal(brightness.editorScale, 100);
+    assert.equal(brightness.precision, 0);
+    assert.equal(brightness.step, 5);
+  }
+  assert.equal(fields.find((field) => field.name === 'tiltback_duty')?.editAsPercentage, true);
 
   const current = await client.request('refloat.configuration.read', { source: 'current' });
   const defaults = await client.request('refloat.configuration.read', { source: 'default', refresh: false });

@@ -903,7 +903,7 @@ impl Backend {
             }
         }
         let (group, subgroup, fields) = pages.get(index).ok_or(Failure::InvalidRequest)?;
-        let fields:Vec<_>=fields.iter().map(|(f, heading)|json!({"heading":heading,"name":f.name,"label":f.long_name,"type":match f.field_type{1=>"double",2=>"integer",3=>"string",4=>"enum",5=>"boolean",_=>"bitfield"},"defaultValue":f.default_value,"minimum":f.minimum,"maximum":f.maximum,"step":f.step,"precision":f.precision,"suffix":f.suffix,"choices":f.choices,"description":f.description,"tunable":f.tunable})).collect();
+        let fields:Vec<_>=fields.iter().map(|(f, heading)|json!({"heading":heading,"name":f.name,"label":f.long_name,"type":match f.field_type{1=>"double",2=>"integer",3=>"string",4=>"enum",5=>"boolean",_=>"bitfield"},"defaultValue":f.default_value,"minimum":f.minimum,"maximum":f.maximum,"step":f.step,"precision":f.precision,"editorScale":f.editor_scale,"editAsPercentage":f.edit_as_percentage,"suffix":f.suffix,"choices":f.choices,"description":f.description,"tunable":f.tunable})).collect();
         let identity = self
             .publisher
             .lock()

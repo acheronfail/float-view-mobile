@@ -139,6 +139,25 @@ fn every_audited_schema_matches_exact_source_evidence() {
         assert_eq!(kp.minimum, Some(0.0));
         assert_eq!(kp.maximum, Some(40.0));
         assert_eq!(kp.scale, Some(10.0));
+        assert_eq!(kp.editor_scale, 1.0);
+        assert!(!kp.edit_as_percentage);
+        let brightness = schema
+            .fields
+            .iter()
+            .find(|f| f.name == "leds.front.brightness")
+            .unwrap();
+        assert_eq!(brightness.editor_scale, 100.0);
+        assert_eq!(brightness.precision, Some(0));
+        assert_eq!(brightness.step, Some(5.0));
+        assert!(!brightness.edit_as_percentage);
+        assert!(
+            schema
+                .fields
+                .iter()
+                .find(|f| f.name == "tiltback_duty")
+                .unwrap()
+                .edit_as_percentage
+        );
         assert!(!kp.description.contains("<p"));
         assert!(!kp.description.contains("</"));
         assert!(!kp.description.is_empty());
