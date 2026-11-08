@@ -108,6 +108,7 @@ export class RefloatConfigurationController {
   }
   loading = $state(false);
   error = $state<string | null>(null);
+  defaultError = $state<string | null>(null);
 
   constructor(
     private readonly backend: RefloatConfigurationBackend,
@@ -256,6 +257,7 @@ export class RefloatConfigurationController {
   async load(source: 'current' | 'default', saved: RefloatEditorDraft | null = null, refresh = true): Promise<void> {
     this.loading = true;
     this.error = null;
+    this.defaultError = null;
     try {
       const values = await this.backend.readRefloatConfiguration(source, refresh);
       if (!values || !this.identity || !sameRefloatIdentity(values.identity, this.identity)) {
@@ -292,6 +294,37 @@ export class RefloatConfigurationController {
     delete inputs[name];
     this.inputs = inputs;
     this.capture();
+  }
+
+  async useDefault(name: string): Promise<void> {
+    const field = this.fields.find((field) => field.name === name);
+    const identity = this.identity;
+    const loaded = this.loaded;
+    if (!field || !identity || !loaded || this.loading || this.incompatible) return;
+    this.loading = true;
+    this.defaultError = null;
+    try {
+      const defaults = await this.backend.readRefloatConfiguration('default', false);
+      if (!defaults || !defaults.values[name])
+        throw new Error(
+          `Could not load the default for ${refloatConfigurationFieldLabel(field)}. Check the connection and try again.`
+        );
+      if (
+        !sameRefloatIdentity(defaults.identity, identity) ||
+        this.loaded !== loaded ||
+        !this.identity ||
+        !sameRefloatIdentity(this.identity, identity) ||
+        this.summary?.availability !== 'ready' ||
+        (this.source === 'current' && !this.fresh)
+      )
+        throw new Error('The connection changed while loading the default. Read current values before trying again.');
+      this.setValue(name, structuredClone(defaults.values[name]));
+    } catch (error) {
+      this.defaultError =
+        error instanceof Error ? error.message : 'Could not load this default. Check the connection and try again.';
+    } finally {
+      this.loading = false;
+    }
   }
 
   setNumericInput(name: string, input: string): void {

@@ -400,3 +400,22 @@ Configuration operations SHALL present generic backend error responses as unders
 
 - **WHEN** write confirmation times out or the controller becomes unavailable
 - **THEN** feedback preserves the possibility that the write reached the controller and asks for a fresh current read before retrying
+
+### Requirement: Per-field firmware defaults
+
+Every configuration field SHALL offer a Default action immediately before its Help action. Default SHALL read the active controller's default values and replace only the selected draft value, clearing that field's invalid input while preserving other edits and the current-value write base. No default action SHALL write to the board. Loading, failure and connection replacement MUST preserve draft integrity and allow recovery.
+
+#### Scenario: Default one field
+
+- **WHEN** a user activates a field's Default action
+- **THEN** its firmware default replaces only that draft field and normal explicit write confirmation remains required
+
+#### Scenario: Touch and keyboard activation
+
+- **WHEN** the default action is activated by primary pointer release or keyboard
+- **THEN** it runs once; non-primary, cancelled and disabled activations do nothing
+
+#### Scenario: Default read fails or connection changes
+
+- **WHEN** the default response fails or belongs to a replaced connection
+- **THEN** existing edits remain unchanged and actionable feedback permits an explicit retry

@@ -73,6 +73,8 @@ const values = Object.fromEntries(fields.map((item) => [item.name, item.defaultV
 class FakeBackend implements RefloatConfigurationBackend {
   saved: RefloatEditorDraft | null = null;
   current = structuredClone(values);
+  defaults = structuredClone(values);
+  failDefaults = false;
   reads: Array<{ source: 'current' | 'default'; refresh: boolean }> = [];
   failSave = false;
   failRestore = false;
@@ -111,11 +113,12 @@ class FakeBackend implements RefloatConfigurationBackend {
   }
   async readRefloatConfiguration(source: 'current' | 'default', refresh = true) {
     this.reads.push({ source, refresh });
+    if (source === 'default' && this.failDefaults) throw new Error('Default read failed. Try again.');
     return {
       identity,
       revision: source === 'current' ? 4 : 1,
       source,
-      values: source === 'current' ? this.current : values,
+      values: source === 'current' ? this.current : this.defaults,
     } as RefloatConfigurationValues;
   }
   async writeRefloatConfiguration(
@@ -455,11 +458,13 @@ describe('generated Refloat configuration', () => {
       .map(
         (item) =>
           render(RefloatConfigurationFieldView, {
-            props: { field: item, value: item.defaultValue, onchange: () => {}, onhelp: () => {} },
+            props: { field: item, value: item.defaultValue, onchange: () => {}, ondefault: () => {}, onhelp: () => {} },
           }).body
       )
       .join('');
     expect(markup).toContain('type="number"');
+    expect(markup).toContain('aria-label="Use default for gain"');
+    expect(markup.indexOf('Use default for gain')).toBeLessThan(markup.indexOf('Show help for gain'));
     expect(markup).toContain('aria-label="mode"');
     expect(markup).toContain('aria-pressed="true"');
     expect(markup).not.toContain('type="checkbox"');
@@ -491,6 +496,7 @@ describe('VESC Tool numeric editor semantics', () => {
         field: brightness,
         value: brightness.defaultValue,
         onchange: () => {},
+        ondefault: () => {},
         onhelp: () => {},
       },
     }).body;
@@ -614,5 +620,86 @@ describe('controller encoding limits', () => {
     second.setNumericInput('count', '65535');
     expect(await second.write()).toBe(true);
     expect(backend.writes[0]!.values.count).toEqual({ type: 'integer', value: 65535 });
+  });
+});
+
+describe('per-field firmware defaults', () => {
+  it('uses the controller default for one field, clears input and preserves the rest of the current draft', async () => {
+    const backend = new FakeBackend();
+    backend.defaults.gain = { type: 'double', value: 1.6 }; // Deliberately differs from schema default 1.
+    const controller = new RefloatConfigurationController(backend, 'board');
+    await controller.open();
+    controller.setNumericInput('gain', '-');
+    controller.setValue('count', { type: 'integer', value: 4 });
+    await controller.useDefault('gain');
+    expect(controller.draft.gain).toEqual({ type: 'double', value: 1.6 });
+    expect(controller.inputs.gain).toBeUndefined();
+    expect(controller.draft.count).toEqual({ type: 'integer', value: 4 });
+    expect(controller.source).toBe('current');
+    expect(controller.loaded!.revision).toBe(4);
+    expect(backend.reads.at(-1)).toEqual({ source: 'default', refresh: false });
+    expect(backend.writes).toHaveLength(0);
+    await controller.flush();
+    expect(backend.saved!.values.gain).toEqual({ type: 'double', value: 1.6 });
+    expect(backend.saved!.values.count).toEqual({ type: 'integer', value: 4 });
+  });
+
+  it('supports every field family without writing or applying other defaults', async () => {
+    const backend = new FakeBackend();
+    const controller = new RefloatConfigurationController(backend);
+    await controller.open();
+    backend.defaults = {
+      gain: { type: 'double', value: 1.4 },
+      count: { type: 'integer', value: 3 },
+      mode: { type: 'integer', value: 1 },
+      enabled: { type: 'boolean', value: false },
+      label: { type: 'string', value: 'default' },
+      flags: { type: 'integer', value: 1 },
+      'leds.on': { type: 'boolean', value: false },
+    };
+    for (const field of fields) {
+      const before = JSON.parse(JSON.stringify(controller.draft));
+      await controller.useDefault(field.name);
+      expect(controller.draft).toEqual({ ...before, [field.name]: backend.defaults[field.name] });
+    }
+    expect(backend.writes).toHaveLength(0);
+  });
+
+  it('retains edits after read failure and allows retry', async () => {
+    const backend = new FakeBackend();
+    const controller = new RefloatConfigurationController(backend);
+    await controller.open();
+    controller.setNumericInput('gain', '1.5');
+    backend.failDefaults = true;
+    await controller.useDefault('gain');
+    expect(controller.defaultError).toBe('Default read failed. Try again.');
+    expect(controller.inputs.gain).toBe('1.5');
+    expect(controller.draft.gain).toEqual({ type: 'double', value: 1.5 });
+    expect(controller.loading).toBe(false);
+    backend.failDefaults = false;
+    await controller.useDefault('gain');
+    expect(controller.defaultError).toBeNull();
+    expect(controller.draft.gain).toEqual(values.gain);
+  });
+
+  it('ignores repeated actions while loading and discards a reply after connection replacement', async () => {
+    const backend = new FakeBackend();
+    const controller = new RefloatConfigurationController(backend);
+    await controller.open();
+    controller.setNumericInput('gain', '1.5');
+    let finish!: (result: RefloatConfigurationValues) => void;
+    backend.readRefloatConfiguration = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+    const pending = controller.useDefault('gain');
+    expect(controller.loading).toBe(true);
+    await controller.useDefault('count');
+    controller.reconcile(null);
+    finish({ identity, revision: 1, source: 'default', values });
+    await pending;
+    expect(controller.defaultError).toContain('connection changed');
+    expect(controller.draft.gain).toEqual({ type: 'double', value: 1.5 });
+    expect(backend.writes).toHaveLength(0);
   });
 });

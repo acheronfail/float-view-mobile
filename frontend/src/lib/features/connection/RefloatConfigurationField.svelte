@@ -17,6 +17,7 @@
     input,
     onnumericinput,
     onchange,
+    ondefault,
     onhelp,
   }: {
     field: RefloatConfigurationField;
@@ -26,6 +27,7 @@
     input?: string;
     onnumericinput?: (input: string) => void;
     onchange: (value: RefloatConfigurationValue) => void;
+    ondefault: () => void | Promise<void>;
     onhelp: (field: RefloatConfigurationField, trigger: HTMLButtonElement) => void;
   } = $props();
 
@@ -55,15 +57,26 @@
 <div class="block rounded-lg border border-outline bg-elevated p-3 text-sm">
   <span class="flex items-center justify-between gap-2">
     <span class="font-medium">{label}</span>
-    <button
-      bind:this={helpButton}
-      type="button"
-      class="min-h-8 min-w-8 shrink-0 touch-manipulation rounded-md border border-outline px-1 text-xs"
-      aria-label={`Show help for ${label}`}
-      onpointerdown={(event) => activateFromPointer(event, () => helpButton && onhelp(field, helpButton))}
-      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => helpButton && onhelp(field, helpButton))}
-      >(?)</button
-    >
+    <span class="flex shrink-0 items-center gap-1">
+      <button
+        type="button"
+        class="min-h-8 touch-manipulation rounded-md border border-outline px-2 text-xs disabled:opacity-50"
+        {disabled}
+        aria-label={`Use default for ${label}`}
+        title="Use firmware default"
+        onpointerdown={(event) => activateFromPointer(event, ondefault)}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, ondefault)}>Default</button
+      >
+      <button
+        bind:this={helpButton}
+        type="button"
+        class="min-h-8 min-w-8 shrink-0 touch-manipulation rounded-md border border-outline px-1 text-xs"
+        aria-label={`Show help for ${label}`}
+        onpointerdown={(event) => activateFromPointer(event, () => helpButton && onhelp(field, helpButton))}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => helpButton && onhelp(field, helpButton))}
+        >(?)</button
+      >
+    </span>
   </span>
   {#if field.type === 'boolean'}
     <div class="mt-2">

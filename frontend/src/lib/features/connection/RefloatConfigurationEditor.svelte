@@ -204,6 +204,9 @@
     {#if controller.restored && !controller.incompatible}
       <p class="text-sm text-muted">Draft restored · {controller.diff.length} changes</p>
     {/if}
+    {#if controller.defaultError}
+      <p role="alert" class="text-warning">{controller.defaultError}</p>
+    {/if}
     {#if controller.incompatible}
       <div class="rounded-lg border border-warning/40 p-3 text-sm">
         <p>
@@ -246,6 +249,7 @@
                 input={controller.inputs[field.name]}
                 onnumericinput={(input) => controller.setNumericInput(field.name, input)}
                 onchange={(value) => controller.setValue(field.name, value)}
+                ondefault={() => controller.useDefault(field.name)}
                 onhelp={showHelp}
               />
             {/each}
