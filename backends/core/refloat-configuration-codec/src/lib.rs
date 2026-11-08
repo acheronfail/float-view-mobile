@@ -943,10 +943,16 @@ fn encode_value(
                 return Err(ConfigurationError::InvalidValue);
             }
             let scaled = number * scale;
-            if !scaled.is_finite() || scaled.round() != scaled {
+            if !scaled.is_finite() {
                 return Err(ConfigurationError::InvalidValue);
             }
-            let raw = scaled as i64;
+            // Match VESC Tool's roundDouble in vbytearray.cpp, including signed
+            // half steps. Readback is compared against the decoded wire values.
+            let raw = if scaled < 0.0 {
+                (scaled - 0.5).ceil()
+            } else {
+                (scaled + 0.5).floor()
+            } as i64;
             match field.wire_type {
                 Some(WireType::Decimal16) if i16::try_from(raw).is_ok() => {
                     append_integer(raw, 2, output)

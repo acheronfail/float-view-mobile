@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use float_view_refloat_configuration_codec::{decode_qt_compressed, decode_values};
+use float_view_refloat_configuration_codec::{
+    ConfigurationValue, decode_qt_compressed, decode_values,
+};
 use float_view_refloat_configuration_service::{
     Availability, BeginFacts, CATALOG, CacheEffect, ConfigurationService, FirmwareFacts,
     Generation, Operation, PendingOperation, RequestContext, RequestEffect, Response, Route,
@@ -187,6 +189,70 @@ fn cache_miss_corruption_and_full_paging_emit_atomic_cache_decisions() {
         }
         assert!(transition.cache.is_none());
     }
+}
+
+#[test]
+fn rounded_write_is_verified_against_wire_values_instead_of_submitted_precision() {
+    let route = Route(42);
+    let generation = Generation(9);
+    let mut service = load_current("1.3.1", route, generation);
+    let identity = service.snapshot().identity.unwrap();
+    let current = service.snapshot().current.unwrap();
+    let mut draft = current.values.clone();
+    for (name, value) in &mut draft {
+        if name == "kp2" {
+            *value = ConfigurationValue::Decimal(1.091);
+        } else if name == "meta.is_default" {
+            *value = ConfigurationValue::Boolean(false);
+        }
+    }
+    let write = service
+        .request_write(
+            identity.package_version,
+            identity.fingerprint,
+            identity.wire_signature,
+            current.revision,
+            &draft,
+        )
+        .unwrap();
+    let Some(RequestEffect::Write {
+        payload, operation, ..
+    }) = write.request
+    else {
+        panic!("expected write");
+    };
+    let canonical = decode_values(&payload, service.loaded_schema().unwrap()).unwrap();
+    assert_eq!(
+        canonical.iter().find(|(name, _)| name == "kp2").unwrap().1,
+        ConfigurationValue::Decimal(1.09)
+    );
+    service
+        .accept(
+            Response::WriteAcknowledgement,
+            RequestContext::Write {
+                route,
+                index: 0,
+                operation,
+            },
+            generation,
+        )
+        .unwrap();
+    service
+        .accept(
+            Response::Values {
+                command: ValuesCommand::Current,
+                index: 0,
+                bytes: payload,
+            },
+            RequestContext::Verification {
+                route,
+                index: 0,
+                operation,
+            },
+            generation,
+        )
+        .unwrap();
+    assert_eq!(service.snapshot().current.unwrap().values, canonical);
 }
 
 #[test]

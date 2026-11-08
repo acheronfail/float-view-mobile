@@ -219,3 +219,45 @@ fn every_audited_value_family_round_trips_exact_bytes() {
         }
     }
 }
+
+#[test]
+fn complete_write_preserves_unchanged_decimal_values_with_binary_roundoff() {
+    let root = fixture_root();
+    for version in ["1.3.0", "1.3.1-beta2"] {
+        let schema =
+            decode_qt_compressed(&read(root.join(format!("schemas/{version}.qcompress")))).unwrap();
+        let mut current = decode_values(
+            &read(root.join(format!("values/{version}-current.bin"))),
+            &schema,
+        )
+        .unwrap();
+        // Representative values from the failed write: these are valid wire
+        // decimals, but multiplying their f64 representation by 100 is inexact.
+        for (name, number) in [
+            ("kp2", 1.09),
+            ("torquetilt_start_current", 18.1),
+            ("ki_limit", 36.0),
+        ] {
+            current.iter_mut().find(|(key, _)| key == name).unwrap().1 =
+                ConfigurationValue::Decimal(number);
+        }
+        let bytes = encode_values(&current, &schema).expect("current values must re-encode");
+        assert_eq!(decode_values(&bytes, &schema), Ok(current.clone()));
+
+        let mut draft = current;
+        draft
+            .iter_mut()
+            .find(|(key, _)| key == "ki_limit")
+            .unwrap()
+            .1 = ConfigurationValue::Decimal(35.0);
+        let bytes = encode_values(&draft, &schema).expect("unrelated edit must encode");
+        assert_eq!(decode_values(&bytes, &schema), Ok(draft.clone()));
+        let schema_record =
+            float_view_refloat_configuration_codec::encode_schema_record(&schema).unwrap();
+        let value_record = decode_values_to_record(&schema_record, &bytes).unwrap();
+        assert_eq!(
+            encode_values_from_records(&schema_record, &value_record),
+            Ok(bytes)
+        );
+    }
+}

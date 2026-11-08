@@ -301,6 +301,134 @@ fn test_field(
     }
 }
 
+fn decimal_schema(wire_type: WireType, scale: f64) -> ConfigurationSchema {
+    ConfigurationSchema {
+        fingerprint: String::new(),
+        wire_signature: 0,
+        fields: vec![test_field(
+            "x",
+            FieldType::Decimal,
+            Some(wire_type),
+            None,
+            None,
+            Some(scale),
+            &[],
+        )],
+        groups: vec![],
+    }
+}
+
+#[test]
+fn fixed_point_decimals_round_trip_exact_wire_integers() {
+    for wire_type in [WireType::Decimal16, WireType::Decimal32] {
+        for scale in [0.1, 10.0, 100.0, 1000.0] {
+            let schema = decimal_schema(wire_type, scale);
+            // All signed 16-bit values, including negative roundoff cases.
+            let mut raw_values: Vec<i32> = (i16::MIN..=i16::MAX).map(i32::from).collect();
+            if wire_type == WireType::Decimal32 {
+                raw_values.extend([
+                    i32::MIN,
+                    i32::MIN + 1,
+                    -123_456_789,
+                    123_456_789,
+                    i32::MAX - 1,
+                    i32::MAX,
+                ]);
+            }
+            for raw in raw_values {
+                let mut expected = schema.wire_signature.to_be_bytes().to_vec();
+                match wire_type {
+                    WireType::Decimal16 => expected.extend_from_slice(&(raw as i16).to_be_bytes()),
+                    WireType::Decimal32 => expected.extend_from_slice(&raw.to_be_bytes()),
+                    _ => unreachable!(),
+                }
+                let values = decode_values(&expected, &schema).unwrap();
+                assert_eq!(
+                    encode_values(&values, &schema),
+                    Ok(expected),
+                    "{wire_type:?} scale={scale} raw={raw}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn decimal_rounding_matches_vesc_tool_wire_bytes() {
+    for wire_type in [WireType::Decimal16, WireType::Decimal32] {
+        let schema = decimal_schema(wire_type, 100.0);
+        for (number, raw) in [
+            (1.091, 109_i32),
+            (-1.091, -109),
+            (1.095, 110),
+            (-1.095, -110),
+            (0.005, 1),
+            (-0.005, -1),
+            (0.0049, 0),
+            (-0.0049, 0),
+            (1.09_f64.next_up(), 109),
+            (1.09_f64.next_down(), 109),
+            (-1.09_f64.next_up(), -109),
+            (-1.09_f64.next_down(), -109),
+        ] {
+            let mut expected = schema.wire_signature.to_be_bytes().to_vec();
+            match wire_type {
+                WireType::Decimal16 => expected.extend_from_slice(&(raw as i16).to_be_bytes()),
+                WireType::Decimal32 => expected.extend_from_slice(&raw.to_be_bytes()),
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                encode_values(
+                    &[("x".into(), ConfigurationValue::Decimal(number))],
+                    &schema
+                ),
+                Ok(expected)
+            );
+        }
+    }
+}
+
+#[test]
+fn decimal_rounding_rejects_nonfinite_out_of_range_and_overflow_values() {
+    for wire_type in [WireType::Decimal16, WireType::Decimal32] {
+        let mut schema = decimal_schema(wire_type, 100.0);
+        let limit = match wire_type {
+            WireType::Decimal16 => i16::MAX as f64,
+            WireType::Decimal32 => i32::MAX as f64,
+            _ => unreachable!(),
+        };
+        for number in [
+            (limit + 1.0) / 100.0,
+            (-limit - 2.0) / 100.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::MAX,
+            -f64::MAX,
+        ] {
+            assert_eq!(
+                encode_values(
+                    &[("x".into(), ConfigurationValue::Decimal(number))],
+                    &schema
+                ),
+                Err(ConfigurationError::InvalidValue),
+                "{wire_type:?} number={number}"
+            );
+        }
+        schema.fields[0].minimum = Some(-1.0);
+        schema.fields[0].maximum = Some(1.0);
+        for number in [-1.01, 1.01] {
+            assert_eq!(
+                encode_values(
+                    &[("x".into(), ConfigurationValue::Decimal(number))],
+                    &schema
+                ),
+                Err(ConfigurationError::InvalidValue)
+            );
+        }
+    }
+}
+
 fn all_types_schema() -> ConfigurationSchema {
     let fields = vec![
         test_field(
@@ -518,10 +646,9 @@ fn hostile_value_sets_fail_before_publication() {
     );
     let mut unscaled = values.clone();
     unscaled[0].1 = ConfigurationValue::Decimal(0.01);
-    assert_eq!(
-        encode_values(&unscaled, &schema),
-        Err(ConfigurationError::InvalidValue)
-    );
+    let encoded = encode_values(&unscaled, &schema).expect("VESC Tool rounds to wire precision");
+    unscaled[0].1 = ConfigurationValue::Decimal(0.0);
+    assert_eq!(decode_values(&encoded, &schema), Ok(unscaled));
     let mut decimal_wire_overflow = values.clone();
     decimal_wire_overflow[0].1 = ConfigurationValue::Decimal(3276.8);
     assert_eq!(
