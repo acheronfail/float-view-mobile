@@ -1063,6 +1063,8 @@ fn schema(s: &c::configuration_codec::ConfigurationSchema) -> f::ConfigurationSc
                 precision: v.precision.and_then(|v| v.try_into().ok()),
                 editor_scale: v.editor_scale,
                 edit_as_percentage: v.edit_as_percentage,
+                wire_minimum: v.numeric_wire_bounds().map(|bounds| bounds.0),
+                wire_maximum: v.numeric_wire_bounds().map(|bounds| bounds.1),
                 scale: v.scale,
                 suffix: v.suffix.clone(),
                 choices: v.choices.clone(),

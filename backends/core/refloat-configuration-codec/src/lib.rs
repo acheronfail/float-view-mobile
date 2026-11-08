@@ -246,6 +246,32 @@ pub struct ConfigurationField {
     pub description: String,
 }
 
+impl ConfigurationField {
+    /// Canonical numeric limits of the declared wire representation, independent
+    /// of editor precision and the source XML's possibly wider bounds.
+    pub fn numeric_wire_bounds(&self) -> Option<(f64, f64)> {
+        let (minimum, maximum) = match (self.field_type, self.wire_type?) {
+            (FieldType::Decimal, WireType::Decimal16) => (i16::MIN as f64, i16::MAX as f64),
+            (FieldType::Decimal, WireType::Decimal32) => (i32::MIN as f64, i32::MAX as f64),
+            (FieldType::Integer, WireType::Uint8) => (0.0, u8::MAX as f64),
+            (FieldType::Integer, WireType::Int8) => (i8::MIN as f64, i8::MAX as f64),
+            (FieldType::Integer, WireType::Uint16) => (0.0, u16::MAX as f64),
+            (FieldType::Integer, WireType::Int16) => (i16::MIN as f64, i16::MAX as f64),
+            (FieldType::Integer, WireType::Uint32) => (0.0, u32::MAX as f64),
+            (FieldType::Integer, WireType::Int32) => (i32::MIN as f64, i32::MAX as f64),
+            _ => return None,
+        };
+        let scale = if self.field_type == FieldType::Decimal {
+            self.scale?
+        } else {
+            1.0
+        };
+        let bounds = (minimum / scale, maximum / scale);
+        (scale.is_finite() && scale > 0.0 && bounds.0.is_finite() && bounds.1.is_finite())
+            .then_some(bounds)
+    }
+}
+
 /// One normalized presentation subgroup.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConfigurationSubgroup {

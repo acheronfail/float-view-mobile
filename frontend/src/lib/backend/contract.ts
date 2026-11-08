@@ -489,6 +489,9 @@ export interface RefloatConfigurationField {
   precision: number | null;
   /** Multiplier from firmware units to editor units. */
   editorScale: number;
+  /** Canonical numeric encoding limits, independent of the XML editor bounds. */
+  wireMinimum: number | null;
+  wireMaximum: number | null;
   /** Whole percentages of the maximum absolute bound. */
   editAsPercentage: boolean;
   suffix: string;

@@ -140,6 +140,24 @@ fn every_audited_schema_matches_exact_source_evidence() {
         assert_eq!(kp.maximum, Some(40.0));
         assert_eq!(kp.scale, Some(10.0));
         assert_eq!(kp.editor_scale, 1.0);
+        assert_eq!(
+            schema
+                .fields
+                .iter()
+                .find(|f| f.name == "ki")
+                .unwrap()
+                .numeric_wire_bounds(),
+            Some((-0.32768, 0.32767))
+        );
+        assert_eq!(
+            schema
+                .fields
+                .iter()
+                .find(|f| f.name == "fault_adc_half_erpm")
+                .unwrap()
+                .numeric_wire_bounds(),
+            Some((0.0, 65535.0))
+        );
         assert!(!kp.edit_as_percentage);
         let brightness = schema
             .fields

@@ -47,6 +47,8 @@ const field = (
   step: null,
   precision: null,
   editorScale: 1,
+  wireMinimum: null,
+  wireMaximum: null,
   editAsPercentage: false,
   suffix: '',
   choices: [],
@@ -497,7 +499,15 @@ describe('VESC Tool numeric editor semantics', () => {
     expect(markup).toContain('value="50"');
   });
   it('matches mobile editor decimal rounding including signed half steps', () => {
-    const current = { ...brightness, editorScale: 1, minimum: -100, maximum: 100, precision: 1 };
+    const current = {
+      ...brightness,
+      editorScale: 1,
+      wireMinimum: null,
+      wireMaximum: null,
+      minimum: -100,
+      maximum: 100,
+      precision: 1,
+    };
     expect(refloatNumericInput(current, '18.19')).toBe('18.2');
     expect(refloatNumericInput(current, '1.25')).toBe('1.3');
     expect(refloatNumericInput(current, '-1.25')).toBe('-1.2');
@@ -509,7 +519,15 @@ describe('VESC Tool numeric editor semantics', () => {
     expect(refloatNumericInput(current, 'Infinity')).toBe('Infinity');
   });
   it('uses upstream percentage mode independently of editor scale', () => {
-    const duty = { ...brightness, editAsPercentage: true, editorScale: 1, step: 0.01, precision: 2 };
+    const duty = {
+      ...brightness,
+      editAsPercentage: true,
+      editorScale: 1,
+      wireMinimum: null,
+      wireMaximum: null,
+      step: 0.01,
+      precision: 2,
+    };
     expect(refloatNumericEditor(duty)).toMatchObject({ scale: 100, precision: 0, step: 1, maximum: 100 });
     expect(refloatNumericInput(duty, '85.4')).toBe('0.85');
     expect(formatRefloatValue({ type: 'double', value: 0.85 }, duty)).toBe('85 %');
@@ -531,5 +549,70 @@ describe('VESC Tool numeric editor semantics', () => {
     second.setNumericInput('brightness', refloatNumericInput(brightness, '60'));
     await second.write();
     expect(backend.writes.at(-1)!.values.brightness).toEqual({ type: 'double', value: 0.6 });
+  });
+});
+
+describe('controller encoding limits', () => {
+  const limited = field(
+    'count',
+    'integer',
+    { type: 'integer', value: 100 },
+    {
+      minimum: 0,
+      maximum: 100000,
+      wireMinimum: 0,
+      wireMaximum: 65535,
+    }
+  );
+  it('identifies the controller limit instead of allowing a generic write failure', () => {
+    expect(validateRefloatField(limited, { type: 'integer', value: 100000 })).toBe(
+      'This controller can store at most 65535. Enter this value or lower.'
+    );
+    expect(refloatNumericEditor(limited).maximum).toBe(65535);
+    expect(validateRefloatField(limited, { type: 'integer', value: 65535 })).toBeNull();
+    const narrower = { ...limited, minimum: 10, maximum: 500 };
+    expect(validateRefloatField(narrower, { type: 'integer', value: -1 })).toContain('at least 10.');
+    expect(validateRefloatField(narrower, { type: 'integer', value: 100000 })).toContain('at most 500.');
+  });
+  it('offers usable decimal corrections after editor rounding in displayed units', () => {
+    const gain = field(
+      'gain',
+      'double',
+      { type: 'double', value: 0 },
+      {
+        minimum: -0.5,
+        maximum: 0.5,
+        precision: 3,
+        wireMinimum: -0.32768,
+        wireMaximum: 0.32767,
+      }
+    );
+    expect(refloatNumericEditor(gain)).toMatchObject({ minimum: -0.327, maximum: 0.327 });
+    expect(validateRefloatField(gain, { type: 'double', value: 0.4 })).toContain('at most 0.327.');
+    expect(validateRefloatField(gain, { type: 'double', value: -0.4 })).toContain('at least -0.327.');
+    expect(refloatNumericInput(gain, '0.3274')).toBe('0.327');
+    expect(
+      validateRefloatField(gain, { type: 'double', value: Number(refloatNumericInput(gain, '0.32767')) })
+    ).not.toBeNull();
+    expect(validateRefloatField(gain, { type: 'double', value: 0.3275 })).toBeNull(); // Untouched values stay valid.
+    const percent = { ...gain, editorScale: 100, precision: 0, suffix: '%' };
+    expect(validateRefloatField(percent, { type: 'double', value: 0.4 })).toContain('at most 32 %');
+  });
+  it('keeps restored overflow visible and prevents submission until corrected', async () => {
+    const backend = new FakeBackend();
+    backend.pages[0]!.fields = backend.pages[0]!.fields.map((f) => (f.name === 'count' ? limited : f));
+    const first = new RefloatConfigurationController(backend, 'board');
+    await first.open();
+    first.setNumericInput('count', '100000');
+    await first.flush();
+    const second = new RefloatConfigurationController(backend, 'board');
+    await second.open();
+    expect(second.inputs.count).toBe('100000');
+    expect(second.validationErrors.count).toContain('65535');
+    expect(await second.write()).toBe(false);
+    expect(backend.writes).toHaveLength(0);
+    second.setNumericInput('count', '65535');
+    expect(await second.write()).toBe(true);
+    expect(backend.writes[0]!.values.count).toEqual({ type: 'integer', value: 65535 });
   });
 });

@@ -61,6 +61,17 @@ describe('ApiClient', () => {
     client.close();
   });
 
+  it('translates generic write errors while retaining their original diagnostic envelope', async () => {
+    const { socket, client } = setup();
+    const result = client.request('refloat.configuration.write', {} as never);
+    const error = { code: 'invalid_state', message: 'Backend state does not permit the operation' };
+    socket.receive({ id: 1, error });
+    await expect(result).rejects.toMatchObject({ code: 'invalid_state', error, method: 'refloat.configuration.write' });
+    await expect(result).rejects.toThrow('read current values');
+    await expect(result).rejects.not.toThrow('Backend state');
+    client.close();
+  });
+
   it('publishes authoritative state events and supports unsubscribe', () => {
     const { socket, client } = setup();
     const revisions: number[] = [];

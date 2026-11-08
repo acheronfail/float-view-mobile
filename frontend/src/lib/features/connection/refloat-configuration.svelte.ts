@@ -184,7 +184,10 @@ export class RefloatConfigurationController {
     if (this.incompatible) return 'This draft uses a different firmware or schema. Read current values to replace it.';
     if (this.source !== 'current') return 'You are viewing firmware defaults. Read current values before writing.';
     if (!this.fresh || !this.summary?.currentLoaded) return 'Read current values before writing.';
-    if (Object.keys(this.validationErrors).length) return 'Fix the highlighted fields before writing.';
+    const invalid = this.validationErrors;
+    const names = this.fields.filter((field) => invalid[field.name]).map(refloatConfigurationFieldLabel);
+    if (names.length)
+      return `Correct ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more settings` : ''} before writing.`;
     if (!this.summary?.writable) return 'Writing is unavailable. Refresh the board configuration before retrying.';
     return null;
   }
@@ -406,6 +409,18 @@ export function validateRefloatField(
   value: RefloatConfigurationValue | undefined
 ): string | null {
   if (!value) return 'A value is required.';
+  if (
+    ((field.type === 'double' && value.type === 'double') ||
+      (field.type === 'integer' && value.type === 'integer' && Number.isSafeInteger(value.value))) &&
+    Number.isFinite(value.value)
+  ) {
+    const editor = refloatNumericEditor(field);
+    const unit = editor.suffix ? ` ${editor.suffix}` : '';
+    if (field.wireMaximum !== null && value.value > field.wireMaximum)
+      return `This controller can store at most ${editor.maximum}${unit}. Enter this value or lower.`;
+    if (field.wireMinimum !== null && value.value < field.wireMinimum)
+      return `This controller can store at least ${editor.minimum}${unit}. Enter this value or higher.`;
+  }
   if (field.type === 'double') {
     if (value.type !== 'double' || !Number.isFinite(value.value)) return 'Enter a finite number.';
     if (field.minimum !== null && value.value < field.minimum) return `Minimum ${refloatNumericEditor(field).minimum}.`;
@@ -443,11 +458,24 @@ export function sameRefloatIdentity(left: RefloatConfigurationIdentity, right: R
 export function refloatNumericEditor(field: RefloatConfigurationField) {
   const maximum = Math.max(Math.abs(field.minimum ?? 0), Math.abs(field.maximum ?? 0));
   const scale = field.editAsPercentage ? 100 / maximum : field.editorScale;
+  const precision = field.editAsPercentage ? 0 : field.precision;
+  const factor = 10 ** (precision ?? 0);
+  // Offer corrections that remain inside the encoding range after editor rounding.
+  const wireMinimum = field.wireMinimum === null ? null : Math.ceil(field.wireMinimum * scale * factor) / factor;
+  const wireMaximum = field.wireMaximum === null ? null : Math.floor(field.wireMaximum * scale * factor) / factor;
+  const minimum = Math.max(field.minimum === null ? -Infinity : field.minimum * scale, wireMinimum ?? -Infinity);
+  const upper = Math.min(field.maximum === null ? Infinity : field.maximum * scale, wireMaximum ?? Infinity);
   return {
     scale,
-    minimum: field.minimum === null ? undefined : field.minimum * scale,
-    maximum: field.maximum === null ? undefined : field.maximum * scale,
-    precision: field.editAsPercentage ? 0 : field.precision,
+    minimum: Number.isFinite(minimum)
+      ? precision === null
+        ? minimum
+        : Math.ceil(minimum * factor) / factor
+      : undefined,
+    maximum: Number.isFinite(upper) ? (precision === null ? upper : Math.floor(upper * factor) / factor) : undefined,
+    wireMinimum,
+    wireMaximum,
+    precision,
     step: field.editAsPercentage ? 1 : (field.step ?? (field.type === 'double' ? 'any' : 1)),
     suffix: field.editAsPercentage ? '%' : field.suffix.trim(),
   };
@@ -474,8 +502,8 @@ export function refloatNumericInput(field: RefloatConfigurationField, input: str
   let normalized = number;
   // Keep invalid values invalid instead of rounding them into the allowed range.
   if (
-    (editor.minimum === undefined || number >= editor.minimum) &&
-    (editor.maximum === undefined || number <= editor.maximum) &&
+    (field.minimum === null || number / editor.scale >= field.minimum) &&
+    (field.maximum === null || number / editor.scale <= field.maximum) &&
     editor.precision !== null
   ) {
     const factor = 10 ** editor.precision;

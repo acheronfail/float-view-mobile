@@ -1500,6 +1500,10 @@ export async function exerciseRefloatConfiguration(
       assert.equal(typeof field.tunable, 'boolean', 'schema field is missing its Tune eligibility');
       assert.ok(Number.isFinite(field.editorScale) && field.editorScale > 0, 'missing editor scale');
       assert.equal(typeof field.editAsPercentage, 'boolean', 'missing editor mode');
+      for (const bound of [field.wireMinimum, field.wireMaximum])
+        assert.ok(bound === null || Number.isFinite(bound), 'missing encoding bound');
+      if (field.type === 'double' || field.type === 'integer')
+        assert.ok(field.wireMinimum !== null && field.wireMaximum !== null);
       assert.ok(
         field.heading === null || (typeof field.heading === 'string' && field.heading.trim().length > 0),
         'schema field is missing valid subsection context'
@@ -1528,6 +1532,9 @@ export async function exerciseRefloatConfiguration(
   const brightness = fields.find((field) => field.name === 'leds.front.brightness');
   if (brightness) {
     assert.equal(brightness.editorScale, 100);
+    assert.equal(brightness.wireMaximum, 3.2767);
+    assert.equal(fields.find((field) => field.name === 'ki')?.wireMaximum, 0.32767);
+    assert.equal(fields.find((field) => field.name === 'fault_adc_half_erpm')?.wireMaximum, 65535);
     assert.equal(brightness.precision, 0);
     assert.equal(brightness.step, 5);
   }

@@ -1,4 +1,5 @@
 import { requestFailures, type RequestFailureReporter } from './request-failures';
+import { backendErrorMessage } from './error-message';
 import { validUiCheckpoint } from './ui-checkpoint';
 import { validatePermissions } from './permissions';
 import { validRecordingBreaks } from './recording-breaks';
@@ -21,8 +22,11 @@ type PendingRequest = {
 };
 
 export class ApiRequestError extends Error {
-  constructor(readonly error: BackendError) {
-    super(error.message);
+  constructor(
+    readonly error: BackendError,
+    readonly method?: BackendMethod
+  ) {
+    super(backendErrorMessage(error, method));
     this.name = 'ApiRequestError';
   }
 
@@ -200,7 +204,7 @@ export class ApiClient {
     if (!request) return;
     this.pending.delete(envelope.id!);
     clearTimeout(request.timeout);
-    if ('error' in envelope && envelope.error) request.reject(new ApiRequestError(envelope.error));
+    if ('error' in envelope && envelope.error) request.reject(new ApiRequestError(envelope.error, request.method));
     else if ('result' in envelope) {
       try {
         if (request.method === 'uiState.get' && envelope.result !== null && !validUiCheckpoint(envelope.result))

@@ -14,6 +14,8 @@ const field: RefloatConfigurationField = {
   step: 0.1,
   precision: 1,
   editorScale: 1,
+  wireMinimum: null,
+  wireMaximum: null,
   editAsPercentage: false,
   suffix: 'A',
   choices: [],

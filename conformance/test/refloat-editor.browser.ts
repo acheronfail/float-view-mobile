@@ -243,7 +243,15 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           // Exercise the same scaled, whole-number editor metadata as brightness.
           const numeric = envelope.result?.fields?.find((field: { name: string }) => field.name === 'tiltback_duty');
           if (numeric)
-            Object.assign(numeric, { editorScale: 100, editAsPercentage: false, precision: 0, step: 5, suffix: '%' });
+            Object.assign(numeric, {
+              editorScale: 100,
+              editAsPercentage: false,
+              precision: 0,
+              step: 5,
+              suffix: '%',
+              wireMinimum: 0,
+              wireMaximum: 0.9,
+            });
           if (envelope.result && 'writeBlockReason' in envelope.result)
             envelope.result.writeBlockReason = injectedBlockReason;
           socket.send(JSON.stringify(envelope));
@@ -261,7 +269,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                   error: {
                     code: writeFailure,
                     message:
-                      writeFailure === 'unavailable' ? 'Backend service is unavailable' : 'Configuration test failure',
+                      writeFailure === 'unavailable'
+                        ? 'Backend service is unavailable'
+                        : 'Backend state does not permit the operation',
                   },
                 })
               );
@@ -287,7 +297,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
       const input = page.getByRole('spinbutton', { name: 'Duty Tiltback', exact: true });
       assert.equal(await input.inputValue(), '80');
-      assert.equal(await input.getAttribute('max'), '100');
+      assert.equal(await input.getAttribute('max'), '90');
+      await input.fill('95');
+      await page
+        .getByText('This controller can store at most 90 %. Enter this value or lower.', { exact: true })
+        .waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Write configuration', exact: true }).isDisabled(), true);
+      assert.equal(writes, 0, 'overflow sent a write request');
+      await input.fill('80');
       assert.equal(await input.getAttribute('step'), '5');
       await input.press('ArrowUp');
       await input.blur();
@@ -349,7 +366,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await confirm.tap();
       const alert = dialog.getByRole('alert');
       await alert.waitFor();
-      assert.equal(await alert.textContent(), 'Configuration test failure');
+      assert.match((await alert.textContent()) ?? '', /Check that the board is connected, stopped and ready/);
+      assert.doesNotMatch((await alert.textContent()) ?? '', /Backend state/);
       const bounds = await alert.boundingBox();
       assert.ok(bounds && bounds.y >= 0 && bounds.y + bounds.height <= 400, 'write error is outside the viewport');
       assert.equal(await scroller.evaluate((el) => el.scrollTop), scrollTop);
@@ -357,7 +375,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).tap();
       await dialog.waitFor({ state: 'hidden' });
       assert.equal(await input.inputValue(), '85');
-      const retainedFailure = page.getByRole('alert').filter({ hasText: 'Write could not be confirmed.' });
+      const retainedFailure = page
+        .getByRole('dialog', { name: 'Configure Refloat', exact: true })
+        .getByRole('alert')
+        .filter({ hasText: 'Write could not be confirmed.' });
       await retainedFailure.waitFor();
       const failureBounds = await retainedFailure.boundingBox();
       assert.ok(failureBounds && failureBounds.y >= 0 && failureBounds.y + failureBounds.height <= 400);
@@ -365,7 +386,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await open.tap();
       assert.equal(
         await dialog.getByRole('alert').textContent(),
-        'Configuration test failure',
+        'The configuration write could not be confirmed. Check that the board is connected, stopped and ready, then read current values before trying again.',
         'reopening lost the previous failure'
       );
       writeFailure = 'unavailable';

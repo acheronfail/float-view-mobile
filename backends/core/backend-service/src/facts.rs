@@ -106,7 +106,7 @@ pub enum ConfigurationValue {
 record!(ConfigurationValues { revision: u64, source: String, values: BTreeMap<String, ConfigurationValue> });
 record!(ConfigurationField {
     name: String, long_name: String, field_type: u8, wire_type: Option<u8>, default_value: ConfigurationValue,
-    minimum: Option<f64>, maximum: Option<f64>, step: Option<f64>, precision: Option<u32>, editor_scale: f64, edit_as_percentage: bool, scale: Option<f64>,
+    minimum: Option<f64>, maximum: Option<f64>, step: Option<f64>, precision: Option<u32>, editor_scale: f64, edit_as_percentage: bool, wire_minimum: Option<f64>, wire_maximum: Option<f64>, scale: Option<f64>,
     suffix: String, choices: Vec<String>, description: String, tunable: bool,
 });
 record!(ConfigurationSubgroup { name: String, fields: Vec<String> });

@@ -731,3 +731,60 @@ fn editor_metadata_defaults_and_invalid_values_are_explicit() {
         );
     }
 }
+
+#[test]
+fn advertised_numeric_limits_encode_and_adjacent_wire_values_overflow() {
+    for (kind, wire) in [
+        (FieldType::Decimal, WireType::Decimal16),
+        (FieldType::Decimal, WireType::Decimal32),
+        (FieldType::Integer, WireType::Uint8),
+        (FieldType::Integer, WireType::Int8),
+        (FieldType::Integer, WireType::Uint16),
+        (FieldType::Integer, WireType::Int16),
+        (FieldType::Integer, WireType::Uint32),
+        (FieldType::Integer, WireType::Int32),
+    ] {
+        let scale = if kind == FieldType::Decimal {
+            100.0
+        } else {
+            1.0
+        };
+        let field = test_field("x", kind, Some(wire), None, None, Some(scale), &[]);
+        let (minimum, maximum) = field.numeric_wire_bounds().unwrap();
+        let schema = ConfigurationSchema {
+            fingerprint: String::new(),
+            wire_signature: 0,
+            fields: vec![field],
+            groups: vec![],
+        };
+        for number in [minimum, maximum] {
+            let value = if kind == FieldType::Decimal {
+                ConfigurationValue::Decimal(number)
+            } else {
+                ConfigurationValue::Integer(number as i64)
+            };
+            assert!(
+                encode_values(&[("x".into(), value)], &schema).is_ok(),
+                "{wire:?} {number}"
+            );
+        }
+        for number in [minimum - 1.0 / scale, maximum + 1.0 / scale] {
+            let value = if kind == FieldType::Decimal {
+                ConfigurationValue::Decimal(number)
+            } else {
+                ConfigurationValue::Integer(number as i64)
+            };
+            assert_eq!(
+                encode_values(&[("x".into(), value)], &schema),
+                Err(ConfigurationError::InvalidValue)
+            );
+        }
+    }
+    for field in all_types_schema()
+        .fields
+        .iter()
+        .filter(|f| !matches!(f.field_type, FieldType::Decimal | FieldType::Integer))
+    {
+        assert_eq!(field.numeric_wire_bounds(), None);
+    }
+}
