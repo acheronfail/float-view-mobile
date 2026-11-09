@@ -32,12 +32,12 @@ Two upstream quirks matter when auditing identities:
 
 - VESC Express VBMS32 reports custom-module type `2`; hardware type alone neither
   identifies nor authorizes a BMS.
-- Audited stable Refloat releases can report a suffix repeating the patch number
-  because of upstream Makefile extraction. This is a specific audited case,
-  not permission to accept arbitrary suffixes, betas or future releases.
+- Stable Refloat releases can report a suffix repeating the patch number
+  because of upstream Makefile extraction. Only this exact artifact is normalized
+  within supported minors; arbitrary suffixes do not establish compatibility.
 
-Current beta2/beta3 support is temporary: replace live beta admission with stable 1.3.1
-after its audit, preserving supported saved histories and Tunes. The
+The [Refloat compatibility policy](../openspec/specs/vesc-device-connection/spec.md#requirement-stable-refloat-minor-compatibility)
+owns stable minor admission and exact prerelease exceptions. The
 [beta2 checkpoint](../conformance/physical-checkpoints/refloat-1-3-1-beta2.md) and
 [beta3 checkpoint](../conformance/physical-checkpoints/refloat-1-3-1-beta3.md)
 own their verification outcomes.

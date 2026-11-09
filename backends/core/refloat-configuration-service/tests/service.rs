@@ -21,7 +21,7 @@ fn bytes(relative: &str) -> Vec<u8> {
 // Expected shared test evidence, independent of runtime release admission.
 fn fixture_version(version: &str) -> &str {
     match version {
-        "1.3.1-beta3" | "1.3.1" => "1.3.1-beta2",
+        "1.3.1-beta3" | "1.3.1" | "1.3.2" => "1.3.1-beta2",
         other => other,
     }
 }
@@ -193,66 +193,68 @@ fn cache_miss_corruption_and_full_paging_emit_atomic_cache_decisions() {
 
 #[test]
 fn rounded_write_is_verified_against_wire_values_instead_of_submitted_precision() {
-    let route = Route(42);
-    let generation = Generation(9);
-    let mut service = load_current("1.3.1", route, generation);
-    let identity = service.snapshot().identity.unwrap();
-    let current = service.snapshot().current.unwrap();
-    let mut draft = current.values.clone();
-    for (name, value) in &mut draft {
-        if name == "kp2" {
-            *value = ConfigurationValue::Decimal(1.091);
-        } else if name == "meta.is_default" {
-            *value = ConfigurationValue::Boolean(false);
+    for version in ["1.3.1", "1.3.2"] {
+        let route = Route(42);
+        let generation = Generation(9);
+        let mut service = load_current(version, route, generation);
+        let identity = service.snapshot().identity.unwrap();
+        let current = service.snapshot().current.unwrap();
+        let mut draft = current.values.clone();
+        for (name, value) in &mut draft {
+            if name == "kp2" {
+                *value = ConfigurationValue::Decimal(1.091);
+            } else if name == "meta.is_default" {
+                *value = ConfigurationValue::Boolean(false);
+            }
         }
+        let write = service
+            .request_write(
+                &identity.package_version,
+                identity.fingerprint,
+                identity.wire_signature,
+                current.revision,
+                &draft,
+            )
+            .unwrap();
+        let Some(RequestEffect::Write {
+            payload, operation, ..
+        }) = write.request
+        else {
+            panic!("expected write");
+        };
+        let canonical = decode_values(&payload, service.loaded_schema().unwrap()).unwrap();
+        assert_eq!(
+            canonical.iter().find(|(name, _)| name == "kp2").unwrap().1,
+            ConfigurationValue::Decimal(1.09)
+        );
+        service
+            .accept(
+                Response::WriteAcknowledgement,
+                RequestContext::Write {
+                    route,
+                    index: 0,
+                    operation,
+                },
+                generation,
+            )
+            .unwrap();
+        service
+            .accept(
+                Response::Values {
+                    command: ValuesCommand::Current,
+                    index: 0,
+                    bytes: payload,
+                },
+                RequestContext::Verification {
+                    route,
+                    index: 0,
+                    operation,
+                },
+                generation,
+            )
+            .unwrap();
+        assert_eq!(service.snapshot().current.unwrap().values, canonical);
     }
-    let write = service
-        .request_write(
-            identity.package_version,
-            identity.fingerprint,
-            identity.wire_signature,
-            current.revision,
-            &draft,
-        )
-        .unwrap();
-    let Some(RequestEffect::Write {
-        payload, operation, ..
-    }) = write.request
-    else {
-        panic!("expected write");
-    };
-    let canonical = decode_values(&payload, service.loaded_schema().unwrap()).unwrap();
-    assert_eq!(
-        canonical.iter().find(|(name, _)| name == "kp2").unwrap().1,
-        ConfigurationValue::Decimal(1.09)
-    );
-    service
-        .accept(
-            Response::WriteAcknowledgement,
-            RequestContext::Write {
-                route,
-                index: 0,
-                operation,
-            },
-            generation,
-        )
-        .unwrap();
-    service
-        .accept(
-            Response::Values {
-                command: ValuesCommand::Current,
-                index: 0,
-                bytes: payload,
-            },
-            RequestContext::Verification {
-                route,
-                index: 0,
-                operation,
-            },
-            generation,
-        )
-        .unwrap();
-    assert_eq!(service.snapshot().current.unwrap().values, canonical);
 }
 
 #[test]
@@ -313,7 +315,7 @@ fn selected_native_read_default_write_verify_and_conflict_transitions_match() {
     );
     let write = service
         .request_write(
-            identity.package_version,
+            &identity.package_version,
             identity.fingerprint,
             identity.wire_signature,
             base,
@@ -366,7 +368,7 @@ fn selected_native_read_default_write_verify_and_conflict_transitions_match() {
     let current = service.snapshot().current.expect("current");
     let write = service
         .request_write(
-            identity.package_version,
+            &identity.package_version,
             identity.fingerprint,
             identity.wire_signature,
             current.revision,
@@ -513,4 +515,78 @@ fn unaudited_schema_retains_only_its_observed_identity_until_reset() {
     assert!(snapshot.current.is_none());
     service.reset();
     assert!(service.snapshot().observed_schema.is_none());
+}
+
+#[test]
+fn stable_minor_schema_admission_retains_observed_patch_and_rejects_other_families() {
+    for (version, fixture) in [
+        ("1.0.255", "1.0.1"),
+        ("1.1.255", "1.1.2"),
+        ("1.2.255", "1.2.3"),
+        ("1.3.2", "1.3.1-beta2"),
+    ] {
+        let compressed = bytes(&format!("schemas/{fixture}.qcompress"));
+        let schema = decode_qt_compressed(&compressed).unwrap();
+        assert!(resolve_catalog(version, &schema).is_some());
+        for invalid in ["1.4.0", "2.0.0", "1.3.2-beta4", "1.03.2"] {
+            assert!(resolve_catalog(invalid, &schema).is_none());
+        }
+        let mut altered = schema.clone();
+        altered.fingerprint = "a".repeat(64);
+        assert!(resolve_catalog(version, &altered).is_none());
+        altered = schema.clone();
+        altered.wire_signature ^= 1;
+        assert!(resolve_catalog(version, &altered).is_none());
+        for cached in [false, true] {
+            let mut service = ConfigurationService::new();
+            let mut transition = service.begin(facts(
+                version,
+                Route(42),
+                Generation(2),
+                cached.then(|| compressed.clone()),
+            ));
+            if !cached {
+                loop {
+                    let Some(RequestEffect::SchemaChunk {
+                        route,
+                        length,
+                        offset,
+                        operation,
+                    }) = transition.request
+                    else {
+                        panic!("schema page")
+                    };
+                    let end = (offset + length).min(compressed.len());
+                    transition = service
+                        .accept(
+                            Response::SchemaChunk {
+                                index: 0,
+                                total: compressed.len(),
+                                offset,
+                                bytes: compressed[offset..end].to_vec(),
+                            },
+                            RequestContext::Schema {
+                                route,
+                                index: 0,
+                                offset,
+                                operation,
+                            },
+                            Generation(2),
+                        )
+                        .unwrap();
+                    if end == compressed.len() {
+                        break;
+                    }
+                }
+            }
+            let snapshot = service.snapshot();
+            assert_eq!(snapshot.availability, Availability::Ready);
+            assert_eq!(snapshot.identity.unwrap().package_version, version);
+            if let Some(CacheEffect::Store { identity, .. }) = transition.cache {
+                assert_eq!(identity.package_version, version);
+            }
+        }
+    }
+    let schema = decode_qt_compressed(&bytes("schemas/1.2.3.qcompress")).unwrap();
+    assert!(resolve_catalog("1.3.2", &schema).is_none());
 }

@@ -1,5 +1,9 @@
 # Proposal
 
+## Stable-minor baseline
+
+The implemented `refloat-minor-version-support` policy accepts stable patches within 1.0.x–1.3.x under the maintainer's no-breaking-configuration contract. References here to unknown or unaudited firmware mean versions outside those supported stable minors and exact prerelease exceptions. Future implementation must preserve that full support; the limited read-only fallback applies only outside it. This proposal remains planning-only.
+
 ## Why
 
 Refloat marketing releases are too coarse a compatibility boundary. Beta3 reused beta2's protocols and fixtures, yet adding it still required exact release admission; removing those registrations after stable would strand otherwise working boards. Cosmetic schema edits also invalidate configuration despite leaving its behavior unchanged. Reuse verified behavior, admit compatible public reads independently, and disable only features whose semantics are unproven.

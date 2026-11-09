@@ -13,21 +13,7 @@ import { ConformanceClient } from '../src/client.ts';
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 const compatibility = {
   reportedVersion: '1.3.1-beta',
-  supportedVersions: [
-    '1.0.0',
-    '1.0.1',
-    '1.1.0',
-    '1.1.1',
-    '1.1.2',
-    '1.2.0',
-    '1.2.1',
-    '1.2.2',
-    '1.2.3',
-    '1.3.0',
-    '1.3.1-beta2',
-    '1.3.1-beta3',
-    '1.3.1',
-  ],
+  supportedVersions: ['1.0.x', '1.1.x', '1.2.x', '1.3.x', '1.3.1-beta2', '1.3.1-beta3'],
 };
 
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
@@ -45,7 +31,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const deviceId = scan.discoveredDevices[0]!.deviceId;
         await client.request('device.connect', { deviceId, trackingMode: 'guest' });
         await client.waitForState((s) => s.activeConnection?.state === 'ready');
-        simulateConnectionFailure('unsupported_refloat', 'Unsupported package', compatibility);
+        simulateConnectionFailure('unsupported_refloat', 'Unsupported package', {
+          ...compatibility,
+          reportedVersion: '1.4.0',
+        });
         const context = await browser.newContext({
           viewport: { width: 320, height: 568 },
           hasTouch: true,
@@ -85,7 +74,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.goto(`${endpoint.origin}/#/live`);
         const dialog = page.getByRole('alertdialog', { name: 'Refloat version unsupported', exact: true });
         await dialog.waitFor();
-        assert.match(await dialog.innerText(), /running Refloat 1\.3\.1-beta/);
+        assert.match(await dialog.innerText(), /running Refloat 1\.4\.0/);
         assert.equal(await page.getByText('Unsupported Refloat', { exact: true }).count(), 1);
         assert.equal(await page.getByText('Reconnecting', { exact: true }).count(), 0);
         assert.equal(await page.getByText('export diagnostic logs in Settings').count(), 0);
@@ -94,10 +83,25 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(await disclosure.getAttribute('aria-expanded'), 'false');
         await disclosure.tap();
         assert.equal(await disclosure.getAttribute('aria-expanded'), 'true');
-        assert.match(await dialog.innerText(), /1\.0\.0, 1\.0\.1/);
-        assert.match(await dialog.innerText(), /1\.3\.0/);
+        assert.match(await dialog.innerText(), /1\.0\.x, 1\.1\.x, 1\.2\.x, 1\.3\.x/);
+        assert.doesNotMatch(await dialog.innerText(), /beta|prerelease/i);
+        // Updating the same failed connection reveals beta guidance only for a beta board.
+        simulateConnectionFailure('unsupported_refloat', 'Unsupported package', compatibility);
+        await dialog.getByText(/running Refloat 1\.3\.1-beta/).waitFor();
+        assert.match(await dialog.innerText(), /Only the listed prereleases are supported/);
         assert.match(await dialog.innerText(), /1\.3\.1-beta2/);
         assert.match(await dialog.innerText(), /1\.3\.1-beta3/);
+        // Stable Makefile suffixes and release candidates must not reveal beta suggestions.
+        for (const reportedVersion of ['1.4.0', '1.4.0-0', '1.4.0-rc1']) {
+          simulateConnectionFailure('unsupported_refloat', 'Unsupported package', {
+            ...compatibility,
+            reportedVersion,
+          });
+          await dialog.getByText(`is running Refloat ${reportedVersion},`, { exact: false }).waitFor();
+          assert.doesNotMatch(await dialog.innerText(), /beta|prerelease/i);
+        }
+        simulateConnectionFailure('unsupported_refloat', 'Unsupported package', compatibility);
+        await dialog.getByText(/running Refloat 1\.3\.1-beta/).waitFor();
         const back = dialog.getByRole('button', { name: 'Back to boards', exact: true });
         const bounds = await back.boundingBox();
         assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= 320 && bounds.y + bounds.height <= 568);

@@ -96,7 +96,7 @@ pub fn cache_identity(firmware: &FirmwareFacts, reported_version: &str) -> Optio
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SchemaIdentity {
     pub package_name: &'static str,
-    pub package_version: &'static str,
+    pub package_version: String,
     pub fingerprint: &'static str,
     pub wire_signature: u32,
 }
@@ -178,18 +178,29 @@ pub const CATALOG: &[CatalogEntry] = &[
     },
 ];
 
-/// Resolve a reported release only when its complete audited identity matches.
+/// Stable patches share audited schemas within their minor; prereleases stay exact.
 #[must_use]
 pub fn resolve_catalog(
     reported_version: &str,
     schema: &ConfigurationSchema,
 ) -> Option<CatalogEntry> {
-    CATALOG.iter().copied().find(|entry| {
-        (entry.version == reported_version
-            || (reported_version == "1.0" && entry.version.starts_with("1.0.")))
-            && entry.fingerprint == schema.fingerprint
-            && entry.wire_signature == schema.wire_signature
-    })
+    use float_view_refloat_compatibility::{VersionSuffix, parse_wire_version};
+    let observed = parse_wire_version(reported_version)?;
+    CATALOG
+        .iter()
+        .copied()
+        .filter(|entry| {
+            let same_stable_minor = parse_wire_version(entry.version).is_some_and(|source| {
+                observed.suffix == VersionSuffix::EMPTY
+                    && source.suffix == VersionSuffix::EMPTY
+                    && observed.major == source.major
+                    && observed.minor == source.minor
+            });
+            (entry.version == reported_version || same_stable_minor)
+                && entry.fingerprint == schema.fingerprint
+                && entry.wire_signature == schema.wire_signature
+        })
+        .min_by_key(|entry| entry.version != reported_version)
 }
 
 /// Published configuration availability.
@@ -470,7 +481,10 @@ impl ConfigurationService {
             {
                 self.observed_schema = Some(ObservedSchema::from(&decoded));
                 self.schema = Some(decoded);
-                self.identity = Some(schema_identity(entry));
+                self.identity = Some(schema_identity(
+                    entry,
+                    self.reported_version.as_deref().unwrap_or(""),
+                ));
                 self.availability = Availability::Ready;
                 if self.flywheel {
                     return Transition::NONE;
@@ -602,7 +616,7 @@ impl ConfigurationService {
         }
         let payload = encode_values(values, schema)?;
         let canonical = decode_values(&payload, schema)?;
-        self.expected_readback = Some(normalized(&canonical, identity.package_version));
+        self.expected_readback = Some(normalized(&canonical, &identity.package_version));
         self.pending = Some(PendingOperation::Write);
         let operation = self.start_operation();
         Ok(Transition::request(RequestEffect::Write {
@@ -762,7 +776,10 @@ impl ConfigurationService {
             return Err(ServiceError::UnauditedSchema);
         };
         self.schema = Some(decoded);
-        self.identity = Some(schema_identity(entry));
+        self.identity = Some(schema_identity(
+            entry,
+            self.reported_version.as_deref().unwrap_or(""),
+        ));
         self.pending = None;
         self.operation = None;
         self.availability = Availability::Ready;
@@ -921,10 +938,15 @@ impl ConfigurationService {
     }
 }
 
-fn schema_identity(entry: CatalogEntry) -> SchemaIdentity {
+fn schema_identity(entry: CatalogEntry, observed: &str) -> SchemaIdentity {
     SchemaIdentity {
         package_name: "refloat",
-        package_version: entry.version,
+        package_version: if observed == "1.0" {
+            entry.version
+        } else {
+            observed
+        }
+        .to_owned(),
         fingerprint: entry.fingerprint,
         wire_signature: entry.wire_signature,
     }

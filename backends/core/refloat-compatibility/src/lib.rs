@@ -608,21 +608,55 @@ pub fn decode_info_capabilities(payload: &[u8]) -> Result<u32, CompatibilityErro
     ))
 }
 
-/// Parse only exact canonical wire-identity text, without semantic-version ranges.
+/// User-facing stable minor ranges and exact prerelease exceptions.
+pub const SUPPORTED_VERSIONS: [&str; 6] = [
+    "1.0.x",
+    "1.1.x",
+    "1.2.x",
+    "1.3.x",
+    "1.3.1-beta2",
+    "1.3.1-beta3",
+];
+
+/// Parse a canonical supported observed identity, never a range or alias.
 #[must_use]
 pub fn parse_wire_version(text: &str) -> Option<WireVersion> {
-    COMPATIBILITY_ENTRIES
-        .iter()
-        .find(|entry| entry.wire.to_string() == text)
-        .map(|entry| entry.wire)
+    if text.len() > 32 {
+        return None;
+    }
+    if text == "1.0" {
+        return Some(WireVersion::legacy(1, 0));
+    }
+    let (numbers, suffix) = text.split_once('-').unwrap_or((text, ""));
+    let mut parts = numbers.split('.');
+    let version = WireVersion::patched(
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    )
+    .with_suffix(VersionSuffix::new(suffix)?);
+    if parts.next().is_some() || version.to_string() != text {
+        return None;
+    }
+    compatibility(version).map(|_| version)
 }
 
-/// Look up the exact supported profile for one structural wire identity.
+/// Stable patch releases share a minor contract. Prereleases remain exact.
+/// Source entries retain evidence and the 1.3.1 IMU-timeout capability boundary.
 #[must_use]
 pub fn compatibility(version: WireVersion) -> Option<CompatibilityProfile> {
     COMPATIBILITY_ENTRIES
         .iter()
-        .find(|entry| entry.wire == version)
+        .filter(|entry| match version.patch {
+            Some(patch) if version.suffix == VersionSuffix::EMPTY => {
+                entry.wire.suffix == VersionSuffix::EMPTY
+                    && entry.wire.major == version.major
+                    && entry.wire.minor == version.minor
+                    && entry.source.patch <= patch
+            }
+            _ => entry.wire == version,
+        })
+        .max_by_key(|entry| entry.source.patch)
         .map(|entry| CompatibilityProfile {
             imu_timeout_available: entry.imu_timeout_available,
             telemetry: entry.telemetry,
@@ -891,7 +925,7 @@ mod tests {
             ((1, 3, 0), "1"),
             ((1, 2, 3), "0"),
             ((1, 3, 1), "0"),
-            ((1, 3, 2), "2"),
+            ((1, 4, 2), "2"),
             ((2, 0, 0), "0"),
         ] {
             let mut payload = info_v2(version.0, version.1, version.2);
@@ -1110,16 +1144,57 @@ mod tests {
             assert_eq!(version.to_string(), text);
             assert!(compatibility(version).is_some());
         }
-        for text in ["1.0.0", "1.2", "1.2.4", "1.2.3-beta2", "^1.2.3", ">=1.1"] {
+        for text in [
+            "1.2",
+            "1.4.0",
+            "1.2.3-beta2",
+            "^1.2.3",
+            ">=1.1",
+            "1.2.00",
+            "1.2.256",
+            "1.2.3-",
+        ] {
             assert_eq!(parse_wire_version(text), None);
         }
         for version in [
             WireVersion::legacy(1, 1),
-            WireVersion::patched(1, 0, 0),
-            WireVersion::patched(1, 2, 4),
-            WireVersion::patched(1, 3, 2),
+            WireVersion::patched(1, 4, 0),
+            WireVersion::patched(2, 0, 0),
         ] {
             assert_eq!(compatibility(version), None);
+        }
+    }
+
+    #[test]
+    fn every_stable_patch_uses_its_minor_profile_and_preserves_identity() {
+        for minor in 0..=3 {
+            for patch in 0..=u8::MAX {
+                let version = WireVersion::patched(1, minor, patch);
+                let expected =
+                    WireVersion::patched(1, minor, if minor == 3 && patch > 0 { 1 } else { 0 });
+                assert_eq!(compatibility(version), compatibility(expected));
+                assert_eq!(
+                    compatibility(version).unwrap().imu_timeout_available,
+                    minor == 3 && patch >= 1,
+                );
+                assert_eq!(parse_wire_version(&version.to_string()), Some(version));
+                let record = serialize_compatibility(version, compatibility(version).unwrap());
+                assert_eq!(
+                    parse_compatibility_record(record.as_bytes()),
+                    Ok((version, compatibility(version).unwrap()))
+                );
+                let mut payload = info_v2(1, minor, patch);
+                assert_eq!(
+                    decode_info_record(&payload),
+                    CompatibilityRecordOutcome::Record(serialize_compatibility(
+                        version,
+                        compatibility(version).unwrap()
+                    ))
+                );
+                let suffix = patch.to_string();
+                payload[28..28 + suffix.len()].copy_from_slice(suffix.as_bytes());
+                assert_eq!(decode_info(&payload), Ok(version));
+            }
         }
     }
 
@@ -1301,7 +1376,7 @@ mod tests {
             CompatibilityRecordOutcome::UnsupportedInfoProtocol
         );
         assert_eq!(
-            decode_info_record(&info_v2(1, 2, 4)),
+            decode_info_record(&info_v2(1, 4, 0)),
             CompatibilityRecordOutcome::UnsupportedRelease
         );
         assert_eq!(
@@ -1316,7 +1391,9 @@ mod tests {
         else {
             panic!("stable identity must be accepted");
         };
-        for index in 0..COMPATIBILITY_RECORD_BYTES {
+        // A different patch byte is still a valid supported identity, not a
+        // malformed record. Every patch is round-tripped in the stable-minor test.
+        for index in (0..COMPATIBILITY_RECORD_BYTES).filter(|index| *index != 5) {
             let mut corrupt = *record.as_bytes();
             corrupt[index] ^= if index == 10 || index == 11 { 1 } else { 0xff };
             assert_eq!(

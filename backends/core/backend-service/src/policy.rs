@@ -2453,12 +2453,12 @@ mod tests {
             assert_eq!(compatibility.reported_version, "1.3.1-beta");
             assert_eq!(
                 compatibility.supported_versions.len(),
-                c::compatibility::COMPATIBILITY_ENTRIES.len()
+                c::compatibility::SUPPORTED_VERSIONS.len()
             );
             assert!(
                 compatibility
                     .supported_versions
-                    .contains(&"1.3.0".to_string())
+                    .contains(&"1.3.x".to_string())
             );
             t.fact(
                 Fact::Link {

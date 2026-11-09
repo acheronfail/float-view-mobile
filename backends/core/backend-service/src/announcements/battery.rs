@@ -44,7 +44,7 @@ impl Limits {
 }
 
 /// v1.0.x/1.1.x main.c compares pack settings directly. v1.2.0 through
-/// v1.3.0 motor_data.c multiplies values <10 by si_battery_cells (6.05+).
+/// v1.3.x motor_data.c multiplies values <10 by si_battery_cells (6.05+).
 /// Never apply the newer interpretation to older packages or infer cell count.
 pub(super) fn resolve(snapshot: &c::Snapshot) -> Option<(u64, Limits)> {
     let config = &snapshot.configuration;
@@ -60,12 +60,9 @@ pub(super) fn resolve(snapshot: &c::Snapshot) -> Option<(u64, Limits)> {
     {
         return None;
     }
-    let version = config.identity.as_ref()?.package_version;
-    let per_cell = match version {
-        "1.0.0" | "1.0.1" | "1.1.0" | "1.1.1" | "1.1.2" => false,
-        "1.2.0" | "1.2.1" | "1.2.2" | "1.2.3" | "1.3.0" => true,
-        _ => return None,
-    };
+    let version = &config.identity.as_ref()?.package_version;
+    let version = c::compatibility::parse_wire_version(version)?;
+    let per_cell = version.minor >= 2;
     let current = config.current.as_ref()?;
     if current.source != c::configuration::ValueSource::Current {
         return None;
@@ -406,7 +403,7 @@ mod tests {
         snapshot.configuration.availability = c::configuration::Availability::Ready;
         snapshot.configuration.identity = Some(c::configuration::SchemaIdentity {
             package_name: "refloat",
-            package_version: "1.2.0",
+            package_version: "1.2.0".into(),
             fingerprint: "test",
             wire_signature: 1,
         });
@@ -440,15 +437,29 @@ mod tests {
         });
         let expected = Limits::new(60., 86.).unwrap();
         for version in [
-            "1.0.0", "1.0.1", "1.1.0", "1.1.1", "1.1.2", "1.2.0", "1.2.1", "1.2.2", "1.2.3",
+            "1.0.0",
+            "1.0.1",
+            "1.1.0",
+            "1.1.1",
+            "1.1.2",
+            "1.2.0",
+            "1.2.1",
+            "1.2.2",
+            "1.2.3",
             "1.3.0",
+            "1.3.1",
+            "1.3.1-beta2",
+            "1.3.1-beta3",
+            "1.1.255",
+            "1.2.255",
+            "1.3.255",
         ] {
             snapshot
                 .configuration
                 .identity
                 .as_mut()
                 .unwrap()
-                .package_version = version;
+                .package_version = version.into();
             assert_eq!(resolve(&snapshot), Some((7, expected)), "{version}");
         }
         snapshot.configuration.current.as_mut().unwrap().values = vec![
@@ -486,7 +497,7 @@ mod tests {
             .identity
             .as_mut()
             .unwrap()
-            .package_version = "unknown";
+            .package_version = "unknown".into();
         assert!(resolve(&snapshot).is_none());
     }
 

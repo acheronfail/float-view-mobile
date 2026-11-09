@@ -243,12 +243,9 @@ impl BackendService {
                         .filter(|_| runtime.discovery.refloat_profile.is_none())
                         .map(|version| f::RefloatCompatibility {
                             reported_version: version.clone(),
-                            supported_versions: c::compatibility::COMPATIBILITY_ENTRIES
+                            supported_versions: c::compatibility::SUPPORTED_VERSIONS
                                 .iter()
-                                .map(|entry| {
-                                    let source = entry.source;
-                                    source.to_string()
-                                })
+                                .map(|version| (*version).to_owned())
                                 .collect(),
                         }),
                 }),

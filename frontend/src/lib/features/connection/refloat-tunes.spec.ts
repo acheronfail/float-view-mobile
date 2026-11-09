@@ -152,12 +152,18 @@ describe('Tune overwrite', () => {
 });
 
 describe('audited Refloat riding Tune eligibility', () => {
-  it.each(['1.3.1-beta2', '1.3.1-beta3', '1.3.1'])('permits the audited %s release', (version) => {
-    expect(supportsRidingTuneApply(version)).toBe(true);
-  });
-  it.each(['1.3.1-beta1', '1.3.1-beta4', '1.3.2', '1.3.1-beta3-extra'])('rejects unaudited %s', (version) => {
-    expect(supportsRidingTuneApply(version)).toBe(false);
-  });
+  it.each(['1.3.1-beta2', '1.3.1-beta3', '1.3.1', '1.1.255', '1.2.4', '1.3.2', '1.3.255'])(
+    'permits the audited %s release',
+    (version) => {
+      expect(supportsRidingTuneApply(version)).toBe(true);
+    }
+  );
+  it.each(['1.0', '1.0.2', '1.4.0', '2.0.0', '1.3.256', '1.3.02', '1.3.1-beta1', '1.3.1-beta4', '1.3.1-beta3-extra'])(
+    'rejects unaudited %s',
+    (version) => {
+      expect(supportsRidingTuneApply(version)).toBe(false);
+    }
+  );
 });
 
 describe('audited 1.3.1 Tune family', () => {

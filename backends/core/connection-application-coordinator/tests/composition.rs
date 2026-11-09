@@ -62,18 +62,20 @@ fn refloat_1_3_0_skips_layout_and_starts_selectable_float32_telemetry() {
 }
 
 #[test]
-fn refloat_audited_1_3_1_skips_layout_and_starts_selectable_float32_telemetry() {
-    for (suffix, version) in [
-        ("beta2", "1.3.1-beta2"),
-        ("beta3", "1.3.1-beta3"),
-        ("", "1.3.1"),
-        ("1", "1.3.1"),
+fn refloat_1_3_stable_patches_and_known_betas_start_selectable_float32_telemetry() {
+    for (patch, suffix, version) in [
+        (1, "beta2", "1.3.1-beta2"),
+        (1, "beta3", "1.3.1-beta3"),
+        (1, "", "1.3.1"),
+        (1, "1", "1.3.1"),
+        (2, "", "1.3.2"),
+        (255, "255", "1.3.255"),
     ] {
         let mut coordinator = ConnectionApplicationCoordinator::default();
         coordinator.apply(Command::Begin(begin_facts(10))).unwrap();
         receive(&mut coordinator, motor_configuration_payload(42), 20);
         let mut beta_info = selectable_info_payload();
-        beta_info[27] = 1;
+        beta_info[27] = patch;
         beta_info[28..48].fill(0);
         beta_info[28..28 + suffix.len()].copy_from_slice(suffix.as_bytes());
         let ready = receive(&mut coordinator, beta_info, 30);
@@ -98,6 +100,16 @@ fn refloat_audited_1_3_1_skips_layout_and_starts_selectable_float32_telemetry() 
             ),
         );
         assert_eq!(write(&effects).payload, [93, 0]);
+        assert_eq!(
+            coordinator
+                .snapshot()
+                .configuration
+                .identity
+                .as_ref()
+                .unwrap()
+                .package_version,
+            version
+        );
         let effects = receive(&mut coordinator, configuration_current_response_1_3_0(), 50);
         assert_eq!(write(&effects).payload, [14]);
         let effects = receive(
@@ -119,12 +131,14 @@ fn refloat_audited_1_3_1_skips_layout_and_starts_selectable_float32_telemetry() 
 }
 
 #[test]
-fn refloat_audited_1_3_1_is_admitted_through_express_can_without_a_new_wire_profile() {
-    for (suffix, version) in [
-        ("beta2", "1.3.1-beta2"),
-        ("beta3", "1.3.1-beta3"),
-        ("", "1.3.1"),
-        ("1", "1.3.1"),
+fn refloat_1_3_stable_patches_and_known_betas_are_admitted_through_express_can() {
+    for (patch, suffix, version) in [
+        (1, "beta2", "1.3.1-beta2"),
+        (1, "beta3", "1.3.1-beta3"),
+        (1, "", "1.3.1"),
+        (1, "1", "1.3.1"),
+        (2, "", "1.3.2"),
+        (255, "255", "1.3.255"),
     ] {
         let mut coordinator = ConnectionApplicationCoordinator::default();
         let mut facts = begin_facts(10);
@@ -133,7 +147,7 @@ fn refloat_audited_1_3_1_is_admitted_through_express_can_without_a_new_wire_prof
         receive(&mut coordinator, gateway_payload(1), 20);
         receive_can_motor(&mut coordinator, motor_configuration_payload(42), 1, 30);
         let mut info = selectable_info_payload();
-        info[27] = 1;
+        info[27] = patch;
         info[28..48].fill(0);
         info[28..28 + suffix.len()].copy_from_slice(suffix.as_bytes());
         receive(&mut coordinator, info, 40);

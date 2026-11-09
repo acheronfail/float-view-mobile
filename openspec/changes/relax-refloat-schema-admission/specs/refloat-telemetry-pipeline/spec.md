@@ -80,7 +80,7 @@ In addition to existing audited releases, the shared backend and simulator SHALL
 
 #### Scenario: Neighboring unaudited release
 
-- **WHEN** INFO reports a valid unknown beta1, beta4 or stable 1.3.2 identity, or a malformed suffix
+- **WHEN** INFO reports a valid unknown beta1, beta4 or stable 1.4.2 identity, or a malformed suffix
 - **THEN** valid unknown identities can attempt bounded public reads without write authority, while malformed INFO is rejected without telemetry or write traffic
 
 ### Requirement: Audited custom configuration exception

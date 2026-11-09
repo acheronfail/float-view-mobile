@@ -380,7 +380,7 @@ impl BackendService {
                 let actual = configuration.identity.ok_or(Failure::InvalidState)?;
                 if !tune.identity.compatible_with(&store::TuneIdentity {
                     package_name: "refloat".into(),
-                    package_version: actual.package_version.into(),
+                    package_version: actual.package_version.clone(),
                     schema_fingerprint: actual.fingerprint.into(),
                     wire_signature: actual.wire_signature,
                 }) {
@@ -397,7 +397,7 @@ impl BackendService {
                     c::Command::WriteConfiguration {
                         generation,
                         mutation: c::mutation::ConfigurationMutation::TuneApply,
-                        package_version: actual.package_version.into(),
+                        package_version: actual.package_version,
                         fingerprint: tune.identity.schema_fingerprint,
                         wire_signature: tune.identity.wire_signature,
                         base_revision,

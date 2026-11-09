@@ -125,7 +125,7 @@ export type ConnectionIssueCode =
 export interface RefloatCompatibility {
   /** At most 32 ASCII bytes, including the source-defined suffix. */
   reportedVersion: string;
-  /** At most 32 exact audited source releases for this backend build. */
+  /** At most 32 supported stable minor ranges (for example 1.3.x) and exact prereleases. */
   supportedVersions: string[];
 }
 

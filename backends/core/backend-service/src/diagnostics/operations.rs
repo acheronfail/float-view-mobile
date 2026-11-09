@@ -274,7 +274,7 @@ impl BackendService {
                 config
                     .identity
                     .as_ref()
-                    .map(|i| i.package_version == package_version)
+                    .map(|i| i.package_version == *package_version)
             );
             facts["schema_matches"] = json!(
                 config

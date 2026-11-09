@@ -21,6 +21,10 @@
     onexit: Activation;
   } = $props();
   let versionsOpen = $state(false);
+  const showBetas = $derived(compatibility.reportedVersion.includes('-beta'));
+  const supportedVersions = $derived(
+    compatibility.supportedVersions.filter((version) => showBetas || !version.includes('-'))
+  );
   $effect(() => {
     if (!open) versionsOpen = false;
   });
@@ -58,8 +62,11 @@
   {#if versionsOpen}
     <div id="supported-refloat-versions" class="mt-3 text-sm leading-6 text-muted">
       <p class="font-medium text-foreground">Supported by this Float View build:</p>
-      <p>{compatibility.supportedVersions.join(', ')}</p>
-      <p class="mt-2">Beta and other prerelease packages are not supported.</p>
+      <p>{supportedVersions.join(', ')}</p>
+      <p class="mt-2">
+        All stable patch releases in the listed minor versions are supported.
+        {#if showBetas}Only the listed prereleases are supported.{/if}
+      </p>
     </div>
   {/if}
 </ConfirmDialog>

@@ -2067,7 +2067,14 @@ export function assertState(state: AppState) {
       assert.match(compatibility.reportedVersion, /^[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[A-Za-z0-9.+-]+)?$/);
       assert.ok(compatibility.reportedVersion.length <= 32);
       assert.ok(compatibility.supportedVersions.length > 0 && compatibility.supportedVersions.length <= 32);
-      for (const version of compatibility.supportedVersions) assert.match(version, /^\d+\.\d+\.\d+$/);
+      assert.deepEqual(compatibility.supportedVersions, [
+        '1.0.x',
+        '1.1.x',
+        '1.2.x',
+        '1.3.x',
+        '1.3.1-beta2',
+        '1.3.1-beta3',
+      ]);
       assert.equal(active.activeSession, null);
     }
   }

@@ -1130,7 +1130,7 @@ mod tests {
         let identity = config.identity.unwrap();
         let current = config.current.unwrap();
         crate::operations::Operation::WriteConfiguration {
-            package_version: identity.package_version.into(),
+            package_version: identity.package_version,
             fingerprint: identity.fingerprint.into(),
             signature: identity.wire_signature,
             revision: current.revision,

@@ -414,6 +414,7 @@ dependencies = [
 name = "float-view-refloat-configuration-service"
 version = "0.1.0"
 dependencies = [
+ "float-view-refloat-compatibility",
  "float-view-refloat-configuration-codec",
 ]
 

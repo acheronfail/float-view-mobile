@@ -58,7 +58,7 @@ Update contract, client/mock, shared projection, both host integrations and cano
 
 ### 6. Keep maintenance proportional to changed behavior
 
-Retain exact audited beta2/beta3 mappings alongside audited stable 1.3.1. A new unknown beta4, stable 1.3.2 or stable 1.4.0 first tries the same public limited path without registration. A later audit can select shared verified profiles with a small mapping and focused evidence; only changed bytes/semantics warrant new profile code or fixture payloads. Stable branding alone neither upgrades an unknown release to verified nor removes known beta capability.
+Retain exact audited beta2/beta3 mappings alongside audited stable 1.3.1. A new unknown beta4, stable 1.4.2 or stable 1.4.0 first tries the same public limited path without registration. A later audit can select shared verified profiles with a small mapping and focused evidence; only changed bytes/semantics warrant new profile code or fixture payloads. Stable branding alone neither upgrades an unknown release to verified nor removes known beta capability.
 
 Extend the existing source-fixture generator/manifest with independently computed schema keys. Preserve verified byte reuse, source provenance and frozen supported-data fixtures. Represent hypothetical future identities and cosmetic variants as small bounded fixture transformations; do not copy full datasets or import production admission into the oracle. No generic overlay framework, release range or parallel registry is needed.
 
