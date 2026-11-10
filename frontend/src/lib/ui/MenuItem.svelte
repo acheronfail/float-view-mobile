@@ -45,7 +45,7 @@
 
 <button
   type="button"
-  class="flex w-full touch-pan-y flex-row flex-wrap items-center gap-2 px-4 py-3 text-left hover:bg-surface disabled:cursor-not-allowed disabled:hover:bg-transparent"
+  class="flex w-full touch-pan-y flex-row flex-wrap items-center gap-2 px-4 py-3 text-left hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
   class:text-muted={unavailable}
   class:text-danger={!unavailable && (appearance === 'destructive' || appearance === 'danger')}
   class:text-warning={!unavailable && appearance === 'warning'}
