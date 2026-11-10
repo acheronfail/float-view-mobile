@@ -219,6 +219,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         rideState = 'unknown';
         await applyDialog.getByRole('alert').waitFor();
         assert.equal(await confirmApply.isDisabled(), true, 'unsafe state changes must block confirmation');
+        assert.equal(await confirmApply.evaluate((element) => getComputedStyle(element).opacity), '0.5');
         rideState = 'riding';
         await page.waitForFunction(() =>
           Array.from(document.querySelectorAll('[role="alertdialog"] button')).some(
@@ -236,11 +237,36 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.deepEqual(applied.values['leds.on'], { type: 'boolean', value: false });
         await cruise.tap();
         await page.getByRole('button', { name: /^Cruise.*Active/ }).waitFor();
-        await applyDialog.getByText(/No differences\./).waitFor();
-        assert.equal(await confirmApply.isDisabled(), true);
+        const matching = page.getByRole('alertdialog', { name: 'Cruise is already active', exact: true });
+        await matching
+          .getByText('This saved tune already matches the board’s current tune.', { exact: true })
+          .waitFor();
+        assert.equal(await matching.getByRole('button', { name: 'Apply tune', exact: true }).count(), 0);
+        assert.equal(await matching.getByRole('button', { name: 'Cancel', exact: true }).count(), 0);
+        assert.equal(await matching.getByText(/cut out momentarily|Replace the board/).count(), 0);
         assert.equal(applies, 1, 'tapping the active Tune must not rewrite it');
+        await page.screenshot({
+          animations: 'disabled',
+          path: fileURLToPath(new URL(`${name}-already-active.png`, screenshots)),
+        });
+        const done = matching.getByRole('button', { name: 'Done', exact: true });
+        assert.equal(await done.evaluate((element) => element === document.activeElement), true);
+        await done.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
+        await done.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
+        assert.equal(await matching.isVisible(), true);
+        await done.tap();
+        await matching.waitFor({ state: 'hidden' });
+        assert.equal(await cruise.evaluate((element) => element === document.activeElement), true);
+        await page.keyboard.press('Enter');
+        await matching.waitFor();
+        await matching.getByRole('button', { name: 'Done', exact: true }).focus();
+        await page.keyboard.press('Enter');
+        await matching.waitFor({ state: 'hidden' });
+        await cruise.tap();
+        await matching.waitFor();
         await page.keyboard.press('Escape');
-        await applyDialog.waitFor({ state: 'hidden' });
+        await matching.waitFor({ state: 'hidden' });
+        assert.equal(applies, 1, 'dismissing matching Tune feedback must never apply');
         assert.equal(await cruise.evaluate((element) => element === document.activeElement), true);
         await page.getByRole('button', { name: /^Base/ }).tap();
         const baseApply = page.getByRole('alertdialog', { name: 'Apply Base?', exact: true });
@@ -513,7 +539,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await oldButton.waitFor();
       assert.equal(await page.getByRole('button', { name: 'View all saved tunes' }).count(), 0);
       assert.equal(await oldCard.getAttribute('data-compatible'), 'false');
-      assert.match((await oldButton.textContent()) ?? '', /Refloat 1.2.3.*Unavailable/s);
+      assert.match((await oldButton.textContent()) ?? '', /Refloat 1.2.x.*Unavailable/s);
       const screenshots = new URL('../generated/tune-library/', import.meta.url);
       await mkdir(screenshots, { recursive: true });
       const capture = async (state: string) => {
@@ -537,7 +563,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await info.count(), 0);
       await oldButton.focus();
       await page.keyboard.press('Enter');
-      await info.getByText('Requires Refloat 1.2.3. This board uses 1.3.0.', { exact: true }).waitFor();
+      await info.getByText('Requires Refloat 1.2.x. This board uses 1.3.0.', { exact: true }).waitFor();
       await capture('incompatible-dialog-mobile');
       assert.equal(applies, 0);
       await info.getByRole('button', { name: 'Done', exact: true }).tap();
@@ -701,6 +727,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const card = page.locator('[data-tune-id="patch-tune"]');
       await card.waitFor();
       assert.equal(await card.getAttribute('data-compatible'), 'true');
+      await card.getByText('Refloat 1.3.x', { exact: true }).waitFor();
       await page.getByRole('button', { name: 'Options for Patch tune', exact: true }).tap();
       const overwrite = page.getByRole('button', { name: 'Overwrite', exact: true });
       assert.equal(await overwrite.isEnabled(), true);
@@ -712,6 +739,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await overwriteDialog.waitFor({ state: 'hidden' });
       const saved = await client.request('refloat.tune.get', { tuneId: 'patch-tune' });
       assert.deepEqual(saved.identity, identity);
+      await card.getByText('Refloat 1.3.x', { exact: true }).waitFor();
+      await page.screenshot({
+        animations: 'disabled',
+        path: fileURLToPath(new URL(`../generated/tune-library/${name}-patch-family.png`, import.meta.url)),
+      });
       assert.deepEqual(saved.values['leds.on'], { type: 'boolean', value: true });
       await client.request('refloat.tune.update', {
         tuneId: saved.tuneId,

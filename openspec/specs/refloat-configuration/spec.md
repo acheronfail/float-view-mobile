@@ -199,6 +199,7 @@ Activating a compatible saved Tune SHALL open a confirmation before any applicat
 
 - **WHEN** the user cancels by button, backdrop, Escape or native Back, or inspects a matching Tune
 - **THEN** no application occurs and dismissal restores focus to the activating control
+- **AND** a matching Tune shows that it is already active, offers only Done and omits Apply, Cancel and mutation warnings
 
 ### Requirement: Preserve reviewed Tune application state
 
@@ -304,6 +305,12 @@ Exact stable 1.3.1 SHALL use the audited beta3 schema fingerprint, wire signatur
 ### Requirement: Bounded Tune family compatibility
 
 Stable patches within each supported 1.0.x–1.3.x minor SHALL share Tunes across audited schemas with equal wire signatures. Exact beta2/beta3 SHALL join 1.3.x. Stored stable versions and fingerprints SHALL remain unchanged; existing beta public-version normalization SHALL remain. Filtering and pagination SHALL use the same compatibility policy as apply and overwrite. Complete portable values MUST validate against the target schema before mutation.
+
+#### Scenario: Compatibility label on Tune cards
+
+- **WHEN** a saved Tune belongs to a supported stable minor family, including after overwrite from another patch
+- **THEN** its card displays the compatible range, such as Refloat 1.3.x, while its stored source identity remains unchanged
+- **AND** versions outside these families retain their exact label
 
 #### Scenario: Existing beta Tune on stable
 

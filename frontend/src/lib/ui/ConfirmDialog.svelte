@@ -20,6 +20,7 @@
     appearance = 'normal',
     busy = false,
     confirmDisabled = false,
+    showConfirm = true,
     error = null,
     onconfirm,
     oncancel,
@@ -38,6 +39,8 @@
     appearance?: DialogAppearance;
     busy?: boolean;
     confirmDisabled?: boolean;
+    /** Close-only feedback can retain this dialog and its focus handling. */
+    showConfirm?: boolean;
     error?: string | null;
     onconfirm: Activation;
     oncancel: Activation;
@@ -61,6 +64,10 @@
     return () => {
       void tick().then(() => previouslyFocused?.focus());
     };
+  });
+
+  $effect(() => {
+    if (open && !showConfirm) void tick().then(() => cancelButton?.focus());
   });
 
   function cancel() {
@@ -139,25 +146,25 @@
         <button
           bind:this={cancelButton}
           type="button"
-          class="touch-manipulation rounded-lg border border-outline px-4 py-2"
+          class="touch-manipulation rounded-lg border border-outline px-4 py-2 disabled:opacity-50"
           disabled={busy}
           onpointerdown={(event) => activateFromPointer(event, cancel)}
           onclick={(event) => activateFromKeyboardOrAssistiveClick(event, cancel)}>{cancelLabel}</button
         >
-        <button
-          type="button"
-          class="touch-manipulation rounded-lg px-4 py-2 font-medium"
-          class:bg-danger={appearance === 'destructive'}
-          class:text-on-danger={appearance === 'destructive'}
-          class:bg-warning={appearance === 'warning'}
-          class:text-on-warning={appearance === 'warning'}
-          class:bg-accent-fill={appearance === 'normal'}
-          class:text-on-accent={appearance === 'normal'}
-          disabled={busy || confirmDisabled}
-          onpointerdown={(event) => activateFromPointer(event, confirm)}
-          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, confirm)}
-          >{busy ? 'Working…' : confirmLabel}</button
-        >
+        {#if showConfirm}<button
+            type="button"
+            class="touch-manipulation rounded-lg px-4 py-2 font-medium disabled:opacity-50"
+            class:bg-danger={appearance === 'destructive'}
+            class:text-on-danger={appearance === 'destructive'}
+            class:bg-warning={appearance === 'warning'}
+            class:text-on-warning={appearance === 'warning'}
+            class:bg-accent-fill={appearance === 'normal'}
+            class:text-on-accent={appearance === 'normal'}
+            disabled={busy || confirmDisabled}
+            onpointerdown={(event) => activateFromPointer(event, confirm)}
+            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, confirm)}
+            >{busy ? 'Working…' : confirmLabel}</button
+          >{/if}
       </div>
     </div>
   </div>

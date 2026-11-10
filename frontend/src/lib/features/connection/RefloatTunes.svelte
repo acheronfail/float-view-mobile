@@ -42,7 +42,7 @@
     if (
       tuneCompatibilityVersion(identity.packageVersion) !== tuneCompatibilityVersion(current.identity.packageVersion)
     ) {
-      return `Requires Refloat ${identity.packageVersion}. This board uses ${current.identity.packageVersion}.`;
+      return `Requires Refloat ${tuneCompatibilityVersion(identity.packageVersion)}. This board uses ${current.identity.packageVersion}.`;
     }
     if (!sameRefloatTuneIdentity(identity, current.identity)) {
       return `This tune uses a different configuration and cannot be applied to this board.`;
@@ -120,6 +120,9 @@
     pendingApply?.current ? tuneChanges(pendingApply.current.values, pendingApply.tune.values) : []
   );
   const applyHasChanges = $derived(applyChanges.length > 0);
+  const applyMatchesCurrent = $derived(
+    !!pendingApply?.current && !applyHasChanges && !pendingApplyReason && !applyError
+  );
   let saveConfirmation = $state(false);
   let saving = $state(false);
   let overwriteConfirmation = $state(false);
@@ -520,7 +523,7 @@
                 class:border-outline={!!reason}
                 class:text-muted={!!reason}
                 class:border-accent={!reason}
-                class:text-accent={!reason}>Refloat {tune.identity.packageVersion}</span
+                class:text-accent={!reason}>Refloat {tuneCompatibilityVersion(tune.identity.packageVersion)}</span
               >
             </span>
             {#if tune.description}<span class="mt-1 block text-sm">{tune.description}</span>{/if}
@@ -595,10 +598,16 @@
   titleId="refloat-tune-apply-title"
   contentLabel="Apply tune comparison"
   returnFocus={pendingApply?.trigger}
-  title="Apply {pendingApply?.tune.name ?? 'tune'}?"
-  description={connection.latestSample?.rideState !== 'idle'
-    ? 'The board is not idle. Applying a tune can cause the board to cut out momentarily. Review the changes before applying.'
-    : 'Replace the board’s current tune with this saved tune.'}
+  title={applyMatchesCurrent
+    ? `${pendingApply?.tune.name ?? 'Tune'} is already active`
+    : `Apply ${pendingApply?.tune.name ?? 'tune'}?`}
+  description={applyMatchesCurrent
+    ? undefined
+    : connection.latestSample?.rideState !== 'idle'
+      ? 'The board is not idle. Applying a tune can cause the board to cut out momentarily. Review the changes before applying.'
+      : 'Replace the board’s current tune with this saved tune.'}
+  cancelLabel={applyMatchesCurrent ? 'Done' : 'Cancel'}
+  showConfirm={!applyMatchesCurrent}
   confirmLabel={pendingApply?.current ? 'Apply tune' : 'Retry read'}
   appearance={connection.latestSample?.rideState !== 'idle' ? 'warning' : 'normal'}
   busy={!!switchingTuneId || backendState.busy}
@@ -615,7 +624,7 @@
       {fields}
       changes={applyChanges}
       label="Tune differences"
-      emptyMessage="No differences. This saved tune already matches the board’s current tune."
+      emptyMessage="This saved tune already matches the board’s current tune."
       beforeLabel="Current board"
       afterLabel="Saved tune"
     />
