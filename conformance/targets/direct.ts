@@ -32,6 +32,7 @@ export type SpeechEffect = {
 export function makeDirectTarget(options?: {
   telemetry: TelemetrySource;
   refloatVersion?: RefloatVersion;
+  storageRoot?: string;
   onSpeech(speech: SpeechEffect): void;
 }): Target {
   let child: ChildProcessWithoutNullStreams | undefined;
@@ -205,7 +206,7 @@ export function makeDirectTarget(options?: {
         ],
         { stdio: 'inherit' }
       );
-      root = mkdtempSync(join(tmpdir(), 'float-view-direct-'));
+      root = options?.storageRoot ?? mkdtempSync(join(tmpdir(), 'float-view-direct-'));
       sequence = 0;
       request = 0;
       fixture.close();
@@ -326,7 +327,7 @@ export function makeDirectTarget(options?: {
         });
       child = undefined;
       endpoint = undefined;
-      if (root) rmSync(root, { recursive: true, force: true });
+      if (root && !options?.storageRoot) rmSync(root, { recursive: true, force: true });
       root = undefined;
     },
   };

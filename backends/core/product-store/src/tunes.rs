@@ -94,7 +94,7 @@ struct Cursor {
     updated: i64,
     id: String,
 }
-/// Audited Tune-only equivalence; observed firmware and editor identities stay exact.
+/// Existing saved-Tune beta normalization; stable patch identities stay exact.
 #[must_use]
 fn tune_package_version(version: &str) -> &str {
     match version {
@@ -102,21 +102,62 @@ fn tune_package_version(version: &str) -> &str {
         other => other,
     }
 }
+/// Supported stable minor, including the already-audited beta aliases.
+fn tune_minor(version: &str) -> Option<&str> {
+    let version = tune_package_version(version);
+    let (minor, patch) = version.rsplit_once('.')?;
+    if !matches!(minor, "1.0" | "1.1" | "1.2" | "1.3") {
+        return None;
+    }
+    let parsed = patch.parse::<u8>().ok()?;
+    (parsed.to_string() == patch).then_some(minor)
+}
+
 impl TuneIdentity {
     #[must_use]
     fn canonical(&self) -> Self {
         Self {
-            package_version: tune_package_version(&self.package_version).to_owned(),
+            package_version: tune_minor(&self.package_version).map_or_else(
+                || tune_package_version(&self.package_version).to_owned(),
+                |minor| format!("{minor}.0"),
+            ),
+            schema_fingerprint: self.compatible_fingerprints()[0].clone(),
             ..self.clone()
+        }
+    }
+    fn compatible_versions(&self) -> Vec<String> {
+        if let Some(minor) = tune_minor(&self.package_version) {
+            let mut versions: Vec<_> = (0..=255).map(|patch| format!("{minor}.{patch}")).collect();
+            if minor == "1.3" {
+                versions.extend(["1.3.1-beta2".into(), "1.3.1-beta3".into()]);
+            }
+            versions
+        } else {
+            vec![self.package_version.clone()]
+        }
+    }
+    fn compatible_fingerprints(&self) -> Vec<String> {
+        let Some(minor) = tune_minor(&self.package_version) else {
+            return vec![self.schema_fingerprint.clone()];
+        };
+        let mut fingerprints: Vec<_> = float_view_refloat_configuration_service::CATALOG
+            .iter()
+            .filter(|entry| {
+                tune_minor(entry.version) == Some(minor)
+                    && entry.wire_signature == self.wire_signature
+            })
+            .map(|entry| entry.fingerprint.to_owned())
+            .collect();
+        fingerprints.dedup();
+        if fingerprints.contains(&self.schema_fingerprint) {
+            fingerprints
+        } else {
+            vec![self.schema_fingerprint.clone()]
         }
     }
     #[must_use]
     pub fn compatible_with(&self, other: &Self) -> bool {
-        self.package_name == other.package_name
-            && tune_package_version(&self.package_version)
-                == tune_package_version(&other.package_version)
-            && self.schema_fingerprint == other.schema_fingerprint
-            && self.wire_signature == other.wire_signature
+        self.canonical() == other.canonical()
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -152,7 +193,10 @@ pub fn validate_tune_values(
         .filter(|field| is_tune_field(&field.name, schema))
         .map(|field| field.name.as_str())
         .collect();
-    if identity.schema_fingerprint != schema.fingerprint
+    if !identity
+        .compatible_fingerprints()
+        .iter()
+        .any(|fingerprint| fingerprint == &schema.fingerprint)
         || identity.wire_signature != schema.wire_signature
         || values.is_empty()
         || values.len() > codec::MAX_FIELDS
@@ -292,12 +336,16 @@ impl ProductStore {
         } else {
             ""
         };
-        let mut statement = self.catalog.prepare_cached(&format!("{SELECT} WHERE (?1 IS NULL OR (package_name=?1 AND (CASE package_version WHEN '1.3.1-beta2' THEN '1.3.1' WHEN '1.3.1-beta3' THEN '1.3.1' ELSE package_version END)=?2 AND schema_fingerprint=?3 AND wire_signature=?4)){cursor_filter} ORDER BY updated_at_ms DESC,configuration_id DESC LIMIT ?7"))?;
+        let mut statement = self.catalog.prepare_cached(&format!("{SELECT} WHERE (?1 IS NULL OR (package_name=?1 AND package_version IN (SELECT value FROM json_each(?2)) AND schema_fingerprint IN (SELECT value FROM json_each(?3)) AND wire_signature=?4)){cursor_filter} ORDER BY updated_at_ms DESC,configuration_id DESC LIMIT ?7"))?;
         let rows = statement.query_map(
             params![
                 identity.map(|i| &i.package_name),
-                identity.map(|i| tune_package_version(&i.package_version)),
-                identity.map(|i| &i.schema_fingerprint),
+                identity
+                    .map(|i| json(&i.compatible_versions(), 4096))
+                    .transpose()?,
+                identity
+                    .map(|i| json(&i.compatible_fingerprints(), 4096))
+                    .transpose()?,
                 identity.map(|i| i.wire_signature),
                 cursor.as_ref().map(|c| c.updated),
                 cursor.as_ref().map(|c| &c.id),

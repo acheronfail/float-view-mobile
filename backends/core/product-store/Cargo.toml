@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 float-view-session-sqlite = { path = "../session-sqlite" }
+float-view-refloat-configuration-service = { path = "../refloat-configuration-service" }
 float-view-refloat-configuration-codec = { path = "../refloat-configuration-codec" }
 rusqlite = { version = "0.37.0", features = ["bundled", "hooks", "backup"] }
 serde = { version = "1", features = ["derive"] }

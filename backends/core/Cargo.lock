@@ -383,6 +383,7 @@ dependencies = [
  "base64",
  "flate2",
  "float-view-refloat-configuration-codec",
+ "float-view-refloat-configuration-service",
  "float-view-refloat-telemetry-service",
  "float-view-session-sqlite",
  "getrandom",

@@ -38,7 +38,7 @@ For each audited stable Refloat 1.0.0–1.3.0 or exact 1.3.1-beta2 connection, t
 #### Scenario: Legacy wire signature collision
 
 - **WHEN** Refloat 1.0.0 and 1.0.1 have the same serialization signature but distinct audited full-schema metadata
-- **THEN** their schema fingerprints and saved-configuration namespaces remain distinct
+- **THEN** their schema fingerprints remain distinct while audited stable-minor Tunes may be shared with target-schema validation
 
 #### Scenario: Malicious expanded document
 
@@ -47,7 +47,7 @@ For each audited stable Refloat 1.0.0–1.3.0 or exact 1.3.1-beta2 connection, t
 
 #### Scenario: Unsupported package
 
-- **WHEN** an unaudited package, including another prerelease or stable 1.3.2, supplies a syntactically valid custom schema
+- **WHEN** an unaudited package, including another prerelease or stable 1.4.0, supplies a syntactically valid custom schema
 - **THEN** Float View does not use runtime parsing to broaden compatibility or enable configuration
 
 ### Requirement: Exact signed value codec
@@ -120,7 +120,7 @@ A Refloat configuration write SHALL require the active ready read/write connecti
 
 ### Requirement: Exact-version saved configurations
 
-Native persistence SHALL store bounded revisioned named Tunes with opaque ID, optional description, package name, Tune-family version, full-schema fingerprint, wire signature, typed values and timestamps. List/apply SHALL match family, fingerprint and signature. Only audited beta2/beta3/stable 1.3.1 share a family. Other versions SHALL stay isolated without automatic migration. Create/update/delete SHALL retain revision-conflict rules.
+Native persistence SHALL store bounded revisioned named Tunes with opaque ID, optional description, package name, Tune-family version, full-schema fingerprint, wire signature, typed values and timestamps. List/apply/overwrite SHALL match supported stable minor, audited schema equivalence and wire signature. Cross-minor and unknown-schema Tunes SHALL remain isolated. Stored stable versions and fingerprints SHALL remain unchanged. Create/update/delete SHALL retain revision-conflict rules.
 
 #### Scenario: Apply Tune while riding
 
@@ -140,7 +140,7 @@ Native persistence SHALL store bounded revisioned named Tunes with opaque ID, op
 #### Scenario: Exact-version list
 
 - **WHEN** Tunes are opened for Refloat 1.1.2
-- **THEN** applicable results contain only bounded records for exact version 1.1.2 and the active signature
+- **THEN** applicable results contain bounded compatible records from stable 1.1.x with the active signature
 
 #### Scenario: Package upgrade
 
@@ -269,7 +269,7 @@ The editor SHALL show actionable write-block guidance in its fixed footer and op
 
 ### Requirement: Exact beta3 configuration support
 
-The backend and simulator SHALL additionally support exact Refloat 1.3.1-beta3 with its audited full-schema fingerprint and wire signature using the existing bounded schema/value codec, configuration write/readback, cache and Tune policies. Beta2, beta3 and stable 1.3.1 SHALL share the audited `1.3.1` Tune family, with matching full-schema fingerprint and wire signature. Supported stored data SHALL remain readable.
+The backend and simulator SHALL additionally support exact Refloat 1.3.1-beta3 with its audited full-schema fingerprint and wire signature using the existing bounded schema/value codec, configuration write/readback, cache and Tune policies. Beta2, beta3 and stable 1.3.1 SHALL share the audited `1.3.1` Tune family, with matching wire signature and audited schema equivalence; this family extends across supported stable 1.3.x. Supported stored data SHALL remain readable.
 
 #### Scenario: Beta3 schema and verified writes
 
@@ -293,7 +293,7 @@ The backend and simulator SHALL additionally support exact Refloat 1.3.1-beta3 w
 
 ### Requirement: Stable Refloat 1.3.1 configuration
 
-Exact stable 1.3.1 SHALL use the audited beta3 schema fingerprint, wire signature and bounded configuration lifecycle. Its cache and configuration drafts SHALL retain exact observed versions. Tunes for audited beta2, beta3 and stable SHALL share canonical version `1.3.1`, while matching package, full schema fingerprint and wire signature.
+Exact stable 1.3.1 SHALL use the audited beta3 schema fingerprint, wire signature and bounded configuration lifecycle. Its cache and configuration drafts SHALL retain exact observed versions. Tunes for audited beta2, beta3 and stable SHALL share canonical version `1.3.1`, while matching package, wire signature and audited schema equivalence across stable 1.3.x.
 
 #### Scenario: Stable schema and Tune
 
@@ -303,17 +303,17 @@ Exact stable 1.3.1 SHALL use the audited beta3 schema fingerprint, wire signatur
 
 ### Requirement: Bounded Tune family compatibility
 
-Only exact `1.3.1-beta2`, `1.3.1-beta3` and `1.3.1` SHALL share the `1.3.1` Tune family. New Tunes and public saved-Tune identities SHALL use `1.3.1`. Existing beta-labelled rows SHALL participate in family-filtered pagination without changing their IDs, revisions, values or timestamps. Other versions and schemas SHALL remain incompatible.
+Stable patches within each supported 1.0.x–1.3.x minor SHALL share Tunes across audited schemas with equal wire signatures. Exact beta2/beta3 SHALL join 1.3.x. Stored stable versions and fingerprints SHALL remain unchanged; existing beta public-version normalization SHALL remain. Filtering and pagination SHALL use the same compatibility policy as apply and overwrite. Complete portable values MUST validate against the target schema before mutation.
 
 #### Scenario: Existing beta Tune on stable
 
 - **WHEN** a supported stored beta2 or beta3 Tune is listed, read, updated or applied on stable 1.3.1
-- **THEN** its public Tune version is `1.3.1` and family matching succeeds only with the matching full schema and signature
+- **THEN** its public Tune version is `1.3.1` and family matching succeeds only with matching wire signature and audited schema equivalence
 - **AND** fresh current revision, confirmation, mutation safety and verified readback remain required
 
 #### Scenario: Incompatible neighbor
 
-- **WHEN** beta1, beta4, 1.3.0, 1.3.2 or a mismatched schema or signature is supplied
+- **WHEN** beta1, beta4, another minor, an unknown mismatched schema or a mismatched signature is supplied
 - **THEN** the Tune remains incompatible without a device write
 
 ### Requirement: Fresh saved-Tune capture
@@ -422,7 +422,7 @@ Every configuration field SHALL offer a Default action immediately before its He
 
 ### Requirement: Stable minor configuration admission
 
-Supported stable patches SHALL accept audited full-schema fingerprints and wire signatures from their stable minor family, replacing exact patch matching. Unknown schemas and cross-minor schemas SHALL fail closed for configuration. Configuration identity and caches SHALL retain the exact observed patch. Legacy INFO 1.0 SHALL retain fingerprint-selected source identity. Existing exact prerelease schema and Tune-family rules SHALL remain unchanged.
+Supported stable patches SHALL accept audited full-schema fingerprints and wire signatures from their stable minor family, replacing exact patch matching. Unknown schemas and cross-minor schemas SHALL fail closed for configuration. Configuration identity and caches SHALL retain the exact observed patch. Legacy INFO 1.0 SHALL retain fingerprint-selected source identity. Exact prerelease schema admission SHALL remain unchanged; saved Tunes SHALL follow stable-minor Tune compatibility.
 
 #### Scenario: Later patch reuses known schema
 
@@ -437,6 +437,21 @@ Supported stable patches SHALL accept audited full-schema fingerprints and wire 
 
 #### Scenario: Tune identity remains exact
 
-- **WHEN** a stable patch has the same schema as another patch but a different exact Tune version
-- **THEN** it does not silently share saved Tunes across patches
-- **AND** exact same-version Tunes and the existing beta2/beta3/stable-1.3.1 Tune family remain available
+- **WHEN** a stable patch uses a saved Tune from another patch of its supported minor
+- **THEN** the Tune retains its exact saved version and fingerprint while compatibility follows the audited stable-minor family
+
+#### Scenario: Cross-patch Tune application
+
+- **WHEN** a 1.3.0 Tune is opened on 1.3.1 or a later supported stable 1.3.x board with an audited schema and equal wire signature, or the direction is reversed
+- **THEN** it is available for review, confirmed application and overwrite without rewriting its saved identity
+- **AND** the target's exact configuration identity authorizes a complete target-schema write with fresh-base checks and mandatory readback
+
+#### Scenario: Preserved data and bounded pagination
+
+- **WHEN** existing patch-labelled Tunes are listed in small pages, overwritten or exported and imported
+- **THEN** compatible records are neither omitted nor duplicated and IDs, source identities, values and timestamps remain intact except for explicit user edits
+
+#### Scenario: Invalid portable values
+
+- **WHEN** a compatible-family Tune has missing, extra, mistyped or out-of-range target fields
+- **THEN** apply and overwrite reject it without device traffic or a partial saved update

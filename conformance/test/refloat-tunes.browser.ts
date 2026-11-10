@@ -654,3 +654,86 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     }
   });
 }
+
+for (const [name, engine] of Object.entries({ chromium, webkit })) {
+  test(`${name}: compatible patch schemas enable Tune review, apply and overwrite`, { timeout: 30000 }, async () => {
+    const identity = {
+      packageName: 'refloat' as const,
+      packageVersion: '1.3.1',
+      schemaFingerprint: '6bc6bfa433f8205519bc931723e39252aa71c9f538a0ed7c200d688486c63e73',
+      wireSignature: 421_162_011,
+    };
+    const port = await startMockServer(11002, {
+      safetyDisclaimerAccepted: true,
+      initialRefloatTunes: [
+        {
+          tuneId: 'patch-tune',
+          revision: 1,
+          name: 'Patch tune',
+          description: null,
+          identity,
+          values: {
+            'leds.on': { type: 'boolean', value: false },
+            'leds.headlights_on': { type: 'boolean', value: true },
+          },
+          createdAt: '2026-11-10T00:00:00.000Z',
+          updatedAt: '2026-11-10T00:00:00.000Z',
+        },
+      ],
+    });
+    const endpoint = getMockBootstrap(port);
+    const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
+    const browser = await engine.launch();
+    try {
+      await client.request('bluetooth.requestPermission', {});
+      await client.request('bluetooth.scan', { timeoutMs: 100 });
+      const scan = await client.waitForState((s) => s.discoveredDevices.length > 0);
+      await client.request('device.connect', { deviceId: scan.discoveredDevices[0]!.deviceId, trackingMode: 'guest' });
+      await client.waitForState((s) => s.activeConnection?.state === 'ready');
+      const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+      if (name === 'chromium') await context.grantPermissions(['local-network-access'], { origin: endpoint.origin });
+      await context.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      const page = await context.newPage();
+      page.setDefaultTimeout(5000);
+      await page.goto(`${endpoint.origin}/`);
+      await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
+      await page.getByRole('button', { name: 'Tunes…', exact: true }).tap();
+      const card = page.locator('[data-tune-id="patch-tune"]');
+      await card.waitFor();
+      assert.equal(await card.getAttribute('data-compatible'), 'true');
+      await page.getByRole('button', { name: 'Options for Patch tune', exact: true }).tap();
+      const overwrite = page.getByRole('button', { name: 'Overwrite', exact: true });
+      assert.equal(await overwrite.isEnabled(), true);
+      assert.equal(await overwrite.evaluate((element) => getComputedStyle(element).opacity), '1');
+      await overwrite.tap();
+      const overwriteDialog = page.getByRole('alertdialog', { name: 'Overwrite Patch tune?', exact: true });
+      await overwriteDialog.getByText('1 setting will change', { exact: true }).waitFor();
+      await overwriteDialog.getByRole('button', { name: 'Overwrite', exact: true }).tap();
+      await overwriteDialog.waitFor({ state: 'hidden' });
+      const saved = await client.request('refloat.tune.get', { tuneId: 'patch-tune' });
+      assert.deepEqual(saved.identity, identity);
+      assert.deepEqual(saved.values['leds.on'], { type: 'boolean', value: true });
+      await client.request('refloat.tune.update', {
+        tuneId: saved.tuneId,
+        expectedRevision: saved.revision,
+        name: saved.name,
+        description: saved.description,
+        values: { ...saved.values, 'leds.on': { type: 'boolean', value: false } },
+      });
+      await page.reload();
+      await page.getByRole('button', { name: /^Patch tune/ }).tap();
+      const apply = page.getByRole('alertdialog', { name: 'Apply Patch tune?', exact: true });
+      await apply.getByText('1 setting will change', { exact: true }).waitFor();
+      await apply.getByRole('button', { name: 'Apply tune', exact: true }).tap();
+      await apply.waitFor({ state: 'hidden' });
+      await page.getByRole('button', { name: /^Patch tune.*Active/ }).waitFor();
+      const current = await client.request('refloat.configuration.read', { source: 'current', refresh: true });
+      assert.equal(current.identity.packageVersion, '1.3.0');
+      assert.deepEqual(current.values['leds.on'], { type: 'boolean', value: false });
+    } finally {
+      await browser.close();
+      client.close();
+      await stopMockServer();
+    }
+  });
+}

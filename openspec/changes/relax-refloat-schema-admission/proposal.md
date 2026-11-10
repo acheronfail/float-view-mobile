@@ -2,7 +2,7 @@
 
 ## Stable-minor baseline
 
-The implemented `refloat-minor-version-support` policy accepts stable patches within 1.0.x–1.3.x under the maintainer's no-breaking-configuration contract. References here to unknown or unaudited firmware mean versions outside those supported stable minors and exact prerelease exceptions. Future implementation must preserve that full support; the limited read-only fallback applies only outside it. This proposal remains planning-only.
+The implemented `refloat-minor-version-support` policy accepts stable patches within 1.0.x–1.3.x under the maintainer's no-breaking-configuration contract. References here to unknown or unaudited firmware mean versions outside those supported stable minors and exact prerelease exceptions. Future implementation must preserve that full support; the limited read-only fallback applies only outside it. Stable-minor saved Tunes additionally share audited schemas under `refloat-patch-tune-compatibility`; preserve that policy. This proposal remains planning-only.
 
 ## Why
 
@@ -13,10 +13,10 @@ Refloat marketing releases are too coarse a compatibility boundary. Beta3 reused
 - Keep existing audited release mappings, including beta2/beta3, with their current capabilities. A stable release does not revoke working beta support. Remove duplicate implementations and evidence when they add no value; retain mappings needed by supported boards.
 - Add a bounded, read-only fallback for unknown Refloat versions on already supported VESC controllers. Require valid Refloat INFO and a successfully validated public command-33 core telemetry exchange before readiness or session activation. Preserve the observed version; do not guess compatibility from a version range or alias it to a known release.
 - Let usable telemetry and app-side recording survive unavailable optional fields, alert history or configuration. Unproven status is unknown, never an inferred healthy/clear state. Unknown releases receive no device mutation authority, even if their responses and schema match an audited release.
-- Replace the configuration service's non-legacy exact-version/full-fingerprint catalogue with shared schema profiles. After full bounded XML validation, ignore only parameter label/help contents for admission; retain actual full fingerprints for schema identity, drafts and exact-version Tunes. Unknown releases matching a known schema profile may read configuration; only audited operation semantics can authorize writes.
+- Replace the configuration service's non-legacy exact-version/full-fingerprint catalogue with shared schema profiles. After full bounded XML validation, ignore only parameter label/help contents for admission; retain actual full fingerprints for schema identity, drafts and source-identifying Tunes. Unknown releases matching a known schema profile may read configuration; only audited operation semantics can authorize writes.
 - Publish a small authoritative live compatibility summary and riding-Tune capability. Use existing configuration/control availability for individual features and remove frontend version eligibility duplication. Show limited compatibility without blocking connecting or recording.
 - Extend existing independent fixtures and focused conformance for unknown versions, isolated feature failure, zero mutation traffic, exact identity and preserved beta access. Reuse fixtures rather than copying release-sized datasets.
-- **Non-goals:** generic writes to unknown firmware; undocumented command probing; inventing upstream capability bits; supporting unknown VESC versions; cross-version Tune application; persistence/archive migrations; promising arbitrary future firmware interoperability.
+- **Non-goals:** generic writes to unknown firmware; undocumented command probing; inventing upstream capability bits; supporting unknown VESC versions; Tune sharing outside supported stable-minor families; persistence/archive migrations; promising arbitrary future firmware interoperability.
 
 ## Capabilities
 

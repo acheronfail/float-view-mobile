@@ -1893,13 +1893,27 @@ fn stable_and_beta_tunes_share_existing_rows_pagination_and_durable_identity() {
     for tune in &created {
         assert_eq!(store.tune(&tune.configuration_id).unwrap(), *tune);
     }
-    for version in ["1.3.1-beta1", "1.3.1-beta4", "1.3.0", "1.3.2"] {
+    for version in [
+        "1.3.1-beta1",
+        "1.3.1-beta4",
+        "1.2.3",
+        "1.4.0",
+        "1.3.256",
+        "1.3.01",
+    ] {
         identity.package_version = version.into();
         assert!(store.tunes(&identity, 50, None).unwrap().items.is_empty());
         assert!(!identity.compatible_with(&created[0].identity));
     }
     identity.package_version = "1.3.1".into();
-    for version in versions {
+    for version in [
+        "1.3.0",
+        "1.3.1-beta2",
+        "1.3.1-beta3",
+        "1.3.1",
+        "1.3.2",
+        "1.3.255",
+    ] {
         let mut target = identity.clone();
         target.package_version = version.into();
         assert!(identity.compatible_with(&target));
@@ -2115,4 +2129,125 @@ fn reassociation_rolls_back_if_insertion_fails_or_board_capacity_is_full() {
         None
     );
     assert_eq!(store.boards().unwrap().len(), limits::MAX_BOARDS);
+}
+
+#[test]
+fn stable_patch_tunes_share_audited_schemas_without_rewriting_source_identities() {
+    use float_view_product_store::{TuneIdentity, TuneValue, is_tune_field, validate_tune_values};
+    use float_view_refloat_configuration_codec::{ConfigurationValue, decode_qt_compressed};
+    let root = Root::new();
+    let mut store = root.open();
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/refloat-configuration/schemas");
+    let sources = [
+        "1.0.0",
+        "1.0.1",
+        "1.1.0",
+        "1.1.1",
+        "1.1.2",
+        "1.2.0",
+        "1.2.1",
+        "1.2.2",
+        "1.2.3",
+        "1.3.0",
+        "1.3.1-beta2",
+    ];
+    let mut records = Vec::new();
+    for (index, source) in sources.iter().enumerate() {
+        let schema = decode_qt_compressed(
+            &std::fs::read(fixtures.join(format!("{source}.qcompress"))).unwrap(),
+        )
+        .unwrap();
+        let identity = TuneIdentity {
+            package_name: "refloat".into(),
+            package_version: (*source).into(),
+            schema_fingerprint: schema.fingerprint.clone(),
+            wire_signature: schema.wire_signature,
+        };
+        let values = schema
+            .fields
+            .iter()
+            .filter(|field| is_tune_field(&field.name, &schema))
+            .map(|field| {
+                (
+                    field.name.clone(),
+                    match &field.default_value {
+                        ConfigurationValue::Decimal(v) => TuneValue::Double(*v),
+                        ConfigurationValue::Integer(v) => TuneValue::Integer(*v),
+                        ConfigurationValue::Boolean(v) => TuneValue::Boolean(*v),
+                        ConfigurationValue::String(v) => TuneValue::String(v.clone()),
+                    },
+                )
+            })
+            .collect();
+        let tune = store
+            .create_tune(source, None, &identity, &values, &schema, index as i64 + 1)
+            .unwrap();
+        records.push((tune, schema));
+    }
+    for (source, _) in &records {
+        for (target, schema) in &records {
+            let same_minor =
+                source.identity.package_version[..3] == target.identity.package_version[..3];
+            assert_eq!(
+                source.identity.compatible_with(&target.identity),
+                same_minor
+            );
+            if same_minor {
+                validate_tune_values(&source.identity, &source.values, schema).unwrap();
+                let mut invalid = source.values.clone();
+                invalid.remove("kp");
+                assert!(validate_tune_values(&source.identity, &invalid, schema).is_err());
+            }
+        }
+    }
+    drop(store);
+    let mut store = root.open();
+    for minor in ["1.0", "1.1", "1.2", "1.3"] {
+        let expected: Vec<_> = records
+            .iter()
+            .filter(|(t, _)| t.identity.package_version.starts_with(minor))
+            .collect();
+        let mut target = expected[0].0.identity.clone();
+        target.package_version = format!("{minor}.255");
+        let mut cursor = None;
+        let mut ids = std::collections::BTreeSet::new();
+        loop {
+            let page = store.tunes(&target, 1, cursor.as_deref()).unwrap();
+            for item in page.items {
+                assert!(ids.insert(item.configuration_id));
+            }
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+            // A compatible patch/schema may continue the same query cursor.
+            target = expected.last().unwrap().0.identity.clone();
+        }
+        assert_eq!(ids.len(), expected.len());
+    }
+    let (original, _) = records
+        .iter()
+        .find(|(t, _)| t.identity.package_version == "1.3.0")
+        .unwrap();
+    let (_, target_schema) = records.last().unwrap();
+    let mut replacement = original.values.clone();
+    replacement.insert("kp".into(), TuneValue::Double(21.0));
+    let updated = store
+        .update_tune(
+            &original.configuration_id,
+            original.revision,
+            &original.name,
+            None,
+            &replacement,
+            target_schema,
+            20,
+        )
+        .unwrap();
+    assert_eq!(updated.identity, original.identity);
+    for (tune, _) in &records {
+        if tune.configuration_id != original.configuration_id {
+            assert_eq!(store.tune(&tune.configuration_id).unwrap(), *tune);
+        }
+    }
 }

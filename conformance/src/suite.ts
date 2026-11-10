@@ -1,5 +1,9 @@
 import { validatePermissions } from '../../frontend/src/lib/backend/permissions.ts';
-import { supportsRidingTuneApply, tunePackageVersion } from '../../frontend/src/lib/backend/refloat-tune-policy.ts';
+import {
+  supportsRidingTuneApply,
+  tunePackageVersion,
+  tuneCompatibilityVersion,
+} from '../../frontend/src/lib/backend/refloat-tune-policy.ts';
 import assert from 'node:assert/strict';
 import {
   liveWidgetFields,
@@ -1626,6 +1630,16 @@ export async function exerciseRefloatConfiguration(
   assert.equal(tune.identity.packageVersion, tunePackageVersion(current.identity.packageVersion));
   const listed = await client.request('refloat.tune.list', { identity: current.identity, limit: 1, cursor: null });
   assert.ok(listed.items.some((item) => item.tuneId === tune.tuneId));
+  const family = tuneCompatibilityVersion(current.identity.packageVersion);
+  if (family.endsWith('.x')) {
+    const patchIdentity = { ...current.identity, packageVersion: `${family.slice(0, -1)}255` };
+    const patchList = await client.request('refloat.tune.list', { identity: patchIdentity, limit: 50 });
+    assert.ok(
+      patchList.items.some((item) => item.tuneId === tune.tuneId),
+      'compatible patch lost a saved Tune'
+    );
+  }
+
   const library = await client.request('refloat.tune.list', { identity: null, limit: 50 });
   assert.ok(library.items.some((item) => item.tuneId === tune.tuneId));
   const extra = await client.request('refloat.tune.create', {

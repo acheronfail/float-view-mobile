@@ -167,7 +167,7 @@ describe('audited Refloat riding Tune eligibility', () => {
 });
 
 describe('audited 1.3.1 Tune family', () => {
-  const versions = ['1.3.1-beta2', '1.3.1-beta3', '1.3.1'];
+  const versions = ['1.3.0', '1.3.1-beta2', '1.3.1-beta3', '1.3.1', '1.3.2', '1.3.255'];
   for (const from of versions)
     for (const to of versions) {
       it(`overwrites a ${from} Tune from a ${to} board`, async () => {
@@ -184,7 +184,7 @@ describe('audited 1.3.1 Tune family', () => {
         };
         const updateRefloatTune = vi.fn(async () => tune);
         expect(sameRefloatTuneIdentity(tune.identity, source.identity)).toBe(true);
-        expect(tunePackageVersion(from)).toBe('1.3.1');
+        expect(tunePackageVersion(from)).toBe(from.includes('-beta') ? '1.3.1' : from);
         expect(
           await overwriteCurrentRefloatTune({ readRefloatConfiguration: async () => source, updateRefloatTune }, tune, [
             'gain',
@@ -196,8 +196,10 @@ describe('audited 1.3.1 Tune family', () => {
   it.each([
     { packageVersion: '1.3.1-beta1' },
     { packageVersion: '1.3.1-beta4' },
-    { packageVersion: '1.3.0' },
-    { packageVersion: '1.3.2' },
+    { packageVersion: '1.2.3' },
+    { packageVersion: '1.4.0' },
+    { packageVersion: '1.3.256' },
+    { packageVersion: '1.3.01' },
     { schemaFingerprint: 'b'.repeat(64) },
     { wireSignature: 456 },
   ])('rejects unaudited or changed identity %j', (change) => {

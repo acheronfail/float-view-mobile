@@ -336,6 +336,28 @@ impl BackendService {
                 description,
                 values,
             } => {
+                let existing = self.store.tune(&id).map_err(store_failure)?;
+                if existing.revision != revision {
+                    return Err(Failure::Conflict);
+                }
+                let values = store_values(values);
+                if existing.values != values {
+                    let actual = self
+                        .runtime
+                        .snapshot()
+                        .application
+                        .configuration
+                        .identity
+                        .ok_or(Failure::InvalidState)?;
+                    if !existing.identity.compatible_with(&store::TuneIdentity {
+                        package_name: "refloat".into(),
+                        package_version: actual.package_version,
+                        schema_fingerprint: actual.fingerprint.into(),
+                        wire_signature: actual.wire_signature,
+                    }) {
+                        return Err(Failure::InvalidState);
+                    }
+                }
                 let schema = self
                     .runtime
                     .configuration_schema()
@@ -348,7 +370,7 @@ impl BackendService {
                             revision,
                             &name,
                             description.as_deref(),
-                            &store_values(values),
+                            &values,
                             schema,
                             epoch,
                         )
@@ -398,8 +420,8 @@ impl BackendService {
                         generation,
                         mutation: c::mutation::ConfigurationMutation::TuneApply,
                         package_version: actual.package_version,
-                        fingerprint: tune.identity.schema_fingerprint,
-                        wire_signature: tune.identity.wire_signature,
+                        fingerprint: actual.fingerprint.into(),
+                        wire_signature: actual.wire_signature,
                         base_revision,
                         values,
                         now_ms: now,

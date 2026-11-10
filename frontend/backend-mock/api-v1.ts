@@ -1062,14 +1062,14 @@ export class MockBackend {
         const tune = string(params.tuneId) ? this.tunes.get(String(params.tuneId)) : undefined;
         if (!tune) return failure(id, 'not_found', 'Tune was not found');
         if (integer(params.expectedRevision) !== tune.revision) return failure(id, 'conflict', 'Tune revision changed');
-        if (!sameRefloatTuneIdentity(tune.identity, refloatIdentity))
+        if (!sameRefloatTuneIdentity(tune.identity, refloatIdentity) || !validRefloatTuneValues(tune.values))
           return failure(id, 'invalid_state', 'Tune configuration is incompatible');
         return this.writeRefloatConfiguration(
           id,
           {
             packageVersion: refloatIdentity.packageVersion,
-            schemaFingerprint: tune.identity.schemaFingerprint,
-            wireSignature: tune.identity.wireSignature,
+            schemaFingerprint: refloatIdentity.schemaFingerprint,
+            wireSignature: refloatIdentity.wireSignature,
             baseRevision: params.baseRevision,
             values: { ...this.refloatCurrentValues, ...tune.values },
           },
