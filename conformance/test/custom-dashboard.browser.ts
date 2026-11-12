@@ -407,6 +407,42 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           wiggle.border.includes('wiggle') && wiggle.border === wiggle.content && wiggle.difference < 0.001,
           'editing border and content wiggle together'
         );
+        for (const width of [390, 768, 1280]) {
+          await page.setViewportSize({ width, height: 844 });
+          await page.evaluate(
+            () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+          );
+          const travel = await custom.locator('[data-dashboard-widget]').evaluateAll((cards) =>
+            cards.map((card) => {
+              const animations = card
+                .getAnimations({ subtree: true })
+                .filter((animation) => (animation as CSSAnimation).animationName?.includes('wiggle'));
+              for (const animation of animations) {
+                animation.pause();
+                animation.currentTime = 240;
+              }
+              const angle = (parseFloat(getComputedStyle(card, '::before').rotate) * Math.PI) / 180;
+              const tile = card as HTMLElement;
+              const distance = Math.hypot(tile.offsetWidth, tile.offsetHeight) * Math.sin(Math.abs(angle) / 2);
+              const grid = getComputedStyle(card.parentElement!);
+              const columns = grid.gridTemplateColumns.split(/\s+/).map(Number.parseFloat);
+              const gap = parseFloat(grid.columnGap);
+              const referenceDiagonal = Math.hypot(
+                Math.min(4, columns.length) * (columns[0]! + gap) - gap,
+                Math.min(2, columns.length) * (parseFloat(grid.gridAutoRows) + gap) - gap
+              );
+              const expected = referenceDiagonal * Math.sin((0.35 * Math.PI) / 360);
+              for (const animation of animations) animation.play();
+              return { id: tile.dataset.dashboardWidget, distance, expected };
+            })
+          );
+          for (const { id, distance, expected } of travel)
+            assert.ok(
+              Math.abs(distance - expected) < 0.02,
+              `${id} at ${width}px: corner travel matches the large widget (${distance} vs ${expected})`
+            );
+        }
+        await page.setViewportSize({ width: 390, height: 844 });
         const toolbarShadow = await custom
           .getByRole('toolbar', { name: 'Edit dashboard' })
           .evaluate((el) => getComputedStyle(el).boxShadow);

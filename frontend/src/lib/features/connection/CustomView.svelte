@@ -52,6 +52,34 @@
   let scrolled = $state(false);
   let announcement = $state('');
   let gridGeometry = $state<DashboardGridGeometry>({ columns: 4, cellSize: 80, rowSize: 56, gap: 6 });
+  const wiggleReferenceDiagonal = $derived(
+    Math.hypot(
+      Math.min(4, gridGeometry.columns) * (gridGeometry.cellSize + gridGeometry.gap) - gridGeometry.gap,
+      Math.min(2, gridGeometry.columns) * (gridGeometry.rowSize + gridGeometry.gap) - gridGeometry.gap
+    )
+  );
+  function measureWidgetWiggle(node: HTMLElement, referenceDiagonal: number) {
+    function updateAngle() {
+      const diagonal = Math.hypot(node.offsetWidth, node.offsetHeight);
+      if (!diagonal) return;
+      // Preserve the large (4x2) widget's original 0.35-degree wiggle, giving
+      // every size the same corner travel at the current responsive grid size.
+      const angle = (0.35 * referenceDiagonal) / diagonal;
+      node.style.setProperty('--widget-wiggle-angle', `${angle}deg`);
+    }
+    const observer = new ResizeObserver(updateAngle);
+    observer.observe(node, { box: 'border-box' });
+    return {
+      update(nextReferenceDiagonal: number) {
+        referenceDiagonal = nextReferenceDiagonal;
+        updateAngle();
+      },
+      destroy() {
+        observer.disconnect();
+      },
+    };
+  }
+
   function measureGrid(node: HTMLElement) {
     const observer = new ResizeObserver(() => {
       const style = getComputedStyle(node);
@@ -296,6 +324,7 @@
         <div class="dashboard-grid grid gap-1.5" aria-label="Dashboard widgets" use:measureGrid>
           {#each dashboard.widgets as widget, index (widget.id)}
             <article
+              use:measureWidgetWiggle={wiggleReferenceDiagonal}
               use:dashboardGesture={{
                 id: widget.id,
                 scroll,
@@ -583,10 +612,10 @@
   }
   @keyframes wiggle {
     from {
-      rotate: -0.35deg;
+      rotate: calc(-1 * var(--widget-wiggle-angle, 0deg));
     }
     to {
-      rotate: 0.35deg;
+      rotate: var(--widget-wiggle-angle, 0deg);
     }
   }
   @media (prefers-reduced-motion: reduce) {
