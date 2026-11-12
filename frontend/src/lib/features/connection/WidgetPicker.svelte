@@ -1,11 +1,12 @@
 <script lang="ts">
   import { MAX_DASHBOARD_WIDGETS } from '$lib/backend/contract';
-  import type { ActiveConnection, DashboardWidget, UnitPreference } from '$lib/backend/contract';
+  import type { DashboardWidget, UnitPreference } from '$lib/backend/contract';
   import FullScreenOverlay from '$lib/ui/FullScreenOverlay.svelte';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import CustomWidget from './CustomWidget.svelte';
   import { pickerGroups } from './widget-catalog';
   import type { LiveHistory } from './live-history';
+  import type { DashboardConnection } from './dashboard-preview';
   let {
     connection,
     history,
@@ -15,7 +16,7 @@
     onchoose,
     onclose,
   }: {
-    connection: ActiveConnection;
+    connection: DashboardConnection;
     history: LiveHistory;
     units: UnitPreference;
     nowMs: number;

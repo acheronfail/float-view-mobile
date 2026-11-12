@@ -71,6 +71,13 @@
           onactivate: (closeMenu: () => void) => openConfigure(closeMenu),
         },
         {
+          label: 'Customise views',
+          onactivate: (closeMenu: () => void) => {
+            closeMenu();
+            void goto(`#/sessions/boards/${encodeURIComponent(savedDeviceId)}/views`);
+          },
+        },
+        {
           label: 'Export all · Float View archives',
           disabled: backendState.busy || board.summary.sessionCount === 0,
           onactivate: (closeMenu: () => void) => exportAll(closeMenu, 'float-view-archive'),

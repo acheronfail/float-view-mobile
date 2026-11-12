@@ -20,6 +20,8 @@ export function uiRoute(routeId: string | null, params: Record<string, string | 
     case '/settings/licences':
     case '/settings':
       return { kind: 'settings' };
+    // View customisation restores its board without replaying a draft.
+    case '/sessions/boards/[savedDeviceId]/views':
     case '/sessions/boards/[savedDeviceId]':
       return { kind: 'boardHistory', savedDeviceId: params.savedDeviceId! };
     case '/sessions/[sessionId]':

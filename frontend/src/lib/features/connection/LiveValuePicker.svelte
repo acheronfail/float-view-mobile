@@ -18,6 +18,7 @@
   const motion = createMotion();
 
   let {
+    preview = false,
     slot,
     selected,
     sample,
@@ -31,6 +32,7 @@
     onselect,
     onclose,
   }: {
+    preview?: boolean;
     slot: number;
     selected: LiveWidgetField;
     sample: LiveSample | null | undefined;
@@ -86,6 +88,7 @@
         <h2 id="live-value-picker-title" class="text-xl font-bold">Choose a value</h2>
         <p id="live-value-picker-description" class="mt-1 text-sm text-muted">
           Box {slot + 1} · Tap a reading or control to use it.
+          {#if preview}<span class="block">Preview · Example values</span>{/if}
         </p>
       </div>
       <button
@@ -125,7 +128,9 @@
             bms,
             Math.max(nowMs ?? 0, Date.now())
           )}
-          {@const lighting = isLighting(field) ? lightingBox(backendState.snapshot?.activeConnection, field) : null}
+          {@const lighting = isLighting(field)
+            ? lightingBox(preview ? null : backendState.snapshot?.activeConnection, field)
+            : null}
           <button
             type="button"
             aria-label={reading.name}

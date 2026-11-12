@@ -2,7 +2,6 @@
   import { untrack } from 'svelte';
   import {
     liveWidgetFields,
-    type ActiveConnection,
     type DashboardWidget,
     type DashboardPresentation,
     type DashboardReading,
@@ -20,6 +19,7 @@
   import { liveValueCatalog, liveValue } from './live-values';
   import { widgetPreviewSize, type DashboardGridGeometry } from './custom-dashboard';
   import type { LiveHistory } from './live-history';
+  import type { DashboardConnection } from './dashboard-preview';
 
   let {
     widget,
@@ -33,7 +33,7 @@
     onclose,
   }: {
     widget: DashboardWidget;
-    connection: ActiveConnection;
+    connection: DashboardConnection;
     history: LiveHistory;
     units: UnitPreference;
     nowMs: number;

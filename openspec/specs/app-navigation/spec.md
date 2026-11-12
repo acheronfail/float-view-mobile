@@ -461,3 +461,38 @@ Connection & permissions SHALL lead with permission status and place Reconnectin
 
 - **WHEN** authorization or relevant OS facts change to require attention
 - **THEN** the current explanation and supported recovery action become visible without replaying a permission request
+
+### Requirement: Saved-board view customisation entry points
+
+Saved-board history and connected saved-board menus SHALL offer Configure board before Customise views. Customise views SHALL open a focused editor with the board's name as its title and a subtitle identifying the view and preview values. It SHALL omit a separate board card and content-level view selector, work without discovery or connection, including imported boards, and return through guarded dismissal.
+
+#### Scenario: Open without a board connection
+
+- **WHEN** the user selects Customise views from a saved board's history menu
+- **THEN** its name appears in the title with a preview-values subtitle and access to both editable views, without a separate board card, scanning or connecting
+
+#### Scenario: Open from Live
+
+- **WHEN** the user selects Customise views for a connected saved board
+- **THEN** the same editor opens the board's saved view preference without changing connection or recording
+
+#### Scenario: Dismiss or lose the target
+
+- **WHEN** the user closes the editor or its target board is removed
+- **THEN** normal dismissal protects dirty edits, removal invalidates the target, and no late operation applies to another board
+
+### Requirement: Preview view navigation
+
+The editor SHALL open Custom for a saved Custom preference and Live for a saved Live, Detailed or absent preference. Its header dots menu SHALL offer only switching to the other editable view and Back, using normal guarded navigation. Switching previews SHALL NOT change the saved preference or expose the connected Live action overlay. Navigation controls SHALL NOT reserve space inside the dashboard viewport.
+
+#### Scenario: Open and switch previews
+
+- **WHEN** a user opens Customise views from either entry point
+- **THEN** the saved editable preference opens directly, with Detailed or absent preferences falling back to Live
+- **WHEN** the user selects the other view from the header menu
+- **THEN** the preview changes without persisting a new default or inserting a selector into the content
+
+#### Scenario: Back or switch with a dirty draft
+
+- **WHEN** the user chooses Back or switches away from dirty Custom edits through the preview menu
+- **THEN** the existing discard decision protects the draft and the menu contains no connection, firmware or recording actions

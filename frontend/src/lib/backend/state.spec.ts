@@ -750,6 +750,51 @@ describe('live box save ownership', () => {
       liveWidgetSlots: ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM'],
     };
   }
+  it('saves explicit board slots offline or while another board is active without touching the open editor', async () => {
+    for (const connection of [null, { ...active(), savedDeviceId: 'second' }]) {
+      const client = new FakeClient();
+      client.state.activeConnection = connection;
+      const original = client.request.bind(client);
+      const writes: BackendParams<'boardProfile.update'>[] = [];
+      vi.spyOn(client, 'request').mockImplementation(async (method, params) => {
+        if (method === 'boardProfile.get')
+          return {
+            savedDeviceId: 'first',
+            revision: 7,
+            values: { lastLiveView: 'custom' },
+            missingFields: [],
+          } as never;
+        if (method === 'boardProfile.update') {
+          writes.push(params as BackendParams<'boardProfile.update'>);
+          return {
+            savedDeviceId: 'first',
+            revision: 8,
+            values: (params as BackendParams<'boardProfile.update'>).patch,
+          } as never;
+        }
+        return original(method, params);
+      });
+      const store = new BackendState(
+        async () => ({ webSocketUrl: 'ws://test' }),
+        async () => client as unknown as ApiClient
+      );
+      await store.connect();
+      store.selectedBoardProfile = { savedDeviceId: 'other', revision: 4, values: {}, missingFields: [] };
+      const result = await store.saveLiveWidgetSlot('first', 4, 'packVoltageV');
+      expect(result.revision).toBe(8);
+      expect(writes).toEqual([
+        {
+          savedDeviceId: 'first',
+          expectedRevision: 7,
+          patch: {
+            liveWidgetSlots: ['empty', 'powerW', 'elapsedMs', 'odometerM', 'packVoltageV'],
+          },
+        },
+      ]);
+      expect(store.selectedBoardProfile.savedDeviceId).toBe('other');
+      store.close();
+    }
+  });
   it('keeps dashboard requests separate from the board editor and never retries a conflicted save', async () => {
     const client = new FakeClient();
     client.state.activeConnection = active();
@@ -778,10 +823,17 @@ describe('live box save ownership', () => {
     expect(store.selectedBoardProfile.savedDeviceId).toBe('other');
     client.state = { ...client.state, revision: 2, activeConnection: { ...active(), savedDeviceId: 'second' } };
     client.emitState();
-    await expect(store.saveDashboard('first', 7, { version: 1, widgets: [] })).rejects.toThrow(
-      'connected board changed'
-    );
-    expect(writes).toHaveLength(1);
+    await expect(store.saveDashboard('first', 7, { version: 1, widgets: [] })).rejects.toMatchObject({
+      code: 'conflict',
+    });
+    expect(writes).toHaveLength(2);
+    expect(writes[1]?.savedDeviceId).toBe('first');
+    client.state = { ...client.state, revision: 3, activeConnection: null };
+    client.emitState();
+    await expect(store.saveDashboard('first', 7, { version: 1, widgets: [] })).rejects.toMatchObject({
+      code: 'conflict',
+    });
+    expect(writes).toHaveLength(3);
     store.close();
   });
   it('persists only the selected view with one bounded conflict retry and guards a changed target', async () => {

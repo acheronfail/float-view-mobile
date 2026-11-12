@@ -203,7 +203,7 @@
   let appHeaderButton = $state<HTMLButtonElement>();
   let headerRegistration = $state<{ owner: string; patch: AppHeaderPatch } | undefined>();
   const activeBottomTab = $derived(bottomTabForRoute(page.route.id));
-  const liveRoute = $derived(page.route.id === '/live');
+  const liveRoute = $derived(page.route.id === '/live' || page.route.id === '/sessions/boards/[savedDeviceId]/views');
 
   const headerContext: AppHeaderContext = {
     set(owner, patch) {
@@ -399,6 +399,7 @@
       bottomBorder={appHeader.bottomBorder}
       backHref={appHeader.backHref}
       backLabel={appHeader.backLabel}
+      backInMenu={appHeader.backInMenu}
       menuLabel={appHeader.menu?.length ? appHeader.menuLabel : undefined}
       actions={appHeader.menu}
       menuPresentation={appHeader.menuPresentation}

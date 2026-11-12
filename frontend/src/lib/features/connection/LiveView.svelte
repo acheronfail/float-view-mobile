@@ -1,28 +1,35 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
+  import type { DashboardConnection } from './dashboard-preview';
   let {
+    presentation,
+    boxes,
+    centre,
     onconfigure,
     onbms,
     nowMs,
     charging = false,
   }: {
+    presentation?: DashboardConnection;
+    boxes?: Snippet;
+    centre?: Snippet;
     onconfigure?: (trigger: HTMLButtonElement) => void;
     onbms?: (trigger: HTMLButtonElement) => void;
     nowMs: number;
     charging?: boolean;
   } = $props();
   import { backendState } from '$lib/backend/state.svelte';
-  import { readingsAreDimmed } from './live';
   import WidgetNumbers from './WidgetNumbers.svelte';
   import WidgetGauge from './WidgetGauge.svelte';
   import WidgetPower from './WidgetPower.svelte';
   import WidgetTemperatures from './WidgetTemperatures.svelte';
   import WidgetFootpads from './WidgetFootpads.svelte';
 
-  const connection = $derived(backendState.snapshot?.activeConnection);
+  const connection = $derived(presentation ?? backendState.snapshot?.activeConnection);
   const sample = $derived(connection?.latestSample);
 
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
-  const dimmed = $derived(connection ? readingsAreDimmed(connection) : false);
+  const dimmed = $derived(connection ? connection.state !== 'ready' : false);
 </script>
 
 {#if connection}
@@ -42,7 +49,7 @@
         class:opacity-45={dimmed}
         class="live-numbers motion-feedback min-h-0 transition-opacity motion-reduce:transition-none"
       >
-        <WidgetNumbers {sample} />
+        {#if boxes}{@render boxes()}{:else}<WidgetNumbers {sample} />{/if}
       </div>
 
       <div
@@ -53,6 +60,7 @@
           sessionId={connection.trackingMode === 'saved' ? (connection.activeSession?.sessionId ?? null) : null}
           {sample}
           {units}
+          {centre}
         />
       </div>
 

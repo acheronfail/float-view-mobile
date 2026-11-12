@@ -11,7 +11,10 @@ export function lightingMenuActions(connection: ActiveConnection) {
     ...lightingBox(connection, control),
   }));
 }
-export function lightingBox(connection: ActiveConnection | null | undefined, control: LightingControl) {
+export function lightingBox(
+  connection: Pick<ActiveConnection, 'refloatControls' | 'state'> | null | undefined,
+  control: LightingControl
+) {
   const controls = connection?.refloatControls;
   const available = !!controls?.lightingAvailable && controls.status !== 'unavailable';
   const checked = available ? (control === 'headlights' ? controls.headlightsEnabled : controls.ledsEnabled) : null;

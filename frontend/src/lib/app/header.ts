@@ -25,6 +25,8 @@ export type AppHeaderPatch = {
   bottomBorder?: boolean;
   backHref?: string;
   backLabel?: string;
+  /** Retain native Back routing when the visible action is in the header menu. */
+  backInMenu?: boolean;
   menuLabel?: string;
   menuPresentation?: 'overlay';
   menuUnavailable?: boolean;

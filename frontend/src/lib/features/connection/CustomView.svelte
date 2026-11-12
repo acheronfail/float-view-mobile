@@ -7,7 +7,6 @@
   import { ApiRequestError } from '$lib/backend/client';
   import {
     MAX_DASHBOARD_WIDGETS,
-    type ActiveConnection,
     type CustomDashboard,
     type DashboardWidget,
     type BoardProfile,
@@ -22,8 +21,21 @@
   import { dashboardGesture } from './dashboard-gesture';
   import { dashboardBackgroundGesture } from './dashboard-background-gesture';
   import type { LiveHistory } from './live-history';
+  import type { DashboardConnection } from './dashboard-preview';
 
-  let { connection, history, nowMs }: { connection: ActiveConnection; history: LiveHistory; nowMs: number } = $props();
+  let {
+    connection,
+    history,
+    nowMs,
+    preview = false,
+    onfinish,
+  }: {
+    connection: DashboardConnection;
+    history: LiveHistory;
+    nowMs: number;
+    preview?: boolean;
+    onfinish?: () => void;
+  } = $props();
   const { appear: appearSurface, exit: exitSurface } = createMotion();
   const boardId = $derived(connection.savedDeviceId);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
@@ -79,8 +91,8 @@
       const data = value.values.customDashboard;
       if (data != null && !validCustomDashboard(data)) throw new Error('This dashboard is unsupported or unreadable.');
       profile = value;
-      accepted = data ?? defaultDashboard(connection.liveWidgetSlots);
-      draft = null;
+      accepted = data ?? defaultDashboard(value.values.liveWidgetSlots ?? connection.liveWidgetSlots);
+      draft = preview ? structuredClone($state.snapshot(accepted)) : null;
       conflict = false;
     } catch (e) {
       if (generation === requestGeneration)
@@ -160,8 +172,10 @@
       const result = await backendState.saveDashboard(id, profile.revision, $state.snapshot(draft));
       if (id !== boardId || generation !== requestGeneration) return;
       profile = result;
-      accepted = result.values.customDashboard ?? defaultDashboard(connection.liveWidgetSlots);
+      accepted =
+        result.values.customDashboard ?? defaultDashboard(result.values.liveWidgetSlots ?? connection.liveWidgetSlots);
       draft = null;
+      onfinish?.();
     } catch (e) {
       if (generation !== requestGeneration) return;
       conflict = e instanceof ApiRequestError && e.code === 'conflict';
@@ -222,14 +236,14 @@
     selected = null;
   }
   async function cancel() {
-    await requestLeave();
+    if (await requestLeave()) onfinish?.();
   }
 </script>
 
 <section
   class="custom-dashboard relative flex h-full min-h-0 flex-col"
   aria-label="Custom dashboard"
-  use:backDismissal={{ close: cancel, enabled: !!draft && !selected && !pendingWidget && !picker }}
+  use:backDismissal={{ close: cancel, enabled: !preview && !!draft && !selected && !pendingWidget && !picker }}
 >
   {#if error}<div role="alert" class="mb-2 text-sm text-warning">
       <p>{error}</p>
@@ -319,7 +333,7 @@
                 >
               {/if}
               <div class="h-full min-h-0" inert={!!draft}>
-                <CustomWidget {widget} {connection} {history} {units} {nowMs} />
+                <CustomWidget {widget} {connection} {history} {units} {nowMs} {preview} />
               </div>
               {#if draft && scroll}
                 <button

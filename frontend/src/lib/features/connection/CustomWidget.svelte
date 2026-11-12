@@ -2,7 +2,7 @@
   import './widget-title.css';
   import WidgetThemeToggle from './WidgetThemeToggle.svelte';
   import WidgetRideMarker from './WidgetRideMarker.svelte';
-  import type { DashboardWidget, ActiveConnection, UnitPreference } from '$lib/backend/contract';
+  import type { DashboardWidget, UnitPreference } from '$lib/backend/contract';
   import { dashboardDomain, dashboardRangeValue, dashboardDimensions } from '$lib/backend/custom-dashboard';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
@@ -17,6 +17,7 @@
   import { liveValue, liveValueColor, liveValueText } from './live-values';
   import { widgetTitle, readingBarGeometry } from './custom-dashboard';
   import type { LiveHistory } from './live-history';
+  import type { DashboardConnection } from './dashboard-preview';
 
   let {
     widget,
@@ -27,7 +28,7 @@
     preview = false,
   }: {
     widget: DashboardWidget;
-    connection: ActiveConnection;
+    connection: DashboardConnection;
     history: LiveHistory;
     units: UnitPreference;
     nowMs: number;
@@ -76,7 +77,7 @@
   let toggling = $state(false);
   let error = $state(false);
   async function toggle() {
-    if (widget.kind !== 'control' || !lighting || lighting.disabled || toggling || backendState.busy) return;
+    if (preview || widget.kind !== 'control' || !lighting || lighting.disabled || toggling || backendState.busy) return;
     toggling = true;
     error = !(await backendState.setRefloatControl(widget.control, !lighting.checked));
     toggling = false;

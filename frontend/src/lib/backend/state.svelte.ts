@@ -1,3 +1,4 @@
+import { defaultLiveWidgetSlots } from './contract';
 import type { SessionExportProgress } from './contract';
 import { validateRideMarker } from './session-data';
 import type {
@@ -501,29 +502,43 @@ export class BackendState {
     }
     const savedDeviceId = connection.savedDeviceId;
     if (!savedDeviceId) return false;
-    return this.run(async (client) => {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const profile = await client.request('boardProfile.get', { savedDeviceId });
+    return this.run(async () => {
+      await this.saveLiveWidgetSlot(savedDeviceId, slot, field, () => {
+        const active = this.snapshot?.activeConnection;
         if (
-          this.snapshot?.activeConnection?.savedDeviceId !== savedDeviceId ||
-          this.snapshot.activeConnection.deviceId !== connection.deviceId ||
-          this.snapshot.activeConnection.trackingMode !== 'saved'
+          active?.savedDeviceId !== savedDeviceId ||
+          active.deviceId !== connection.deviceId ||
+          active.trackingMode !== 'saved'
         )
           throw new Error('The connected board changed. Open the picker again.');
-        const slots: LiveWidgetSlots = [...(profile.values.liveWidgetSlots ?? connection.liveWidgetSlots)];
-        slots[slot] = field;
-        try {
-          await client.request('boardProfile.update', {
-            savedDeviceId,
-            expectedRevision: profile.revision,
-            patch: { liveWidgetSlots: slots },
-          });
-          return;
-        } catch (error) {
-          if (attempt > 0 || !(error instanceof ApiRequestError) || error.code !== 'conflict') throw error;
-        }
-      }
+      });
     });
+  }
+
+  async saveLiveWidgetSlot(
+    savedDeviceId: string,
+    slot: number,
+    field: LiveWidgetField,
+    checkTarget?: () => void
+  ): Promise<BoardProfile> {
+    const client = this.client;
+    if (!client?.isOpen) throw new Error('Backend is not connected');
+    if (!Number.isInteger(slot) || slot < 0 || slot >= 5) throw new Error('Invalid Live box');
+    for (let attempt = 0; ; attempt++) {
+      const profile = await client.request('boardProfile.get', { savedDeviceId });
+      checkTarget?.();
+      const slots: LiveWidgetSlots = [...(profile.values.liveWidgetSlots ?? defaultLiveWidgetSlots)];
+      slots[slot] = field;
+      try {
+        return await client.request('boardProfile.update', {
+          savedDeviceId,
+          expectedRevision: profile.revision,
+          patch: { liveWidgetSlots: slots },
+        });
+      } catch (error) {
+        if (attempt || !(error instanceof ApiRequestError) || error.code !== 'conflict') throw error;
+      }
+    }
   }
 
   async openBoardProfile(savedDeviceId: string): Promise<boolean> {
@@ -582,8 +597,6 @@ export class BackendState {
     customDashboard: import('./contract').CustomDashboard
   ): Promise<BoardProfile> {
     if (!this.client?.isOpen) throw new Error('Backend is not connected');
-    if (this.snapshot?.activeConnection?.savedDeviceId !== savedDeviceId)
-      throw new Error('The connected board changed.');
     // Conflicts are deliberately not retried against a newer revision.
     return this.client.request('boardProfile.update', { savedDeviceId, expectedRevision, patch: { customDashboard } });
   }

@@ -1,7 +1,12 @@
 <script lang="ts">
   import { tick, onMount } from 'svelte';
   import { backendState } from '$lib/backend/state.svelte';
-  import { defaultLiveWidgetSlots, type LiveSample, type LiveWidgetField } from '$lib/backend/contract';
+  import {
+    defaultLiveWidgetSlots,
+    type LiveSample,
+    type LiveWidgetField,
+    type LiveWidgetSlots,
+  } from '$lib/backend/contract';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import LiveNumber from './LiveNumber.svelte';
   import LiveValuePicker from './LiveValuePicker.svelte';
@@ -14,15 +19,26 @@
 
   const appearance = createThemeToggle();
 
-  let { sample, slot }: { sample: LiveSample | null | undefined; slot: number } = $props();
-  const connection = $derived(backendState.snapshot?.activeConnection);
-  const slots = $derived(connection?.liveWidgetSlots ?? defaultLiveWidgetSlots);
+  let {
+    sample,
+    slot,
+    previewSlots,
+    onselect,
+  }: {
+    sample: LiveSample | null | undefined;
+    slot: number;
+    previewSlots?: LiveWidgetSlots;
+    onselect?: (slot: number, field: LiveWidgetField) => Promise<void>;
+  } = $props();
+  const preview = $derived(!!previewSlots);
+  const connection = $derived(preview ? null : backendState.snapshot?.activeConnection);
+  const slots = $derived(previewSlots ?? connection?.liveWidgetSlots ?? defaultLiveWidgetSlots);
   const field = $derived(slots[slot]);
   const alternateDistance = $derived(field === 'distanceM' ? 'odometerM' : field === 'odometerM' ? 'distanceM' : null);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
   const lighting = $derived(isLighting(field) ? lightingBox(connection, field) : null);
 
-  const estimatedLevel = $derived(backendState.snapshot?.activeConnection?.batteryEstimate.level);
+  const estimatedLevel = $derived(preview ? sample?.batteryLevel : connection?.batteryEstimate.level);
   let nowMs = $state(Date.now());
   onMount(() => {
     const timer = setInterval(() => (nowMs = Date.now()), 1_000);
@@ -30,7 +46,7 @@
   });
   const bms = $derived(connection?.state === 'ready' ? connection.bms : null);
   const connectionKey = $derived(
-    `${connection?.deviceId ?? ''}:${connection?.savedDeviceId ?? ''}:${connection?.trackingMode ?? ''}`
+    `${preview ? 'preview' : (connection?.deviceId ?? '')}:${connection?.savedDeviceId ?? ''}:${connection?.trackingMode ?? ''}`
   );
   let pickerConnectionKey = $state<string | null>(null);
   $effect(() => {
@@ -46,13 +62,14 @@
   let button: HTMLButtonElement;
   let toggling = $state(false);
   async function toggleLighting() {
-    if (!isLighting(field) || !lighting || lighting.disabled || toggling || backendState.busy) return;
+    if (preview || !isLighting(field) || !lighting || lighting.disabled || toggling || backendState.busy) return;
     toggling = true;
     await backendState.setRefloatControl(field, !lighting.checked);
     toggling = false;
   }
   function keyboardActivate() {
-    if (field === 'themeToggle') void appearance.toggle();
+    if (preview) open(button);
+    else if (field === 'themeToggle') void appearance.toggle();
     else if (lighting) void toggleLighting();
     else if (alternateDistance) void toggleDistance();
     else open(button);
@@ -64,7 +81,8 @@
     toggling = false;
   }
   function tap() {
-    if (field === 'themeToggle') void appearance.toggle();
+    if (preview) open(button);
+    else if (field === 'themeToggle') void appearance.toggle();
     else if (alternateDistance) void toggleDistance();
     else void toggleLighting();
   }
@@ -91,11 +109,20 @@
     busy = true;
     error = null;
     const savingKey = pickerConnectionKey;
-    const saved = await backendState.updateLiveWidgetSlot(selectedSlot, field);
+    let saved = false;
+    try {
+      if (preview) {
+        if (!onselect) throw new Error('This preview is read-only.');
+        await onselect(selectedSlot, field);
+        saved = true;
+      } else saved = await backendState.updateLiveWidgetSlot(selectedSlot, field);
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Could not save this reading. Try again.';
+    }
     busy = false;
     if (savingKey !== connectionKey || savingKey !== pickerConnectionKey) return;
     if (saved) await close(keyboard);
-    else error = backendState.error ?? 'Could not save this reading. Try again.';
+    else error ??= backendState.error ?? 'Could not save this reading. Try again.';
   }
 </script>
 
@@ -110,7 +137,7 @@
     type="button"
     role={lighting?.checked != null ? 'switch' : undefined}
     aria-checked={lighting?.checked ?? undefined}
-    aria-pressed={field === 'themeToggle' ? appearance.theme === 'dark' : undefined}
+    aria-pressed={!preview && field === 'themeToggle' ? appearance.theme === 'dark' : undefined}
     aria-busy={field === 'themeToggle'
       ? appearance.pending
       : lighting
@@ -118,20 +145,24 @@
         : alternateDistance
           ? toggling
           : undefined}
-    aria-disabled={field === 'themeToggle'
-      ? appearance.disabled
-      : lighting
-        ? lighting.disabled || toggling || backendState.busy
-        : alternateDistance
-          ? toggling || busy || backendState.busy
-          : undefined}
-    aria-label={field === 'themeToggle'
-      ? 'Light / dark mode'
-      : lighting
-        ? liveValueCatalog[field].name
-        : alternateDistance
-          ? `Box ${slot + 1}: ${liveValueCatalog[field].name}`
-          : `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`}
+    aria-disabled={preview
+      ? busy
+      : field === 'themeToggle'
+        ? appearance.disabled
+        : lighting
+          ? lighting.disabled || toggling || backendState.busy
+          : alternateDistance
+            ? toggling || busy || backendState.busy
+            : undefined}
+    aria-label={preview
+      ? `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`
+      : field === 'themeToggle'
+        ? 'Light / dark mode'
+        : lighting
+          ? liveValueCatalog[field].name
+          : alternateDistance
+            ? `Box ${slot + 1}: ${liveValueCatalog[field].name}`
+            : `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`}
     aria-describedby={`live-number-${slot} live-box-help-${slot}`}
     aria-keyshortcuts="Shift+Enter"
     class="live-value-button flex h-14 w-full min-w-0 touch-pan-y items-center justify-center rounded-lg border border-outline bg-surface px-1 py-1.5 text-center select-none focus-visible:outline-2 focus-visible:outline-accent"
@@ -153,7 +184,8 @@
   >
     <div class="w-full" id={`live-number-${slot}`} role="group" aria-label={liveValueCatalog[field].name}>
       {#if field === 'empty'}
-        <span class="flex items-center justify-center text-xs text-muted">Hold to set</span>
+        <span class="flex items-center justify-center text-xs text-muted">{preview ? 'Tap to set' : 'Hold to set'}</span
+        >
       {:else if field === 'themeToggle'}
         <ThemeToggleDisplay theme={appearance.theme} pending={appearance.pending} failed={appearance.failed} />
       {:else if lighting}
@@ -164,11 +196,12 @@
     </div>
   </button>
   <span id={`live-box-help-${slot}`} class="sr-only"
-    >Hold to configure. Shift+Enter opens configuration.{alternateDistance
-      ? ` Tap or press Enter to switch to ${liveValueCatalog[alternateDistance].name}.`
-      : lighting || field === 'themeToggle'
-        ? ' Tap or press Enter to toggle.'
-        : ''}</span
+    >{#if preview}Tap or press Enter to choose this box's content.{:else}Hold to configure. Shift+Enter opens
+      configuration.{alternateDistance
+        ? ` Tap or press Enter to switch to ${liveValueCatalog[alternateDistance].name}.`
+        : lighting || field === 'themeToggle'
+          ? ' Tap or press Enter to toggle.'
+          : ''}{/if}</span
   >
   {#if lighting || alternateDistance || field === 'themeToggle'}
     <button
@@ -182,6 +215,7 @@
 </div>
 {#if selectedSlot != null}
   <LiveValuePicker
+    {preview}
     slot={selectedSlot}
     selected={slots[selectedSlot]}
     {sample}

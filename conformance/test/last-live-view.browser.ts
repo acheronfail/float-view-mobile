@@ -99,7 +99,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           .focus();
         await page.keyboard.press('Enter');
         await custom.getByRole('button', { name: 'Save dashboard', exact: true }).click();
-        await custom.getByText('Press and hold any widget to arrange your dashboard.', { exact: true }).waitFor();
+        await custom
+          .getByText('Press and hold any widget or the background to arrange your dashboard.', { exact: true })
+          .waitFor();
         const beforeRestore = writes;
         await coldReload();
         await custom.waitFor();

@@ -10,6 +10,15 @@ const checkpoint = (kind: 'settings' | 'sessions'): UiCheckpoint => ({
   surface: null,
 });
 describe('UI restoration', () => {
+  it('restores view customisation to its board without replaying preview state or edits', () => {
+    const route = uiRoute(
+      '/sessions/boards/[savedDeviceId]/views',
+      { savedDeviceId: 'board-a' },
+      new URL('https://example.test/#/sessions/boards/board-a/views?from=live&view=custom')
+    );
+    expect(route).toEqual({ kind: 'boardHistory', savedDeviceId: 'board-a' });
+    expect(uiHref(route)).toBe('#/sessions/boards/board-a');
+  });
   it('restores Custom only for the same saved identity, while retaining existing normal checkpoints', () => {
     const backend = new MockBackend(() => {}, { safetyDisclaimerAccepted: true });
     backend.handle({ id: 1, method: 'bluetooth.requestPermission', params: {} });

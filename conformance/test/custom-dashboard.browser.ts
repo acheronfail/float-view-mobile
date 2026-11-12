@@ -764,9 +764,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(await page.getByText('Refloat is disabled', { exact: true }).isVisible(), false);
         await actionsPanel.getByRole('button', { name: 'Done', exact: true }).click();
         await page.getByText('Refloat is disabled', { exact: true }).waitFor();
-        const faultAction = page.getByRole('button', { name: /^Open fault history:/ });
+        const faultAction = page.getByRole('button', { name: /^Open faults and errors:/ });
         await faultAction.click();
-        const faults = page.getByRole('dialog', { name: 'Fault history', exact: true });
+        const faults = page.getByRole('dialog', { name: 'Faults and errors', exact: true });
         await faults.waitFor();
         assert.equal(await faults.locator('.live-warning-layer').count(), 0);
         await faults.getByRole('button', { name: 'Done', exact: true }).click();

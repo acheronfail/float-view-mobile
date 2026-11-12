@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import LiveValueBox from './LiveValueBox.svelte';
   import MarkerCapture from './MarkerCapture.svelte';
   import { prefersReducedMotion, Tween } from 'svelte/motion';
@@ -7,6 +8,7 @@
   import { driveLoad } from './gauge';
 
   let {
+    centre,
     sessionId = null,
     sample,
 
@@ -14,6 +16,7 @@
     liveBox = true,
     idPrefix = 'gauge',
   }: {
+    centre?: Snippet;
     sessionId?: string | null;
     sample: LiveSample | null | undefined;
 
@@ -228,7 +231,7 @@
       </text>
     </svg>
     {#if liveBox}<div class="gauge-centre absolute top-[77.333333%] left-[32.8125%] w-[34.375%]">
-        <LiveValueBox {sample} slot={4} />
+        {#if centre}{@render centre()}{:else}<LiveValueBox {sample} slot={4} />{/if}
       </div>{/if}
   </div>
   <MarkerCapture {sessionId} />
