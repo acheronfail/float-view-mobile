@@ -142,6 +142,9 @@
             <span class="text-sm font-medium">{reading.name}</span>
             {#if field === 'empty'}
               <span class="text-sm text-muted">Hold to set</span>
+            {:else if field === 'themeToggle'}
+              <span class="i-lucide-sun-moon text-xl text-muted" aria-hidden="true"></span>
+              <span class="text-sm text-muted">Toggle appearance</span>
             {:else if lighting}
               {#if lighting.checked != null}<ToggleIndicator checked={lighting.checked} />{/if}
               <span class="text-sm text-muted">{lighting.status}</span>
@@ -160,7 +163,7 @@
             <span class="text-xs text-muted"
               >{selected === field
                 ? '✓ Selected'
-                : field === 'empty' || lighting
+                : field === 'empty' || field === 'themeToggle' || lighting
                   ? '\u00a0'
                   : reading.value == null
                     ? 'Unavailable'

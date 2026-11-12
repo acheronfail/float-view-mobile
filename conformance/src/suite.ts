@@ -757,11 +757,12 @@ async function exerciseProductMethods(
           { id: 'battery', kind: 'visual', visual: 'battery', size: { columns: 4, rows: 1 } },
           { id: 'lights', kind: 'control', control: 'leds', size: { columns: 1, rows: 4 } },
           { id: 'marker', kind: 'action', action: 'rideMarker', size: { columns: 2, rows: 1 } },
+          { id: 'theme', kind: 'action', action: 'themeToggle', size: { columns: 1, rows: 1 } },
           { id: 'net-wh', kind: 'reading', field: 'wattHoursNetWh', presentation: 'number', size: 'compact' },
           { id: 'net-ah', kind: 'reading', field: 'ampHoursNetAh', presentation: 'trend', size: 'compact' },
         ],
       },
-      liveWidgetSlots: ['highestTempC', 'bmsStateOfCharge', 'wattHoursNetWh', 'ampHoursNetAh', 'maxSpeedKph'],
+      liveWidgetSlots: ['themeToggle', 'bmsStateOfCharge', 'wattHoursNetWh', 'ampHoursNetAh', 'maxSpeedKph'],
     },
   });
   assert.deepEqual(
@@ -813,10 +814,14 @@ async function exerciseProductMethods(
     );
   }
   assert.deepEqual(await client.request('boardProfile.get', { savedDeviceId: profile.savedDeviceId }), layoutProfile);
-  assert.equal(layoutProfile.values.customDashboard?.widgets.length, 6);
+  assert.equal(layoutProfile.values.customDashboard?.widgets.length, 7);
   assert.deepEqual(layoutProfile.values.customDashboard?.widgets[1]?.size, { columns: 4, rows: 1 });
   for (const customDashboard of [
     { version: 1, widgets: [{ id: 'mark', kind: 'action', action: 'unknown', size: 'compact' }] },
+    {
+      version: 1,
+      widgets: [{ id: 'theme', kind: 'reading', field: 'themeToggle', presentation: 'number', size: 'compact' }],
+    },
     { version: 1, widgets: [{ id: 'mark', kind: 'action', action: 'rideMarker', size: 'compact', control: 'leds' }] },
     ...[
       {},

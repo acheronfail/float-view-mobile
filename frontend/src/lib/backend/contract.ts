@@ -965,6 +965,7 @@ export const liveWidgetFields = [
   'empty',
   'headlights',
   'leds',
+  'themeToggle',
   'fieldWeakeningCurrentA',
   'motorCurrentA',
   'batteryCurrentA',
@@ -1022,7 +1023,7 @@ export const liveWidgetFields = [
   'chargingVoltageV',
 ] as const;
 export type LiveWidgetField = (typeof liveWidgetFields)[number];
-export type DashboardReading = Exclude<LiveWidgetField, 'empty' | 'headlights' | 'leds'>;
+export type DashboardReading = Exclude<LiveWidgetField, 'empty' | 'headlights' | 'leds' | 'themeToggle'>;
 export interface DashboardDimensions {
   /** Integer cell spans, independently bounded to 1–4. */
   columns: number;
@@ -1040,7 +1041,7 @@ export type DashboardWidget = { id: string; size: DashboardSize } & (
   | { kind: 'reading'; field: DashboardReading; presentation: DashboardPresentation; range?: DashboardRange }
   | { kind: 'visual'; visual: 'speedGauge' | 'battery' | 'temperatures' | 'footpads' }
   | { kind: 'control'; control: 'headlights' | 'leds' }
-  | { kind: 'action'; action: 'rideMarker' }
+  | { kind: 'action'; action: 'rideMarker' | 'themeToggle' }
 );
 /** Closed version-1 shape: <=24 widgets, unique 1–64 ASCII identifier IDs, <=8,192 UTF-8 bytes.
  * The complete Board Profile remains bounded to 16,384 bytes. */

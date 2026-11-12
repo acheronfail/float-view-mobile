@@ -8,7 +8,11 @@
   import { liveValueCatalog } from './live-values';
   import { holdToConfigure } from './hold-to-configure';
   import { isLighting, lightingBox } from './lighting';
+  import { createThemeToggle } from './theme-toggle.svelte';
+  import ThemeToggleDisplay from './ThemeToggleDisplay.svelte';
   import LightingDisplay from './LightingDisplay.svelte';
+
+  const appearance = createThemeToggle();
 
   let { sample, slot }: { sample: LiveSample | null | undefined; slot: number } = $props();
   const connection = $derived(backendState.snapshot?.activeConnection);
@@ -48,7 +52,8 @@
     toggling = false;
   }
   function keyboardActivate() {
-    if (lighting) void toggleLighting();
+    if (field === 'themeToggle') void appearance.toggle();
+    else if (lighting) void toggleLighting();
     else if (alternateDistance) void toggleDistance();
     else open(button);
   }
@@ -59,7 +64,8 @@
     toggling = false;
   }
   function tap() {
-    if (alternateDistance) void toggleDistance();
+    if (field === 'themeToggle') void appearance.toggle();
+    else if (alternateDistance) void toggleDistance();
     else void toggleLighting();
   }
 
@@ -104,22 +110,37 @@
     type="button"
     role={lighting?.checked != null ? 'switch' : undefined}
     aria-checked={lighting?.checked ?? undefined}
-    aria-busy={lighting ? lighting.pending || toggling : alternateDistance ? toggling : undefined}
-    aria-disabled={lighting
-      ? lighting.disabled || toggling || backendState.busy
-      : alternateDistance
-        ? toggling || busy || backendState.busy
-        : undefined}
-    aria-label={lighting
-      ? liveValueCatalog[field].name
-      : alternateDistance
-        ? `Box ${slot + 1}: ${liveValueCatalog[field].name}`
-        : `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`}
+    aria-pressed={field === 'themeToggle' ? appearance.theme === 'dark' : undefined}
+    aria-busy={field === 'themeToggle'
+      ? appearance.pending
+      : lighting
+        ? lighting.pending || toggling
+        : alternateDistance
+          ? toggling
+          : undefined}
+    aria-disabled={field === 'themeToggle'
+      ? appearance.disabled
+      : lighting
+        ? lighting.disabled || toggling || backendState.busy
+        : alternateDistance
+          ? toggling || busy || backendState.busy
+          : undefined}
+    aria-label={field === 'themeToggle'
+      ? 'Light / dark mode'
+      : lighting
+        ? liveValueCatalog[field].name
+        : alternateDistance
+          ? `Box ${slot + 1}: ${liveValueCatalog[field].name}`
+          : `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`}
     aria-describedby={`live-number-${slot} live-box-help-${slot}`}
     aria-keyshortcuts="Shift+Enter"
     class="live-value-button flex h-14 w-full min-w-0 touch-pan-y items-center justify-center rounded-lg border border-outline bg-surface px-1 py-1.5 text-center select-none focus-visible:outline-2 focus-visible:outline-accent"
     onclick={(event) => activateFromKeyboardOrAssistiveClick(event, keyboardActivate)}
     onkeydown={(event) => {
+      if (field === 'themeToggle' && event.repeat && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        return;
+      }
       if (
         (event.key === 'Enter' && event.shiftKey) ||
         event.key === 'ContextMenu' ||
@@ -133,6 +154,8 @@
     <div class="w-full" id={`live-number-${slot}`} role="group" aria-label={liveValueCatalog[field].name}>
       {#if field === 'empty'}
         <span class="flex items-center justify-center text-xs text-muted">Hold to set</span>
+      {:else if field === 'themeToggle'}
+        <ThemeToggleDisplay theme={appearance.theme} pending={appearance.pending} failed={appearance.failed} />
       {:else if lighting}
         <LightingDisplay field={field === 'headlights' ? 'headlights' : 'leds'} {lighting} {toggling} />
       {:else}
@@ -143,11 +166,11 @@
   <span id={`live-box-help-${slot}`} class="sr-only"
     >Hold to configure. Shift+Enter opens configuration.{alternateDistance
       ? ` Tap or press Enter to switch to ${liveValueCatalog[alternateDistance].name}.`
-      : lighting
+      : lighting || field === 'themeToggle'
         ? ' Tap or press Enter to toggle.'
         : ''}</span
   >
-  {#if lighting || alternateDistance}
+  {#if lighting || alternateDistance || field === 'themeToggle'}
     <button
       type="button"
       class="sr-only focus:not-sr-only focus:bg-surface"

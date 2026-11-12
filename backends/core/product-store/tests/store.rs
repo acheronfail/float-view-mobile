@@ -1201,7 +1201,7 @@ fn custom_dashboard_is_atomic_bounded_independent_and_survives_reopen() {
         .ensure_board("dash-second", Some("Second"), Some(&[2; 12]), 0)
         .unwrap();
     let id = &first.saved_device_id;
-    let dashboard = serde_json::json!({"version":1,"widgets":[{"id":"mark","kind":"action","action":"rideMarker","size":"compact"},{"id":"a","kind":"reading","field":"motorCurrentA","presentation":"gauge","size":"large","range":{"min":-100,"max":100}},{"id":"peak","kind":"reading","field":"maxSpeedKph","presentation":"gauge","size":"compact","range":{"min":0,"max":60}}]});
+    let dashboard = serde_json::json!({"version":1,"widgets":[{"id":"theme","kind":"action","action":"themeToggle","size":{"columns":1,"rows":1}},{"id":"mark","kind":"action","action":"rideMarker","size":"compact"},{"id":"a","kind":"reading","field":"motorCurrentA","presentation":"gauge","size":"large","range":{"min":-100,"max":100}},{"id":"peak","kind":"reading","field":"maxSpeedKph","presentation":"gauge","size":"compact","range":{"min":0,"max":60}}]});
     for invalid in [
         serde_json::json!({"version":1,"widgets":[{"id":"mark","kind":"action","action":"unknown","size":"compact"}]}),
         serde_json::json!({"version":1,"widgets":[{"id":"mark","kind":"action","action":"rideMarker","size":"compact","control":"leds"}]}),

@@ -73,7 +73,7 @@
     const [kind, selected] = value.split(':');
     const base = { id: working.id, size: working.size };
     if (kind === 'reading') working = { ...base, kind, field: selected as DashboardReading, presentation: 'number' };
-    else if (kind === 'action') working = { ...base, kind, action: 'rideMarker' };
+    else if (kind === 'action') working = { ...base, kind, action: selected as 'rideMarker' | 'themeToggle' };
     else if (kind === 'control') working = { ...base, kind, control: selected as 'headlights' | 'leds' };
     else
       working = { ...base, kind: 'visual', visual: selected as 'battery' | 'speedGauge' | 'temperatures' | 'footpads' };
@@ -179,7 +179,8 @@
         <optgroup label="Controls"
           ><option value="control:headlights">Headlights</option><option value="control:leds">LEDs</option><option
             value="action:rideMarker">Save ride marker</option
-          ></optgroup
+          >
+          <option value="action:themeToggle">Light / dark mode</option></optgroup
         >
       </select>
     </label>

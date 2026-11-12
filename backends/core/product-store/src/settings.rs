@@ -256,6 +256,7 @@ fn clamp_float(value: &mut Value, min: f64, max: f64) -> Result<()> {
 
 pub(crate) const LIVE_WIDGET_FIELDS: &[&str] = &[
     "empty",
+    "themeToggle",
     "headlights",
     "leds",
     "fieldWeakeningCurrentA",

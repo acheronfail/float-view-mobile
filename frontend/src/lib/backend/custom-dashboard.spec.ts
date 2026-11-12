@@ -17,6 +17,7 @@ describe('dashboard contract', () => {
         version: 1,
         widgets: [
           { id: 'mark', kind: 'action', action: 'rideMarker', size: 'compact' },
+          { id: 'theme', kind: 'action', action: 'themeToggle', size: { columns: 1, rows: 1 } },
           reading,
           { ...reading, id: 'two', presentation: 'trend' },
           { id: 'three', kind: 'control', control: 'headlights', size: 'medium' },
@@ -38,6 +39,7 @@ describe('dashboard contract', () => {
         Array.from({ length: 25 }, (_, i) => ({ ...reading, id: `w${i}` })),
         [{ ...reading, id: 'x'.repeat(65) }],
         [{ ...reading, field: 'headlights' }],
+        [{ ...reading, field: 'themeToggle', presentation: 'number' }],
         [{ ...reading, presentation: 'unknown' }],
         [{ ...reading, range: { min: 100, max: -100 } }],
         [{ ...reading, range: { min: -2001, max: 2000 } }],

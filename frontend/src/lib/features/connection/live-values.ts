@@ -7,6 +7,7 @@ export const liveValueCatalog = {
   empty: { name: 'Empty', label: 'Hold to set', unit: '', digits: 0 },
   headlights: { name: 'Headlights', label: 'Headlights', unit: '', digits: 0 },
   leds: { name: 'LEDs', label: 'LEDs', unit: '', digits: 0 },
+  themeToggle: { name: 'Light / dark mode', label: 'Appearance', unit: '', digits: 0 },
   fieldWeakeningCurrentA: { name: 'Field weakening', label: 'Field weak.', unit: 'A', digits: 1 },
   motorCurrentA: { name: 'Actual motor current', label: 'Motor', unit: 'A', digits: 1 },
   batteryCurrentA: { name: 'Battery current', label: 'Battery', unit: 'A', digits: 1 },
@@ -121,7 +122,7 @@ export function liveValue(
                   : sample.packVoltageV * sample.batteryCurrentA
                 : field === 'estimatedBatteryLevel'
                   ? estimatedLevel
-                  : field === 'empty' || field === 'headlights' || field === 'leds'
+                  : field === 'empty' || field === 'headlights' || field === 'leds' || field === 'themeToggle'
                     ? null
                     : (sample?.[field as keyof LiveSample] as number | null | undefined);
   let unit: string = definition.unit;

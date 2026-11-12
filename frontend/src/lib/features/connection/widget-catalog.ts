@@ -118,6 +118,13 @@ export const widgetCatalog: WidgetCatalogEntry[] = [
     })
   ),
   {
+    name: 'Light / dark mode',
+    category: 'Controls',
+    section: 'Controls',
+    description: 'Button · 1 × 1 · Toggle appearance theme',
+    widget: { id: 'action-themeToggle', kind: 'action', action: 'themeToggle', size: { columns: 1, rows: 1 } },
+  },
+  {
     name: 'Save ride marker',
     category: 'Controls',
     section: 'Controls',

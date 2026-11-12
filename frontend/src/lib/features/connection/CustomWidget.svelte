@@ -1,5 +1,6 @@
 <script lang="ts">
   import './widget-title.css';
+  import WidgetThemeToggle from './WidgetThemeToggle.svelte';
   import WidgetRideMarker from './WidgetRideMarker.svelte';
   import type { DashboardWidget, ActiveConnection, UnitPreference } from '$lib/backend/contract';
   import { dashboardDomain, dashboardRangeValue, dashboardDimensions } from '$lib/backend/custom-dashboard';
@@ -87,7 +88,7 @@
   style:--reading-font-cap={widget.kind === 'reading' && widget.presentation === 'bar'
     ? 'min(4rem, 25cqh)'
     : 'min(4rem, 45cqh)'}
-  class:opacity-45={connection.state !== 'ready'}
+  class:opacity-45={connection.state !== 'ready' && !(widget.kind === 'action' && widget.action === 'themeToggle')}
 >
   {#if widget.kind === 'reading'}
     {#if widget.presentation === 'trend'}
@@ -229,6 +230,8 @@
       >
         Unavailable
       </p>{/if}
+  {:else if widget.kind === 'action' && widget.action === 'themeToggle'}
+    <WidgetThemeToggle {preview} />
   {:else if widget.kind === 'action'}
     <WidgetRideMarker sessionId={connection.activeSession?.sessionId ?? null} {preview} />
   {:else if widget.kind === 'control' && lighting}

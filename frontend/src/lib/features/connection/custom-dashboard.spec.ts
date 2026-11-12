@@ -7,6 +7,9 @@ describe('dashboard composition', () => {
     expect(validCustomDashboard(dashboard)).toBe(true);
     expect(dashboard.widgets.filter((w) => w.kind === 'reading' && w.field === 'motorCurrentA')).toHaveLength(2);
     expect(new Set(dashboard.widgets.map((w) => w.id)).size).toBe(dashboard.widgets.length);
+    const themeDashboard = defaultDashboard(['themeToggle', 'empty', 'empty', 'empty', 'empty']);
+    expect(validCustomDashboard(themeDashboard)).toBe(true);
+    expect(themeDashboard.widgets[0]).toMatchObject({ kind: 'action', action: 'themeToggle' });
   });
   it('previews the same bounded cell footprints and gaps used by the dashboard', () => {
     const grid = { columns: 4, cellSize: 85, rowSize: 56, gap: 6 };

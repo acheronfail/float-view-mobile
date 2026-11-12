@@ -111,14 +111,15 @@ export function validCustomDashboard(value: unknown): value is CustomDashboard {
         keys(w, ['id', 'size', 'kind', 'visual']) &&
         ['speedGauge', 'battery', 'temperatures', 'footpads'].includes(String(w.visual))
       );
-    if (w.kind === 'action') return keys(w, ['id', 'size', 'kind', 'action']) && w.action === 'rideMarker';
+    if (w.kind === 'action')
+      return keys(w, ['id', 'size', 'kind', 'action']) && ['rideMarker', 'themeToggle'].includes(String(w.action));
     if (w.kind === 'control')
       return keys(w, ['id', 'size', 'kind', 'control']) && ['headlights', 'leds'].includes(String(w.control));
     if (
       w.kind !== 'reading' ||
       !keys(w, ['id', 'size', 'kind', 'field', 'presentation', 'range']) ||
       !(liveWidgetFields as readonly unknown[]).includes(w.field) ||
-      ['empty', 'headlights', 'leds'].includes(String(w.field)) ||
+      ['empty', 'headlights', 'leds', 'themeToggle'].includes(String(w.field)) ||
       !['number', 'bar', 'gauge', 'trend'].includes(String(w.presentation))
     )
       return false;

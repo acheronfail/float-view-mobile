@@ -86,7 +86,7 @@ pub(crate) fn validate(value: &Value) -> Result<()> {
                         ) => {}
                 "action"
                     if keys(w, &["id", "size", "kind", "action"])
-                        && one(&w["action"], &["rideMarker"]) => {}
+                        && one(&w["action"], &["rideMarker", "themeToggle"]) => {}
                 "control"
                     if keys(w, &["id", "size", "kind", "control"])
                         && one(&w["control"], &["headlights", "leds"]) => {}
@@ -94,7 +94,7 @@ pub(crate) fn validate(value: &Value) -> Result<()> {
                     let field = w["field"].as_str()?;
                     if !keys(w, &["id", "size", "kind", "field", "presentation", "range"])
                         || !crate::settings::LIVE_WIDGET_FIELDS.contains(&field)
-                        || ["empty", "headlights", "leds"].contains(&field)
+                        || ["empty", "headlights", "leds", "themeToggle"].contains(&field)
                         || !one(&w["presentation"], &["number", "bar", "gauge", "trend"])
                     {
                         return None;

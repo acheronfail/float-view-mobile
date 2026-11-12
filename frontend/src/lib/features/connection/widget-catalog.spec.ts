@@ -4,7 +4,9 @@ import { validCustomDashboard } from '$lib/backend/custom-dashboard';
 import { pickerGroups, readingCategories, widgetCatalog } from './widget-catalog';
 describe('widget discovery', () => {
   it('makes every reading discoverable exactly once with a valid Number/1×1 default', () => {
-    const expected = liveWidgetFields.filter((field) => !['empty', 'headlights', 'leds'].includes(field));
+    const expected = liveWidgetFields.filter(
+      (field) => !['empty', 'headlights', 'leds', 'themeToggle'].includes(field)
+    );
     const actual = readingCategories.flatMap((category) => category.fields);
     expect([...actual].sort()).toEqual([...expected].sort());
     for (const entry of widgetCatalog) {
@@ -31,7 +33,8 @@ describe('widget discovery', () => {
     expect(names('cell voltage spread')).toEqual(['Cell voltage spread']);
     expect(names('battery panel')).toEqual(['Battery panel']);
     expect(names('ride marker')).toEqual(['Save ride marker']);
-    expect(names('button')).toEqual(['Save ride marker']);
+    expect(names('button')).toEqual(['Light / dark mode', 'Save ride marker']);
+    expect(names('theme')).toEqual(['Light / dark mode']);
     expect(names('nonexistent reading')).toEqual([]);
     expect(pickerGroups('', false).map((group) => group.name)).toEqual(['Values', 'Visual widgets', 'Controls']);
     expect(pickerGroups('', true).flatMap((group) => group.entries)).toHaveLength(widgetCatalog.length);
