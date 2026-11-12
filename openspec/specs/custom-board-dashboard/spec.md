@@ -348,12 +348,17 @@ Custom widget selection and configuration SHALL offer Light / dark mode with sup
 
 #### Scenario: Preview and edit suppression
 
-- **WHEN** the widget is previewed, held to edit, dragged, scrolled, cancelled or activated by a non-primary pointer
+- **WHEN** the widget is shown in a picker/configuration thumbnail, held to edit, dragged, scrolled, cancelled or activated by a non-primary pointer
 - **THEN** appearance remains unchanged
+
+#### Scenario: Interactive board preview
+
+- **WHEN** the user normally activates the theme widget in a board's interactive preview
+- **THEN** the app appearance toggles exactly once through the existing persisted preference
 
 ### Requirement: Board-scoped preview editing
 
-Customise views SHALL use labelled example readings and shared dashboard renderers. Live SHALL allow direct selection of each of its five boxes with immediate revisioned saves. Custom SHALL enter draft editing directly with existing add, configure, reorder, remove, Save and Cancel actions. Preview actions SHALL never mutate runtime controls, appearance or ride markers.
+Customise views SHALL use labelled example readings and shared renderers with normal tap/hold behavior. Live boxes SHALL open configuration on hold with immediate revisioned selection saves. Custom SHALL open in viewing mode and enter draft editing on hold, retaining existing add, configure, reorder, remove, Save and Cancel actions. Save or accepted Cancel SHALL return to viewing without leaving the preview.
 
 #### Scenario: Edit and reopen offline
 
@@ -363,7 +368,7 @@ Customise views SHALL use labelled example readings and shared dashboard rendere
 #### Scenario: Preview controls
 
 - **WHEN** the user taps, holds, cancels or uses non-primary input on preview lighting, theme or marker widgets
-- **THEN** only eligible configuration gestures operate, without any runtime action or duplicate activation
+- **THEN** eligible short taps perform the documented preview interaction, holds enter editing without activation, cancelled/non-primary input does nothing, and no board command or ride marker is sent
 
 #### Scenario: Default and unavailable profile
 
@@ -390,3 +395,26 @@ The editor SHALL retain its selected saved-board target independently of connect
 
 - **WHEN** the user switches away from dirty Custom edits or dismisses the editor
 - **THEN** they can keep editing or explicitly discard, including through keyboard and native Back
+
+### Requirement: Interactive preview action isolation
+
+Interactive previews SHALL toggle headlights and LEDs only in temporary frontend state shared by both views for the selected board. Theme widgets SHALL use the app appearance preference. Ride markers SHALL remain unavailable without a real session. Picker/configuration thumbnails SHALL remain inert. Preview interactions SHALL never send device commands or create ride markers, even while another board is connected.
+
+#### Scenario: Example lighting across views
+
+- **WHEN** the user taps an example light switch and changes between Live and Custom
+- **THEN** both views and duplicate controls show the same example switch state without changing the saved layout or sending a device command
+- **WHEN** the user leaves the board preview and returns
+- **THEN** example lighting resets to its initial state
+
+#### Scenario: Live distance example
+
+- **WHEN** the user taps a Live distance box in preview
+- **THEN** it switches locally between ride distance and odometer without changing the saved box choice
+
+#### Scenario: Edit and gesture suppression
+
+- **WHEN** the user holds, drags, scrolls, cancels or uses a non-primary pointer on an interactive widget
+- **THEN** no tap action runs and no theme or example switch state changes
+- **WHEN** the user saves or cancels Custom edits
+- **THEN** normal widget interaction resumes in the preview and dirty exits retain their existing discard guard

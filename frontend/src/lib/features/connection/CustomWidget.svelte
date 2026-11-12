@@ -13,11 +13,11 @@
   import WidgetTemperatures from './WidgetTemperatures.svelte';
   import WidgetFootpads from './WidgetFootpads.svelte';
   import LiveChartPlot from './LiveChartPlot.svelte';
-  import { lightingBox } from './lighting';
+  import { lightingBox, exampleLightingBox } from './lighting';
   import { liveValue, liveValueColor, liveValueText } from './live-values';
   import { widgetTitle, readingBarGeometry } from './custom-dashboard';
   import type { LiveHistory } from './live-history';
-  import type { DashboardConnection } from './dashboard-preview';
+  import type { DashboardConnection, PreviewInteractions } from './dashboard-preview';
 
   let {
     widget,
@@ -26,6 +26,7 @@
     units,
     nowMs,
     preview = false,
+    previewInteractions,
   }: {
     widget: DashboardWidget;
     connection: DashboardConnection;
@@ -33,13 +34,20 @@
     units: UnitPreference;
     nowMs: number;
     preview?: boolean;
+    previewInteractions?: PreviewInteractions;
   } = $props();
   const compactChart = $derived(
     dashboardDimensions(widget.size).rows === 1 || dashboardDimensions(widget.size).columns === 1
   );
   const compact = $derived(dashboardDimensions(widget.size).rows === 1);
   const sample = $derived(connection.latestSample);
-  const lighting = $derived(widget.kind === 'control' ? lightingBox(connection, widget.control) : null);
+  const lighting = $derived(
+    widget.kind === 'control'
+      ? preview && previewInteractions
+        ? exampleLightingBox(previewInteractions.lighting[widget.control])
+        : lightingBox(connection, widget.control)
+      : null
+  );
   const reading = $derived(
     widget.kind === 'reading'
       ? liveValue(widget.field, sample, units, connection.batteryEstimate.level, connection.bms, nowMs)
@@ -77,7 +85,12 @@
   let toggling = $state(false);
   let error = $state(false);
   async function toggle() {
-    if (preview || widget.kind !== 'control' || !lighting || lighting.disabled || toggling || backendState.busy) return;
+    if (widget.kind !== 'control' || !lighting || lighting.disabled || toggling) return;
+    if (preview) {
+      previewInteractions?.toggleLighting(widget.control);
+      return;
+    }
+    if (backendState.busy) return;
     toggling = true;
     error = !(await backendState.setRefloatControl(widget.control, !lighting.checked));
     toggling = false;
@@ -232,17 +245,21 @@
         Unavailable
       </p>{/if}
   {:else if widget.kind === 'action' && widget.action === 'themeToggle'}
-    <WidgetThemeToggle {preview} />
+    <WidgetThemeToggle preview={preview && !previewInteractions} />
   {:else if widget.kind === 'action'}
     <WidgetRideMarker sessionId={connection.activeSession?.sessionId ?? null} {preview} />
   {:else if widget.kind === 'control' && lighting}
-    {#if preview}<LightingDisplay field={widget.control} {lighting} expanded={!compact} />{:else}
+    {#if preview && !previewInteractions}<LightingDisplay
+        field={widget.control}
+        {lighting}
+        expanded={!compact}
+      />{:else}
       <button
         type="button"
         role="switch"
         aria-checked={lighting.checked ?? false}
         aria-label={widgetTitle(widget)}
-        aria-disabled={lighting.disabled || toggling || backendState.busy}
+        aria-disabled={lighting.disabled || toggling || (!preview && backendState.busy)}
         aria-busy={lighting.pending || toggling}
         class={`min-h-11 w-full touch-pan-y rounded-lg ${compact ? 'p-0' : 'p-2'}`}
         onpointerdown={(e) => activateFromPointer(e, toggle, { scrollable: true })}

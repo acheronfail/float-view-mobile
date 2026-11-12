@@ -3,6 +3,9 @@ export type LightingControl = 'headlights' | 'leds';
 export function isLighting(field: LiveWidgetField): field is LightingControl {
   return field === 'headlights' || field === 'leds';
 }
+export function exampleLightingBox(checked: boolean) {
+  return { checked, pending: false, disabled: false, status: checked ? 'On' : 'Off' };
+}
 export function lightingMenuActions(connection: ActiveConnection) {
   if (!connection.refloatControls?.lightingAvailable || connection.refloatControls.status === 'unavailable') return [];
   return (['leds', 'headlights'] as const).map((control) => ({

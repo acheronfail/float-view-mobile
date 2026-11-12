@@ -145,6 +145,20 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           await page.keyboard.press('Enter');
         } else await action.tap();
       }
+      async function editCustom() {
+        const custom = page.getByRole('region', { name: 'Custom dashboard', exact: true });
+        await custom
+          .getByRole('button', { name: /^Arrange / })
+          .first()
+          .focus();
+        await page.keyboard.press('Enter');
+        await custom.getByRole('button', { name: 'Save dashboard', exact: true }).waitFor();
+      }
+      async function backToBoard() {
+        await page.getByRole('button', { name: 'View options', exact: true }).tap();
+        await page.locator('[data-header-menu]').getByRole('button', { name: 'Back', exact: true }).tap();
+        await page.getByRole('region', { name: 'Board summary', exact: true }).waitFor();
+      }
       const open = async (captureMenu = false) => {
         await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
         if (captureMenu) {
@@ -158,7 +172,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.getByRole('region', { name: 'Customise board views', exact: true }).waitFor();
         await page
           .getByRole('region', { name: 'Custom dashboard', exact: true })
-          .getByRole('button', { name: 'Save dashboard', exact: true })
+          .locator('[data-dashboard-widget]')
+          .first()
           .waitFor();
         assert.equal(
           await page.getByText('Custom View · Preview values', { exact: true }).count(),
@@ -218,6 +233,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       });
       assert.equal(await page.getByRole('dialog', { name: 'Choose a value' }).count(), 0);
       await box.tap();
+      assert.equal(await page.getByRole('dialog', { name: 'Choose a value' }).count(), 0);
+      await box.focus();
+      await page.keyboard.press('Shift+Enter');
       const picker = page.getByRole('dialog', { name: 'Choose a value' });
       await picker.getByRole('searchbox', { name: 'Search values', exact: true }).fill('motor current');
       await shot('05-live-value-picker');
@@ -233,9 +251,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await shot('06-live-choice-saved');
       await switchView('Custom View');
       const custom = page.getByRole('region', { name: 'Custom dashboard', exact: true });
-      await custom.getByRole('button', { name: 'Save dashboard', exact: true }).waitFor();
+      await editCustom();
       assert.equal(
-        await page.getByText('Tap to configure. Hold and drag to rearrange.', { exact: true }).getAttribute('class'),
+        await page
+          .getByText('Hold a widget or the background to arrange your dashboard.', { exact: true })
+          .getAttribute('class'),
         'sr-only'
       );
       await page.waitForTimeout(100);
@@ -257,7 +277,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       });
       await shot('10-custom-staged');
       await custom.getByRole('button', { name: 'Save dashboard', exact: true }).tap();
-      await page.getByRole('region', { name: 'Board summary', exact: true }).waitFor();
+      await custom
+        .getByRole('button', { name: /^Arrange / })
+        .first()
+        .waitFor();
+      await backToBoard();
       await shot('11-saved-return');
       const savedDashboard = (await client.request('boardProfile.get', { savedDeviceId: id })).values.customDashboard;
       assert.ok(
@@ -267,6 +291,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       );
       await open();
       await switchView('Custom View');
+      await editCustom();
       await custom.getByRole('button', { name: /^Configure Pack voltage,/ }).waitFor();
       await custom.locator('.dashboard-scroll').evaluate((node) => {
         node.scrollTop = node.scrollHeight;
@@ -319,11 +344,20 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await custom.getByRole('button', { name: 'Save dashboard', exact: true }).isDisabled(), true);
       await custom.getByRole('button', { name: 'Reload current values', exact: true }).tap();
       await page.getByRole('button', { name: 'Discard changes', exact: true }).tap();
+      await custom
+        .getByRole('button', { name: /^Arrange / })
+        .first()
+        .waitFor();
+      await editCustom();
       await custom.getByRole('button', { name: 'Remove Headlights', exact: true }).waitFor();
       await custom.getByRole('button', { name: 'Remove Headlights', exact: true }).tap();
       await client.request('device.disconnect', {});
       await custom.getByRole('button', { name: 'Save dashboard', exact: true }).tap();
-      await page.getByRole('button', { name: 'Board actions', exact: true }).waitFor();
+      await custom
+        .getByRole('button', { name: /^Arrange / })
+        .first()
+        .waitFor();
+      await backToBoard();
       profile = await client.request('boardProfile.get', { savedDeviceId: id });
       assert.equal(
         profile.values.customDashboard?.widgets.some((w) => w.id === 'lights'),
@@ -346,7 +380,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('button', { name: 'Retry loading', exact: true }).tap();
       await page
         .getByRole('region', { name: 'Custom dashboard', exact: true })
-        .getByRole('button', { name: 'Save dashboard', exact: true })
+        .locator('[data-dashboard-widget]')
+        .first()
         .waitFor();
       await switchView('Live View');
       // Connected entry follows the saved view and preserves the healthy Live viewport.
@@ -376,11 +411,15 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           `preview preserves Live viewport ${dimension}: ${JSON.stringify({ previewBounds, connectedBounds })}`
         );
       await switchView('Custom View');
-      await custom.getByRole('button', { name: 'Save dashboard', exact: true }).waitFor();
+      await editCustom();
       await client.request('device.disconnect', {});
       await custom.getByRole('button', { name: 'Remove Battery', exact: true }).tap();
       await custom.getByRole('button', { name: 'Save dashboard', exact: true }).tap();
-      await page.getByRole('button', { name: 'Board actions', exact: true }).waitFor();
+      await custom
+        .getByRole('button', { name: /^Arrange / })
+        .first()
+        .waitFor();
+      await backToBoard();
       // Unconfigured dashboards preview the selected board's Live choices without persisting defaults.
       profile = await client.request('boardProfile.get', { savedDeviceId: id });
       await client.request('boardProfile.update', {
@@ -391,6 +430,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const writesBeforeDefault = requests.filter((r) => r.method === 'boardProfile.update').length;
       await open();
       await switchView('Custom View', true);
+      await editCustom();
       await custom.getByRole('button', { name: /^Configure Actual motor current,/ }).waitFor();
       assert.equal(requests.filter((r) => r.method === 'boardProfile.update').length, writesBeforeDefault);
       await page.getByRole('button', { name: 'View options', exact: true }).tap();
@@ -413,6 +453,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('button', { name: 'Customise views', exact: true }).tap();
       await page.getByRole('region', { name: 'Live board widgets', exact: true }).waitFor();
       await switchView('Custom View');
+      await editCustom();
       await custom.getByRole('button', { name: 'Remove Battery', exact: true }).tap();
       await client.request('savedDevice.delete', { savedDeviceId: id });
       await page.getByRole('heading', { name: 'Sessions', exact: true }).waitFor();

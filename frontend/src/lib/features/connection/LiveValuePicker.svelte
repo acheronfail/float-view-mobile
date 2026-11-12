@@ -3,7 +3,7 @@
   import { createMotion } from '$lib/ui/motion';
   import { onMount } from 'svelte';
   import { backendState } from '$lib/backend/state.svelte';
-  import { isLighting, lightingBox } from './lighting';
+  import { isLighting, lightingBox, exampleLightingBox } from './lighting';
   import ToggleIndicator from '$lib/ui/ToggleIndicator.svelte';
   import {
     liveWidgetFields,
@@ -15,10 +15,13 @@
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import { liveValue, liveValueCatalog, liveValueColor, liveValueText, liveValueStatus } from './live-values';
 
+  import type { PreviewInteractions } from './dashboard-preview';
+
   const motion = createMotion();
 
   let {
     preview = false,
+    previewInteractions,
     slot,
     selected,
     sample,
@@ -33,6 +36,7 @@
     onclose,
   }: {
     preview?: boolean;
+    previewInteractions?: PreviewInteractions;
     slot: number;
     selected: LiveWidgetField;
     sample: LiveSample | null | undefined;
@@ -129,7 +133,9 @@
             Math.max(nowMs ?? 0, Date.now())
           )}
           {@const lighting = isLighting(field)
-            ? lightingBox(preview ? null : backendState.snapshot?.activeConnection, field)
+            ? preview && previewInteractions
+              ? exampleLightingBox(previewInteractions.lighting[field])
+              : lightingBox(preview ? null : backendState.snapshot?.activeConnection, field)
             : null}
           <button
             type="button"

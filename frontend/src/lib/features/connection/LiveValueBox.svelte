@@ -12,10 +12,12 @@
   import LiveValuePicker from './LiveValuePicker.svelte';
   import { liveValueCatalog } from './live-values';
   import { holdToConfigure } from './hold-to-configure';
-  import { isLighting, lightingBox } from './lighting';
+  import { isLighting, lightingBox, exampleLightingBox } from './lighting';
   import { createThemeToggle } from './theme-toggle.svelte';
   import ThemeToggleDisplay from './ThemeToggleDisplay.svelte';
   import LightingDisplay from './LightingDisplay.svelte';
+
+  import type { PreviewInteractions } from './dashboard-preview';
 
   const appearance = createThemeToggle();
 
@@ -23,20 +25,34 @@
     sample,
     slot,
     previewSlots,
+    previewInteractions,
     onselect,
   }: {
     sample: LiveSample | null | undefined;
     slot: number;
     previewSlots?: LiveWidgetSlots;
+    previewInteractions?: PreviewInteractions;
     onselect?: (slot: number, field: LiveWidgetField) => Promise<void>;
   } = $props();
   const preview = $derived(!!previewSlots);
   const connection = $derived(preview ? null : backendState.snapshot?.activeConnection);
   const slots = $derived(previewSlots ?? connection?.liveWidgetSlots ?? defaultLiveWidgetSlots);
-  const field = $derived(slots[slot]);
+  const savedField = $derived(slots[slot]);
+  let exampleField = $state<LiveWidgetField | null>(null);
+  $effect(() => {
+    void savedField;
+    exampleField = null;
+  });
+  const field = $derived(preview ? (exampleField ?? slots[slot]) : slots[slot]);
   const alternateDistance = $derived(field === 'distanceM' ? 'odometerM' : field === 'odometerM' ? 'distanceM' : null);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
-  const lighting = $derived(isLighting(field) ? lightingBox(connection, field) : null);
+  const lighting = $derived(
+    isLighting(field)
+      ? preview && previewInteractions
+        ? exampleLightingBox(previewInteractions.lighting[field])
+        : lightingBox(connection, field)
+      : null
+  );
 
   const estimatedLevel = $derived(preview ? sample?.batteryLevel : connection?.batteryEstimate.level);
   let nowMs = $state(Date.now());
@@ -62,27 +78,35 @@
   let button: HTMLButtonElement;
   let toggling = $state(false);
   async function toggleLighting() {
-    if (preview || !isLighting(field) || !lighting || lighting.disabled || toggling || backendState.busy) return;
+    if (!isLighting(field) || !lighting || lighting.disabled || toggling) return;
+    if (preview) {
+      previewInteractions?.toggleLighting(field);
+      return;
+    }
+    if (backendState.busy) return;
     toggling = true;
     await backendState.setRefloatControl(field, !lighting.checked);
     toggling = false;
   }
   function keyboardActivate() {
-    if (preview) open(button);
-    else if (field === 'themeToggle') void appearance.toggle();
+    if (field === 'themeToggle') void appearance.toggle();
     else if (lighting) void toggleLighting();
     else if (alternateDistance) void toggleDistance();
     else open(button);
   }
   async function toggleDistance() {
-    if (!alternateDistance || toggling || busy || backendState.busy) return;
+    if (!alternateDistance || toggling || busy) return;
+    if (preview) {
+      exampleField = alternateDistance;
+      return;
+    }
+    if (backendState.busy) return;
     toggling = true;
     await backendState.updateLiveWidgetSlot(slot, alternateDistance);
     toggling = false;
   }
   function tap() {
-    if (preview) open(button);
-    else if (field === 'themeToggle') void appearance.toggle();
+    if (field === 'themeToggle') void appearance.toggle();
     else if (alternateDistance) void toggleDistance();
     else void toggleLighting();
   }
@@ -103,6 +127,7 @@
   async function select(field: LiveWidgetField, keyboard: boolean) {
     if (busy || selectedSlot == null) return;
     if (slots[selectedSlot] === field) {
+      exampleField = null;
       await close(keyboard);
       return;
     }
@@ -121,8 +146,10 @@
     }
     busy = false;
     if (savingKey !== connectionKey || savingKey !== pickerConnectionKey) return;
-    if (saved) await close(keyboard);
-    else error ??= backendState.error ?? 'Could not save this reading. Try again.';
+    if (saved) {
+      exampleField = null;
+      await close(keyboard);
+    } else error ??= backendState.error ?? 'Could not save this reading. Try again.';
   }
 </script>
 
@@ -137,7 +164,7 @@
     type="button"
     role={lighting?.checked != null ? 'switch' : undefined}
     aria-checked={lighting?.checked ?? undefined}
-    aria-pressed={!preview && field === 'themeToggle' ? appearance.theme === 'dark' : undefined}
+    aria-pressed={field === 'themeToggle' ? appearance.theme === 'dark' : undefined}
     aria-busy={field === 'themeToggle'
       ? appearance.pending
       : lighting
@@ -145,24 +172,20 @@
         : alternateDistance
           ? toggling
           : undefined}
-    aria-disabled={preview
-      ? busy
-      : field === 'themeToggle'
-        ? appearance.disabled
-        : lighting
-          ? lighting.disabled || toggling || backendState.busy
-          : alternateDistance
-            ? toggling || busy || backendState.busy
-            : undefined}
-    aria-label={preview
-      ? `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`
-      : field === 'themeToggle'
-        ? 'Light / dark mode'
-        : lighting
-          ? liveValueCatalog[field].name
-          : alternateDistance
-            ? `Box ${slot + 1}: ${liveValueCatalog[field].name}`
-            : `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`}
+    aria-disabled={field === 'themeToggle'
+      ? appearance.disabled
+      : lighting
+        ? lighting.disabled || toggling || (!preview && backendState.busy)
+        : alternateDistance
+          ? toggling || busy || (!preview && backendState.busy)
+          : undefined}
+    aria-label={field === 'themeToggle'
+      ? 'Light / dark mode'
+      : lighting
+        ? liveValueCatalog[field].name
+        : alternateDistance
+          ? `Box ${slot + 1}: ${liveValueCatalog[field].name}`
+          : `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`}
     aria-describedby={`live-number-${slot} live-box-help-${slot}`}
     aria-keyshortcuts="Shift+Enter"
     class="live-value-button flex h-14 w-full min-w-0 touch-pan-y items-center justify-center rounded-lg border border-outline bg-surface px-1 py-1.5 text-center select-none focus-visible:outline-2 focus-visible:outline-accent"
@@ -184,8 +207,7 @@
   >
     <div class="w-full" id={`live-number-${slot}`} role="group" aria-label={liveValueCatalog[field].name}>
       {#if field === 'empty'}
-        <span class="flex items-center justify-center text-xs text-muted">{preview ? 'Tap to set' : 'Hold to set'}</span
-        >
+        <span class="flex items-center justify-center text-xs text-muted">Hold to set</span>
       {:else if field === 'themeToggle'}
         <ThemeToggleDisplay theme={appearance.theme} pending={appearance.pending} failed={appearance.failed} />
       {:else if lighting}
@@ -196,12 +218,11 @@
     </div>
   </button>
   <span id={`live-box-help-${slot}`} class="sr-only"
-    >{#if preview}Tap or press Enter to choose this box's content.{:else}Hold to configure. Shift+Enter opens
-      configuration.{alternateDistance
-        ? ` Tap or press Enter to switch to ${liveValueCatalog[alternateDistance].name}.`
-        : lighting || field === 'themeToggle'
-          ? ' Tap or press Enter to toggle.'
-          : ''}{/if}</span
+    >Hold to configure. Shift+Enter opens configuration.{alternateDistance
+      ? ` Tap or press Enter to switch to ${liveValueCatalog[alternateDistance].name}.`
+      : lighting || field === 'themeToggle'
+        ? ' Tap or press Enter to toggle.'
+        : ''}</span
   >
   {#if lighting || alternateDistance || field === 'themeToggle'}
     <button
@@ -216,8 +237,9 @@
 {#if selectedSlot != null}
   <LiveValuePicker
     {preview}
+    {previewInteractions}
     slot={selectedSlot}
-    selected={slots[selectedSlot]}
+    selected={field}
     {sample}
     {units}
     {estimatedLevel}

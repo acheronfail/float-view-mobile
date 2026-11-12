@@ -1,5 +1,12 @@
 import type { ActiveConnection, LiveSample } from '$lib/backend/contract';
 import type { LiveHistory } from './live-history';
+import type { LightingControl } from './lighting';
+
+/** Only the interactive board surface receives these temporary example controls. */
+export interface PreviewInteractions {
+  readonly lighting: Readonly<Record<LightingControl, boolean>>;
+  toggleLighting(control: LightingControl): void;
+}
 
 /** Presentation facts shared by live rendering and the isolated layout preview. */
 export type DashboardConnection = Pick<

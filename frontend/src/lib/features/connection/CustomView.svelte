@@ -21,20 +21,18 @@
   import { dashboardGesture } from './dashboard-gesture';
   import { dashboardBackgroundGesture } from './dashboard-background-gesture';
   import type { LiveHistory } from './live-history';
-  import type { DashboardConnection } from './dashboard-preview';
+  import type { DashboardConnection, PreviewInteractions } from './dashboard-preview';
 
   let {
     connection,
     history,
     nowMs,
-    preview = false,
-    onfinish,
+    previewInteractions,
   }: {
     connection: DashboardConnection;
     history: LiveHistory;
     nowMs: number;
-    preview?: boolean;
-    onfinish?: () => void;
+    previewInteractions?: PreviewInteractions;
   } = $props();
   const { appear: appearSurface, exit: exitSurface } = createMotion();
   const boardId = $derived(connection.savedDeviceId);
@@ -92,7 +90,7 @@
       if (data != null && !validCustomDashboard(data)) throw new Error('This dashboard is unsupported or unreadable.');
       profile = value;
       accepted = data ?? defaultDashboard(value.values.liveWidgetSlots ?? connection.liveWidgetSlots);
-      draft = preview ? structuredClone($state.snapshot(accepted)) : null;
+      draft = null;
       conflict = false;
     } catch (e) {
       if (generation === requestGeneration)
@@ -175,7 +173,6 @@
       accepted =
         result.values.customDashboard ?? defaultDashboard(result.values.liveWidgetSlots ?? connection.liveWidgetSlots);
       draft = null;
-      onfinish?.();
     } catch (e) {
       if (generation !== requestGeneration) return;
       conflict = e instanceof ApiRequestError && e.code === 'conflict';
@@ -236,14 +233,14 @@
     selected = null;
   }
   async function cancel() {
-    if (await requestLeave()) onfinish?.();
+    await requestLeave();
   }
 </script>
 
 <section
   class="custom-dashboard relative flex h-full min-h-0 flex-col"
   aria-label="Custom dashboard"
-  use:backDismissal={{ close: cancel, enabled: !preview && !!draft && !selected && !pendingWidget && !picker }}
+  use:backDismissal={{ close: cancel, enabled: !!draft && !selected && !pendingWidget && !picker }}
 >
   {#if error}<div role="alert" class="mb-2 text-sm text-warning">
       <p>{error}</p>
@@ -333,7 +330,15 @@
                 >
               {/if}
               <div class="h-full min-h-0" inert={!!draft}>
-                <CustomWidget {widget} {connection} {history} {units} {nowMs} {preview} />
+                <CustomWidget
+                  {widget}
+                  {connection}
+                  {history}
+                  {units}
+                  {nowMs}
+                  preview={!!previewInteractions}
+                  {previewInteractions}
+                />
               </div>
               {#if draft && scroll}
                 <button

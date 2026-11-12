@@ -9,7 +9,7 @@
   import CustomView from './CustomView.svelte';
   import LiveView from './LiveView.svelte';
   import LiveValueBox from './LiveValueBox.svelte';
-  import { dashboardPreview, previewHistory, previewNowMs } from './dashboard-preview';
+  import { dashboardPreview, previewHistory, previewNowMs, type PreviewInteractions } from './dashboard-preview';
 
   let {
     savedDeviceId,
@@ -30,6 +30,13 @@
   let error = $state<string | null>(null);
   let custom = $state<CustomView>();
   let generation = 0;
+  const exampleLights = $state({ headlights: false, leds: true });
+  const previewInteractions: PreviewInteractions = {
+    lighting: exampleLights,
+    toggleLighting(control) {
+      exampleLights[control] = !exampleLights[control];
+    },
+  };
   const slots = $derived(profile?.values.liveWidgetSlots ?? defaultLiveWidgetSlots);
   const preview = $derived({ ...dashboardPreview(savedDeviceId), liveWidgetSlots: slots });
 
@@ -123,8 +130,8 @@
   {#if board && profile && !loading}
     <p class="sr-only">
       {view === 'normal'
-        ? 'Tap a box to change it. Choices save automatically.'
-        : 'Tap to configure. Hold and drag to rearrange.'}
+        ? 'Hold a box to configure it. Choices save automatically.'
+        : 'Hold a widget or the background to arrange your dashboard.'}
     </p>
     {#if view === 'custom'}
       <CustomView
@@ -132,20 +139,33 @@
         connection={preview}
         history={previewHistory}
         nowMs={previewNowMs}
-        preview
-        onfinish={finish}
+        {previewInteractions}
       />
     {:else}
       <LiveView presentation={preview} nowMs={previewNowMs}>
         {#snippet boxes()}
           <div class="grid grid-cols-4 gap-1.5" aria-label="Live number widgets">
             {#each [0, 1, 2, 3] as slot (slot)}
-              <LiveValueBox sample={preview.latestSample} {slot} previewSlots={slots} onselect={selectSlot} />
+              <LiveValueBox
+                sample={preview.latestSample}
+                {slot}
+                previewSlots={slots}
+                {previewInteractions}
+                onselect={selectSlot}
+              />
             {/each}
           </div>
         {/snippet}
         {#snippet centre()}
-          <div><LiveValueBox sample={preview.latestSample} slot={4} previewSlots={slots} onselect={selectSlot} /></div>
+          <div>
+            <LiveValueBox
+              sample={preview.latestSample}
+              slot={4}
+              previewSlots={slots}
+              {previewInteractions}
+              onselect={selectSlot}
+            />
+          </div>
         {/snippet}
       </LiveView>
     {/if}
