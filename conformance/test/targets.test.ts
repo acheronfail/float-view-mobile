@@ -4,7 +4,6 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import {
   androidActivityIsStopped,
-  ANDROID_BACKEND_PORT,
   androidBuildArguments,
   androidLaunchArguments,
   androidLocationRuntimePermissions,
@@ -14,14 +13,13 @@ import {
 } from '../targets/android.ts';
 import {
   iosPhysicalBuildArguments,
-  IOS_BACKEND_PORT,
   iosDeviceIsPreparingFailure,
   iosPhysicalLaunchArguments,
   iosPhysicalProcessIdentifier,
   iosPhysicalTerminateArguments,
   iosPhysicalTarget,
 } from '../targets/ios.ts';
-import { MACOS_BACKEND_PORT, macosLaunchArguments, macosPhysicalTarget } from '../targets/macos.ts';
+import { macosLaunchArguments, macosPhysicalTarget } from '../targets/macos.ts';
 import { MOCK_BACKEND_PORT } from '../targets/mock.ts';
 
 test('physical targets validate identity before executing host commands', () => {
@@ -30,13 +28,6 @@ test('physical targets validate identity before executing host commands', () => 
   assert.equal(androidPhysicalTarget('serial').productionBluetooth, true);
   assert.equal(iosPhysicalTarget('device').productionBluetooth, true);
   assert.equal(macosPhysicalTarget.productionBluetooth, true);
-});
-
-test('target ports use the stable platform registry', () => {
-  assert.equal(MACOS_BACKEND_PORT, 11010);
-  assert.equal(IOS_BACKEND_PORT, 11011);
-  assert.equal(ANDROID_BACKEND_PORT, 11012);
-  assert.equal(MOCK_BACKEND_PORT, 11003);
 });
 
 test('physical target command construction uses normal Debug app paths', () => {
@@ -90,7 +81,6 @@ test('physical target command construction uses normal Debug app paths', () => {
     '--environment-variables',
     JSON.stringify({
       ...unreachableFixtureEnvironment,
-      FLOAT_VIEW_CONFORMANCE_PORT: '11011',
       FLOAT_VIEW_CONFORMANCE_RESET: '1',
     }),
     '--terminate-existing',
@@ -107,7 +97,7 @@ test('physical target command construction uses normal Debug app paths', () => {
     '--device',
     'device',
     '--environment-variables',
-    JSON.stringify({ ...unreachableFixtureEnvironment, FLOAT_VIEW_CONFORMANCE_PORT: '11011' }),
+    JSON.stringify(unreachableFixtureEnvironment),
     '--terminate-existing',
     '--quiet',
     '--json-output',

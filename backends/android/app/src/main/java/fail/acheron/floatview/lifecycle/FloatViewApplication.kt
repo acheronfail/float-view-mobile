@@ -3,7 +3,6 @@ package fail.acheron.floatview.lifecycle
 import android.app.Application
 import android.content.pm.ApplicationInfo
 import fail.acheron.floatview.application.BackendRuntime
-import fail.acheron.floatview.transport.ANDROID_BACKEND_PORT
 import fail.acheron.floatview.transport.LoopbackServer
 import fail.acheron.floatview.application.StartupRecovery
 
@@ -13,11 +12,16 @@ class FloatViewApplication : Application() {
             createRuntime = { BackendRuntime(this) },
             createServer = { runtime: BackendRuntime ->
                 LoopbackServer(
-                    assets, runtime.service, requestedPort = ANDROID_BACKEND_PORT,
+                    assets, runtime.service,
                     performanceDiagnostics = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
                 )
             },
-            startServer = { it.start() },
+            startServer = {
+                it.start()
+                if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                    java.io.File(filesDir, "backend-port").writeText(it.port.toString())
+                }
+            },
         )
     }
     val runtime: BackendRuntime get() = requireNotNull(startup.runtime)
@@ -27,6 +31,7 @@ class FloatViewApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        java.io.File(filesDir, "backend-port").delete()
         retryStartup()
     }
 

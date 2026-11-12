@@ -2,6 +2,7 @@ import { directTarget, makeDirectTarget } from '../targets/direct.ts';
 import { InteractiveTelemetrySource } from '../fixture/telemetry.ts';
 import {
   runConformance,
+  runStartupConformance,
   runBoardExportConformance,
   runAnnouncementsConformance,
   runConnectionContextConformance,
@@ -60,23 +61,25 @@ const target =
             ? androidTarget
             : externalTarget(name, `FLOAT_VIEW_${name.toUpperCase()}_WS_URL`);
 const result = await (
-  ['board-export', 'app-transfer'].includes(process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS ?? '')
-    ? runBoardExportConformance
-    : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'announcements'
-      ? runAnnouncementsConformance
-      : ['refloat-beta2', 'refloat-beta3', 'refloat-stable'].includes(
-            process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS ?? ''
-          )
-        ? runRefloatReleaseConformance
-        : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'connection-context'
-          ? runConnectionContextConformance
-          : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'ride-continuity'
-            ? runRideContinuityConformance
-            : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'diagnostics'
-              ? runDiagnosticsConformance
-              : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'auto-connect'
-                ? runAutoConnectConformance
-                : runConformance
+  process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'startup'
+    ? runStartupConformance
+    : ['board-export', 'app-transfer'].includes(process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS ?? '')
+      ? runBoardExportConformance
+      : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'announcements'
+        ? runAnnouncementsConformance
+        : ['refloat-beta2', 'refloat-beta3', 'refloat-stable'].includes(
+              process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS ?? ''
+            )
+          ? runRefloatReleaseConformance
+          : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'connection-context'
+            ? runConnectionContextConformance
+            : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'ride-continuity'
+              ? runRideContinuityConformance
+              : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'diagnostics'
+                ? runDiagnosticsConformance
+                : process.env.FLOAT_VIEW_CONFORMANCE_SCENARIOS === 'auto-connect'
+                  ? runAutoConnectConformance
+                  : runConformance
 )(target);
 console.log(`Conformance passed: ${result.target} revision=${result.revision}`);
 

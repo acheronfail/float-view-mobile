@@ -1,20 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  ANDROID_PORT,
-  IOS_PORT,
-  MACOS_PORT,
   MOCK_PORT,
   VITE_PORT,
-  androidForwardArguments,
-  androidForwardRemovalArguments,
   androidInstallArguments,
   androidLaunchArguments,
   androidLogcatArguments,
-  backendOrigin,
   childExitFailure,
   iosPhysicalConsoleLaunchArguments,
-  iosProxyArguments,
   iosSimulatorBuildArguments,
   iosSimulatorConsoleLaunchArguments,
   selectAndroidDeviceFromList,
@@ -23,26 +16,17 @@ import {
   viteEnvironment,
 } from '../src/dev.ts';
 
-test('development endpoints use the stable registry', () => {
+test('Vite receives the discovered connection address and device auth origin', () => {
   assert.equal(VITE_PORT, 11002);
   assert.equal(MOCK_PORT, 11003);
-  assert.equal(MACOS_PORT, 11010);
-  assert.equal(IOS_PORT, 11011);
-  assert.equal(ANDROID_PORT, 11012);
-  assert.equal(backendOrigin('macos'), 'http://127.0.0.1:11010');
-  assert.equal(backendOrigin('ios'), 'http://127.0.0.1:11011');
-  assert.equal(backendOrigin('android'), 'http://127.0.0.1:11012');
-});
-
-test('mobile forwarding preserves platform ports and owned cleanup scope', () => {
-  assert.deepEqual(androidForwardArguments(), ['forward', '--no-rebind', 'tcp:11012', 'tcp:11012']);
-  assert.deepEqual(androidForwardRemovalArguments(), ['forward', '--remove', 'tcp:11012']);
-  assert.deepEqual(iosProxyArguments('device'), ['--udid', 'device', '--source', '127.0.0.1', '11011:11011']);
-});
-
-test('Vite receives only the selected loopback backend origin', () => {
-  assert.equal(viteEnvironment('macos', { KEEP: 'yes' }).FLOAT_VIEW_DEV_BACKEND_ORIGIN, 'http://127.0.0.1:11010');
-  assert.equal(viteEnvironment('macos', { KEEP: 'yes' }).KEEP, 'yes');
+  const environment = viteEnvironment(
+    { url: 'ws://127.0.0.1:49300/api/ws', origin: 'http://127.0.0.1:49200' },
+    { KEEP: 'yes' }
+  );
+  assert.equal(environment.FLOAT_VIEW_DEV_BACKEND_ORIGIN, 'http://127.0.0.1:49300');
+  assert.equal(environment.FLOAT_VIEW_DEV_BACKEND_AUTH_ORIGIN, 'http://127.0.0.1:49200');
+  assert.equal(environment.KEEP, 'yes');
+  assert.equal(viteEnvironment(undefined, {}).FLOAT_VIEW_DEV_BACKEND_ORIGIN, 'http://127.0.0.1:11003');
 });
 
 test('Android development preserves app data and requires explicit ambiguous selection', () => {
@@ -65,7 +49,7 @@ test('Android development preserves app data and requires explicit ambiguous sel
   assert.equal(selectAndroidDeviceFromList(multiple, 'two'), 'two');
 });
 
-test('iOS development prefers a booted simulator, forwards logs, and uses same-number iproxy', () => {
+test('iOS development prefers a booted simulator and forwards logs', () => {
   const devices = {
     devices: {
       'iOS 26': [
@@ -75,7 +59,6 @@ test('iOS development prefers a booted simulator, forwards logs, and uses same-n
     },
   };
   assert.equal(selectIOSSimulatorFromList(devices), 'booted');
-  assert.deepEqual(iosProxyArguments('physical'), ['--udid', 'physical', '--source', '127.0.0.1', '11011:11011']);
   assert.deepEqual(iosSimulatorBuildArguments('/app.xcodeproj', 'booted', '/derived'), [
     '-project',
     '/app.xcodeproj',

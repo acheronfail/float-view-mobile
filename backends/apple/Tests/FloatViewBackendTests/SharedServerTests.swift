@@ -31,6 +31,13 @@ struct SharedServerTests {
     let server = try RustLoopbackHost(html: Data("<html>candidate</html>".utf8), service: service, platform: "macos")
     try server.start()
     defer { server.stop() }
+    #expect(server.port > 0)
+    let sibling = try RustLoopbackHost(html: Data("<html>sibling</html>".utf8), service: service, platform: "macos")
+    try sibling.start()
+    defer { sibling.stop() }
+    #expect(sibling.port > 0)
+    #expect(sibling.port != server.port)
+    #expect(sibling.token != server.token)
     let token = server.token
     let stopped = Date()
     server.stop()

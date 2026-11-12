@@ -133,24 +133,24 @@ Debug physical-conformance builds MAY provide only the endpoint and lifecycle co
 - **WHEN** conformance launches the macOS test host without software-Bluetooth or seeded-state configuration
 - **THEN** readiness is exposed while CoreBluetooth and isolated production backend paths are used
 
-### Requirement: Stable native loopback port registry
+### Requirement: OS-assigned native loopback endpoints
 
-Supported native backends SHALL bind only to loopback and SHALL use stable default ports: macOS `11010`, iOS `11011`, and Android `11012`. A newly supported backend MUST receive the next unassigned port beginning at `11013`.
+Supported native backends SHALL bind only to loopback using an OS-assigned port. Hosts SHALL load the frontend from the actual bound origin, and bootstrap endpoints and authentication SHALL use that origin. A listener SHALL retain its assigned socket for its lifetime without probing ports before binding.
 
 #### Scenario: Supported backend starts
 
-- **WHEN** a macOS, iOS, or Android backend starts
-- **THEN** its loopback server listens on its assigned platform port
+- **WHEN** stable and beta native processes start concurrently
+- **THEN** each receives an available loopback port and its frontend connects to its own service
 
 #### Scenario: Assigned port unavailable
 
-- **WHEN** the assigned loopback address and port cannot be bound
-- **THEN** the native host fails startup with an actionable diagnostic and does not silently select another port
+- **WHEN** a loopback listener cannot be created
+- **THEN** startup fails visibly without loading another process's backend
 
 #### Scenario: New backend allocation
 
 - **WHEN** another native backend becomes supported
-- **THEN** it receives one documented unused port from the consecutive registry beginning at `11013`
+- **THEN** it uses OS assignment without allocating a fixed registry port
 
 ### Requirement: Browser-development native host seams
 
@@ -159,17 +159,17 @@ Each native platform SHALL provide only the launch, readiness, forwarding, proce
 #### Scenario: macOS browser host
 
 - **WHEN** macOS browser development starts
-- **THEN** a native process listens on `127.0.0.1:11010` without creating a WKWebView and retains CoreBluetooth, SQLite, permission, and save-panel ownership
+- **THEN** a native process reports its OS-assigned loopback origin and listens there without creating a WKWebView and retains CoreBluetooth, SQLite, permission, and save-panel ownership
 
 #### Scenario: iOS browser host
 
 - **WHEN** iOS browser development starts for a selected device
-- **THEN** the installed application listens on device loopback port `11011` and a monitored `iproxy` exposes host loopback port `11011`
+- **THEN** the installed application reports its OS-assigned device loopback port and a monitored `iproxy` exposes an available host loopback port
 
 #### Scenario: Android browser host
 
 - **WHEN** Android browser development starts for a selected device
-- **THEN** the installed application listens on device loopback port `11012` and ADB exposes host loopback port `11012`
+- **THEN** the installed application reports its OS-assigned device loopback port and ADB exposes an OS-assigned host loopback port
 
 #### Scenario: Production host behavior
 
@@ -753,3 +753,17 @@ iOS SHALL retain an existing Live Activity for at most a short grace period afte
 
 - **WHEN** connection generations change, a person dismisses the activity, or repeated lifecycle notifications arrive
 - **THEN** cleanup work remains bounded, old expiration callbacks cannot end a replacement activity, and duplicate notifications do not extend the grace deadline
+
+### Requirement: Saved appearance before frontend startup
+
+Native-served HTML SHALL carry the current saved theme and accent before frontend scripts run. The first canvas SHALL use those preferences, resolving system theme against current appearance. Browser storage SHALL remain an optional hint and SHALL NOT override embedded saved appearance.
+
+#### Scenario: A new origin has no cached preference
+
+- **WHEN** the assigned port changes and saved preferences differ from defaults or system appearance
+- **THEN** the initial frontend canvas and subsequent app startup use the saved theme and accent without an intermediate default flash
+
+#### Scenario: Preferences change before frontend recreation
+
+- **WHEN** saved appearance changes and the HTML is requested again
+- **THEN** that response carries the current saved values rather than listener-start values

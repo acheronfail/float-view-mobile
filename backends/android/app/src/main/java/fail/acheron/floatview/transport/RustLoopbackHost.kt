@@ -22,7 +22,7 @@ internal class RustLoopbackHost(html: ByteArray, private val service: SharedServ
     }
     @Synchronized fun start() {
         if (running) return
-        val result = command("start", json("platform" to "android", "port" to 11012))
+        val result = command("start", json("platform" to "android", "port" to 0))
         port = result.getInt("port"); token = result.getString("token"); running = true
     }
     @Synchronized fun stop() { if (running) { command("stop"); running = false } }

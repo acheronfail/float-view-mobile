@@ -1,3 +1,4 @@
+import { androidEndpoint } from '../src/native-endpoint.ts';
 import { unreachableFixture } from '../fixture/selection.ts';
 import { startFixtureRelay, type FixtureRelay } from '../fixture/relay.ts';
 import { observeSpeechReplay, type SpeechReplayOptions } from './speech-replay.ts';
@@ -6,9 +7,6 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import type { PhysicalTarget, Target } from '../src/suite.ts';
 
-export const ANDROID_BACKEND_PORT = 11012;
-const hostPort = ANDROID_BACKEND_PORT;
-const devicePort = ANDROID_BACKEND_PORT;
 const applicationId = 'fail.acheron.floatview';
 const activity = `${applicationId}/${applicationId}.ui.MainActivity`;
 
@@ -17,6 +15,7 @@ export const androidTarget: Target = makeAndroidTarget();
 export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
   if (!deviceSerial) throw new Error('Android ADB serial is required');
   const root = fileURLToPath(new URL('../../', import.meta.url));
+  const connection = androidEndpoint(() => deviceSerial);
   let prepared = false;
   const prepareSuite = async (report: (message: string) => void = () => undefined) => {
     if (prepared) return;
@@ -50,7 +49,6 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
     for (const permission of androidRuntimePermissions(apiLevel)) {
       adb(deviceSerial, 'shell', 'pm', 'grant', applicationId, permission);
     }
-    adb(deviceSerial, 'forward', `tcp:${hostPort}`, `tcp:${devicePort}`);
     prepared = true;
     report('Android: permissions and loopback forwarding ready');
   };
@@ -74,9 +72,9 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
       adb(deviceSerial, 'shell', 'am', 'force-stop', applicationId);
       adb(deviceSerial, 'shell', 'am', 'force-stop', 'com.android.intentresolver');
       launch(deviceSerial);
-      return bootstrap();
+      return connection.endpoint();
     },
-    endpoint: bootstrap,
+    endpoint: () => connection.endpoint(),
     async background() {
       adb(deviceSerial, 'shell', 'input', 'keyevent', 'KEYCODE_HOME');
       await waitForAndroidBackground(deviceSerial);
@@ -87,13 +85,14 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
     async stop() {
       await dismissAndroidFilePicker(deviceSerial);
       adbBestEffort(deviceSerial, 'shell', 'am', 'force-stop', applicationId);
+      connection.close();
     },
     async finishSuite(report) {
       report('Android: stopping application...');
       adbBestEffort(deviceSerial, 'shell', 'am', 'force-stop', applicationId);
       adbBestEffort(deviceSerial, 'shell', 'run-as', applicationId, 'rm', '-f', 'files/fixture-run.json');
       report('Android: removing loopback forwarding...');
-      adbBestEffort(deviceSerial, 'forward', '--remove', `tcp:${hostPort}`);
+      connection.close();
       prepared = false;
       report('Android: cleanup complete');
     },
@@ -102,6 +101,7 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
 
 export function makeAndroidTarget(configuredSerial?: string, replay?: SpeechReplayOptions): Target {
   let serial = '';
+  const connection = androidEndpoint(() => serial);
   let speechLog: ChildProcess | undefined;
   let stopObserving: (() => void) | undefined;
   let fixture: FixtureRelay | undefined;
@@ -126,7 +126,6 @@ export function makeAndroidTarget(configuredSerial?: string, replay?: SpeechRepl
       for (const permission of permissions) {
         adb(serial, 'shell', 'pm', 'grant', applicationId, permission);
       }
-      adb(serial, 'forward', `tcp:${hostPort}`, `tcp:${devicePort}`);
       adb(serial, 'shell', 'am', 'force-stop', 'com.android.intentresolver');
       fixture = await startFixtureRelay(replay);
       const port = new URL(fixture.endpoint).port;
@@ -153,7 +152,7 @@ export function makeAndroidTarget(configuredSerial?: string, replay?: SpeechRepl
         }
       );
       await promisify(execFile)('adb', ['-s', serial, ...androidLaunchArguments(false)]);
-      const endpoint = await bootstrap();
+      const endpoint = await connection.endpoint();
       if (replay) {
         const pid = adbOutput(serial, 'shell', 'pidof', applicationId).trim();
         if (!/^\d+$/.test(pid)) throw new Error('Missing conformance app process');
@@ -169,7 +168,7 @@ export function makeAndroidTarget(configuredSerial?: string, replay?: SpeechRepl
     async loseFixture() {
       await fixture?.close();
     },
-    endpoint: bootstrap,
+    endpoint: () => connection.endpoint(),
     verifyFilePresentation: () => verifyAndroidFilePresentation(serial),
     async background() {
       adb(serial, 'shell', 'input', 'keyevent', 'KEYCODE_HOME');
@@ -199,7 +198,7 @@ export function makeAndroidTarget(configuredSerial?: string, replay?: SpeechRepl
       speechLog = undefined;
       if (!serial) return;
       adbBestEffort(serial, 'shell', 'am', 'force-stop', applicationId);
-      adbBestEffort(serial, 'forward', '--remove', `tcp:${hostPort}`);
+      connection.close();
       if (fixture) adbBestEffort(serial, 'reverse', '--remove', `tcp:${new URL(fixture.endpoint).port}`);
       await fixture?.close();
       fixture = undefined;
@@ -346,31 +345,6 @@ function findEmulator(): string {
     .find(([name, state]) => name?.startsWith('emulator-') && state === 'device')?.[0];
   if (!value) throw new Error('Start an Android Emulator or set FLOAT_VIEW_ANDROID_EMULATOR');
   return value;
-}
-
-async function bootstrap() {
-  const forwardedOrigin = `http://127.0.0.1:${hostPort}`;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    try {
-      const response = await fetch(`${forwardedOrigin}/api/bootstrap`);
-      if (response.ok) {
-        const value = (await response.json()) as {
-          webSocketUrl: string;
-          sessionToken: string;
-        };
-        const url = new URL(value.webSocketUrl);
-        url.hostname = '127.0.0.1';
-        url.port = String(hostPort);
-        url.searchParams.set('token', value.sessionToken);
-        return {
-          url: url.toString(),
-          origin: `http://127.0.0.1:${devicePort}`,
-        };
-      }
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error('Android backend did not become ready');
 }
 
 /** Run the ordinary app's native UI tests on the configured emulator only. */

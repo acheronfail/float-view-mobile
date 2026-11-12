@@ -1,5 +1,6 @@
+import { iosEndpoint } from '../src/native-endpoint.ts';
 import { unreachableFixtureEnvironment } from '../fixture/selection.ts';
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -7,9 +8,6 @@ import { join } from 'node:path';
 import { startFixtureRelay, type FixtureRelay } from '../fixture/relay.ts';
 import type { PhysicalTarget, Target } from '../src/suite.ts';
 
-export const IOS_BACKEND_PORT = 11011;
-const devicePort = IOS_BACKEND_PORT;
-const hostPort = IOS_BACKEND_PORT;
 const bundleId = 'fail.acheron.floatview';
 const lifecycleRunnerBundleId = 'fail.acheron.floatview.lifecycle-tests.xctrunner';
 const MAX_COMMAND_OUTPUT = 64 * 1_024;
@@ -25,10 +23,7 @@ export const iosTarget: Target = makeSimulatorTarget();
 export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
   if (!deviceId) throw new Error('iOS device ID is required');
   let appPid: number | undefined;
-  let proxy: ChildProcess | undefined;
-  let proxyFailure: Error | undefined;
-  let proxyDiagnostics = '';
-  let stoppingProxy = false;
+  const connection = iosEndpoint(() => deviceId, false);
   let prepared = false;
   let scratch: string | undefined;
   let launchSequence = 0;
@@ -89,33 +84,8 @@ export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
       DEVICE_TIMEOUT_MS
     );
     report('iOS: application installed');
-    report('iOS: starting loopback proxy...');
     scratch = mkdtempSync(join(tmpdir(), 'float-view-ios-physical-'));
-    proxy = spawn('iproxy', ['--udid', deviceId, `${hostPort}:${devicePort}`], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-    proxy.stderr?.on('data', (chunk: Buffer) => {
-      if (proxyDiagnostics.length < 4_096) {
-        proxyDiagnostics += chunk.toString().slice(0, 4_096 - proxyDiagnostics.length);
-      }
-    });
-    proxy.once('error', (error) => {
-      proxyFailure = new Error(`iproxy failed: ${error.message}`);
-    });
-    proxy.once('exit', (code, signal) => {
-      if (!stoppingProxy) {
-        proxyFailure = new Error(
-          `iproxy exited${signal ? ` with signal ${signal}` : ` with exit code ${code ?? 'unknown'}`}`
-        );
-      }
-    });
     prepared = true;
-    report('iOS: loopback proxy started');
-  };
-  const checkProxy = () => {
-    if (!proxyFailure) return;
-    const diagnostics = proxyDiagnostics.trim();
-    throw new Error(`${proxyFailure.message}${diagnostics ? `\niproxy diagnostics:\n${diagnostics}` : ''}`);
   };
   const terminateApp = async () => {
     if (appPid === undefined) return;
@@ -140,12 +110,7 @@ export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
         cleanupFailure = error instanceof Error ? error : new Error(String(error));
       });
       report('iOS: stopping loopback proxy...');
-      stoppingProxy = true;
-      await stopChild(proxy);
-      proxy = undefined;
-      proxyFailure = undefined;
-      proxyDiagnostics = '';
-      stoppingProxy = false;
+      await connection.close();
       prepared = false;
       if (scratch) rmSync(scratch, { recursive: true, force: true });
       scratch = undefined;
@@ -161,7 +126,6 @@ export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
     },
     async start() {
       await prepareSuite();
-      checkProxy();
       if (!scratch) throw new Error('iOS physical target has no temporary launch directory');
       const launchResult = join(scratch, `launch-${++launchSequence}.json`);
       await runBuffered(
@@ -171,14 +135,18 @@ export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
         DEVICE_TIMEOUT_MS
       );
       appPid = iosPhysicalProcessIdentifier(JSON.parse(readFileSync(launchResult, 'utf8')) as unknown);
-      return bootstrap(hostPort, devicePort, 'iOS device', checkProxy);
+      return connection.endpoint();
     },
-    endpoint: () => bootstrap(hostPort, devicePort, 'iOS device', checkProxy),
+    endpoint: () => connection.endpoint(),
     background: () => lifecycle('testBackground'),
     foreground: () => lifecycle('testForeground'),
     verifyFilePresentation: () => lifecycle('testFilePresentation'),
     async stop() {
-      await terminateApp();
+      try {
+        await terminateApp();
+      } finally {
+        await connection.close();
+      }
     },
   };
 }
@@ -214,7 +182,6 @@ export function iosPhysicalLaunchArguments(deviceId: string, jsonOutput: string,
     '--environment-variables',
     JSON.stringify({
       ...unreachableFixtureEnvironment,
-      FLOAT_VIEW_CONFORMANCE_PORT: String(devicePort),
       ...(reset ? { FLOAT_VIEW_CONFORMANCE_RESET: '1' } : {}),
     }),
     '--terminate-existing',
@@ -246,6 +213,7 @@ export function iosDeviceIsPreparingFailure(error: unknown) {
 function makeSimulatorTarget(): Target {
   let fixture: FixtureRelay | undefined;
   let device = '';
+  const connection = iosEndpoint(() => device, true);
   return {
     name: 'ios',
     async start() {
@@ -302,20 +270,20 @@ function makeSimulatorTarget(): Target {
           SIMCTL_CHILD_FLOAT_VIEW_FIXTURE_TOKEN: fixture.token,
           SIMCTL_CHILD_FLOAT_VIEW_FIXTURE_RUN: fixture.run,
           SIMCTL_CHILD_FLOAT_VIEW_FIXTURE_SESSION: fixture.session,
-          SIMCTL_CHILD_FLOAT_VIEW_CONFORMANCE_PORT: String(devicePort),
         },
       });
-      return bootstrap(devicePort, devicePort, 'iOS Simulator');
+      return connection.endpoint();
     },
     async loseFixture() {
       await fixture?.close();
     },
-    endpoint: () => bootstrap(devicePort, devicePort, 'iOS Simulator'),
+    endpoint: () => connection.endpoint(),
     async stop() {
       if (!device) return;
       execFileSync('xcrun', ['simctl', 'terminate', device, bundleId], {
         stdio: 'ignore',
       });
+      await connection.close();
       device = '';
       await fixture?.close();
       fixture = undefined;
@@ -337,42 +305,6 @@ function findSimulator(): string {
       throw new Error('No iOS Simulator is installed');
     })()
   );
-}
-
-async function bootstrap(host: number, expected: number, label: string, checkTransport?: () => void) {
-  const forwardedOrigin = `http://127.0.0.1:${host}`;
-  for (let attempt = 0; attempt < 150; attempt += 1) {
-    checkTransport?.();
-    try {
-      const response = await fetch(`${forwardedOrigin}/api/bootstrap`);
-      if (response.ok) {
-        const value = (await response.json()) as {
-          webSocketUrl: string;
-          sessionToken: string;
-        };
-        const url = new URL(value.webSocketUrl);
-        url.hostname = '127.0.0.1';
-        url.port = String(host);
-        url.searchParams.set('token', value.sessionToken);
-        return { url: url.toString(), origin: `http://127.0.0.1:${expected}` };
-      }
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  checkTransport?.();
-  throw new Error(`${label} backend did not become ready`);
-}
-
-async function stopChild(child: ChildProcess | undefined) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => child.kill('SIGKILL'), 2_000);
-    child.once('close', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    child.kill('SIGTERM');
-  });
 }
 
 function runBuffered(command: string, arguments_: string[], label: string, timeoutMs: number) {

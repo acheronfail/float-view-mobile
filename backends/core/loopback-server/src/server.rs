@@ -236,12 +236,33 @@ impl App {
     }
 }
 async fn root(State(app): State<Arc<App>>) -> Response {
+    let snapshot = match app.backend.snapshot() {
+        Ok(snapshot) => snapshot,
+        Err(_) => return status(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let settings = &snapshot["settings"];
+    let theme = match settings["themePreference"].as_str() {
+        Some("light") => "light",
+        Some("dark") => "dark",
+        Some("system") => "system",
+        _ => return status(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let accent = match settings["accentPreference"].as_str() {
+        Some(value @ ("purple" | "blue" | "teal" | "amber" | "rose")) => value,
+        _ => return status(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    // Only validated closed values enter HTML. Read on every request so renderer
+    // recreation gets current preferences even when the listener stays alive.
+    let html = String::from_utf8_lossy(&app.html).replace(
+        "data-native-appearance",
+        &format!("data-startup-theme=\"{theme}\" data-startup-accent=\"{accent}\""),
+    );
     (
         [
             (header::CONTENT_TYPE, "text/html"),
             (header::CACHE_CONTROL, "no-store"),
         ],
-        app.html.to_vec(),
+        html,
     )
         .into_response()
 }

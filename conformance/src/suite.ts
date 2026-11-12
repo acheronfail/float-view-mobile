@@ -2519,3 +2519,59 @@ export async function runAnnouncementsConformance(target: Target) {
     await target.stop();
   }
 }
+
+/** Native HTTP startup and appearance without any radio or permission interaction. */
+export async function runStartupConformance(target: Target) {
+  let client: ConformanceClient | undefined;
+  let original: AppState['settings'] | undefined;
+  try {
+    const endpoint = await target.start();
+    client = await ConformanceClient.open(endpoint.url, endpoint.origin);
+    original = (await client.request('state.get', {})).settings;
+    const address = new URL(endpoint.url);
+    address.protocol = 'http:';
+    address.pathname = '/';
+    address.search = '';
+    for (const [themePreference, accentPreference] of [
+      ['dark', 'rose'],
+      ['light', 'purple'],
+      ['system', 'teal'],
+    ] as const) {
+      const state = await client.request('state.get', {});
+      await client.request('settings.update', {
+        expectedRevision: state.settings.revision,
+        patch: { themePreference, accentPreference },
+      });
+      const response = await fetch(address, { signal: AbortSignal.timeout(5_000) });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      const html = await response.text();
+      assert.ok(html.includes(`data-startup-theme="${themePreference}"`));
+      assert.ok(html.includes(`data-startup-accent="${accentPreference}"`));
+      assert.ok(!html.includes('data-native-appearance'));
+      await target.recreateFrontend?.();
+      assert.equal(
+        (await target.endpoint()).origin,
+        endpoint.origin,
+        'Frontend recreation must retain process listener'
+      );
+    }
+    return { target: target.name, revision: (await client.request('state.get', {})).revision };
+  } finally {
+    try {
+      if (client && original) {
+        const state = await client.request('state.get', {});
+        await client.request('settings.update', {
+          expectedRevision: state.settings.revision,
+          patch: {
+            themePreference: original.themePreference,
+            accentPreference: original.accentPreference,
+          },
+        });
+      }
+    } finally {
+      client?.close();
+      await target.stop();
+    }
+  }
+}

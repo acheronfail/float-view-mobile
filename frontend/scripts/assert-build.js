@@ -1,6 +1,9 @@
 import { readdir, readFile, rm } from 'node:fs/promises';
 
 const html = await readFile(new URL('../build/index.html', import.meta.url), 'utf8');
+if (!html.includes('data-native-appearance')) {
+  throw new Error('Built HTML is missing the native startup appearance marker');
+}
 const embedded = html.match(/this\.__sveltekit_(\w+)\.app=/)?.[1];
 const started = html.match(/__sveltekit_(\w+)\.app\.start\(element\)/)?.[1];
 if (!embedded || embedded !== started) {

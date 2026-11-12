@@ -18,6 +18,7 @@ final class AppBackend: ObservableObject {
     themePreference = .system
     do {
       #if DEBUG
+        try? FileManager.default.removeItem(at: Self.readinessURL)
         try Self.resetConformanceStorage()
       #endif
       startOwner()
@@ -93,7 +94,7 @@ final class AppBackend: ObservableObject {
           throw CocoaError(.fileNoSuchFile)
         }
         let html = try Data(contentsOf: htmlURL)
-        frontendServer = LoopbackServer(html: html, port: PlatformLoopbackPort.iOS, service: service, platform: "ios")
+        frontendServer = LoopbackServer(html: html, service: service, platform: "ios")
       }
       guard let frontendServer else { return }
       stage = .connection
@@ -104,6 +105,11 @@ final class AppBackend: ObservableObject {
         generation: frontendGeneration
       )
       #if DEBUG
+        try FileManager.default.createDirectory(
+          at: Self.readinessURL.deletingLastPathComponent(),
+          withIntermediateDirectories: true
+        )
+        try String(frontendServer.port).write(to: Self.readinessURL, atomically: true, encoding: .utf8)
         print("[FloatViewState] frontend state=ready generation=\(frontend!.generation)")
       #endif
     } catch {
@@ -113,7 +119,6 @@ final class AppBackend: ObservableObject {
       frontend = nil
       #if DEBUG
         let message = loopbackStartupFailure(
-          port: PlatformLoopbackPort.iOS,
           error: error
         )
         print("[FloatViewState] frontend state=failed \(message)")
@@ -126,6 +131,11 @@ final class AppBackend: ObservableObject {
   }
 
   #if DEBUG
+    private static var readinessURL: URL {
+      FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("backend-port")
+    }
+
     private static func resetConformanceStorage() throws {
       guard ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_RESET"] == "1" else {
         return

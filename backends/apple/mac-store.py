@@ -23,7 +23,7 @@ ENTITLEMENTS = APPLE / "mac-store.entitlements"
 PRIVACY = APPLE / "macos/Resources/PrivacyInfo.xcprivacy"
 DEVELOPMENT_MARKERS = (
     b"--browser-host", b"--test-host", b"FLOAT_VIEW_FRONTEND_HTML",
-    b"FLOAT_VIEW_LOG_ROOT", b"FLOAT_VIEW_CONFORMANCE_PORT",
+    b"FLOAT_VIEW_LOG_ROOT",
 )
 
 

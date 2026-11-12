@@ -43,12 +43,18 @@ export function selectedBackendOrigin(environment: NodeJS.ProcessEnv = process.e
   return url.origin;
 }
 
-export function backendProxy(target: string, timeout = 5_000): ProxyOptions {
+export function backendProxy(
+  target: string,
+  timeout = 5_000,
+  authOrigin = selectedBackendOrigin({
+    FLOAT_VIEW_DEV_BACKEND_ORIGIN: process.env.FLOAT_VIEW_DEV_BACKEND_AUTH_ORIGIN ?? target,
+  })
+): ProxyOptions {
   return {
     target,
     ws: true,
     changeOrigin: true,
-    rewriteWsOrigin: target !== MOCK_BACKEND_ORIGIN,
+    rewriteWsOrigin: false,
     timeout,
     proxyTimeout: timeout,
     configure(proxy) {
@@ -59,13 +65,15 @@ export function backendProxy(target: string, timeout = 5_000): ProxyOptions {
       // browser development origin and must retain its incoming value.
       if (target !== MOCK_BACKEND_ORIGIN) {
         proxy.on('proxyReq', (request, incoming) => {
-          const origin = backendProxyOrigin(target, incoming.headers.origin);
+          const origin = backendProxyOrigin(authOrigin, incoming.headers.origin);
           if (origin) request.setHeader('Origin', origin);
         });
       }
       // http-proxy does not relay a non-101 response received by its WebSocket
       // client. Forward it explicitly so authentication failures stay bounded.
-      proxy.on('proxyReqWs', (request, _incoming, socket) => {
+      proxy.on('proxyReqWs', (request, incoming, socket) => {
+        const origin = backendProxyOrigin(authOrigin, incoming.headers.origin);
+        if (origin) request.setHeader('Origin', origin);
         request.once('response', (response) => {
           const status = `HTTP/1.1 ${response.statusCode ?? 500} ${response.statusMessage ?? 'WebSocket rejected'}`;
           const headers: string[] = [];

@@ -22,6 +22,19 @@ npm run physical -- ios <fixture-port> <device-id>
 and `android` use software native hosts. Select coverage with the root
 [verification policy](../AGENTS.md#verification).
 
+Native runners discover OS-assigned loopback endpoints: macOS publishes readiness
+on stdout; debug Android and iOS hosts publish only the port in app-private
+`files/backend-port` and `Library/Caches/backend-port` respectively. ADB allocates
+a host forwarding port; physical iOS uses a monitored loopback-only proxy. Host
+and device ports can differ, so authenticated requests retain the device origin.
+Cleanup removes only the target's own forwarding resources. Development uses the
+same discovery helpers; Vite receives connection and authentication origins separately.
+
+Run `FLOAT_VIEW_CONFORMANCE_SCENARIOS=startup npm run macos` (or `ios`/`android`)
+for native HTML appearance and frontend recreation checks without BLE interaction.
+These software checks complement the early-script browser tests and do not establish
+physical launch appearance.
+
 | Location                | Responsibility                                   |
 | ----------------------- | ------------------------------------------------ |
 | `src/suite.ts`          | Canonical public-contract scenarios              |

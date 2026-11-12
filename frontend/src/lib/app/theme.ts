@@ -82,14 +82,14 @@ export function browserThemeEnvironment(): ThemeEnvironment {
     },
     readHint: () => {
       try {
-        return localStorage?.getItem('float-view-theme');
+        return document.documentElement.dataset.startupTheme ?? localStorage?.getItem('float-view-theme');
       } catch {
         return null;
       }
     },
     readAccentHint: () => {
       try {
-        return localStorage?.getItem('float-view-accent');
+        return document.documentElement.dataset.startupAccent ?? localStorage?.getItem('float-view-accent');
       } catch {
         return null;
       }

@@ -155,7 +155,14 @@ fn host_envelopes_are_closed_versioned_and_bounded() {
     assert!(Envelope::decode(&vec![b' '; MAX_HOST_ENVELOPE_BYTES + 1]).is_err());
     let owner = support::server(Platform::Ios, b"html").unwrap();
     let handle = host::create_shared(1, b"html", owner.backend.service.clone()).unwrap();
-    assert_eq!(host::command(handle,br#"{"version":1,"action":{"command":"start","parameters":{"platform":"macos","port":11010}}}"#),Err(host::Status::InvalidEnvelope));
+    assert_eq!(host::command(handle,br#"{"version":1,"action":{"command":"start","parameters":{"platform":"macos","port":0}}}"#),Err(host::Status::InvalidEnvelope));
+    let result = host::command(
+        handle,
+        br#"{"version":1,"action":{"command":"start","parameters":{"platform":"ios","port":0}}}"#,
+    )
+    .unwrap();
+    let result: serde_json::Value = serde_json::from_slice(&result).unwrap();
+    assert!(result["data"]["port"].as_u64().unwrap() > 0);
     assert_eq!(host::destroy(handle), host::Status::Ok);
     assert_eq!(host::destroy(handle), host::Status::Ok);
     assert_eq!(
@@ -337,4 +344,70 @@ fn authenticated_http_errors_capture_diagnostics_without_body_or_query_text() {
     assert!(events.contains("http.sessionData"));
     assert!(events.contains("invalid_request"));
     assert!(!events.contains("PRIVATE"));
+}
+
+#[test]
+fn assigned_listeners_publish_distinct_origins_and_isolate_authentication() {
+    let first = support::server(Platform::Android, b"html").unwrap();
+    let second = support::server(Platform::Android, b"html").unwrap();
+    first.start(0).unwrap();
+    second.start(0).unwrap();
+    assert_ne!(first.port(), second.port());
+    assert_ne!(first.token(), second.token());
+    for server in [&*first, &*second] {
+        let response = http(server, "/api/bootstrap", "", b"");
+        let offset = response.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+        let document: serde_json::Value = serde_json::from_slice(&response[offset..]).unwrap();
+        assert_eq!(
+            document["webSocketUrl"],
+            format!("ws://127.0.0.1:{}/api/ws", server.port())
+        );
+        assert_eq!(document["sessionToken"], server.token());
+    }
+    let headers = format!(
+        "Origin: http://127.0.0.1:{}\r\nX-Float-View-Token: {}\r\nContent-Length: 2\r\n",
+        second.port(),
+        first.token()
+    );
+    status(&http(&second, "/api/session-data", &headers, b"{}"), "403");
+    first.stop().unwrap();
+    status(&http(&second, "/api/bootstrap", "", b""), "200");
+}
+
+#[test]
+fn html_embeds_current_saved_appearance_on_every_request() {
+    use float_view_loopback_server::protocol::Operation;
+    let html = b"<!doctype html><html data-native-appearance><script>probe()</script></html>";
+    let server = support::server(Platform::Android, html).unwrap();
+    server.start(0).unwrap();
+    for (revision, theme, accent) in [
+        (0, "dark", "rose"),
+        (1, "light", "purple"),
+        (2, "system", "teal"),
+    ] {
+        server
+            .backend
+            .service
+            .lock()
+            .unwrap()
+            .dispatch(
+                1,
+                Operation::UpdateSettings {
+                    revision,
+                    patch_json:
+                        serde_json::json!({"themePreference": theme, "accentPreference": accent})
+                            .to_string(),
+                },
+            )
+            .unwrap();
+        server.backend.sync_service().unwrap();
+        let response = http(&server, "/", "", b"");
+        status(&response, "200");
+        let html = String::from_utf8(response).unwrap();
+        assert!(html.contains("cache-control: no-store"));
+        assert!(html.contains(&format!(
+            "<html data-startup-theme=\"{theme}\" data-startup-accent=\"{accent}\"><script>"
+        )));
+        assert!(!html.contains("data-native-appearance"));
+    }
 }

@@ -8,8 +8,6 @@ import { startFixtureRelay, type FixtureRelay } from '../fixture/relay.ts';
 import { observeSpeechReplay, type SpeechReplayOptions } from './speech-replay.ts';
 import type { PhysicalTarget, Target } from '../src/suite.ts';
 
-export const MACOS_BACKEND_PORT = 11010;
-
 export const macosTarget: Target = makeMacosTarget(false);
 export const macosPhysicalTarget: PhysicalTarget = {
   ...makeMacosTarget(true),
@@ -48,7 +46,6 @@ export function makeMacosTarget(
         ...process.env,
         FLOAT_VIEW_FRONTEND_HTML: `${root}/frontend/build/index.html`,
         FLOAT_VIEW_LOG_ROOT: logRoot,
-        FLOAT_VIEW_CONFORMANCE_PORT: '0',
       };
       if (physical) Object.assign(env, unreachableFixtureEnvironment);
       if (!physical) {

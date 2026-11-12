@@ -7,20 +7,18 @@ import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
 
-internal const val ANDROID_BACKEND_PORT = 11012
 internal const val LOOPBACK_MAX_MESSAGE_BYTES = 65_536
 internal const val MAX_SESSION_IMPORT_BYTES = 128 * 1024 * 1024
 
 class LoopbackServer(
     assets: AssetManager,
     service: SharedService,
-    requestedPort: Int = 0,
     platform: String = "android",
     @Suppress("UNUSED_PARAMETER") performanceDiagnostics: Boolean = false,
 ) : AutoCloseable {
     private val host: RustLoopbackHost
     init {
-        require(platform == "android" && requestedPort in setOf(0, ANDROID_BACKEND_PORT))
+        require(platform == "android")
         host = RustLoopbackHost(assets.open("index.html").use { it.readBytes() }, service)
     }
     val port: Int get() = host.port

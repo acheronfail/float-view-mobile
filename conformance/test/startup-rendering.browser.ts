@@ -218,3 +218,68 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     }
   });
 }
+
+for (const [name, engine] of Object.entries({ chromium, webkit })) {
+  test(`${name}: embedded saved appearance survives a new origin and stale storage`, async (t) => {
+    const server = createServer((request, response) => {
+      if (request.url === '/theme.js') {
+        response.setHeader('Content-Type', 'text/javascript');
+        response.end(theme);
+      } else {
+        const preference = request.url?.slice(1) ?? 'dark';
+        response.setHeader('Content-Type', 'text/html');
+        response.end(
+          template
+            .replace('data-native-appearance', `data-startup-theme="${preference}" data-startup-accent="rose"`)
+            .replace('%sveltekit.head%', '')
+            .replace('%sveltekit.body%', '<main>Probe</main>')
+        );
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const browser = await engine.launch();
+    try {
+      for (const system of ['light', 'dark'] as const) {
+        for (const preference of ['light', 'dark', 'system']) {
+          for (const storage of ['missing', 'stale', 'throw']) {
+            const context = await browser.newContext({ colorScheme: system });
+            try {
+              await context.addInitScript((storage) => {
+                if (storage === 'throw')
+                  Object.defineProperty(window, 'localStorage', {
+                    get() {
+                      throw new Error('Unavailable');
+                    },
+                  });
+                if (storage === 'stale') {
+                  localStorage.setItem('float-view-theme', 'light');
+                  localStorage.setItem('float-view-accent', 'blue');
+                }
+              }, storage);
+              const page = await context.newPage();
+              await page.goto(`http://127.0.0.1:${address.port}/${preference}`);
+              const expected = preference === 'system' ? system : preference;
+              assert.equal((await appearance(page)).theme, expected);
+              assert.equal((await appearance(page)).background, colors[expected as keyof typeof colors]);
+              assert.equal(await page.evaluate(() => document.documentElement.dataset.accent), 'rose');
+              await page.evaluate(async () => {
+                const modulePath = '/theme.js';
+                const { ThemeController, browserThemeEnvironment } = await import(modulePath);
+                new ThemeController(browserThemeEnvironment()).start();
+              });
+              assert.equal((await appearance(page)).theme, expected, 'Controller must not revert embedded appearance');
+              assert.equal(await page.evaluate(() => document.documentElement.dataset.accent), 'rose');
+            } finally {
+              await context.close();
+            }
+          }
+        }
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+}

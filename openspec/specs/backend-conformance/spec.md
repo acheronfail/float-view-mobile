@@ -299,29 +299,29 @@ Conformance SHALL bound execution time, captured messages, hardware transcripts,
 - **WHEN** a backend or fixture violates an expectation
 - **THEN** the runner stops within its deadline and reports the first violation with bounded context, and a secondary cleanup failure does not replace or indefinitely delay it
 
-### Requirement: Conformance uses the native port registry
+### Requirement: Conformance discovers native endpoints
 
-Canonical target adapters SHALL use macOS port `11010`, iOS port `11011`, and Android port `11012`. Mobile target adapters MUST forward the same port number on the host and device and MUST remove only their own forwarding rule during cleanup.
+Canonical native target adapters SHALL discover the current process's assigned loopback port. Mobile forwarding SHALL use an available host port and the actual device port while preserving the device origin for authentication. Cleanup SHALL remove only forwarding resources owned by the target.
 
 #### Scenario: macOS conformance endpoint
 
 - **WHEN** conformance starts the macOS target
-- **THEN** readiness and authenticated WebSocket access use `127.0.0.1:11010`
+- **THEN** readiness supplies its actual origin and authenticated WebSocket endpoint
 
 #### Scenario: iOS conformance forwarding
 
 - **WHEN** conformance starts an iOS target
-- **THEN** `iproxy` exposes host port `11011` to device loopback port `11011`
+- **THEN** it discovers the current device port and exposes it through a monitored loopback proxy or connects directly on the simulator
 
 #### Scenario: Android conformance forwarding
 
 - **WHEN** conformance starts an Android target
-- **THEN** ADB exposes host port `11012` to device loopback port `11012`
+- **THEN** ADB allocates a host port forwarding to the discovered device port
 
 #### Scenario: Forwarding cleanup
 
 - **WHEN** a mobile conformance target stops or fails
-- **THEN** its adapter removes the platform-specific same-number forwarding rule without disturbing another platform endpoint
+- **THEN** its adapter removes only its own forwarding rule or proxy without disturbing other endpoints
 
 ### Requirement: Exhaustive connection compatibility coverage
 
@@ -1300,3 +1300,17 @@ Canonical conformance SHALL exercise exact stable 1.3.1 identity, telemetry, tim
 
 - **WHEN** the complete application source is identical between audited beta3 and stable
 - **THEN** the source equality and prior beta3 physical result establish unchanged wire interoperability without a repeated physical checkpoint
+
+### Requirement: Assigned port and startup appearance regression coverage
+
+Focused checks SHALL verify simultaneous independently authenticated listeners, published bound origins, and saved theme/accent before application modules run with missing or stale browser storage. Native host and tooling checks SHALL exercise endpoint discovery and scoped cleanup.
+
+#### Scenario: Listeners coexist
+
+- **WHEN** multiple listeners bind with OS assignment
+- **THEN** they report distinct live ports, serve their own bootstrap and reject another listener's authentication token
+
+#### Scenario: First script uses saved appearance
+
+- **WHEN** native HTML embeds saved appearance and browser storage is missing, inaccessible or stale
+- **THEN** the earliest startup script uses saved preferences, including system appearance resolution, and app initialization preserves them

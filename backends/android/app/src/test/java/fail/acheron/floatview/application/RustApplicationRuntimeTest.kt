@@ -50,4 +50,27 @@ class RustApplicationRuntimeTest {
         assertEquals(0, RustApplicationRuntime.serviceApply(handle, "{\"command\":\"drain\"}".toByteArray(), written))
         assertEquals(0, RustApplicationRuntime.serviceCopyResult(handle, output, written))
     }
+    @Test fun listenersUseIndependentlyAssignedPorts() = withService { handle ->
+        val first = RustApplicationRuntime.serviceServerCreate(handle, 2, "<html/>".toByteArray())
+        val second = RustApplicationRuntime.serviceServerCreate(handle, 2, "<html/>".toByteArray())
+        fun start(server: Long): JSONObject {
+            val input = """{"version":1,"action":{"command":"start","parameters":{"platform":"android","port":0}}}""".toByteArray()
+            val output = ByteArray(1048576)
+            val written = IntArray(1)
+            assertEquals(0, RustApplicationRuntime.serverCommand(server, input, output, written))
+            return JSONObject(String(output, 0, written[0], Charsets.UTF_8)).getJSONObject("data")
+        }
+        try {
+            val a = start(first)
+            val b = start(second)
+            assertTrue(a.getInt("port") in 1..65535)
+            assertTrue(b.getInt("port") in 1..65535)
+            assertNotEquals(a.getInt("port"), b.getInt("port"))
+            assertNotEquals(a.getString("token"), b.getString("token"))
+        } finally {
+            assertEquals(0, RustApplicationRuntime.serverDestroy(first))
+            assertEquals(0, RustApplicationRuntime.serverDestroy(second))
+        }
+    }
+
 }

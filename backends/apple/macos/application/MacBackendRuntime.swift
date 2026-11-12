@@ -50,9 +50,8 @@ final class MacBackendRuntime: @unchecked Sendable {
     exportPresenter: (@Sendable (NativeFilePresentation) -> Bool)? = nil,
     theme: (@Sendable (ThemePreference) -> Void)? = nil
   ) throws -> LoopbackServer {
-    let port = MacLaunchConfiguration().port
     try service.start(presenter: exportPresenter, theme: theme)
-    return LoopbackServer(html: html, port: port, service: service)
+    return LoopbackServer(html: html, service: service)
   }
 
   func setForeground(_ foreground: Bool) {

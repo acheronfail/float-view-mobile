@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-native-appearance>
   <head>
     <meta charset="utf-8" />
     <meta
@@ -73,8 +73,8 @@
         let stored = null;
         let accent = null;
         try {
-          stored = localStorage?.getItem(key);
-          accent = localStorage?.getItem('float-view-accent');
+          stored = document.documentElement.dataset.startupTheme ?? localStorage?.getItem(key);
+          accent = document.documentElement.dataset.startupAccent ?? localStorage?.getItem('float-view-accent');
         } catch {
           // Theme persistence is optional and must not prevent application startup.
         }

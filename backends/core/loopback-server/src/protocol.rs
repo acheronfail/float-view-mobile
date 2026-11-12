@@ -10,15 +10,6 @@ pub enum Platform {
     Ios,
     Android,
 }
-impl Platform {
-    pub fn port(&self) -> u16 {
-        match self {
-            Self::Macos => 11010,
-            Self::Ios => 11011,
-            Self::Android => 11012,
-        }
-    }
-}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Start {
@@ -88,7 +79,7 @@ impl Envelope {
             return Err(InvalidEnvelope);
         }
         match &envelope.action {
-            Command::Start(start) if start.port != start.platform.port() => {
+            Command::Start(start) if start.port != 0 => {
                 return Err(InvalidEnvelope);
             }
             _ => {}

@@ -18,7 +18,7 @@ final class RustLoopbackHost: @unchecked Sendable {
   func start() throws {
     try lock.withLock {
       guard !running else { return }
-      let result = try exchange.command("start", ["platform": platform, "port": platform == "ios" ? 11011 : 11010])
+      let result = try exchange.command("start", ["platform": platform, "port": 0])
       guard let port = result["port"] as? NSNumber, let token = result["token"] as? String else {
         throw CocoaError(.validationMissingMandatoryProperty)
       }

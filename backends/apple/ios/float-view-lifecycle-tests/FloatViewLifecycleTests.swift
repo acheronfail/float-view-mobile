@@ -146,7 +146,7 @@ final class FloatViewLifecycleTests: XCTestCase {
       XCTAssertTrue(application.links["settings"].waitForExistence(timeout: 10))
     }
 
-    func testLocalConnectionFailureCanRetry() {
+    func testOccupiedFormerPortDoesNotPreventLaunch() {
       application.terminate()
       var listener = socket(AF_INET, SOCK_STREAM, 0)
       XCTAssertGreaterThanOrEqual(listener, 0)
@@ -165,18 +165,9 @@ final class FloatViewLifecycleTests: XCTestCase {
           bind(listener, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
       }
-      XCTAssertEqual(result, 0, "Could not reserve the app's local port")
+      XCTAssertEqual(result, 0, "Could not reserve the former fixed port")
       XCTAssertEqual(listen(listener, 1), 0)
       application.launch()
-      XCTAssertTrue(application.staticTexts["Unable to start Float View’s local connection"]
-        .waitForExistence(timeout: 15))
-      XCTAssertFalse(application.staticTexts["Unable to open Float View data"].exists)
-      // A repeated failure must remain recoverable before the port is released.
-      application.buttons["Try again"].tap()
-      XCTAssertTrue(application.buttons["Try again"].waitForExistence(timeout: 5))
-      close(listener)
-      listener = -1
-      application.buttons["Try again"].tap()
       acceptSafetyIfNeeded()
       XCTAssertTrue(application.links["settings"].waitForExistence(timeout: 15))
     }

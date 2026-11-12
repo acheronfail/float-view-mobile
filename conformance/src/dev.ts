@@ -1,3 +1,4 @@
+import { androidEndpoint, iosEndpoint } from './native-endpoint.ts';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { platform } from 'node:os';
 import { rmSync } from 'node:fs';
@@ -6,36 +7,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const VITE_PORT = 11002;
 export const MOCK_PORT = 11003;
-export const MACOS_PORT = 11010;
-export const IOS_PORT = 11011;
-export const ANDROID_PORT = 11012;
 const ANDROID_APPLICATION = 'fail.acheron.floatview';
 const ANDROID_ACTIVITY = `${ANDROID_APPLICATION}/${ANDROID_APPLICATION}.ui.MainActivity`;
 const IOS_BUNDLE = 'fail.acheron.floatview';
 const READY_TIMEOUT_MS = 30_000;
 
 type TargetPlatform = 'mock' | 'macos' | 'ios' | 'android';
-
-export function backendOrigin(targetPlatform: TargetPlatform) {
-  switch (targetPlatform) {
-    case 'mock':
-      return `http://127.0.0.1:${MOCK_PORT}`;
-    case 'macos':
-      return `http://127.0.0.1:${MACOS_PORT}`;
-    case 'ios':
-      return `http://127.0.0.1:${IOS_PORT}`;
-    case 'android':
-      return `http://127.0.0.1:${ANDROID_PORT}`;
-  }
-}
-
-export function androidForwardArguments() {
-  return ['forward', '--no-rebind', `tcp:${ANDROID_PORT}`, `tcp:${ANDROID_PORT}`];
-}
-
-export function androidForwardRemovalArguments() {
-  return ['forward', '--remove', `tcp:${ANDROID_PORT}`];
-}
 
 export function androidInstallArguments(root: string) {
   return ['install', '-r', `${root}/backends/android/app/build/outputs/apk/debug/app-debug.apk`];
@@ -47,10 +24,6 @@ export function androidLaunchArguments() {
 
 export function androidLogcatArguments(processId: string) {
   return ['logcat', '--pid', processId, '-v', 'color'];
-}
-
-export function iosProxyArguments(device: string) {
-  return ['--udid', device, '--source', '127.0.0.1', `${IOS_PORT}:${IOS_PORT}`];
 }
 
 export function iosSimulatorBuildArguments(project: string, device: string, derived: string) {
@@ -94,12 +67,15 @@ export function childExitFailure(label: string, code: number | null, signal: Nod
 }
 
 export function viteEnvironment(
-  targetPlatform: TargetPlatform,
+  endpoint: { url: string; origin: string } | undefined,
   environment: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   return {
     ...environment,
-    FLOAT_VIEW_DEV_BACKEND_ORIGIN: backendOrigin(targetPlatform),
+    FLOAT_VIEW_DEV_BACKEND_ORIGIN: endpoint
+      ? new URL(endpoint.url).origin.replace('ws:', 'http:')
+      : `http://127.0.0.1:${MOCK_PORT}`,
+    FLOAT_VIEW_DEV_BACKEND_AUTH_ORIGIN: endpoint?.origin,
   };
 }
 
@@ -108,6 +84,7 @@ export async function runDevelopment(targetPlatform: TargetPlatform, target = ''
   const children: ChildProcess[] = [];
   const cleanup: Array<() => void | Promise<void>> = [];
   let firstFailure: Error | undefined;
+  let endpoint: { url: string; origin: string } | undefined;
 
   const track = (child: ChildProcess, label: string) => {
     children.push(child);
@@ -123,7 +100,7 @@ export async function runDevelopment(targetPlatform: TargetPlatform, target = ''
   try {
     if (targetPlatform === 'macos') {
       const executable = buildMacos(root);
-      track(
+      const child = track(
         spawn(executable, ['--browser-host'], {
           cwd: root,
           env: {
@@ -131,11 +108,11 @@ export async function runDevelopment(targetPlatform: TargetPlatform, target = ''
             FLOAT_VIEW_FRONTEND_HTML: `${root}/frontend/build/index.html`,
             FLOAT_VIEW_SQL_ROOT: `${root}/backends/sql`,
           },
-          stdio: ['ignore', 'inherit', 'inherit'],
+          stdio: ['ignore', 'pipe', 'inherit'],
         }),
-        `macOS backend on 127.0.0.1:${MACOS_PORT}`
+        'macOS backend'
       );
-      await waitForBootstrap(backendOrigin(targetPlatform), () => firstFailure);
+      endpoint = await macosReadiness(child.stdout!);
     } else if (targetPlatform === 'android') {
       const serial = target || selectAndroidDevice();
       execFileSync(`${root}/backends/android/gradlew`, ['-p', `${root}/backends/android`, 'assembleDebug'], {
@@ -143,8 +120,8 @@ export async function runDevelopment(targetPlatform: TargetPlatform, target = ''
       });
       adb(serial, ...androidInstallArguments(root));
       adb(serial, 'shell', 'am', 'force-stop', ANDROID_APPLICATION);
-      adb(serial, ...androidForwardArguments());
-      cleanup.push(() => adbBestEffort(serial, ...androidForwardRemovalArguments()));
+      const connection = androidEndpoint(() => serial);
+      cleanup.push(() => connection.close());
       cleanup.push(() => adbBestEffort(serial, 'shell', 'am', 'force-stop', ANDROID_APPLICATION));
       adbBestEffort(serial, 'logcat', '-c');
       adb(serial, ...androidLaunchArguments());
@@ -156,16 +133,15 @@ export async function runDevelopment(targetPlatform: TargetPlatform, target = ''
         }),
         `Android logcat for process ${processId} on ${serial}`
       );
-      await waitForBootstrap(backendOrigin(targetPlatform), () => firstFailure);
+      endpoint = await connection.endpoint();
     } else if (targetPlatform === 'ios') {
-      await startIOS(root, target, track, cleanup, environment);
-      await waitForBootstrap(backendOrigin(targetPlatform), () => firstFailure);
+      endpoint = await startIOS(root, target, track, cleanup, environment);
     }
 
     const vite = track(
       spawn('npm', ['run', 'dev'], {
         cwd: `${root}/frontend`,
-        env: viteEnvironment(targetPlatform, environment),
+        env: viteEnvironment(endpoint, environment),
         stdio: 'inherit',
       }),
       'Vite'
@@ -220,16 +196,15 @@ async function startIOS(
     );
     track(
       spawn('xcrun', iosSimulatorConsoleLaunchArguments(device), {
-        env: {
-          ...environment,
-          SIMCTL_CHILD_FLOAT_VIEW_CONFORMANCE_PORT: String(IOS_PORT),
-        },
+        env: environment,
         stdio: 'inherit',
       }),
       `iOS Simulator backend console on ${device}`
     );
     cleanup.push(() => execBestEffort('xcrun', ['simctl', 'terminate', device, IOS_BUNDLE]));
-    return;
+    const connection = iosEndpoint(() => device, true);
+    cleanup.push(() => connection.close());
+    return connection.endpoint();
   }
 
   const derived = '/tmp/float-view-ios-physical-dev';
@@ -266,10 +241,6 @@ async function startIOS(
     ],
     { stdio: 'inherit' }
   );
-  const proxy = spawn('iproxy', iosProxyArguments(device), {
-    stdio: ['ignore', 'ignore', 'inherit'],
-  });
-  track(proxy, `iOS iproxy on 127.0.0.1:${IOS_PORT}`);
   track(
     spawn('xcrun', iosPhysicalConsoleLaunchArguments(device), {
       env: environment,
@@ -277,6 +248,15 @@ async function startIOS(
     }),
     `iOS backend console on ${device}`
   );
+  const connection = iosEndpoint(
+    () => device,
+    false,
+    (child) => {
+      track(child, 'iOS iproxy');
+    }
+  );
+  cleanup.push(() => connection.close());
+  return connection.endpoint();
 }
 
 function buildMacos(root: string) {
@@ -371,10 +351,6 @@ function execBestEffort(command: string, arguments_: string[]) {
   } catch {}
 }
 
-async function waitForBootstrap(origin: string, failure: () => Error | undefined) {
-  await waitForURL(`${origin}/api/bootstrap`, failure);
-}
-
 export async function waitForURL(url: string, failure: () => Error | undefined, timeout = READY_TIMEOUT_MS) {
   const deadline = performance.now() + timeout;
   while (performance.now() < deadline) {
@@ -417,4 +393,36 @@ if (isMain) {
     throw new Error('Usage: just dev mock|macos|ios|android [target]');
   }
   await runDevelopment(targetPlatform, process.argv[3] ?? '');
+}
+
+export function macosReadiness(stream: NodeJS.ReadableStream): Promise<{ url: string; origin: string }> {
+  return new Promise((resolve, reject) => {
+    let buffer = '';
+    const finish = (error?: Error, endpoint?: { url: string; origin: string }) => {
+      clearTimeout(timer);
+      stream.off('data', receive);
+      stream.off('end', ended);
+      if (error) reject(error);
+      else resolve(endpoint!);
+    };
+    const ended = () => finish(new Error('macOS exited before readiness'));
+    const receive = (chunk: Buffer) => {
+      buffer += chunk.toString();
+      if (buffer.length > 65536) return finish(new Error('Oversized macOS readiness'));
+      const newline = buffer.indexOf('\n');
+      if (newline < 0) return;
+      try {
+        const value = JSON.parse(buffer.slice(0, newline)) as { webSocketUrl: string; origin: string };
+        const origin = new URL(value.origin);
+        if (origin.protocol !== 'http:' || origin.hostname !== '127.0.0.1' || !origin.port)
+          throw new Error('Invalid macOS origin');
+        finish(undefined, { url: value.webSocketUrl, origin: origin.origin });
+      } catch {
+        finish(new Error('Invalid macOS readiness'));
+      }
+    };
+    const timer = setTimeout(() => finish(new Error('macOS did not publish readiness')), READY_TIMEOUT_MS);
+    stream.on('data', receive);
+    stream.once('end', ended);
+  });
 }
