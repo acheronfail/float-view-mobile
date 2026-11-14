@@ -5,24 +5,15 @@
 
   let busy = $state(false);
   let error = $state('');
-  let report: { id: string; expires: number } | null = null;
 
   async function exportDiagnostics() {
     if (busy) return;
     busy = true;
     error = '';
     try {
-      const list = await backendState.diagnosticRequest('diagnostics.list', {});
-      const previous = report;
-      report = null;
-      const prepared = await backendState.diagnosticRequest('diagnostics.prepare', {
-        incidentId: list.incidents[0]?.incidentId ?? null,
-        ...(previous && Date.now() < previous.expires ? { replaceReportId: previous.id } : {}),
-      });
-      report = { id: prepared.reportId, expires: Date.now() + prepared.expiresInMs };
-      await backendState.diagnosticRequest('diagnostics.export', { reportId: prepared.reportId });
-    } catch {
-      error = 'Could not export diagnostics. Please try again.';
+      await backendState.exportDiagnostics();
+    } catch (failure) {
+      error = failure instanceof Error ? failure.message : 'Could not export diagnostics.';
     } finally {
       busy = false;
     }

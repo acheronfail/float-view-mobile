@@ -18,12 +18,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
       await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
       const methods: string[] = [];
-      page.on('websocket', (socket) =>
+      let sockets = 0;
+      page.on('websocket', (socket) => {
+        sockets++;
         socket.on('framesent', ({ payload }) => {
           const request = JSON.parse(String(payload));
           if (request.method?.startsWith('diagnostics.')) methods.push(request.method);
-        })
-      );
+        });
+      });
       const requests: string[] = [];
       page.on('request', (r) => {
         if (r.url().includes('github.com')) requests.push(r.url());
@@ -52,8 +54,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(requests.length, 0);
       assert.match(await section.innerText(), /add a new report/);
       assert.match(await section.innerText(), /Anyone can see reports and attached files/);
-      // More exports than the two-report capacity must replace previous handles.
+      // Navigating away must not lose the connection-owned replacement handle.
       for (let i = 0; i < 3; i++) {
+        await page.locator('a[href="#/settings"]').first().click();
+        await section.waitFor({ state: 'detached' });
+        await page.locator('a[href="#/settings/help"]').first().click();
+        await open.waitFor();
         await open.tap();
         await page.waitForFunction(
           () => document.querySelector<HTMLButtonElement>('#diagnostics button')?.disabled === false
@@ -62,6 +68,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(await section.getByRole('alert').count(), 0);
       }
       assert.equal(methods.filter((m) => m === 'diagnostics.export').length, 4);
+      assert.equal(sockets, 1, 'the report owner survives in-app navigation');
       assert.equal(await section.getByRole('button').count(), 1);
       await page.screenshot({ path: `/tmp/float-view-diagnostics-${name}.png`, fullPage: true });
     } finally {

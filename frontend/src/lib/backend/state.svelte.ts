@@ -1,5 +1,5 @@
 import { defaultLiveWidgetSlots } from './contract';
-import type { SessionExportProgress } from './contract';
+import type { SessionExportProgress, ExportResult } from './contract';
 import { validateRideMarker } from './session-data';
 import type {
   AppState,
@@ -99,6 +99,8 @@ export class BackendState {
   private connecting: Promise<void> | null = null;
   private unsubscribeClosed: (() => void) | null = null;
   private unsubscribeState: (() => void) | null = null;
+  private diagnosticReport: { id: string; expires: number; client: ApiClient } | null = null;
+  private diagnosticExportWork: Promise<ExportResult> | null = null;
 
   constructor(
     private readonly bootstrapLoader = loadBootstrap,
@@ -144,6 +146,8 @@ export class BackendState {
   }
 
   private async connectNow(): Promise<void> {
+    this.diagnosticReport = null;
+    this.diagnosticExportWork = null;
     this.status = this.client ? 'reconnecting' : 'starting';
     this.unsubscribeClosed?.();
     this.unsubscribeState?.();
@@ -157,6 +161,8 @@ export class BackendState {
       this.sessionImportClient = new SessionImportClient(bootstrap);
       this.platform = bootstrap.platform ?? 'web';
       this.unsubscribeClosed = this.client.onClosed(() => {
+        this.diagnosticReport = null;
+        this.diagnosticExportWork = null;
         this.status = 'failed';
         this.permissionError = 'Disconnected. Reconnect to update access.';
       });
@@ -176,6 +182,45 @@ export class BackendState {
       if (action === 'start') await client.request('speedCalibration.start', { diameterMm: diameterMm! }, 12_000);
       else await client.request(`speedCalibration.${action}`, {}, 12_000);
     });
+  }
+
+  async exportDiagnostics(): Promise<ExportResult> {
+    if (this.diagnosticExportWork) return this.diagnosticExportWork;
+    const client = this.client;
+    if (!client?.isOpen) throw new Error('Backend is not connected');
+    const work = (async () => {
+      const list = await client.request('diagnostics.list', {}, 35_000).catch((error) => {
+        throw diagnosticExportFailure('read diagnostic status', error);
+      });
+      if (list.persistence === 'memoryOnly') throw new Error('Could not open saved diagnostics.');
+      const previous = this.diagnosticReport;
+      this.diagnosticReport = null;
+      const started = Date.now();
+      const prepared = await client
+        .request(
+          'diagnostics.prepare',
+          {
+            incidentId: list.incidents[0]?.incidentId ?? null,
+            ...(previous?.client === client && started < previous.expires ? { replaceReportId: previous.id } : {}),
+          },
+          35_000
+        )
+        .catch((error) => {
+          throw diagnosticExportFailure('create the diagnostic file', error);
+        });
+      // The report belongs to this connection, so navigation must not lose its
+      // replacement handle and consume another bounded service slot.
+      this.diagnosticReport = { client, id: prepared.reportId, expires: started + prepared.expiresInMs };
+      return client.request('diagnostics.export', { reportId: prepared.reportId }, 35_000).catch((error) => {
+        throw diagnosticExportFailure('open diagnostic sharing', error);
+      });
+    })();
+    this.diagnosticExportWork = work;
+    try {
+      return await work;
+    } finally {
+      if (this.diagnosticExportWork === work) this.diagnosticExportWork = null;
+    }
   }
 
   async diagnosticRequest<M extends import('./contract').BackendMethod>(
@@ -904,6 +949,8 @@ export class BackendState {
   }
 
   close() {
+    this.diagnosticReport = null;
+    this.diagnosticExportWork = null;
     this.pruneRefresh = null;
     this.unsubscribeClosed?.();
     this.unsubscribeState?.();
@@ -977,3 +1024,13 @@ function message(error: unknown): string {
 }
 
 export const backendState = new BackendState();
+
+function diagnosticExportFailure(action: string, error: unknown): Error {
+  const detail =
+    error instanceof ApiRequestError
+      ? ` (${error.error.code})`
+      : error instanceof ApiRequestTimeoutError
+        ? ' (timed out)'
+        : '';
+  return new Error(`Could not ${action}${detail}.`);
+}
