@@ -997,7 +997,7 @@ export class MockBackend {
           !this.state.activeConnection ||
           this.state.activeConnection.deviceKind !== 'board' ||
           this.state.activeConnection.state !== 'ready' ||
-          this.state.speedCalibration.status === 'collecting'
+          ['collecting', 'refining'].includes(this.state.speedCalibration.status)
         )
           return failure(id, 'invalid_state', 'Connect a board before calibrating');
         if (
@@ -1017,6 +1017,16 @@ export class MockBackend {
             startingDiameterMm: this.state.speedCalibration.currentDiameterMm ?? params.diameterMm,
           },
         });
+        return success(id, { accepted: true });
+      }
+      case 'speedCalibration.finish': {
+        if (Object.keys(params).length) return failure(id, 'invalid_request', 'Unexpected parameters');
+        const c = this.state.speedCalibration;
+        if (c.status === 'ready' || c.status === 'applied') return success(id, { accepted: true });
+        if (c.status !== 'refining' || c.recommendedDiameterMm === null)
+          return failure(id, 'invalid_state', 'A reliable result is not ready');
+        this.diagnostics.recordCalibrationComplete();
+        this.change({ ...this.state, speedCalibration: { ...c, status: 'ready', measurementStatus: 'ready' } });
         return success(id, { accepted: true });
       }
       case 'speedCalibration.cancel': {
@@ -1569,32 +1579,44 @@ export class MockBackend {
 
   simulateSpeedCalibrationProgress(
     status: AppState['speedCalibration']['measurementStatus'],
-    acceptedSamples: number
+    acceptedSamples: number,
+    progressPercent: number
   ): void {
     const c = this.state.speedCalibration;
     if (
-      c.status !== 'collecting' ||
+      !['collecting', 'refining'].includes(c.status) ||
       !Number.isInteger(acceptedSamples) ||
       acceptedSamples < c.acceptedSamples ||
-      acceptedSamples > 180
+      acceptedSamples > 180 ||
+      !Number.isInteger(progressPercent) ||
+      progressPercent < c.progressPercent ||
+      progressPercent > (c.status === 'refining' ? 100 : 95)
     )
       return;
-    this.change({ ...this.state, speedCalibration: { ...c, measurementStatus: status, acceptedSamples } });
+    this.change({
+      ...this.state,
+      speedCalibration: { ...c, measurementStatus: status, acceptedSamples, progressPercent },
+    });
   }
 
   /** Native fixture observation: no browser or public API may manufacture a GPS result. */
   simulateSpeedCalibrationResult(recommendedMm: number, supported = true): void {
     const c = this.state.speedCalibration;
-    if (c.status !== 'collecting' || !Number.isFinite(recommendedMm) || recommendedMm < 100 || recommendedMm > 600)
+    if (
+      !['collecting', 'refining'].includes(c.status) ||
+      !Number.isFinite(recommendedMm) ||
+      recommendedMm < 100 ||
+      recommendedMm > 600
+    )
       return;
     this.calibrationWritable = supported;
-    this.diagnostics.recordCalibrationComplete();
     this.change({
       ...this.state,
       speedCalibration: {
         ...c,
-        status: 'ready',
-        acceptedSamples: 30,
+        status: 'refining',
+        acceptedSamples: Math.max(30, c.acceptedSamples),
+        progressPercent: 100,
         measurementStatus: 'ready',
         recommendedDiameterMm: recommendedMm,
       },
@@ -2785,11 +2807,16 @@ export class MockBackend {
       };
     } else {
       let c = next.speedCalibration;
-      if (c.status === 'collecting' && this.calibrationDeadline !== null && Date.now() >= this.calibrationDeadline) {
-        c = { ...c, status: 'insufficient' };
-        this.diagnostics.recordCalibrationFailure();
+      if (
+        ['collecting', 'refining'].includes(c.status) &&
+        this.calibrationDeadline !== null &&
+        Date.now() >= this.calibrationDeadline
+      ) {
+        c = { ...c, status: c.recommendedDiameterMm === null ? 'insufficient' : 'ready' };
+        if (c.status === 'ready') this.diagnostics.recordCalibrationComplete();
+        else this.diagnostics.recordCalibrationFailure();
       }
-      if (c.status !== 'collecting') this.calibrationDeadline = null;
+      if (!['collecting', 'refining'].includes(c.status)) this.calibrationDeadline = null;
       const reason =
         c.status === 'applied'
           ? 'applied'

@@ -41,11 +41,22 @@ test('direct: temporary GPS calibration recommends and applies only the diameter
     assert.equal(state.speedCalibration.status, 'collecting');
     assert.equal(state.speedCalibration.measurementStatus, 'needsMoreMeasurements');
     assert.equal(state.speedCalibration.recommendedDiameterMm, null);
-    state = await client.waitForState((s) => s.speedCalibration.status === 'ready', { timeoutMs: 45_000 });
+    assert.ok(state.speedCalibration.progressPercent > 0 && state.speedCalibration.progressPercent < 100);
+    state = await client.waitForState((s) => s.speedCalibration.status === 'refining', { timeoutMs: 45_000 });
     assert.ok(state.speedCalibration.acceptedSamples > 32);
     assert.equal(state.speedCalibration.recommendedDiameterMm, 268.8);
+    assert.equal(state.speedCalibration.progressPercent, 100);
     assert.equal(state.speedCalibration.measurementStatus, 'ready');
-    assert.equal(state.speedCalibration.status, 'ready');
+    assert.equal(state.speedCalibration.status, 'refining');
+    await assert.rejects(client.request('speedCalibration.apply', {}));
+    const firstReadyCount = state.speedCalibration.acceptedSamples;
+    state = await client.waitForState(
+      (s) => s.speedCalibration.status === 'refining' && s.speedCalibration.acceptedSamples >= firstReadyCount + 3,
+      { timeoutMs: 10_000 }
+    );
+    assert.equal(state.speedCalibration.applyAvailable, false);
+    await client.request('speedCalibration.finish', {});
+    state = await client.waitForState((s) => s.speedCalibration.status === 'ready');
     await assert.rejects(client.request('speedCalibration.apply', {}));
     telemetry.stop();
     telemetry.unpin('speedKph');

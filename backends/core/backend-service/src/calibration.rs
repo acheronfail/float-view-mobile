@@ -5,6 +5,9 @@ use std::collections::VecDeque;
 
 const MIN_SAMPLES: usize = 30;
 const MAX_SAMPLES: usize = 180;
+const MIN_SAMPLE_SPAN_MS: u64 = 29_000;
+const MIN_EFFECTIVE_SAMPLES: f64 = 15.;
+const MAX_IN_PROGRESS_PERCENT: u8 = 95;
 // Accommodate ordinary BLE/GNSS delivery jitter while keeping alignment bounded.
 const BOARD_GAP_MS: u64 = 1_500;
 const ALIGNMENT_MS: u64 = 750;
@@ -58,6 +61,7 @@ pub struct State {
     pub starting_diameter_mm: Option<f64>,
     pub recommended_diameter_mm: Option<f64>,
     pub accepted_samples: usize,
+    pub progress_percent: u8,
     pub minimum_speed_kph: f64,
     pub apply_available: bool,
     pub apply_block_reason: Option<String>,
@@ -71,6 +75,7 @@ impl Default for State {
             starting_diameter_mm: None,
             recommended_diameter_mm: None,
             accepted_samples: 0,
+            progress_percent: 0,
             minimum_speed_kph: MIN_SPEED_MPS * 3.6,
             apply_available: false,
             apply_block_reason: None,
@@ -110,8 +115,15 @@ pub(crate) struct Diagnostic {
     speed_changing: u64,
     speed_mismatch: u64,
 }
+#[derive(Clone, Copy)]
+struct ApprovedEstimate {
+    relative_uncertainty: f64,
+    effective_samples: usize,
+    uncertainty_bps: u64,
+}
 #[derive(Default)]
 pub(crate) struct Calibration {
+    best: Option<ApprovedEstimate>,
     pub state: State,
     pub generation: u64,
     pub started: u64,
@@ -135,7 +147,7 @@ pub(crate) struct Calibration {
 }
 impl Calibration {
     pub fn collecting(&self) -> bool {
-        self.state.status == "collecting"
+        matches!(self.state.status.as_str(), "collecting" | "refining")
     }
     pub fn start(&mut self, now: u64, generation: u64, diameter: f64) {
         *self = Self::default();
@@ -310,16 +322,30 @@ impl Calibration {
         self.samples.push((at, ratio, (accuracy / board).max(0.01)));
         self.state.accepted_samples = self.samples.len();
         self.state.measurement_status = MeasurementStatus::Collecting;
+        self.update_progress();
         self.update_recommendation();
         Ok(())
     }
+    fn update_progress(&mut self) {
+        let (mean, error, effective) = estimate(&self.samples);
+        let span = self.samples.last().unwrap().0 - self.samples[0].0;
+        // Approximate the fraction of evidence gathered. Variance scales with
+        // sample count, so confidence contributes the squared error ratio.
+        // This is presentation only: every recommendation gate still runs below.
+        let evidence = (self.samples.len() as f64 / MIN_SAMPLES as f64)
+            .min(span as f64 / MIN_SAMPLE_SPAN_MS as f64)
+            .min(effective / MIN_EFFECTIVE_SAMPLES)
+            .min((MAX_RESULT_UNCERTAINTY * mean / error).powi(2))
+            .clamp(0., 1.);
+        let progress = (evidence * f64::from(MAX_IN_PROGRESS_PERCENT)).floor() as u8;
+        self.state.progress_percent = self.state.progress_percent.max(progress);
+    }
     fn update_recommendation(&mut self) {
-        self.state.recommended_diameter_mm = None;
         self.quality = QualityReason::WaitingSamples;
         self.effective_samples = 0;
         self.uncertainty_bps = 0;
         if self.samples.len() < MIN_SAMPLES
-            || self.samples.last().unwrap().0 - self.samples[0].0 < 29_000
+            || self.samples.last().unwrap().0 - self.samples[0].0 < MIN_SAMPLE_SPAN_MS
         {
             return;
         }
@@ -344,7 +370,7 @@ impl Calibration {
         self.effective_samples = effective.floor() as usize;
         self.uncertainty_bps = ((error / mean * 10_000.).round() as u64).min(10_000);
         self.quality = QualityReason::EffectiveSamples;
-        if effective < 15. {
+        if effective < MIN_EFFECTIVE_SAMPLES {
             return;
         }
         self.quality = QualityReason::Uncertainty;
@@ -366,12 +392,25 @@ impl Calibration {
         self.quality = QualityReason::Diameter;
         let mm = self.state.starting_diameter_mm.unwrap() * mean;
         if c::controller_data::wheel_diameter::valid(mm) {
-            self.state.recommended_diameter_mm = Some((mm * 10.).round() / 10.);
+            let relative_uncertainty = error / mean;
+            if self
+                .best
+                .is_none_or(|best| relative_uncertainty < best.relative_uncertainty)
+            {
+                self.best = Some(ApprovedEstimate {
+                    relative_uncertainty,
+                    effective_samples: self.effective_samples,
+                    uncertainty_bps: self.uncertainty_bps,
+                });
+                self.state.recommended_diameter_mm = Some((mm * 10.).round() / 10.);
+            }
+            self.state.status = "refining".into();
             self.state.measurement_status = MeasurementStatus::Ready;
+            self.state.progress_percent = 100;
             self.quality = QualityReason::Ready;
-            self.finish();
         }
     }
+
     /// One bounded, coordinate-free diagnostic summary per five seconds.
     pub fn diagnostic(&mut self, now: u64) -> Option<Diagnostic> {
         self.refresh_status(now);
@@ -389,7 +428,7 @@ impl Calibration {
         self.last_diagnostic = Some(now);
         Some(Diagnostic {
             state: self.state.measurement_status,
-            algorithm_version: 2,
+            algorithm_version: 3,
             duration_ms: now.saturating_sub(self.started).min(MAX_DURATION_MS),
             gps_uncertain: self.gps_uncertain,
             gps_accuracy_missing: self.gps_accuracy_missing,
@@ -409,12 +448,16 @@ impl Calibration {
         })
     }
     pub fn finish(&mut self) {
-        self.state.status = if self.state.recommended_diameter_mm.is_some() {
-            "ready"
+        if let Some(best) = self.best {
+            self.state.status = "ready".into();
+            self.state.measurement_status = MeasurementStatus::Ready;
+            self.state.progress_percent = 100;
+            self.quality = QualityReason::Ready;
+            self.effective_samples = best.effective_samples;
+            self.uncertainty_bps = best.uncertainty_bps;
         } else {
-            "insufficient"
+            self.state.status = "insufficient".into();
         }
-        .into();
         self.telemetry.clear();
     }
     pub fn snapshot(&self, runtime: &c::Snapshot) -> State {
@@ -476,6 +519,11 @@ fn estimate(samples: &[(u64, f64, f64)]) -> (f64, f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn accept_ready(c: &mut Calibration) {
+        if c.state.status == "refining" {
+            c.finish();
+        }
+    }
     fn collect(ratio: impl Fn(u64) -> f64) -> Calibration {
         let mut c = Calibration::default();
         c.start(0, 1, 280.);
@@ -486,6 +534,7 @@ mod tests {
             }
             if at % 1000 == 0 {
                 c.speed(at, 0, Some(5. * ratio(at)), Some(0.1));
+                accept_ready(&mut c);
             }
         }
         c
@@ -607,6 +656,7 @@ mod tests {
                     0.
                 };
                 c.speed(now, age, Some(4.8 + noise), Some(accuracy));
+                accept_ready(&mut c);
             }
         }
         c
@@ -624,7 +674,7 @@ mod tests {
         assert_eq!(diagnostic["speed_mismatch"], 1);
     }
     #[test]
-    fn completion_freezes_result_and_emits_one_final_diagnostic() {
+    fn finishing_freezes_result_and_emits_one_final_diagnostic() {
         let mut c = riding_trace(0.1, &[100], 0, 35_000, false);
         assert_eq!(c.state.status, "ready");
         assert!(!c.collecting());
@@ -639,7 +689,130 @@ mod tests {
         assert_eq!(c.state.accepted_samples, count);
         assert_eq!(c.state.recommended_diameter_mm, Some(268.8));
         assert_eq!(c.state.measurement_status, MeasurementStatus::Ready);
+        assert_eq!(c.state.progress_percent, 100);
     }
+    fn observe_riding(c: &mut Calibration, at: u64, speed: f64, accuracy: f64) {
+        c.telemetry.push_back((at, 5.));
+        while c.telemetry.len() > 50 {
+            c.telemetry.pop_front();
+        }
+        if at.is_multiple_of(1000) {
+            c.speed(at, 0, Some(speed), Some(accuracy));
+        }
+    }
+
+    #[test]
+    fn approved_result_keeps_collecting_and_can_improve_before_finish() {
+        let mut c = Calibration::default();
+        c.start(0, 1, 280.);
+        for at in (0..=40_000).step_by(100) {
+            observe_riding(&mut c, at, 4.8, 0.1);
+        }
+        assert_eq!(c.state.status, "refining");
+        assert!(c.collecting());
+        assert_eq!(c.state.progress_percent, 100);
+        let before = c.best.unwrap().relative_uncertainty;
+        let count = c.state.accepted_samples;
+        for at in (40_100..=70_000).step_by(100) {
+            observe_riding(&mut c, at, 4.8, 0.1);
+        }
+        assert!(c.state.accepted_samples > count);
+        assert!(c.best.unwrap().relative_uncertainty < before);
+        assert_eq!(c.state.status, "refining");
+        c.finish();
+        assert_eq!(c.state.status, "ready");
+        assert!(!c.collecting());
+        assert_eq!(c.state.recommended_diameter_mm, Some(268.8));
+    }
+
+    #[test]
+    fn poorer_approved_estimate_and_later_bad_data_preserve_the_best_result() {
+        let mut c = Calibration::default();
+        c.start(0, 1, 280.);
+        for at in (0..=40_000).step_by(100) {
+            observe_riding(&mut c, at, 4.8, 0.05);
+        }
+        for at in (40_100..=43_000).step_by(100) {
+            observe_riding(&mut c, at, 4.985, 0.05);
+        }
+        let best = c.best.unwrap();
+        let diameter = c.state.recommended_diameter_mm;
+        for at in (43_100..=44_000).step_by(100) {
+            observe_riding(&mut c, at, 4.985, 0.05);
+        }
+        assert!(matches!(c.quality, QualityReason::Ready));
+        let (mean, error, _) = estimate(&c.samples);
+        assert!(error / mean > best.relative_uncertainty);
+        assert_eq!(
+            c.best.unwrap().relative_uncertainty,
+            best.relative_uncertainty
+        );
+        assert_eq!(c.state.recommended_diameter_mm, diameter);
+        for at in (45_000..=80_000).step_by(1000) {
+            c.speed(at, 0, Some(5.), Some(3.));
+        }
+        assert_eq!(c.state.recommended_diameter_mm, diameter);
+        for at in (80_100..=155_000).step_by(100) {
+            observe_riding(&mut c, at, 6., 0.05);
+        }
+        assert!(!matches!(c.quality, QualityReason::Ready));
+        assert_eq!(c.state.status, "refining");
+        assert_eq!(c.state.recommended_diameter_mm, diameter);
+        c.finish();
+        let final_summary = serde_json::to_value(c.diagnostic(155_000).unwrap()).unwrap();
+        assert_eq!(final_summary["quality"], "ready");
+        assert_eq!(final_summary["uncertainty_bps"], best.uncertainty_bps);
+        assert_eq!(final_summary["effective_samples"], best.effective_samples);
+        assert_eq!(c.state.recommended_diameter_mm, diameter);
+        assert!(c.telemetry.is_empty());
+    }
+
+    #[test]
+    fn progress_reflects_evidence_and_uncertainty_without_changing_completion() {
+        let precise = riding_trace(0.1, &[100], 0, 18_000, false);
+        let uncertain = riding_trace(0.9, &[100], 0, 18_000, false);
+        assert_eq!(
+            precise.state.accepted_samples,
+            uncertain.state.accepted_samples
+        );
+        assert!(precise.state.progress_percent > uncertain.state.progress_percent);
+        assert!(uncertain.state.progress_percent > 0);
+        assert!(precise.state.progress_percent < 100);
+        let blocked = riding_trace(0.9, &[100], 0, 55_000, false);
+        assert!(blocked.state.accepted_samples > MIN_SAMPLES);
+        assert!(blocked.collecting());
+        assert!(blocked.state.progress_percent < 100);
+        assert!(blocked.state.recommended_diameter_mm.is_none());
+        let inconsistent = collect(|at| if at < 20_000 { 0.96 } else { 1.04 });
+        assert!(inconsistent.state.progress_percent <= MAX_IN_PROGRESS_PERCENT);
+        assert!(inconsistent.state.recommended_diameter_mm.is_none());
+    }
+
+    #[test]
+    fn progress_holds_through_rejected_fixes_and_resets_only_for_a_new_attempt() {
+        let mut c = riding_trace(0.85, &[100], 0, 44_000, false);
+        assert!(c.collecting());
+        let progress = c.state.progress_percent;
+        let accepted = c.state.accepted_samples;
+        for at in (45_000..=150_000).step_by(1000) {
+            c.speed(at, 0, Some(5.), Some(3.));
+            assert_eq!(c.state.progress_percent, progress);
+            assert_eq!(c.state.accepted_samples, accepted);
+        }
+        // A subsequent accepted but noisier comparison cannot move the bar back.
+        for at in (151_000..=154_000).step_by(100) {
+            c.telemetry.push_back((at, 5.));
+        }
+        c.speed(154_000, 0, Some(6.25), Some(0.9));
+        assert_eq!(c.state.accepted_samples, accepted + 1);
+        assert!(c.state.progress_percent >= progress);
+        c.finish();
+        assert_eq!(c.state.status, "insufficient");
+        assert!(c.state.progress_percent < 100);
+        c.start(160_000, 2, 280.);
+        assert_eq!(c.state.progress_percent, 0);
+    }
+
     #[test]
     fn count_above_minimum_distinguishes_uncertainty_from_disagreement() {
         let mut uncertain = riding_trace(0.9, &[100], 0, 34_000, false);
@@ -681,6 +854,7 @@ mod tests {
                     Some(5. * ratio(at, c.state.accepted_samples) + noise),
                     Some(accuracy),
                 );
+                accept_ready(&mut c);
             }
         }
         c
@@ -787,7 +961,7 @@ mod tests {
         assert_eq!(data["gps_updates"], 3);
         assert_eq!(data["gps_rejected"], 1);
         assert_eq!(data["gps_uncertain"], 1);
-        assert_eq!(data["algorithm_version"], 2);
+        assert_eq!(data["algorithm_version"], 3);
         assert_eq!(data["duration_ms"], 3000);
         assert_eq!(data["low_speed"], 1);
         assert_eq!(data["board_rejected"], 1);

@@ -1793,7 +1793,7 @@ export function assertState(state: AppState) {
       'ready',
     ].includes(calibration.measurementStatus)
   );
-  assert.ok(['idle', 'collecting', 'ready', 'insufficient', 'applied'].includes(calibration.status));
+  assert.ok(['idle', 'collecting', 'refining', 'ready', 'insufficient', 'applied'].includes(calibration.status));
   assert.ok(
     Number.isInteger(calibration.acceptedSamples) &&
       calibration.acceptedSamples >= 0 &&
@@ -1801,6 +1801,17 @@ export function assertState(state: AppState) {
   );
   for (const mm of [calibration.currentDiameterMm, calibration.startingDiameterMm, calibration.recommendedDiameterMm])
     assert.ok(mm === null || (Number.isFinite(mm) && mm >= 100 && mm <= 600));
+  assert.ok(
+    Number.isInteger(calibration.progressPercent) &&
+      calibration.progressPercent >= 0 &&
+      calibration.progressPercent <= 100
+  );
+  if (calibration.status === 'collecting') assert.ok(calibration.progressPercent <= 95);
+  if (['refining', 'ready', 'applied'].includes(calibration.status)) {
+    assert.equal(calibration.progressPercent, 100);
+    assert.notEqual(calibration.recommendedDiameterMm, null);
+  }
+  if (calibration.status === 'refining') assert.equal(calibration.applyAvailable, false);
   assert.equal(calibration.minimumSpeedKph, 7.2);
   assert.equal(typeof calibration.applyAvailable, 'boolean');
   if (calibration.applyAvailable) {

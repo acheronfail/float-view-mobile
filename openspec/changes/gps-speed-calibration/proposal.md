@@ -6,7 +6,7 @@ Riders need a straightforward way to correct board speed using phone GNSS measur
 
 ## What Changes
 
-- Add a connected-board calibration flow: start, collect speed comparisons and automatically review a quality-approved wheel diameter.
+- Add a connected-board calibration flow: start, collect speed comparisons, optionally refine and review a quality-approved wheel diameter.
 - Use native speed, speed accuracy and measurement age; estimate in the shared Rust service with bounded temporary samples and no new persisted location fields.
 - Allow explicit application only for audited motor-configuration layouts, using fresh read/diameter-only patch/full write/verified readback through the existing scheduler and mutation coordinator.
 - Keep recommendations visible with manual VESC Tool instructions when application is unavailable. Assume pole count and gearing are correct.

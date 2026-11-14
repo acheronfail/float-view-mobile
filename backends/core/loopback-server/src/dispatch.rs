@@ -489,6 +489,10 @@ impl Backend {
                         .ok_or(Failure::InvalidRequest)?;
                 Operation::StartSpeedCalibration { diameter_mm }
             }
+            "speedCalibration.finish" => {
+                p.only(&[])?;
+                Operation::FinishSpeedCalibration
+            }
             "speedCalibration.cancel" => {
                 p.only(&[])?;
                 Operation::CancelSpeedCalibration

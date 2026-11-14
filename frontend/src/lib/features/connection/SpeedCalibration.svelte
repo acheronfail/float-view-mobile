@@ -1,4 +1,5 @@
 <script lang="ts">
+  import WidgetBar from './WidgetBar.svelte';
   import { formatSpeedKph } from '../measurements/format';
   import { backendState } from '$lib/backend/state.svelte';
   import { emptySpeedCalibration, type SpeedCalibrationMeasurementStatus } from '$lib/backend/contract';
@@ -15,7 +16,7 @@
     collecting: 'Measuring',
     needsMoreMeasurements: 'Measuring',
     inconsistentMeasurements: 'Measuring',
-    ready: 'Ready',
+    ready: 'Measuring',
   };
   const calibration = $derived(backendState.snapshot?.speedCalibration ?? emptySpeedCalibration);
   const location = $derived(backendState.snapshot?.location);
@@ -26,7 +27,8 @@
       (locationAccess?.status === 'granted' && locationAccess.servicesEnabled !== false)
   );
   const connected = $derived(backendState.snapshot?.activeConnection?.state === 'ready');
-  const collecting = $derived(calibration.status === 'collecting');
+  const collecting = $derived(calibration.status === 'collecting' || calibration.status === 'refining');
+  const refining = $derived(calibration.status === 'refining');
   const recommended = $derived(calibration.recommendedDiameterMm);
   const units = $derived(backendState.snapshot?.settings?.unitPreference ?? 'metric');
   const minimumSpeed = $derived(formatSpeedKph(calibration.minimumSpeedKph, units));
@@ -42,14 +44,21 @@
   const measuring = $derived(
     shownStatus === 'collecting' ||
       shownStatus === 'needsMoreMeasurements' ||
-      shownStatus === 'inconsistentMeasurements'
+      shownStatus === 'inconsistentMeasurements' ||
+      shownStatus === 'ready'
   );
   const message = $derived(presentation[shownStatus]);
   // Preserve glanceable feedback through brief rejected fixes. Collection itself
   // responds immediately in the service; this delay only stabilizes presentation.
   $effect(() => {
     const next = desiredStatus;
-    if (displayedStatus === null || !collecting || next === 'collecting' || next === 'needsMoreMeasurements') {
+    if (
+      displayedStatus === null ||
+      !collecting ||
+      next === 'collecting' ||
+      next === 'needsMoreMeasurements' ||
+      next === 'ready'
+    ) {
       displayedStatus = next;
       return;
     }
@@ -67,7 +76,7 @@
     typeof starting === 'number' && Number.isFinite(starting) && starting >= 100 && starting <= 600
   );
 
-  async function action(kind: 'start' | 'cancel' | 'apply') {
+  async function action(kind: 'start' | 'finish' | 'cancel' | 'apply') {
     if (working) return;
     working = true;
     error = null;
@@ -152,24 +161,45 @@
           </p>
           <p class="mt-2 text-base text-muted">Board speed · {units === 'metric' ? 'km/h' : 'mph'}</p>
         </div>
+        {#if !refining}<div class="w-full space-y-2">
+            <WidgetBar
+              value={calibration.progressPercent}
+              maximum={100}
+              ariaLabel="Calibration progress"
+              ariaValueText={`Approximately ${calibration.progressPercent}% complete`}
+              showTicks={false}
+              heightClass="h-3"
+              fillClass="bg-accent"
+            />
+            <p class="text-center text-sm text-muted">Approximate progress</p>
+          </div>{:else}<p class="text-center text-sm text-muted">More measurements may improve precision.</p>{/if}
         {#if location?.backgroundCapture !== 'available'}
           <p class="text-sm text-muted">Measurements pause in the background.</p>
         {/if}
       </div>
-      <button
-        type="button"
-        class="touch-manipulation rounded-xl border border-outline px-4 py-3 disabled:opacity-50"
-        disabled={working}
-        onpointerdown={(e) => activateFromPointer(e, () => action('cancel'))}
-        onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => action('cancel'))}>Cancel</button
-      >
+      <div class="flex flex-col gap-3">
+        {#if refining}
+          <button
+            type="button"
+            class="touch-manipulation rounded-xl bg-accent-fill px-4 py-3 font-semibold text-on-accent disabled:opacity-50"
+            disabled={working}
+            onpointerdown={(e) => activateFromPointer(e, () => action('finish'))}
+            onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => action('finish'))}>Finish calibration</button
+          >
+        {/if}
+        <button
+          type="button"
+          class="touch-manipulation rounded-xl border border-outline px-4 py-3 disabled:opacity-50"
+          disabled={working}
+          onpointerdown={(e) => activateFromPointer(e, () => action('cancel'))}
+          onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => action('cancel'))}>Cancel</button
+        >
+      </div>
     </section>
   {:else}
     <section class="flex flex-col gap-4">
       <h2 class="text-lg font-semibold">Match board speed to GPS</h2>
-      <p class="text-sm text-muted">
-        We’ll compare GPS and board speed to recommend a wheel diameter. Calibration finishes automatically.
-      </p>
+      <p class="text-sm text-muted">We’ll compare GPS and board speed to recommend a wheel diameter.</p>
       {#if calibration.status === 'insufficient'}
         <p role="status" class="rounded-xl border border-outline p-3 text-sm">
           Calibration ended without a reliable diameter estimate.

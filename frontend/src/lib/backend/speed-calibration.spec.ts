@@ -22,6 +22,9 @@ describe('calibration contract', () => {
     expect(state().settings.locationRecordingEnabled).toBe(false);
     b.simulateRideState('riding');
     b.simulateSpeedCalibrationResult(268.8);
+    expect(state().speedCalibration.status).toBe('refining');
+    expect(request('speedCalibration.apply')).toMatchObject({ error: { code: 'invalid_state' } });
+    request('speedCalibration.finish');
     expect(state().speedCalibration.status).toBe('ready');
     expect(request('speedCalibration.apply')).toMatchObject({ error: { code: 'invalid_state' } });
     b.simulateRideState('idle');
@@ -32,6 +35,7 @@ describe('calibration contract', () => {
     const { b, request, state } = fixture();
     request('speedCalibration.start', { diameterMm: 280 });
     b.simulateSpeedCalibrationResult(269, false);
+    request('speedCalibration.finish');
     expect(state().speedCalibration).toMatchObject({
       status: 'ready',
       recommendedDiameterMm: 269,
@@ -62,6 +66,50 @@ it('keeps one absolute three-minute deadline through state reads', () => {
       recommendedDiameterMm: null,
     });
     expect(request('diagnostics.list')).toMatchObject({ result: { incidents: [{ reason: 'calibration_failure' }] } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('publishes explicit progress, preserves it through pauses and completes only with a result', () => {
+  const { b, request, state } = fixture();
+  request('speedCalibration.start', { diameterMm: 280 });
+  expect(state().speedCalibration.progressPercent).toBe(0);
+  b.simulateSpeedCalibrationProgress('needsMoreMeasurements', 42, 82);
+  expect(state().speedCalibration).toMatchObject({ status: 'collecting', progressPercent: 82 });
+  b.simulateSpeedCalibrationProgress('gpsUncertain', 42, 82);
+  b.simulateSpeedCalibrationProgress('collecting', 43, 100);
+  expect(state().speedCalibration).toMatchObject({ status: 'collecting', progressPercent: 82 });
+  b.simulateSpeedCalibrationResult(268.8);
+  expect(state().speedCalibration).toMatchObject({ status: 'refining', progressPercent: 100 });
+  request('speedCalibration.finish');
+  expect(state().speedCalibration).toMatchObject({ status: 'ready', progressPercent: 100 });
+  request('speedCalibration.cancel');
+  request('speedCalibration.start', { diameterMm: 280 });
+  expect(state().speedCalibration.progressPercent).toBe(0);
+});
+
+it('keeps an approved result through later uncertainty and finalizes it at the original deadline', () => {
+  vi.useFakeTimers();
+  try {
+    const { b, request, state } = fixture();
+    request('speedCalibration.start', { diameterMm: 280 });
+    expect(request('speedCalibration.finish')).toMatchObject({ error: { code: 'invalid_state' } });
+    vi.advanceTimersByTime(60_000);
+    b.simulateSpeedCalibrationResult(268.8);
+    b.simulateSpeedCalibrationProgress('gpsUncertain', 35, 100);
+    expect(state().speedCalibration).toMatchObject({
+      status: 'refining',
+      recommendedDiameterMm: 268.8,
+      applyAvailable: false,
+    });
+    vi.advanceTimersByTime(120_000);
+    b.publishTelemetry();
+    expect(state().speedCalibration).toMatchObject({ status: 'ready', recommendedDiameterMm: 268.8 });
+    expect(request('diagnostics.list')).toMatchObject({
+      result: { incidents: expect.arrayContaining([expect.objectContaining({ reason: 'calibration_complete' })]) },
+    });
+    expect(request('speedCalibration.finish')).toMatchObject({ result: { accepted: true } });
   } finally {
     vi.useRealTimers();
   }

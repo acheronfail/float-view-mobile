@@ -1121,11 +1121,13 @@ export type SpeedCalibrationMeasurementStatus =
 
 export interface SpeedCalibrationState {
   measurementStatus: SpeedCalibrationMeasurementStatus;
-  status: 'idle' | 'collecting' | 'ready' | 'insufficient' | 'applied';
+  status: 'idle' | 'collecting' | 'refining' | 'ready' | 'insufficient' | 'applied';
   currentDiameterMm: number | null;
   startingDiameterMm: number | null;
   recommendedDiameterMm: number | null;
   acceptedSamples: number;
+  /** Approximate evidence gathered; holds during pauses and reaches 100 only on approval. */
+  progressPercent: number;
   minimumSpeedKph: number;
   applyAvailable: boolean;
   applyBlockReason:
@@ -1147,6 +1149,7 @@ export const emptySpeedCalibration: SpeedCalibrationState = {
   startingDiameterMm: null,
   recommendedDiameterMm: null,
   acceptedSamples: 0,
+  progressPercent: 0,
   minimumSpeedKph: 7.2,
   applyAvailable: false,
   applyBlockReason: 'notReady',
@@ -1293,6 +1296,7 @@ export interface BackendMethods {
   'bluetooth.requestPermission': { params: EmptyParams; result: BluetoothState };
   'bluetooth.scan': { params: { timeoutMs?: number }; result: Accepted };
   'speedCalibration.start': { params: { diameterMm: number }; result: Accepted };
+  'speedCalibration.finish': { params: EmptyParams; result: Accepted };
   'speedCalibration.cancel': { params: EmptyParams; result: Accepted };
   'speedCalibration.apply': { params: EmptyParams; result: Accepted };
   'location.requestPermission': { params: EmptyParams; result: LocationState };

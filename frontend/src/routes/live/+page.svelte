@@ -836,7 +836,9 @@
   <FullScreenOverlay
     title="Calibrate speed"
     titleId="speed-calibration-title"
-    closeLabel={backendState.snapshot?.speedCalibration.status === 'collecting' ? 'Close' : 'Done'}
+    closeLabel={['collecting', 'refining'].includes(backendState.snapshot?.speedCalibration.status ?? '')
+      ? 'Close'
+      : 'Done'}
     onclose={() => {
       speedCalibrationOpen = false;
     }}

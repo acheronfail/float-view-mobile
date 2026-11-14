@@ -98,6 +98,18 @@ impl BackendService {
                     },
                 );
             }
+            Operation::FinishSpeedCalibration => {
+                if !matches!(self.calibration.state.status.as_str(), "ready" | "applied") {
+                    if !self.calibration.collecting()
+                        || self.calibration.state.recommended_diameter_mm.is_none()
+                    {
+                        return Err(Failure::InvalidState);
+                    }
+                    self.calibration.finish();
+                    self.location_eligibility()?;
+                }
+                f::Completion::Unit
+            }
             Operation::CancelSpeedCalibration => {
                 let preparing: Vec<_> = self
                     .pending

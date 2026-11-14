@@ -587,9 +587,10 @@ export function simulateMockCalibrationLocation(): void {
 }
 export function simulateMockSpeedCalibrationProgress(
   status: import('../src/lib/backend/contract.ts').SpeedCalibrationMeasurementStatus,
-  acceptedSamples: number
+  acceptedSamples: number,
+  progressPercent: number
 ): void {
-  activeMockBackend?.simulateSpeedCalibrationProgress(status, acceptedSamples);
+  activeMockBackend?.simulateSpeedCalibrationProgress(status, acceptedSamples, progressPercent);
 }
 
 export function simulateMockSpeedCalibrationResult(mm: number, supported = true): void {

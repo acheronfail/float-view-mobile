@@ -123,3 +123,37 @@ Task 4.2 is outstanding: validate actual phone speed accuracy/cadence, foregroun
 - 56 focused frontend tests, type/lint checks and the production build passed. Four Chromium/WebKit browser tests passed for calibration and repeated exports. Conformance type/fixture checks and the diameter fixture test passed. The real-service mixed-precision replay passed in approximately 42 seconds through automatic completion, riding rejection and verified idle application.
 - Preparation data now belongs to its pending-request variant, write stages use a closed enum, and location authorization is evaluated once per capture-policy decision. Start requests allow the service deadline to return a structured failure before the frontend times out. Estimator thresholds, automatic early completion and the riding UI remain unchanged.
 - The reviewed implementation and software checks are complete. Task 4.2 remains open for controlled full-configuration preservation/power-cycle/restoration and remaining platform/lifecycle checks; neither the synthetic replay nor user-reported Apply establishes those outcomes.
+
+- Android physical foreground check on `fae161df`: calibration completed automatically with 30 accepted comparisons in approximately 70 seconds. The recommendation, idle Apply eligibility, OS GPS shutdown and a valid diagnostic ZIP containing the outcome were verified over USB. Apply was not exercised. Detailed timing, diagnostic-loss counters and raw reports remain local; controlled motor persistence/restoration and background/locked checks remain outstanding.
+
+- A subsequent iPhone sampler-revision-2 run completed in approximately 167 seconds with 48 accepted comparisons from 168 updates. Its prolonged pause at 42 comparisons was attributable to 102 native speed-uncertainty rejections above the absolute gate, while aggregate uncertainty remained just above the completion limit. Permissions and connection were healthy. The retained outcome identifies the blocker; absent individual uncertainty values, it does not establish that admitting those fixes is safe. Detailed evidence remains local, and variable field completion time remains a material limit.
+
+## 11. Approximate progress
+
+- [x] 11.1 Publish a shared, bounded progress estimate from collected evidence and confidence; verify pauses, restart, restoration, quality blockers and full progress only on approval without changing thresholds.
+- [x] 11.2 Add a simple themed, accessible bar with minimal copy; update contract/mock and canonical coverage, including view recreation and reduced motion.
+- [x] 11.3 Run affected shared/native-boundary, frontend, direct replay/browser and spec checks; record results and preserve outstanding physical closeout.
+
+### Progress verification
+
+- 207 Rust tests passed across backend-service, loopback, runtime host and Apple/Android Rust bindings. The 18 estimator tests include partial progress that reflects reported uncertainty, a long rejected-GPS plateau, a new-attempt reset, insufficient/inconsistent evidence remaining below full, and completion retaining full progress. Eligibility, quality and deadline thresholds are unchanged.
+- 93 focused frontend tests passed, including existing themed-bar coverage and explicit mock progress. Type checks, relevant lint/format checks and the production build passed. Two Chromium/WebKit checks verify progress across pauses and view recreation, reset on a new attempt, result transition, light/dark themes, reduced motion and phone/tablet widths. Screenshots were visually inspected in both themes.
+- The real-service mixed-precision replay passed through partial progress, automatic approval at full progress, riding rejection and verified idle application. Conformance type/fixture checks, warnings-denied Clippy, formatting and OpenSpec validation passed. The new snapshot field passes through the existing generic native JSON integrations; no native adapter policy or persisted format changed. Task 4.2 remains the outstanding original hardware closeout.
+
+## 12. Optional precision refinement
+
+- [x] 12.1 Retain the best quality-approved candidate while continuing bounded capture; gate explicit Finish, preserve prior results through rejected/inconsistent data, and verify deadline/quality metrics without changing thresholds.
+- [x] 12.2 Update the contract, mock, UI and canonical scenarios for readiness, continued capture, Finish and independent Apply; keep copy about potential precision improvement without an accuracy promise.
+- [x] 12.3 Run affected shared/native-boundary, frontend, browser/replay and spec checks; record actual results and preserve original hardware closeout.
+
+### Refinement verification
+
+- 209 shared/service, loopback, runtime host and Apple/Android Rust-binding tests passed. Coverage includes continued observations after approval, lower-uncertainty candidate replacement, preservation through poorer approved candidates and later rejected/inconsistent readings, restored final quality metrics, premature-Finish rejection, and both explicit and deadline capture shutdown. The sampler revision is now 3; all acceptance/consistency thresholds and the original deadline remain unchanged.
+- 93 focused frontend tests, Svelte/TypeScript checks, lint/format checks and the production build passed. Chromium and WebKit cover live measurement feedback during refinement, the short precision explanation, closing/reopening without finalizing, Finish activating once, unsupported recommendations and responsive layouts. The refinement screen was visually inspected.
+- The real-service replay continued for additional accepted GPS observations after readiness, rejected Apply during capture, then finalized through Finish and completed verified idle application. Conformance checks, warnings-denied Clippy and OpenSpec validation passed. Task 4.2 remains open for the original controlled motor persistence/restoration and lifecycle hardware closeout; optional refinement has software verification and is ready for field testing.
+
+## 13. Live feedback during refinement
+
+- [x] 13.1 Keep live measurement status, eligibility colours and the low-speed hint after approval; use readiness only to offer Finish and verify UI/browser coverage without changing sampling or result retention.
+
+- Live-refinement feedback verification passed: 21 focused component tests, Svelte/TypeScript and conformance type checks, lint, formatting and the production build. Chromium and WebKit verify GPS-uncertain and low-speed status/colour/threshold changes after approval, with Finish remaining enabled, followed by Measuring on an eligible reading. Backend sampling, best-result retention and deadline behavior are unchanged.

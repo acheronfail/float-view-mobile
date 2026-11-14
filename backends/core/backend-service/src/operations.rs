@@ -19,6 +19,7 @@ pub enum Operation {
     StartSpeedCalibration {
         diameter_mm: f64,
     },
+    FinishSpeedCalibration,
     CancelSpeedCalibration,
     ApplySpeedCalibration,
     ClearAppData,

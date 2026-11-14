@@ -106,9 +106,8 @@ vocabulary!(ApiMethod {
     ApiRefloatConfigurationDraftGet => "refloat.configuration.draft.get",
     ApiRefloatConfigurationDraftSet => "refloat.configuration.draft.set",
     ApiSpeedCalibrationStart => "speedCalibration.start",
-    // Supported saved diagnostics retain retired method names; this does not
-    // restore an operation in the public dispatcher.
-    RetiredSpeedCalibrationFinish => "speedCalibration.finish",
+    // Includes historical Finish records; the current operation requires an approved result.
+    ApiSpeedCalibrationFinish => "speedCalibration.finish",
     ApiSpeedCalibrationCancel => "speedCalibration.cancel",
     ApiSpeedCalibrationApply => "speedCalibration.apply",
     ApiRefloatConfigurationOpen => "refloat.configuration.open",

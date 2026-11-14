@@ -92,24 +92,29 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.doesNotMatch(await panel.innerText(), /Ride steadily|phone away|minute|clear view/);
         assert.equal(methods.filter((m) => m === 'speedCalibration.start').length, 1);
         assert.equal(await panel.getByRole('button', { name: 'Finish calibration', exact: true }).count(), 0);
-        assert.equal(await panel.getByRole('progressbar').count(), 0);
+        const progress = panel.getByRole('progressbar', { name: 'Calibration progress' });
+        assert.equal(await progress.getAttribute('aria-valuenow'), '0');
+        assert.match(await panel.innerText(), /Approximate progress/);
         assert.doesNotMatch(await panel.innerText(), /Time remaining|3:00/);
         assert.doesNotMatch(await panel.innerText(), /Measurements kept|Finishes automatically|Comparisons pause/);
-        simulateMockSpeedCalibrationProgress('collecting', 32);
+        simulateMockSpeedCalibrationProgress('collecting', 32, 70);
         await panel.getByRole('heading', { name: 'Measuring', exact: true }).waitFor();
         await client.waitForState((s) => s.speedCalibration.acceptedSamples === 32);
-        simulateMockSpeedCalibrationProgress('speedChanging', 32);
+        assert.equal(await progress.getAttribute('aria-valuenow'), '70');
+        simulateMockSpeedCalibrationProgress('speedChanging', 32, 70);
         await page.waitForTimeout(300);
         assert.equal(
           await panel.getByRole('heading', { name: 'Measuring', exact: true }).isVisible(),
           true,
           'brief pauses do not flicker'
         );
-        simulateMockSpeedCalibrationProgress('collecting', 33);
+        simulateMockSpeedCalibrationProgress('collecting', 33, 74);
         await client.waitForState((s) => s.speedCalibration.acceptedSamples === 33);
-        simulateMockSpeedCalibrationProgress('speedChanging', 33);
+        simulateMockSpeedCalibrationProgress('speedChanging', 33, 74);
         const changing = panel.getByRole('heading', { name: 'Keep speed steady', exact: true });
         await changing.waitFor();
+        assert.equal(await progress.getAttribute('aria-valuenow'), '74');
+        assert.equal(await progress.locator('div').evaluate((el) => getComputedStyle(el).transitionProperty), 'none');
         assert.equal((await client.request('state.get', {})).speedCalibration.acceptedSamples, 33);
         assert.doesNotMatch(await panel.innerText(), /Measurements kept|Comparisons pause|Finishes automatically/);
         assert.ok((await changing.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))) >= 30);
@@ -125,10 +130,30 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.setViewportSize({ width: 390, height: 844 });
         if (name === 'chromium')
           await page.screenshot({ path: '/tmp/float-view-speed-calibration-collecting.png', fullPage: true });
+        for (const themePreference of ['light', 'dark'] as const) {
+          const state = await client.request('state.get', {});
+          await client.request('settings.update', {
+            expectedRevision: state.settings.revision,
+            patch: { themePreference },
+          });
+          await page.waitForFunction((theme) => document.documentElement.dataset.theme === theme, themePreference);
+          const colors = await progress.evaluate((el) => ({
+            track: getComputedStyle(el).backgroundColor,
+            fill: getComputedStyle(el.querySelector('div')!).backgroundColor,
+          }));
+          assert.notEqual(colors.fill, colors.track);
+          assert.notEqual(colors.fill, 'rgba(0, 0, 0, 0)');
+          if (name === 'chromium')
+            await page.screenshot({
+              path: `/tmp/float-view-calibration-progress-${themePreference}.png`,
+              fullPage: true,
+            });
+        }
         await panel.getByRole('button', { name: 'Close', exact: true }).click();
         await page.getByRole('button', { name: 'Board actions', exact: true }).click();
         await page.getByRole('button', { name: 'Calibrate speed…', exact: true }).click();
         await panel.getByRole('heading', { name: 'Keep speed steady', exact: true }).waitFor();
+        assert.equal(await progress.getAttribute('aria-valuenow'), '74', 'progress survives view recreation');
         assert.equal(
           methods.filter((m) => m === 'speedCalibration.start').length,
           1,
@@ -141,8 +166,56 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(methods.filter((m) => m === 'speedCalibration.cancel').length, 1);
         await panel.getByRole('button', { name: 'Start calibration', exact: true }).tap();
         await panel.getByRole('region', { name: 'Speed comparison' }).waitFor();
+        assert.equal(await progress.getAttribute('aria-valuenow'), '0', 'a new attempt resets progress');
         simulateMockSpeedCalibrationResult(268.8, false);
+        await panel.getByRole('heading', { name: 'Measuring', exact: true }).waitFor();
+        assert.match(await panel.innerText(), /More measurements may improve precision/);
+        assert.equal((await client.request('state.get', {})).speedCalibration.status, 'refining');
+        await panel.getByRole('button', { name: 'Close', exact: true }).click();
+        await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+        await page.getByRole('button', { name: 'Calibrate speed…', exact: true }).click();
+        await panel.getByRole('heading', { name: 'Measuring', exact: true }).waitFor();
+        simulateMockSpeedCalibrationProgress('gpsUncertain', 40, 100);
+        await panel.getByRole('heading', { name: 'GPS speed uncertain', exact: true }).waitFor();
+        assert.equal(await panel.getByRole('button', { name: 'Finish calibration', exact: true }).isEnabled(), true);
+        assert.ok((await panel.getByRole('status').getAttribute('class'))?.includes('bg-warning/10'));
+        if (name === 'chromium')
+          await page.screenshot({ path: '/tmp/float-view-calibration-refining-gps-dark.png', fullPage: true });
+        simulateMockSpeedCalibrationProgress('lowSpeed', 40, 100);
+        await panel.getByRole('heading', { name: 'Speed too low', exact: true }).waitFor();
+        assert.match(await panel.innerText(), /Minimum 7\.2 km\/h/);
+        assert.equal(await panel.getByRole('button', { name: 'Finish calibration', exact: true }).isEnabled(), true);
+        if (name === 'chromium')
+          await page.screenshot({ path: '/tmp/float-view-calibration-refining-low-speed-dark.png', fullPage: true });
+        simulateMockSpeedCalibrationProgress('ready', 41, 100);
+        await panel.getByRole('heading', { name: 'Measuring', exact: true }).waitFor();
+        assert.ok((await panel.getByRole('status').getAttribute('class'))?.includes('bg-accent/10'));
+
+        for (const width of [320, 390, 768]) {
+          await page.setViewportSize({ width, height: 844 });
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        }
+        await page.setViewportSize({ width: 390, height: 844 });
+        if (name === 'chromium')
+          await page.screenshot({ path: '/tmp/float-view-calibration-refining.png', fullPage: true });
+        for (const themePreference of ['light', 'dark'] as const) {
+          const state = await client.request('state.get', {});
+          await client.request('settings.update', {
+            expectedRevision: state.settings.revision,
+            patch: { themePreference },
+          });
+          await page.waitForFunction((theme) => document.documentElement.dataset.theme === theme, themePreference);
+          if (name === 'chromium')
+            await page.screenshot({
+              path: `/tmp/float-view-calibration-refining-${themePreference}.png`,
+              fullPage: true,
+            });
+        }
+        await panel.getByRole('button', { name: 'Finish calibration', exact: true }).tap();
+        assert.equal(methods.filter((m) => m === 'speedCalibration.finish').length, 1);
         await panel.getByRole('heading', { name: 'Recommended wheel diameter' }).waitFor();
+        assert.equal((await client.request('state.get', {})).speedCalibration.progressPercent, 100);
+        assert.equal(await progress.count(), 0);
         assert.equal(await panel.getByRole('button', { name: /^Apply / }).count(), 0);
         assert.match(await panel.innerText(), /268\.8/);
         assert.match(await panel.innerText(), /VESC Tool/);

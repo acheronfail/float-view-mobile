@@ -59,7 +59,7 @@ it.each([
   ['speedMismatch', 'Speed readings differ'],
   ['needsMoreMeasurements', 'Measuring'],
   ['inconsistentMeasurements', 'Measuring'],
-  ['ready', 'Ready'],
+  ['ready', 'Measuring'],
 ] as const)('explains %s using app status only', (measurementStatus, copy) => {
   const html = screen({ status: 'collecting', measurementStatus });
   expect(html).toContain(copy);
@@ -75,17 +75,24 @@ it.each([
 });
 it('describes only the comparison before starting', () => {
   const html = screen({ currentDiameterMm: 280 });
-  expect(html).toContain(
-    'We’ll compare GPS and board speed to recommend a wheel diameter. Calibration finishes automatically.'
-  );
+  expect(html).toContain('We’ll compare GPS and board speed to recommend a wheel diameter.');
   expect(html).not.toContain('Motor poles');
   expect(html).not.toContain('flat route');
 });
 
-it('shows ongoing activity beyond the minimum without inviting premature completion', () => {
-  const html = screen({ status: 'collecting', measurementStatus: 'needsMoreMeasurements', acceptedSamples: 32 });
+it('shows approximate progress beyond the minimum without promising completion', () => {
+  const html = screen({
+    status: 'collecting',
+    measurementStatus: 'needsMoreMeasurements',
+    acceptedSamples: 42,
+    progressPercent: 82,
+  });
   expect(html).toContain('Measuring');
-  expect(html).not.toMatch(/>32</);
+  expect(html).not.toMatch(/>42</);
+  expect(html).toContain('Approximate progress');
+  expect(html).toContain('role="progressbar"');
+  expect(html).toContain('aria-valuenow="82"');
+  expect(html).toContain('aria-valuetext="Approximately 82% complete"');
   expect(html).not.toContain('Measurements kept');
   expect(html).not.toContain('Comparisons pause');
   expect(html).not.toContain('Finish calibration');
@@ -110,4 +117,25 @@ it.each([
 it('keeps unavailable board speed unavailable', () => {
   const html = screen({ status: 'collecting', measurementStatus: 'waitingBoard' }, 'metric', null);
   expect(html).toMatch(/data-calibration-speed="">—</);
+});
+
+it.each([
+  ['gpsUncertain', 'GPS speed uncertain'],
+  ['lowSpeed', 'Speed too low'],
+  ['ready', 'Measuring'],
+] as const)('keeps %s visible with Finish available', (measurementStatus, statusText) => {
+  const html = screen({
+    status: 'refining',
+    measurementStatus,
+    recommendedDiameterMm: 268.8,
+    progressPercent: 100,
+  });
+  expect(html).toContain(statusText);
+  expect(html).not.toContain('Result ready');
+  expect(html).toContain('More measurements may improve precision.');
+  expect(html).toContain('Finish calibration');
+  if (measurementStatus === 'lowSpeed') expect(html).toContain('Minimum 7.2 km/h');
+  expect(html).not.toContain('Recommended wheel diameter');
+  expect(html).not.toContain('aria-label="Calibration progress"');
+  expect(html).not.toMatch(/<button[^>]*>Apply /);
 });

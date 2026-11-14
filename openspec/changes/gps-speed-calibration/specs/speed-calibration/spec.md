@@ -8,7 +8,7 @@ Help riders calibrate effective wheel diameter using reliable phone speed observ
 
 ### Requirement: Explicit temporary calibration
 
-A connected controller SHALL offer an explicit speed-calibration flow independent of route recording. Calibration SHALL remain owned by the shared service across view recreation, use bounded temporary observations, and stop on a quality-approved result, cancellation, timeout, disconnect or controller replacement. No calibration-only coordinates SHALL be persisted.
+A connected controller SHALL offer an explicit speed-calibration flow independent of route recording. Calibration SHALL remain owned by the shared service across view recreation, use bounded temporary observations, and stop when the rider finishes with an approved result, cancels, or reaches the deadline, disconnect or controller replacement. No calibration-only coordinates SHALL be persisted.
 
 #### Scenario: Start and cancel
 
@@ -42,12 +42,12 @@ Calibration SHALL compare time-aligned native speed estimates with board speed u
 #### Scenario: Measurement count is not completion
 
 - **WHEN** at least the minimum number of comparisons exists but aggregate uncertainty or consistency still fails
-- **THEN** capture continues with a specific quality status, no sample count, completion bar or fixed-count promise, and cancellation as its only collection action
+- **THEN** capture continues with a specific quality status, an approximate progress indication without a sample count or fixed-count promise, and no enabled Finish action until a result has passed all quality checks
 
-#### Scenario: Automatic stable completion
+#### Scenario: Stable result with optional refinement
 
 - **WHEN** a recommendation first passes all quality checks
-- **THEN** capture ends automatically, the recommendation is retained, and later speed changes cannot revoke it
+- **THEN** it remains available to finish immediately while capture continues, and later rejected or inconsistent observations cannot revoke it
 
 ### Requirement: Recommendation survives unsupported application
 
@@ -74,7 +74,7 @@ An explicit Apply SHALL require an audited firmware/configuration layout, the or
 
 ### Requirement: Simple accessible calibration controls
 
-The UI SHALL describe what calibration measures and display its current measurement status without unrelated rider advice or assumptions about other settings. Pointer and keyboard actions SHALL activate once; errors and unavailable Apply reasons SHALL preserve the recommendation. Restoring a view SHALL never replay Start or Apply.
+The UI SHALL describe what calibration measures and display its current measurement status without unrelated rider advice or assumptions about other settings. Pointer and keyboard actions SHALL activate once; errors and unavailable Apply reasons SHALL preserve the recommendation. Restoring a view SHALL never replay Start, Finish or Apply.
 
 #### Scenario: Review while moving
 
@@ -92,7 +92,7 @@ During capture the backend SHALL publish a bounded status identifying missing GP
 
 ### Requirement: Glanceable collection
 
-Collection SHALL show a large labelled board speed in preferred units, one prominent actionable state distinguishing low speed, changing speed and mismatched speeds. The running screen SHALL omit sample counts, process explanations and completion reminders; low speed MAY show its minimum threshold. Brief pauses SHALL preserve comparisons. The backend SHALL publish its minimum comparison speed.
+Collection SHALL show a large labelled board speed in preferred units, one prominent actionable state distinguishing low speed, changing speed and mismatched speeds. Before readiness, the screen SHALL omit sample counts, process explanations and completion reminders; low speed MAY show its minimum threshold. Brief pauses SHALL preserve comparisons. The backend SHALL publish its minimum comparison speed.
 
 #### Scenario: Ordinary street speed variation
 
@@ -104,9 +104,9 @@ Collection SHALL show a large labelled board speed in preferred units, one promi
 - **WHEN** collection is active in metric or imperial units
 - **THEN** speed and one concise state remain legible, and brief rejected intervals do not make the prominent state flicker
 
-### Requirement: Bounded automatic completion
+### Requirement: Bounded optional refinement
 
-The UI SHALL explain automatic early completion without a countdown or duration target. Collection SHALL end within three minutes with either a quality-approved result or a clear insufficient result. View recreation SHALL NOT reset the deadline.
+The UI SHALL enable Finish only after an estimate passes the existing quality checks and explain that more measurements may improve precision. Collection SHALL retain the approved estimate with the lowest modelled relative uncertainty and end when the rider finishes or the original three-minute deadline expires. At the deadline it SHALL retain the best approved result or report insufficient evidence. View recreation SHALL NOT reset the deadline. No accuracy guarantee SHALL be made.
 
 #### Scenario: Deadline without convergence
 
@@ -135,3 +135,37 @@ Every completed attempt SHALL retain a bounded outcome incident with duration an
 
 - **WHEN** calibration completes near a recent incident whose event budget is full
 - **THEN** its final outcome remains exportable within the existing diagnostic bounds and clipping is disclosed
+
+### Requirement: Approximate calibration progress
+
+The shared service SHALL publish an approximate progress value based on accepted evidence and aggregate uncertainty. It SHALL advance monotonically within an attempt, hold during measurement pauses and reach full when a recommendation first passes all existing quality checks. View recreation SHALL preserve it; a new attempt SHALL reset it. The UI SHALL show one themed bar labelled as approximate, without a sample target, countdown or extra process copy.
+
+#### Scenario: More measurements still needed
+
+- **WHEN** the minimum sample count is met but quality checks still fail
+- **THEN** the progress indicator remains below full and collection continues under the existing deadline and quality rules
+
+#### Scenario: GPS pause and view restoration
+
+- **WHEN** GPS readings are temporarily rejected or the collection view is closed and reopened
+- **THEN** the last progress estimate is retained without advancing from elapsed time
+
+#### Scenario: Result available
+
+- **WHEN** a recommendation passes the existing quality checks
+- **THEN** progress reaches full and the rider can finish immediately or keep collecting eligible observations
+
+#### Scenario: Deteriorating GPS after readiness
+
+- **WHEN** later observations are rejected, inconsistent or produce a higher modelled relative uncertainty
+- **THEN** the best approved recommendation remains available and Finish stops capture without writing configuration
+
+#### Scenario: Deadline after readiness
+
+- **WHEN** the original collection deadline arrives after a result was approved
+- **THEN** capture stops with the best approved recommendation and no automatic motor configuration write
+
+#### Scenario: Live status after readiness
+
+- **WHEN** a result is available while capture continues and GPS or riding eligibility changes
+- **THEN** the screen continues updating its live status, warning colour and applicable minimum-speed hint, while Finish remains available and the retained result is preserved

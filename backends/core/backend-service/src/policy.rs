@@ -2177,7 +2177,7 @@ mod tests {
     }
 
     #[test]
-    fn calibration_timeout_and_automatic_completion_preserve_capture_policy() {
+    fn calibration_deadline_and_explicit_finish_restore_capture_policy() {
         #[allow(dead_code)]
         mod samples {
             use float_view_application_runtime::telemetry as float_view_refloat_telemetry_service;
@@ -2188,6 +2188,11 @@ mod tests {
         t.service.policy.location_authorization = os::LocationAuthorization::Authorized;
         t.service.policy.foreground = true;
         t.start_calibration();
+        assert!(matches!(
+            t.service
+                .dispatch(1, crate::operations::Operation::FinishSpeedCalibration),
+            Err(Failure::InvalidState)
+        ));
         let deadline = t.service.calibration.started + crate::calibration::MAX_DURATION_MS;
         t.service.policy.exchange.now = deadline - 1;
         t.service.location_eligibility().unwrap();
@@ -2229,6 +2234,18 @@ mod tests {
                     t.service.policy.exchange.now = at;
                     t.service.location_eligibility().unwrap();
                 }
+            }
+            assert_eq!(t.service.calibration.state.status, "refining");
+            assert_eq!(t.service.policy.capture.as_ref().unwrap().id, high);
+            assert!(t.service.policy.capture.as_ref().unwrap().high_accuracy);
+            if recording {
+                t.service
+                    .dispatch(1, crate::operations::Operation::FinishSpeedCalibration)
+                    .unwrap();
+            } else {
+                t.service.policy.exchange.now =
+                    t.service.calibration.started + crate::calibration::MAX_DURATION_MS;
+                t.service.location_eligibility().unwrap();
             }
             assert_eq!(t.service.calibration.state.status, "ready");
             assert_eq!(
