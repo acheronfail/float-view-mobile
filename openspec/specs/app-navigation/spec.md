@@ -289,6 +289,7 @@ The active viewer SHALL follow the growing persisted ride by default, using boun
 Settings SHALL provide independent speed/load switches and thresholds with explicit units, a shared repeat interval, announcement volume, audio readiness, and a test action. The same frontend SHALL support pointer and keyboard activation without duplicate actions. Validation and save/test failures SHALL preserve edits and remain visible. A test SHALL identify its selected speed, load or combined content even when both rules are off. Unavailable audio SHALL not silently disable the saved rule.
 
 #### Scenario: Configure announcements
+
 - **WHEN** users enable load and set 65 percent with a five-second repeat interval
 - **THEN** Settings saves a revision-checked patch and presents authoritative accepted values
 
@@ -309,10 +310,12 @@ Settings SHALL provide independent speed/load switches and thresholds with expli
 - **THEN** the test waits for those preferences to save and does not play using older settings if saving fails
 
 #### Scenario: Test feedback
+
 - **WHEN** users activate a test by primary pointer or keyboard
 - **THEN** exactly one test is sent, repeat activation is prevented while pending, and the terminal outcome is displayed without claiming that a finished utterance was necessarily heard
 
 #### Scenario: Audio unavailable
+
 - **WHEN** audio readiness is unavailable or a test cannot play
 - **THEN** Settings explains the bounded reason or outcome and retains the user's announcement configuration and other working controls
 
@@ -321,10 +324,12 @@ Settings SHALL provide independent speed/load switches and thresholds with expli
 Settings SHALL show “Lower other audio while speaking” only when authoritative announcement audio state says lowering is adjustable. Helper text SHALL explain that music and other audio become quieter temporarily and that some apps may pause. Android and macOS SHALL hide this control while retaining announcement volume and other common settings. The frontend SHALL derive visibility from the mandatory state field, not detect the platform.
 
 #### Scenario: iOS audio controls
+
 - **WHEN** Settings receives adjustable lowering state
 - **THEN** it shows the saved lowering switch and its explanation alongside announcement volume
 
 #### Scenario: Android or macOS audio controls
+
 - **WHEN** Settings receives automatic lowering state
 - **THEN** it hides the lowering switch without hiding speech volume, thresholds, enable switches or testing
 
@@ -338,6 +343,7 @@ that users choose an English offline voice in device text-to-speech settings.
 Returning SHALL refresh the selected engine/voice without restarting the app.
 
 #### Scenario: Guarded voice settings activation
+
 - **WHEN** a primary pointer or keyboard activates Voice settings
 - **THEN** exactly one native launch is requested and failures remain visible without discarding announcement edits
 
@@ -464,17 +470,22 @@ Connection & permissions SHALL lead with permission status and place Reconnectin
 
 ### Requirement: Saved-board view customisation entry points
 
-Saved-board history and connected saved-board menus SHALL offer Configure board before Customise views. Customise views SHALL open a focused editor with the board's name as its title and a subtitle identifying the view and preview values. It SHALL omit a separate board card and content-level view selector, work without discovery or connection, including imported boards, and return through guarded dismissal.
+Saved-board history menus in Sessions SHALL offer Configure board before Customise views. Board/Connect menus SHALL NOT offer Customise views. The focused editor SHALL show the board's name and a view/preview-values subtitle, omit a separate board card and content-level selector, work without discovery or connection, including imported boards, and return to board history through guarded dismissal.
 
 #### Scenario: Open without a board connection
 
 - **WHEN** the user selects Customise views from a saved board's history menu
 - **THEN** its name appears in the title with a preview-values subtitle and access to both editable views, without a separate board card, scanning or connecting
 
-#### Scenario: Open from Live
+#### Scenario: Connected board menu
 
-- **WHEN** the user selects Customise views for a connected saved board
-- **THEN** the same editor opens the board's saved view preference without changing connection or recording
+- **WHEN** the user opens the Board/Connect menu for a connected saved board
+- **THEN** Customise views is absent and the normal Live and Custom views remain available
+
+#### Scenario: Customise a connected board from Sessions
+
+- **WHEN** the user selects Customise views from the board's history menu in Sessions while connected
+- **THEN** the preview editor opens without changing connection or recording, and guarded dismissal returns to board history
 
 #### Scenario: Dismiss or lose the target
 
@@ -487,7 +498,7 @@ The editor SHALL open Custom for a saved Custom preference and Live for a saved 
 
 #### Scenario: Open and switch previews
 
-- **WHEN** a user opens Customise views from either entry point
+- **WHEN** a user opens Customise views from a saved board's history menu in Sessions
 - **THEN** the saved editable preference opens directly, with Detailed or absent preferences falling back to Live
 - **WHEN** the user selects the other view from the header menu
 - **THEN** the preview changes without persisting a new default or inserting a selector into the content

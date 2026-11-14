@@ -448,19 +448,6 @@
               },
             ]
           : []),
-        ...(connection.savedDeviceId && connection.trackingMode === 'saved' && connection.deviceKind === 'board'
-          ? [
-              {
-                label: 'Customise views',
-                icon: 'layout-dashboard' as const,
-                group: 'Board',
-                onactivate: (closeMenu: () => void) => {
-                  closeMenu();
-                  void goto(`#/sessions/boards/${encodeURIComponent(connection.savedDeviceId!)}/views?from=live`);
-                },
-              },
-            ]
-          : []),
         ...(bmsMenuVisible(connection.bms)
           ? [
               {

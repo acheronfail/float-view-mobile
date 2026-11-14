@@ -11,19 +11,12 @@
   import LiveValueBox from './LiveValueBox.svelte';
   import { dashboardPreview, previewHistory, previewNowMs, type PreviewInteractions } from './dashboard-preview';
 
-  let {
-    savedDeviceId,
-    fromLive = false,
-  }: {
-    savedDeviceId: string;
-    fromLive?: boolean;
-  } = $props();
+  let { savedDeviceId }: { savedDeviceId: string } = $props();
   const header = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   const restoration = getContext<UiRestoration>(UI_RESTORATION);
   const owner = '/sessions/boards/[savedDeviceId]/views';
   const board = $derived(backendState.savedDevices.find((b) => b.savedDeviceId === savedDeviceId));
   const boardHref = $derived(`#/sessions/boards/${encodeURIComponent(savedDeviceId)}`);
-  const returnHref = $derived(fromLive && backendState.snapshot?.activeConnection ? '#/live' : boardHref);
   let view = $state<'normal' | 'custom'>('normal');
   let profile = $state<BoardProfile | null>(null);
   let loading = $state(false);
@@ -46,8 +39,8 @@
       titleClass: 'truncate text-3xl font-semibold',
       subtitle: `${view === 'custom' ? 'Custom View' : 'Live View'} · Preview values`,
       bottomBorder: false,
-      backHref: returnHref,
-      backLabel: fromLive ? 'Back' : 'Board',
+      backHref: boardHref,
+      backLabel: 'Board',
       backInMenu: true,
       menuLabel: 'View options',
       menu: [
@@ -110,7 +103,7 @@
     if (current === generation) profile = result;
   }
   function finish() {
-    void goto(returnHref);
+    void goto(boardHref);
   }
 </script>
 

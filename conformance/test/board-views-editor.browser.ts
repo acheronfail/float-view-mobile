@@ -344,6 +344,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await custom.getByRole('button', { name: 'Save dashboard', exact: true }).isDisabled(), true);
       await custom.getByRole('button', { name: 'Reload current values', exact: true }).tap();
       await page.getByRole('button', { name: 'Discard changes', exact: true }).tap();
+      await page
+        .getByRole('alertdialog', { name: 'Discard dashboard changes?', exact: true })
+        .waitFor({ state: 'detached' });
+      await custom.getByText('Loading dashboard…', { exact: true }).waitFor({ state: 'hidden' });
       await custom
         .getByRole('button', { name: /^Arrange / })
         .first()
@@ -384,7 +388,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         .first()
         .waitFor();
       await switchView('Live View');
-      // Connected entry follows the saved view and preserves the healthy Live viewport.
+      // Board/Connect offers the actual views; the preview editor is only available through Sessions.
       await page.getByRole('button', { name: 'View options', exact: true }).tap();
       await page.locator('[data-header-menu]').getByRole('button', { name: 'Back', exact: true }).tap();
       otherBoard = false;
@@ -395,11 +399,22 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
       const connectedMenu = page.getByRole('dialog', { name: 'Board actions', exact: true });
       const connectedActions = (await connectedMenu.getByRole('button').allTextContents()).map((s) => s.trim());
-      assert.ok(connectedActions.indexOf('Configure board') < connectedActions.indexOf('Customise views'));
+      assert.ok(connectedActions.includes('Configure board'));
+      assert.equal(connectedActions.includes('Customise views'), false);
+      await connectedMenu.getByRole('button', { name: 'Custom View', exact: true }).tap();
+      await custom.locator('[data-dashboard-widget]').first().waitFor();
+      assert.equal(await page.getByRole('region', { name: 'Customise board views', exact: true }).count(), 0);
+      await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
       await connectedMenu.getByRole('button', { name: 'Live View', exact: true }).tap();
       const live = page.getByRole('region', { name: 'Live board widgets', exact: true });
       await live.waitFor();
       const connectedBounds = (await live.boundingBox())!;
+      await page.goto(`${endpoint.origin}/#/sessions`);
+      await page
+        .getByRole('region', { name: 'Saved boards', exact: true })
+        .getByRole('link', { name: /Trail Blazer/ })
+        .tap();
+      await page.getByRole('region', { name: 'Board summary', exact: true }).waitFor();
       await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
       await page.getByRole('button', { name: 'Customise views', exact: true }).tap();
       await page.getByText('Live View · Preview values', { exact: true }).waitFor();
@@ -410,6 +425,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           Math.abs(previewBounds[dimension] - connectedBounds[dimension]) < 1,
           `preview preserves Live viewport ${dimension}: ${JSON.stringify({ previewBounds, connectedBounds })}`
         );
+      await backToBoard();
+      assert.equal((await client.request('state.get', {})).activeConnection?.state, 'ready');
+      await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
+      await page.getByRole('button', { name: 'Customise views', exact: true }).tap();
+      await live.waitFor();
       await switchView('Custom View');
       await editCustom();
       await client.request('device.disconnect', {});
