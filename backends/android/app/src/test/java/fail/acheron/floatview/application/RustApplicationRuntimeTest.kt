@@ -36,6 +36,23 @@ class RustApplicationRuntimeTest {
         assertEquals(1, RustApplicationRuntime.serviceApply(handle, ByteArray(1048577), required))
         assertEquals(2, RustApplicationRuntime.serviceApply(Long.MAX_VALUE, command, required))
     }
+    @Test fun optionalSpeedObservationCrossesTheNativeBoundaryWithoutStartingCapture() = withService { handle ->
+        fun exchange(input: String): JSONObject {
+            val required = IntArray(1)
+            assertEquals(0, RustApplicationRuntime.serviceApply(handle, input.toByteArray(), required))
+            val output = ByteArray(required[0])
+            assertEquals(0, RustApplicationRuntime.serviceCopyResult(handle, output, required))
+            return JSONObject(String(output))
+        }
+        val initial = exchange("""{"command":"drain"}""")
+        val lifetime = initial.getLong("lifetime")
+        val result = exchange("""{"command":"fact","envelope":{"lifetime":$lifetime,"sequence":1,"monotonic_ms":1,"epoch_ms":1700000000001,"fact":{"fact":"location_speed","capture_id":123,"speed_mps":5.0,"accuracy_mps":null,"age_ms":200}}}""")
+        assertEquals(0, result.getJSONArray("effects").length())
+        val missing = LocationProviderObservation(java.time.Instant.EPOCH, 1.0, 2.0, null)
+        assertNull(missing.speedMps)
+        assertNull(missing.speedAccuracyMps)
+        assertNull(missing.speedAgeMs)
+    }
     @Test fun listenerBorrowsServiceAndDestructionInvalidatesHandle() = withService { handle ->
         val server = RustApplicationRuntime.serviceServerCreate(handle, 2, "<html/>".toByteArray())
         assertTrue(server > 0)

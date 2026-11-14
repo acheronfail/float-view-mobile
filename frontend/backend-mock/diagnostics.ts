@@ -22,11 +22,20 @@ export class MockDiagnostics {
     this.uiLimits.delete(owner);
   }
   recordRequestFailure() {
+    this.recordFailure('backend_request_failure');
+  }
+  recordCalibrationComplete() {
+    this.recordFailure('calibration_complete');
+  }
+  recordCalibrationFailure() {
+    this.recordFailure('calibration_failure');
+  }
+  private recordFailure(reason: 'backend_request_failure' | 'calibration_failure' | 'calibration_complete') {
     const now = this.now();
     if (!this.incidents.length || now - this.incidents.at(-1)!.created >= 60_000) {
       this.incidents.push({
         incidentId: String(++this.next),
-        reason: 'backend_request_failure',
+        reason,
         complete: false,
         clipped: false,
         ageMs: 0,

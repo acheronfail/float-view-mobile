@@ -1,6 +1,6 @@
 import type { BoardConfiguration, ComposedBoardConfiguration, ControllerConfiguration } from './boards.ts';
 import { encodeFrame, FrameAssembler } from './frame.ts';
-import { motorConfigurationPayload } from './firmware.ts';
+import { motorConfigurationPayload, motorConfigurationForVersion, applyWheelDiameterWrite } from './firmware.ts';
 import { idleTelemetry } from './telemetry.ts';
 import { encodeLegacyCompact } from './refloat.ts';
 import { encodeBmsValuesPayload, type BmsConfiguration } from './bms.ts';
@@ -13,6 +13,7 @@ export type VescRequestKind =
   | 'bms-firmware'
   | 'bms-values'
   | 'motor-configuration'
+  | 'wheel-diameter-write'
   | 'refloat-info'
   | 'refloat-layout'
   | 'refloat-control'
@@ -49,6 +50,7 @@ export class VescSimulator {
   private readonly board: BoardConfiguration | ComposedBoardConfiguration;
   private readonly now: () => number;
   private readonly frames = new FrameAssembler();
+  private motorConfigurations = new Map<object, Uint8Array>();
   private telemetryIndex = 0;
   private transportFirmwareAttempts = 0;
   readonly requests: RecordedRequest[] = [];
@@ -247,11 +249,14 @@ export class VescSimulator {
         request: { at, command, canId, kind: 'controller-route-verification' },
       };
     }
-    if (command === 14) {
-      return {
-        response: motorConfigurationPayload,
-        request: { at, command, canId, kind: 'motor-configuration' },
-      };
+    if (command === 14 || command === 13) {
+      return this.motorConfiguration(
+        board,
+        board.firmware,
+        payload,
+        board.telemetry.phase() === 'idle' && !board.refloatControls.state.flywheelEnabled,
+        { at, command, canId }
+      );
     }
     if (command === 156) {
       const phase = board.telemetry.phase();
@@ -330,6 +335,30 @@ export class VescSimulator {
     };
   }
 
+  private motorConfiguration(
+    owner: object,
+    firmware: { major: number; minor: number },
+    payload: Uint8Array,
+    safe: boolean,
+    base: { at: number; command: number; canId?: number }
+  ): SimulatedTransaction | undefined {
+    const layout = motorConfigurationForVersion(firmware.major, firmware.minor);
+    if (!layout) {
+      if (payload[0] === 13) return this.reject('Unsupported motor configuration write');
+      return { response: motorConfigurationPayload.slice(), request: { ...base, kind: 'motor-configuration' } };
+    }
+    const current = this.motorConfigurations.get(owner) ?? layout.bytes;
+    if (payload[0] === 14) {
+      if (payload.length !== 1) return this.reject('Invalid motor configuration read');
+      return { response: current.slice(), request: { ...base, kind: 'motor-configuration' } };
+    }
+    const pos = layout.diameterOffset;
+    const next = applyWheelDiameterWrite(current, payload, pos, safe);
+    if (!next) return this.reject('Only an idle diameter-only configuration write is allowed');
+    this.motorConfigurations.set(owner, next);
+    return { response: Uint8Array.of(13), request: { ...base, kind: 'wheel-diameter-write' } };
+  }
+
   private reject(message: string): undefined {
     const board = this.board;
     if (!('kind' in board) || board.requestPolicy === 'strict') throw new Error(message);
@@ -366,11 +395,14 @@ export class VescSimulator {
         request: { ...base, kind: 'controller-route-verification' },
       };
     }
-    if (command === 14) {
-      return {
-        response: motorConfigurationPayload,
-        request: { ...base, kind: 'motor-configuration' },
-      };
+    if (command === 14 || command === 13) {
+      return this.motorConfiguration(
+        controller,
+        controller.firmware,
+        payload,
+        (controller.telemetry?.phase() ?? 'idle') === 'idle' && !controller.refloatControls?.state.flywheelEnabled,
+        base
+      );
     }
     if (command === 156 && controller.shutdown) {
       const phase = controller.telemetry?.phase() ?? 'idle';

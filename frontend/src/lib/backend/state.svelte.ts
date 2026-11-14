@@ -171,6 +171,13 @@ export class BackendState {
     }
   }
 
+  async speedCalibration(action: 'start' | 'cancel' | 'apply', diameterMm?: number): Promise<boolean> {
+    return this.run(async (client) => {
+      if (action === 'start') await client.request('speedCalibration.start', { diameterMm: diameterMm! }, 12_000);
+      else await client.request(`speedCalibration.${action}`, {}, 12_000);
+    });
+  }
+
   async diagnosticRequest<M extends import('./contract').BackendMethod>(
     method: M,
     params: import('./contract').BackendParams<M>

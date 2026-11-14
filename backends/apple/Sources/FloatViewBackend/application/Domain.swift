@@ -90,12 +90,26 @@ public struct LocationProviderObservation: Sendable, Codable, Equatable {
   public let latitude: Double
   public let longitude: Double
   public let accuracyM: Double?
+  public let speedMps: Double?
+  public let speedAccuracyMps: Double?
+  public let speedAgeMs: UInt64?
 
-  public init(observedAt: Date, latitude: Double, longitude: Double, accuracyM: Double?) {
+  public init(
+    observedAt: Date,
+    latitude: Double,
+    longitude: Double,
+    accuracyM: Double?,
+    speedMps: Double? = nil,
+    speedAccuracyMps: Double? = nil,
+    speedAgeMs: UInt64? = nil
+  ) {
     self.observedAt = observedAt
     self.latitude = latitude
     self.longitude = longitude
     self.accuracyM = accuracyM
+    self.speedMps = speedMps
+    self.speedAccuracyMps = speedAccuracyMps
+    self.speedAgeMs = speedAgeMs
   }
 }
 
@@ -104,8 +118,13 @@ public protocol LocationProviderPort: AnyObject, Sendable {
   func access() -> LocationAccess
   func refreshAuthorization(_ completion: @escaping @Sendable () -> Void)
   func recoverAuthorization(_ completion: @escaping @Sendable (Bool) -> Void)
+  func setHighAccuracy(_ enabled: Bool)
   func startUpdates(_ handler: @escaping @Sendable (LocationProviderObservation) -> Void)
   func stopUpdates()
+}
+
+public extension LocationProviderPort {
+  func setHighAccuracy(_: Bool) {}
 }
 
 public enum ThemePreference: String, Sendable, Codable, Equatable, CaseIterable {

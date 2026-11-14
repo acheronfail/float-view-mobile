@@ -10,6 +10,7 @@ import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import fail.acheron.floatview.application.LocationProviderAuthorization
@@ -26,6 +27,8 @@ class AndroidLocationProvider(
     private val applicationContext = context.applicationContext
     private val locationManager =
         applicationContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    private var highAccuracy = false
+    override fun setHighAccuracy(enabled: Boolean) { highAccuracy = enabled }
     private var listener: LocationListener? = null
     private var handler: ((LocationProviderObservation) -> Unit)? = null
 
@@ -85,17 +88,20 @@ class AndroidLocationProvider(
                         observedAt = Instant.ofEpochMilli(location.time),
                         latitude = location.latitude,
                         longitude = location.longitude,
-                        accuracyM = location.accuracy.takeIf { it >= 0f }?.toDouble(),
+                        accuracyM = location.accuracy.takeIf { location.hasAccuracy() && it >= 0f }?.toDouble(),
+                        speedMps = location.speed.takeIf { location.hasSpeed() && it.isFinite() && it >= 0f }?.toDouble(),
+                        speedAccuracyMps = if (Build.VERSION.SDK_INT >= 26 && location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond.takeIf { it.isFinite() && it >= 0f }?.toDouble() else null,
+                        speedAgeMs = ((SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L).takeIf { it >= 0L },
                     ),
                 )
             }
         }
         listener = next
-        val providers = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
+        val providers = (if (highAccuracy) listOf(LocationManager.GPS_PROVIDER) else listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER))
             .filter { runCatching { locationManager.isProviderEnabled(it) }.getOrDefault(false) }
         providers.forEach { provider ->
             try {
-                locationManager.requestLocationUpdates(provider, 1_000L, 5f, next, Looper.getMainLooper())
+                locationManager.requestLocationUpdates(provider, 1_000L, if (highAccuracy) 0f else 5f, next, Looper.getMainLooper())
             } catch (_: SecurityException) {
                 // Access can be revoked after the foreground permission check.
             } catch (_: IllegalArgumentException) {

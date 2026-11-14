@@ -66,6 +66,7 @@ pub(crate) struct Capture {
     pub id: u64,
     pub start: u64,
     pub offset: u64,
+    pub high_accuracy: bool,
 }
 #[derive(PartialEq)]
 struct HostStatus(bool, bool, String, Option<String>, Vec<String>, bool);
@@ -636,6 +637,22 @@ impl BackendService {
                 }
             }
             Fact::Storage { available_bytes } => self.policy.available_bytes = available_bytes,
+            Fact::LocationSpeed {
+                capture_id,
+                speed_mps,
+                accuracy_mps,
+                age_ms,
+            } => {
+                if self
+                    .policy
+                    .capture
+                    .as_ref()
+                    .is_some_and(|c| c.id == capture_id)
+                {
+                    self.calibration
+                        .speed(envelope.monotonic_ms, age_ms, speed_mps, accuracy_mps);
+                }
+            }
             Fact::Location {
                 capture_id,
                 latitude,
@@ -644,6 +661,17 @@ impl BackendService {
                 observed_at_ms,
             } => {
                 if let Some(capture) = self.policy.capture.as_ref().filter(|c| c.id == capture_id) {
+                    let persist = self.policy.settings.location_recording_enabled
+                        && self.policy.active.as_ref().is_some_and(|a| {
+                            a.saved
+                                && a.session.is_some()
+                                && a.latest
+                                    .as_ref()
+                                    .is_some_and(|s| s.ride_state == telemetry::RideState::Riding)
+                        });
+                    if !persist {
+                        return Ok(());
+                    }
                     let elapsed_ms = capture
                         .offset
                         .saturating_add(envelope.monotonic_ms.saturating_sub(capture.start));
@@ -930,6 +958,7 @@ impl BackendService {
         })))
     }
     pub fn disconnect(&mut self, reason: &str) -> Result<(), Failure> {
+        self.calibration = crate::calibration::Calibration::default();
         let Some(active) = self.policy.active.as_ref() else {
             return Ok(());
         };
@@ -1061,6 +1090,7 @@ impl BackendService {
         result
     }
     fn reconnect(&mut self) -> Result<(), Failure> {
+        self.calibration = crate::calibration::Calibration::default();
         // A discovery rejection needs an explicit new attempt, even if BLE drops later.
         if self.runtime.snapshot().application.phase == c::Phase::Failed {
             if let Some(active) = self.policy.active.as_mut() {
@@ -1414,6 +1444,7 @@ impl BackendService {
                         effects.extend(self.runtime.apply(command).map_err(|_| Failure::Internal)?);
                     }
                     c::Effect::PublishState(state) => {
+                        self.complete_calibration_start()?;
                         if state.phase == c::Phase::Ready {
                             if let Some(a) = self.policy.active.as_mut() {
                                 a.reconnect_started = None;
@@ -1425,6 +1456,7 @@ impl BackendService {
                         }
                     }
                     c::Effect::PublishTelemetry(sample) => {
+                        self.calibration.board(self.policy.exchange.now, &sample);
                         self.record_telemetry_contents(&sample);
                         self.observe_announcement(&sample);
                         self.step_announcements()?;
@@ -1891,7 +1923,62 @@ impl BackendService {
         }))
     }
     pub(crate) fn location_eligibility(&mut self) -> Result<(), Failure> {
-        let enabled = self.policy.settings.location_recording_enabled
+        let generation = self.runtime.snapshot().application.generation.0;
+        if self.calibration.generation != generation
+            || !self
+                .policy
+                .active
+                .as_ref()
+                .is_some_and(|a| a.state == LinkState::Ready)
+        {
+            self.calibration = crate::calibration::Calibration::default();
+        }
+        if self.calibration.collecting()
+            && self
+                .policy
+                .exchange
+                .now
+                .saturating_sub(self.calibration.started)
+                >= crate::calibration::MAX_DURATION_MS
+        {
+            self.calibration.finish();
+        }
+        if let Some(summary) = self.calibration.diagnostic(self.policy.exchange.now) {
+            self.diagnostics.event(
+                self.policy.exchange.now,
+                self.policy.exchange.epoch,
+                if self.calibration.collecting() {
+                    "calibration"
+                } else {
+                    "calibration_outcome"
+                },
+                serde_json::to_value(summary).expect("bounded calibration summary"),
+                true,
+            );
+            if self.calibration.state.status == "insufficient" {
+                self.diagnostics.capture(
+                    self.policy.exchange.now,
+                    self.policy.exchange.epoch,
+                    "calibration_failure",
+                    true,
+                );
+            } else if self.calibration.state.status == "ready" {
+                self.diagnostics.capture(
+                    self.policy.exchange.now,
+                    self.policy.exchange.epoch,
+                    "calibration_complete",
+                    true,
+                );
+            }
+        }
+        let calibrating = self.calibration.collecting();
+        let allowed = matches!(
+            self.policy.location_authorization,
+            os::LocationAuthorization::Authorized | os::LocationAuthorization::ForegroundOnly
+        ) && (self.policy.foreground
+            || (self.policy.location_background
+                && self.policy.location_authorization == os::LocationAuthorization::Authorized));
+        let recording = self.policy.settings.location_recording_enabled
             && self.policy.active.as_ref().is_some_and(|a| {
                 a.saved
                     && a.session.is_some()
@@ -1899,15 +1986,19 @@ impl BackendService {
                     && a.latest
                         .as_ref()
                         .is_some_and(|s| s.ride_state == telemetry::RideState::Riding)
-            })
-            && matches!(
-                self.policy.location_authorization,
-                os::LocationAuthorization::Authorized | os::LocationAuthorization::ForegroundOnly
-            )
-            && (self.policy.foreground
-                || (self.policy.location_background
-                    && self.policy.location_authorization
-                        == os::LocationAuthorization::Authorized));
+            });
+        let enabled = allowed
+            && (recording
+                || (calibrating && self.runtime.snapshot().application.phase == c::Phase::Ready));
+        if self
+            .policy
+            .capture
+            .as_ref()
+            .is_some_and(|c| c.high_accuracy != calibrating)
+        {
+            self.policy.capture = None;
+            self.policy.exchange.request_stop_location();
+        }
         if enabled && self.policy.capture.is_none() {
             let id = self.policy.exchange.id()?;
             let start = self
@@ -1915,16 +2006,22 @@ impl BackendService {
                 .active
                 .as_ref()
                 .and_then(|a| a.session_start)
-                .ok_or(Failure::InvalidState)?;
+                .unwrap_or(self.policy.exchange.now);
             let offset = self
                 .policy
                 .active
                 .as_ref()
                 .map_or(0, |a| a.session_elapsed_offset);
-            self.policy.capture = Some(Capture { id, start, offset });
-            self.policy
-                .exchange
-                .push(Effect::StartLocation { capture_id: id })?;
+            self.policy.capture = Some(Capture {
+                id,
+                start,
+                offset,
+                high_accuracy: calibrating,
+            });
+            self.policy.exchange.push(Effect::StartLocation {
+                capture_id: id,
+                high_accuracy: calibrating,
+            })?;
         } else if !enabled && self.policy.capture.take().is_some() {
             self.policy.exchange.request_stop_location();
             self.policy.latest_location = None;
@@ -2025,6 +2122,151 @@ mod tests {
             assert!(preview.summary.contains("Excludes routes"));
         }
     }
+    #[test]
+    fn calibration_capture_is_temporary_private_and_rejects_old_capture_facts() {
+        use crate::operations::Operation;
+        let mut t = Test::new();
+        t.activate(true);
+        t.service.policy.location_authorization = os::LocationAuthorization::Authorized;
+        t.service.policy.foreground = true;
+        assert!(!t.service.policy.settings.location_recording_enabled);
+        t.start_calibration();
+        let capture = t.service.policy.capture.as_ref().unwrap();
+        assert!(capture.high_accuracy);
+        let id = capture.id;
+        t.fact(
+            Fact::Location {
+                capture_id: id,
+                latitude: -33.8,
+                longitude: 151.2,
+                accuracy_m: Some(5.),
+                observed_at_ms: 1_700_000_000_100,
+            },
+            100,
+        )
+        .unwrap();
+        assert_eq!(
+            t.service
+                .runtime
+                .snapshot()
+                .session_marker
+                .unwrap()
+                .recorded_location_count,
+            0
+        );
+        assert!(t.service.policy.latest_location.is_none());
+        t.service
+            .dispatch(1, Operation::CancelSpeedCalibration)
+            .unwrap();
+        assert!(t.service.policy.capture.is_none());
+        t.fact(
+            Fact::LocationSpeed {
+                capture_id: id,
+                speed_mps: Some(5.),
+                accuracy_mps: Some(0.1),
+                age_ms: 0,
+            },
+            110,
+        )
+        .unwrap();
+        assert_eq!(
+            t.service.published_snapshot().speed_calibration.status,
+            "idle"
+        );
+        assert!(!t.service.policy.settings.location_recording_enabled);
+    }
+
+    #[test]
+    fn calibration_timeout_and_automatic_completion_preserve_capture_policy() {
+        #[allow(dead_code)]
+        mod samples {
+            use float_view_application_runtime::telemetry as float_view_refloat_telemetry_service;
+            include!("../../session-sqlite/tests/support/mod.rs");
+        }
+        let mut t = Test::new();
+        t.activate(true);
+        t.service.policy.location_authorization = os::LocationAuthorization::Authorized;
+        t.service.policy.foreground = true;
+        t.start_calibration();
+        let deadline = t.service.calibration.started + crate::calibration::MAX_DURATION_MS;
+        t.service.policy.exchange.now = deadline - 1;
+        t.service.location_eligibility().unwrap();
+        let before_deadline = t.service.published_snapshot().speed_calibration;
+        assert_eq!(before_deadline.status, "collecting");
+        assert_eq!(crate::calibration::MAX_DURATION_MS, 180_000);
+        assert_eq!(
+            t.service.published_snapshot().speed_calibration.status,
+            "collecting"
+        );
+        t.service.policy.exchange.now = deadline;
+        t.service.location_eligibility().unwrap();
+        assert_eq!(
+            t.service.published_snapshot().speed_calibration.status,
+            "insufficient"
+        );
+        assert!(t.service.policy.capture.is_none());
+        let incidents = t.service.diagnostic_list();
+        assert_eq!(incidents["incidents"][0]["reason"], "calibration_failure");
+        for recording in [false, true] {
+            let mut t = Test::new();
+            t.activate(true);
+            t.service.policy.location_authorization = os::LocationAuthorization::Authorized;
+            t.service.policy.foreground = true;
+            t.service.policy.settings.location_recording_enabled = recording;
+            let mut sample = samples::sample(1, 100);
+            sample.ride_state = telemetry::RideState::Riding;
+            sample.package_mode = Some(telemetry::PackageMode::Normal);
+            sample.wheelslip = Some(false);
+            sample.speed_kph = Some(18.);
+            t.service.policy.active.as_mut().unwrap().latest = Some(sample.clone());
+            t.start_calibration();
+            let high = t.service.policy.capture.as_ref().unwrap().id;
+            t.service.policy.active.as_mut().unwrap().latest = Some(sample.clone());
+            for at in (1_000..=40_000).step_by(100) {
+                t.service.calibration.board(at, &sample);
+                if at % 1000 == 0 {
+                    t.service.calibration.speed(at, 0, Some(4.8), Some(0.1));
+                    t.service.policy.exchange.now = at;
+                    t.service.location_eligibility().unwrap();
+                }
+            }
+            assert_eq!(t.service.calibration.state.status, "ready");
+            assert_eq!(
+                t.service.calibration.state.recommended_diameter_mm,
+                Some(268.8)
+            );
+            if recording {
+                let low = t.service.policy.capture.as_ref().unwrap();
+                assert!(!low.high_accuracy);
+                assert_ne!(low.id, high);
+            } else {
+                assert!(t.service.policy.capture.is_none());
+            }
+            assert_eq!(
+                t.service.policy.settings.location_recording_enabled,
+                recording
+            );
+        }
+    }
+
+    #[test]
+    fn calibration_cancelling_preparation_cannot_start_capture_from_a_late_motor_read() {
+        use crate::operations::Operation;
+        let mut t = Test::new();
+        t.activate(true);
+        t.service.policy.location_authorization = os::LocationAuthorization::Authorized;
+        t.service.policy.foreground = true;
+        t.service
+            .dispatch(1, Operation::StartSpeedCalibration { diameter_mm: 280. })
+            .unwrap();
+        t.service
+            .dispatch(1, Operation::CancelSpeedCalibration)
+            .unwrap();
+        t.complete_calibration_reads();
+        assert!(!t.service.calibration.collecting());
+        assert!(t.service.policy.capture.is_none());
+    }
+
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     struct Test {
         service: BackendService,
@@ -2137,6 +2379,68 @@ mod tests {
             )
             .unwrap();
             self.identify();
+        }
+        fn start_calibration(&mut self) {
+            self.service
+                .dispatch(
+                    1,
+                    crate::operations::Operation::StartSpeedCalibration { diameter_mm: 280. },
+                )
+                .unwrap();
+            self.complete_calibration_reads();
+            assert!(self.service.calibration.collecting());
+        }
+        fn complete_calibration_reads(&mut self) {
+            let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+                "../../../fixtures/refloat/protocol-1.0.0.json"
+            ))
+            .unwrap();
+            let hex = fixtures["cases"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["name"] == "legacy-idle-all-data")
+                .unwrap()["frameHex"]
+                .as_str()
+                .unwrap();
+            let bytes: Vec<u8> = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                .collect();
+            let mut idle = bytes[2..2 + usize::from(bytes[1])].to_vec();
+            idle[10] = 14;
+            for _ in 0..8 {
+                let snapshot = self.service.runtime.snapshot().application;
+                if !snapshot.wheel_diameter.reading {
+                    return;
+                }
+                let request = snapshot.scheduler.in_flight.unwrap();
+                let payload = match request.expected_response.command {
+                    14 => {
+                        let mut p = vec![14];
+                        p.extend_from_slice(&0x2efd0142_u32.to_be_bytes());
+                        p.extend_from_slice(&[0; 4]);
+                        for v in [100_f32, -100., 50., -20.] {
+                            p.extend_from_slice(&v.to_be_bytes());
+                        }
+                        p
+                    }
+                    36 => idle.clone(),
+                    62 => vec![62],
+                    command => panic!("unexpected preparation request {command}"),
+                };
+                self.service.policy.exchange.now += 1;
+                self.service.policy.exchange.epoch += 1;
+                self.service
+                    .runtime_command(Command::Application(c::Command::Receive {
+                        generation: snapshot.generation,
+                        payload,
+                        now_ms: self.service.policy.exchange.now,
+                        observed_at_epoch_ms: self.service.policy.exchange.epoch,
+                    }))
+                    .unwrap();
+            }
+            panic!("calibration read did not complete");
         }
         fn riding_sample(&mut self, now_ms: u64) {
             let generation = self.service.runtime.snapshot().application.generation;

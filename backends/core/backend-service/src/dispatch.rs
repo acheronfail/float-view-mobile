@@ -13,7 +13,7 @@ pub enum Dispatch {
     Complete(Box<f::Completion>),
     Pending(oneshot::Receiver<Result<f::Completion, Failure>>),
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) enum PendingKind {
     Speech,
     VoiceSettings,
@@ -24,6 +24,8 @@ pub(crate) enum PendingKind {
     Controls,
     Read(bool),
     Write,
+    WheelDiameter,
+    CalibrationStart { manual_diameter_mm: Option<f64> },
 }
 pub(crate) struct Pending {
     pub owner: u64,
@@ -56,6 +58,87 @@ impl BackendService {
             self.expire_paused_ride()?;
         }
         let result = match operation {
+            Operation::StartSpeedCalibration { diameter_mm } => {
+                let runtime = self.runtime.snapshot().application;
+                if !c::controller_data::wheel_diameter::valid(diameter_mm) {
+                    return Err(Failure::InvalidRequest);
+                }
+                if runtime.phase != c::Phase::Ready
+                    || runtime.standalone_bms
+                    || !self
+                        .policy
+                        .active
+                        .as_ref()
+                        .is_some_and(|a| a.state == os::LinkState::Ready)
+                {
+                    return Err(Failure::InvalidState);
+                }
+                if !matches!(
+                    self.policy.location_authorization,
+                    os::LocationAuthorization::Authorized
+                        | os::LocationAuthorization::ForegroundOnly
+                ) {
+                    return Err(Failure::PermissionRequired);
+                }
+                if self.calibration.collecting() || runtime.wheel_diameter.pending {
+                    return Err(Failure::InvalidState);
+                }
+                return self.kernel_request(
+                    owner,
+                    PendingKind::CalibrationStart {
+                        manual_diameter_mm: runtime
+                            .wheel_diameter
+                            .current_mm
+                            .is_none()
+                            .then_some(diameter_mm),
+                    },
+                    c::Command::ReadWheelDiameter {
+                        generation,
+                        now_ms: now,
+                    },
+                );
+            }
+            Operation::CancelSpeedCalibration => {
+                let preparing: Vec<_> = self
+                    .pending
+                    .iter()
+                    .filter(|(_, p)| matches!(p.kind, PendingKind::CalibrationStart { .. }))
+                    .map(|(id, _)| *id)
+                    .collect();
+                for id in preparing {
+                    self.finish_pending(id, Err(Failure::InvalidState));
+                }
+                if self.runtime.snapshot().application.wheel_diameter.pending {
+                    return Err(Failure::InvalidState);
+                }
+                self.calibration = crate::calibration::Calibration::default();
+                self.location_eligibility()?;
+                f::Completion::Unit
+            }
+            Operation::ApplySpeedCalibration => {
+                let runtime = self.runtime.snapshot().application;
+                if !self.calibration.snapshot(&runtime).apply_available {
+                    return Err(Failure::InvalidState);
+                }
+                return self.kernel_request(
+                    owner,
+                    PendingKind::WheelDiameter,
+                    c::Command::ApplyWheelDiameter {
+                        generation,
+                        expected_mm: self
+                            .calibration
+                            .state
+                            .starting_diameter_mm
+                            .ok_or(Failure::InvalidState)?,
+                        diameter_mm: self
+                            .calibration
+                            .state
+                            .recommended_diameter_mm
+                            .ok_or(Failure::InvalidState)?,
+                        now_ms: now,
+                    },
+                );
+            }
             Operation::ClearAppData => {
                 self.clear_saved_app_data().map_err(store_failure)?;
                 f::Completion::Unit
@@ -794,7 +877,11 @@ impl BackendService {
         if self.pending.values().any(|p| {
             matches!(
                 p.kind,
-                PendingKind::Controls | PendingKind::Read(_) | PendingKind::Write
+                PendingKind::CalibrationStart { .. }
+                    | PendingKind::WheelDiameter
+                    | PendingKind::Controls
+                    | PendingKind::Read(_)
+                    | PendingKind::Write
             )
         }) {
             if let Some(mut context) = context {
@@ -810,7 +897,17 @@ impl BackendService {
             }
             return Err(Failure::InvalidState);
         }
-        let (id, receiver) = self.add_pending(owner, kind, 3_250)?;
+        let (id, receiver) = self.add_pending(
+            owner,
+            kind,
+            if kind == PendingKind::WheelDiameter {
+                10_000
+            } else if matches!(kind, PendingKind::CalibrationStart { .. }) {
+                5_000
+            } else {
+                3_250
+            },
+        )?;
         self.pending
             .get_mut(&id)
             .expect("new pending")
@@ -877,16 +974,60 @@ impl BackendService {
             self.finish_pending(id, result);
         }
     }
+    pub(crate) fn complete_calibration_start(&mut self) -> Result<(), Failure> {
+        let runtime = self.runtime.snapshot().application;
+        if runtime.wheel_diameter.reading {
+            return Ok(());
+        }
+        let pending = self.pending.iter().find_map(|(id, p)| match p.kind {
+            PendingKind::CalibrationStart { manual_diameter_mm } => {
+                Some((*id, p.application_generation, manual_diameter_mm))
+            }
+            _ => None,
+        });
+        if let Some((id, generation, manual_diameter_mm)) = pending {
+            let result = if runtime.generation.0 != generation
+                || runtime.phase != c::Phase::Ready
+                || !self
+                    .policy
+                    .active
+                    .as_ref()
+                    .is_some_and(|a| a.state == os::LinkState::Ready)
+            {
+                Err(Failure::InvalidState)
+            } else if !matches!(
+                self.policy.location_authorization,
+                os::LocationAuthorization::Authorized | os::LocationAuthorization::ForegroundOnly
+            ) {
+                Err(Failure::PermissionRequired)
+            } else if let Some(mm) = runtime.wheel_diameter.current_mm.or(manual_diameter_mm) {
+                self.calibration
+                    .start(self.policy.exchange.now, generation, mm);
+                self.location_eligibility()?;
+                Ok(f::Completion::Unit)
+            } else {
+                Err(Failure::Unavailable)
+            };
+            self.finish_pending(id, result);
+        }
+        Ok(())
+    }
+
     pub(crate) fn complete_mutation(&mut self, success: bool) {
-        if let Some((&id, p)) = self
-            .pending
-            .iter()
-            .find(|(_, p)| matches!(p.kind, PendingKind::Controls | PendingKind::Write))
-        {
+        if let Some((&id, p)) = self.pending.iter().find(|(_, p)| {
+            matches!(
+                p.kind,
+                PendingKind::WheelDiameter | PendingKind::Controls | PendingKind::Write
+            )
+        }) {
             let result = if !success {
                 Err(Failure::Unavailable)
             } else {
                 match p.kind {
+                    PendingKind::WheelDiameter => {
+                        self.calibration.state.status = "applied".into();
+                        Ok(f::Completion::Unit)
+                    }
                     PendingKind::Controls => self
                         .runtime
                         .snapshot()
@@ -950,7 +1091,11 @@ impl BackendService {
             .filter(|(_, p)| {
                 matches!(
                     p.kind,
-                    PendingKind::Controls | PendingKind::Read(_) | PendingKind::Write
+                    PendingKind::CalibrationStart { .. }
+                        | PendingKind::WheelDiameter
+                        | PendingKind::Controls
+                        | PendingKind::Read(_)
+                        | PendingKind::Write
                 )
             })
             .map(|(id, _)| *id)

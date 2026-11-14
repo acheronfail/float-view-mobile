@@ -607,6 +607,19 @@ mod tests {
         }
     }
     #[test]
+    fn unknown_calibration_codes_still_preserve_data_and_fail_closed() {
+        let t = Temp::new();
+        let path = t.0.join("diagnostics");
+        drop(Store::open(&path, 1000).unwrap());
+        let bytes = serde_json::to_vec(&serde_json::json!({"v":2,"at":1000,"record":{
+            "sequence":1,"elapsed_ms":0,"kind":"calibration","facts":{"state":"unknownFutureCalibrationState"}
+        }})).unwrap();
+        let journal = path.join("journal-0.jsonl");
+        fs::write(&journal, &bytes).unwrap();
+        assert!(Store::open(&path, 1000).is_err());
+        assert_eq!(fs::read(&journal).unwrap(), bytes);
+    }
+    #[test]
     fn expiry_removes_only_valid_owned_diagnostics() {
         let t = Temp::new();
         let path = t.0.join("diagnostics");

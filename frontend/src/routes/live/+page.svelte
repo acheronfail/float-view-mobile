@@ -14,6 +14,7 @@
   import DetailedView from '$lib/features/connection/DetailedView.svelte';
   import FlywheelModeOverlay from '$lib/features/connection/FlywheelModeOverlay.svelte';
   import RefloatConfigurationEditor from '$lib/features/connection/RefloatConfigurationEditor.svelte';
+  import SpeedCalibration from '$lib/features/connection/SpeedCalibration.svelte';
   import RefloatTunes from '$lib/features/connection/RefloatTunes.svelte';
   import { RefloatConfigurationController } from '$lib/features/connection/refloat-configuration.svelte';
   import { liveCharging } from '$lib/features/connection/charging';
@@ -61,6 +62,10 @@
   let checkpointView: { identity: string; mode: View } | undefined;
   let customView = $state<CustomView>();
   const history = createLiveHistory();
+  let speedCalibrationOpen = $state(false);
+  $effect(() => {
+    if (speedCalibrationOpen && !connection) speedCalibrationOpen = false;
+  });
   let configuration = $state<{ savedDeviceId: string; batteryOnly: boolean; trigger?: HTMLButtonElement } | null>(null);
   let liveChartsOpen = $state(false);
   let faultHistoryOpen = $state(false);
@@ -414,6 +419,20 @@
                 onactivate: (closeMenu: () => void) => {
                   closeMenu();
                   refloatTunesOpen = true;
+                },
+              },
+            ]
+          : []),
+        ...(connection.deviceKind === 'board'
+          ? [
+              {
+                label: 'Calibrate speed…',
+                icon: 'route' as const,
+                group: 'Board',
+                disabled: connection.state !== 'ready',
+                onactivate: (closeMenu: () => void) => {
+                  closeMenu();
+                  speedCalibrationOpen = true;
                 },
               },
             ]
@@ -823,6 +842,19 @@
     onclose={closeRefloatConfiguration}
   >
     <RefloatConfigurationEditor controller={refloatConfiguration} />
+  </FullScreenOverlay>
+{/if}
+
+{#if speedCalibrationOpen && connection?.deviceKind === 'board'}
+  <FullScreenOverlay
+    title="Calibrate speed"
+    titleId="speed-calibration-title"
+    closeLabel={backendState.snapshot?.speedCalibration.status === 'collecting' ? 'Close' : 'Done'}
+    onclose={() => {
+      speedCalibrationOpen = false;
+    }}
+  >
+    <SpeedCalibration />
   </FullScreenOverlay>
 {/if}
 

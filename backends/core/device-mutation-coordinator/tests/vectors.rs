@@ -235,6 +235,7 @@ fn kind(effects: &[Effect]) -> &'static str {
         PendingKind::ClearFatalError => "clear-fatal-error",
         PendingKind::ControllerShutdown => "controller-shutdown",
         PendingKind::ConfigurationWrite => "configuration-write",
+        PendingKind::WheelDiameter => "wheel-diameter",
         PendingKind::TuneApply => "tune-apply",
     }
 }

@@ -234,7 +234,15 @@ class SharedService(
             "cancel_connection_timers" -> timers.entries.removeAll { it.value.second }
             "start_location" -> {
                 val capture = value.getLong("capture_id")
-                location.startUpdates { observation -> enqueue {
+                location.setHighAccuracy(value.optBoolean("high_accuracy", false))
+                location.startUpdates { observation ->
+                    val received = android.os.SystemClock.elapsedRealtime()
+                    enqueue {
+                    observation.speedAgeMs?.let { age ->
+                        fact(json("fact" to "location_speed", "capture_id" to capture,
+                            "speed_mps" to observation.speedMps, "accuracy_mps" to observation.speedAccuracyMps,
+                            "age_ms" to age + (android.os.SystemClock.elapsedRealtime() - received).coerceAtLeast(0)))
+                    }
                     fact(json("fact" to "location", "capture_id" to capture, "latitude" to observation.latitude,
                         "longitude" to observation.longitude, "accuracy_m" to observation.accuracyM,
                         "observed_at_ms" to observation.observedAt.toEpochMilli()))

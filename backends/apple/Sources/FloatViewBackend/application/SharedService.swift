@@ -376,8 +376,16 @@ public final class SharedService: @unchecked Sendable {
       timers = timers.filter { !$0.value.1 }
     case "start_location":
       let capture = number("capture_id")
+      location.setHighAccuracy(value["high_accuracy"] as? Bool ?? false)
       location.startUpdates { [weak self] observation in
+        let received = ProcessInfo.processInfo.systemUptime
         self?.enqueue { service in
+          if let age = observation.speedAgeMs {
+            service.fact(["fact": "location_speed", "capture_id": capture,
+                          "speed_mps": observation.speedMps as Any? ?? NSNull(),
+                          "accuracy_mps": observation.speedAccuracyMps as Any? ?? NSNull(),
+                          "age_ms": age + UInt64(max(0, ProcessInfo.processInfo.systemUptime - received) * 1000)])
+          }
           service.fact(["fact": "location", "capture_id": capture, "latitude": observation.latitude,
                         "longitude": observation.longitude, "accuracy_m": observation.accuracyM as Any? ?? NSNull(),
                         "observed_at_ms": Int64(observation.observedAt.timeIntervalSince1970 * 1000)])

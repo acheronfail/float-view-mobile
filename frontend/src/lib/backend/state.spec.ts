@@ -1,3 +1,4 @@
+import { emptySpeedCalibration } from './contract';
 import { permissionInventory } from '../../../backend-mock/permissions';
 import { emptyEstimate } from '../../../backend-mock/battery';
 import { describe, expect, it, vi } from 'vitest';
@@ -21,6 +22,7 @@ const bluetooth = (scanPermission: BluetoothPermissionState): BluetoothState => 
 });
 
 const initial: AppState = {
+  speedCalibration: { ...emptySpeedCalibration, currentDiameterMm: 280 },
   permissions: permissionInventory('ios'),
   revision: 1,
   bluetooth: bluetooth('granted'),

@@ -26,6 +26,8 @@ pub use float_view_vesc_controller_data as controller_data;
 use float_view_vesc_custom_configuration as custom_configuration;
 pub use float_view_vesc_firmware_identity as firmware;
 pub use float_view_vesc_request_scheduler as scheduler;
+mod wheel_diameter;
+pub use wheel_diameter::WheelDiameter;
 
 pub const INITIAL_IDENTIFICATION_ATTEMPT_TIMEOUT_MS: u64 = 2_000;
 pub const IDENTIFICATION_TIMEOUT_MS: u64 = 10_000;
@@ -118,6 +120,8 @@ pub struct Snapshot {
     pub mutations: mutation::Snapshot,
     pub configuration: configuration::Snapshot,
     pub configuration_write_block_reason: Option<ConfigurationWriteBlockReason>,
+    pub wheel_diameter: WheelDiameter,
+    pub wheel_diameter_write_available: bool,
     pub current_limits: Option<controller_data::CurrentLimits>,
 }
 
@@ -318,6 +322,16 @@ pub enum Command {
         generation: Generation,
         now_ms: u64,
     },
+    ReadWheelDiameter {
+        generation: Generation,
+        now_ms: u64,
+    },
+    ApplyWheelDiameter {
+        generation: Generation,
+        expected_mm: f64,
+        diameter_mm: f64,
+        now_ms: u64,
+    },
     ReadConfiguration {
         generation: Generation,
         defaults: bool,
@@ -444,6 +458,8 @@ pub struct ConnectionApplicationCoordinator {
     bms: bms::VescBmsTelemetryService,
     mutations: mutation::DeviceMutationCoordinator,
     configuration: configuration::ConfigurationService,
+    last_telemetry_ms: Option<u64>,
+    motor: wheel_diameter::Owner,
     current_limits: Option<controller_data::CurrentLimits>,
 }
 
@@ -478,6 +494,8 @@ impl Default for ConnectionApplicationCoordinator {
             bms: bms::VescBmsTelemetryService::new(),
             mutations: mutation::DeviceMutationCoordinator::new(),
             configuration: configuration::ConfigurationService::new(),
+            last_telemetry_ms: None,
+            motor: wheel_diameter::Owner::default(),
             current_limits: None,
         }
     }
@@ -617,6 +635,18 @@ impl ConnectionApplicationCoordinator {
             mutations: self.mutations.snapshot(),
             configuration: self.configuration.snapshot(),
             configuration_write_block_reason: self.configuration_write_block_reason(),
+            wheel_diameter: self.motor.snapshot.clone(),
+            wheel_diameter_write_available: self
+                .mutations
+                .configuration_block_reason(
+                    self.scheduler.snapshot().generation,
+                    mutation::ConfigurationMutation::WheelDiameter,
+                )
+                .is_none()
+                && self
+                    .last_telemetry_ms
+                    .zip(self.last_now_ms)
+                    .is_some_and(|(at, now)| now.saturating_sub(at) <= 1_500),
             current_limits: self.current_limits,
         }
     }
@@ -698,6 +728,8 @@ impl ConnectionApplicationCoordinator {
             | Command::WriteConfiguration { now_ms, .. }
             | Command::UpdateSettings { now_ms, .. }
             | Command::Refresh { now_ms, .. }
+            | Command::ReadWheelDiameter { now_ms, .. }
+            | Command::ApplyWheelDiameter { now_ms, .. }
             | Command::Reset { now_ms } => *now_ms,
         };
         validate_now(now_ms)?;
@@ -748,6 +780,15 @@ impl ConnectionApplicationCoordinator {
             Command::ShutdownController { generation, now_ms } => {
                 self.shutdown_controller(generation, now_ms)
             }
+            Command::ReadWheelDiameter { generation, now_ms } => {
+                self.read_wheel_diameter(generation, now_ms)
+            }
+            Command::ApplyWheelDiameter {
+                generation,
+                expected_mm,
+                diameter_mm,
+                now_ms,
+            } => self.begin_wheel_diameter(generation, expected_mm, diameter_mm, now_ms),
             Command::ReadConfiguration {
                 generation,
                 defaults,
@@ -1323,6 +1364,8 @@ impl ConnectionApplicationCoordinator {
         let mutation_effects = self.mutations.apply(mutation::Command::Reset)?;
         self.process_mutation(mutation_effects, now_ms, effects)?;
         self.configuration.reset();
+        self.last_telemetry_ms = None;
+        self.motor = wheel_diameter::Owner::default();
         self.current_limits = None;
         self.reply_health = reply_health::ReplyHealth::default();
         self.configuration_token = None;
@@ -1525,7 +1568,16 @@ impl ConnectionApplicationCoordinator {
                             .pending_control_requires_inactive_imu_timeout(),
                         _ => false,
                     };
-                    if guarded && self.require_inactive_imu_timeout(now_ms).is_err() {
+                    let invalid_diameter = matches!(
+                        request.context,
+                        scheduler::RequestContext::WheelDiameter {
+                            stage: scheduler::WheelDiameterStage::Write,
+                            ..
+                        }
+                    ) && !self.wheel_diameter_authorized(now_ms);
+                    if invalid_diameter
+                        || (guarded && self.require_inactive_imu_timeout(now_ms).is_err())
+                    {
                         let mut cancelled = self.scheduler.cancel_matching(
                             &scheduler::CancellationSelector::Exact(request.context.clone()),
                             false,
@@ -1617,6 +1669,9 @@ impl ConnectionApplicationCoordinator {
             }
             scheduler::RequestContext::RefloatTelemetry(_) => {
                 self.complete_refloat_telemetry(outcome, now_ms, observed_at_epoch_ms, effects)
+            }
+            scheduler::RequestContext::WheelDiameter { route, stage } => {
+                self.complete_wheel_diameter(route, stage, outcome, now_ms, effects)
             }
             scheduler::RequestContext::CurrentLimits(_) => {
                 self.complete_current_limits(outcome, effects)
@@ -1717,6 +1772,19 @@ impl ConnectionApplicationCoordinator {
         if self.phase != Phase::Ready {
             return Ok(());
         }
+        self.motor.snapshot.current_mm = controller_data::wheel_diameter::diameter_mm(&payload);
+        self.motor.snapshot.supported =
+            self.discovery
+                .snapshot()
+                .selected
+                .as_ref()
+                .is_some_and(|s| {
+                    controller_data::wheel_diameter::supported_for(
+                        &payload,
+                        s.identity.major,
+                        s.identity.minor,
+                    )
+                });
         match controller_data::decode_current_limits(&payload) {
             Ok(current_limits) => {
                 self.current_limits = Some(current_limits);
@@ -2269,7 +2337,11 @@ impl ConnectionApplicationCoordinator {
                     }
                 }
                 mutation::Effect::Lease(token) => {
-                    self.configuration_token = Some(token);
+                    if token.kind == mutation::PendingKind::WheelDiameter {
+                        self.motor.token = Some(token);
+                    } else {
+                        self.configuration_token = Some(token);
+                    }
                 }
                 mutation::Effect::Idempotent(_) => {
                     push_effect(effects, Effect::Mutation(MutationEvent::Idempotent))?;
@@ -2294,6 +2366,12 @@ impl ConnectionApplicationCoordinator {
                     push_effect(effects, Effect::Mutation(MutationEvent::Released(token)))?;
                 }
                 mutation::Effect::Failed { token, reason } => {
+                    if self.motor.token == Some(token) {
+                        self.motor.token = None;
+                        self.motor.snapshot.pending = false;
+                        self.motor.snapshot.outcome = Some(false);
+                        self.motor.written.clear();
+                    }
                     if let Some((timer, _)) = mutation_timer(token) {
                         push_effect(effects, Effect::CancelTimer(TimerToken::Mutation(timer)))?;
                     }
@@ -2392,6 +2470,7 @@ impl ConnectionApplicationCoordinator {
                     push_effect(effects, Effect::PublishFaultHistory(observation))?;
                 }
                 telemetry::Effect::Publish(sample) => {
+                    self.last_telemetry_ms = Some(now_ms);
                     let mutation_effects =
                         self.mutations.apply(mutation::Command::ObserveTelemetry {
                             generation: self.scheduler.snapshot().generation,
@@ -2676,7 +2755,9 @@ fn mutation_timer(token: mutation::MutationToken) -> Option<(MutationTimerToken,
             MutationTimerToken::Confirmation(token),
             mutation::CONTROL_TIMEOUT_MS,
         )),
-        mutation::PendingKind::ConfigurationWrite | mutation::PendingKind::TuneApply => None,
+        mutation::PendingKind::WheelDiameter
+        | mutation::PendingKind::ConfigurationWrite
+        | mutation::PendingKind::TuneApply => None,
     }
 }
 

@@ -480,6 +480,23 @@ impl Backend {
                 p.only(&[])?;
                 Operation::ClearFatalError
             }
+            "speedCalibration.start" => {
+                p.only(&["diameterMm"])?;
+                let diameter_mm =
+                    p.0.get("diameterMm")
+                        .and_then(Value::as_f64)
+                        .filter(|v| v.is_finite())
+                        .ok_or(Failure::InvalidRequest)?;
+                Operation::StartSpeedCalibration { diameter_mm }
+            }
+            "speedCalibration.cancel" => {
+                p.only(&[])?;
+                Operation::CancelSpeedCalibration
+            }
+            "speedCalibration.apply" => {
+                p.only(&[])?;
+                Operation::ApplySpeedCalibration
+            }
             "refloat.configuration.schema" => {
                 p.only(&["cursor"])?;
                 let next = p.nullable("cursor")?;

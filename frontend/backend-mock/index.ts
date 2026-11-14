@@ -573,6 +573,29 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
   };
 }
 
+/** Native location stand-ins; unavailable to WebSocket clients. */
+export function simulateMockCalibrationLocation(): void {
+  if (!activeMockBackend) return;
+  const response = activeMockBackend.handle({ id: 1, method: 'state.get', params: {} }) as {
+    result: import('../src/lib/backend/contract.ts').AppState;
+  };
+  activeMockBackend.simulatePermissions(
+    response.result.permissions.map((p) =>
+      p.permission === 'location' ? { ...p, status: 'granted', accuracy: 'precise', scope: 'always', action: null } : p
+    )
+  );
+}
+export function simulateMockSpeedCalibrationProgress(
+  status: import('../src/lib/backend/contract.ts').SpeedCalibrationMeasurementStatus,
+  acceptedSamples: number
+): void {
+  activeMockBackend?.simulateSpeedCalibrationProgress(status, acceptedSamples);
+}
+
+export function simulateMockSpeedCalibrationResult(mm: number, supported = true): void {
+  activeMockBackend?.simulateSpeedCalibrationResult(mm, supported);
+}
+
 /** Native lifecycle stand-in for deterministic integration tests, independent of sockets. */
 export function simulateMockForeground(foreground: boolean): void {
   activeMockBackend?.simulateForeground(foreground);

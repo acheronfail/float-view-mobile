@@ -1106,7 +1106,54 @@ export interface PausedRide {
   resumeUntil: string;
 }
 
+export type SpeedCalibrationMeasurementStatus =
+  | 'inactive'
+  | 'waitingGps'
+  | 'waitingBoard'
+  | 'lowSpeed'
+  | 'gpsUncertain'
+  | 'speedChanging'
+  | 'speedMismatch'
+  | 'collecting'
+  | 'needsMoreMeasurements'
+  | 'inconsistentMeasurements'
+  | 'ready';
+
+export interface SpeedCalibrationState {
+  measurementStatus: SpeedCalibrationMeasurementStatus;
+  status: 'idle' | 'collecting' | 'ready' | 'insufficient' | 'applied';
+  currentDiameterMm: number | null;
+  startingDiameterMm: number | null;
+  recommendedDiameterMm: number | null;
+  acceptedSamples: number;
+  minimumSpeedKph: number;
+  applyAvailable: boolean;
+  applyBlockReason:
+    | 'applying'
+    | 'applied'
+    | 'connectionChanged'
+    | 'unsupportedSetup'
+    | 'boardNotReady'
+    | 'busy'
+    | 'stopRiding'
+    | 'notReady'
+    | null;
+}
+
+export const emptySpeedCalibration: SpeedCalibrationState = {
+  measurementStatus: 'inactive',
+  status: 'idle',
+  currentDiameterMm: null,
+  startingDiameterMm: null,
+  recommendedDiameterMm: null,
+  acceptedSamples: 0,
+  minimumSpeedKph: 7.2,
+  applyAvailable: false,
+  applyBlockReason: 'notReady',
+};
+
 export interface AppState {
+  speedCalibration: SpeedCalibrationState;
   pausedRide: PausedRide | null;
   announcementAudio: AnnouncementAudio;
   /** Seven shared-service choices; numeric curves never cross the contract. */
@@ -1177,6 +1224,8 @@ export const MAX_UI_CHECKPOINT_BYTES = 4096;
 export const MAX_UI_TARGET_BYTES = 512;
 
 export type DiagnosticReason =
+  | 'calibration_complete'
+  | 'calibration_failure'
   | 'backend_request_failure'
   | 'manual'
   | 'configuration_failure'
@@ -1243,6 +1292,9 @@ export interface BackendMethods {
   'permissions.recover': { params: { permission: PermissionId; action: PermissionAction }; result: PermissionRow[] };
   'bluetooth.requestPermission': { params: EmptyParams; result: BluetoothState };
   'bluetooth.scan': { params: { timeoutMs?: number }; result: Accepted };
+  'speedCalibration.start': { params: { diameterMm: number }; result: Accepted };
+  'speedCalibration.cancel': { params: EmptyParams; result: Accepted };
+  'speedCalibration.apply': { params: EmptyParams; result: Accepted };
   'location.requestPermission': { params: EmptyParams; result: LocationState };
   'location.openSettings': { params: EmptyParams; result: LocationState };
   'device.connect': {

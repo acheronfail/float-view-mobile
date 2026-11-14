@@ -113,3 +113,37 @@ func permissionInventorySeparatesGrantFromDisabledServicesAndAccuracy() throws {
     #expect(access.requestable == (authorization == .notDetermined))
   }
 }
+
+@Test
+func coreLocationPreservesSpeedUncertaintyAndMeasurementAge() {
+  let adapter = CoreLocationAdapter()
+  let capture = CalibrationLocationCapture()
+  adapter.startUpdates { capture.save($0) }
+  adapter.locationManager(CLLocationManager(), didUpdateLocations: [CLLocation(
+    coordinate: CLLocationCoordinate2D(latitude: 1, longitude: 2), altitude: 0,
+    horizontalAccuracy: 5, verticalAccuracy: 5, course: 0, courseAccuracy: 1,
+    speed: 5, speedAccuracy: 0.1, timestamp: Date().addingTimeInterval(-0.2)
+  )])
+  #expect(capture.wait() == .success)
+  #expect(capture.value?.speedMps == 5)
+  #expect(capture.value?.speedAccuracyMps == 0.1)
+  #expect((capture.value?.speedAgeMs ?? 10000) < 2000)
+  adapter.stopUpdates()
+}
+
+private final class CalibrationLocationCapture: @unchecked Sendable {
+  private let lock = NSLock()
+  private let semaphore = DispatchSemaphore(value: 0)
+  private var observation: LocationProviderObservation?
+  var value: LocationProviderObservation? {
+    lock.withLock { observation }
+  }
+
+  func save(_ value: LocationProviderObservation) {
+    lock.withLock { observation = value }; semaphore.signal()
+  }
+
+  func wait() -> DispatchTimeoutResult {
+    semaphore.wait(timeout: .now() + 2)
+  }
+}

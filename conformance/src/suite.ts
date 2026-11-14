@@ -1777,6 +1777,37 @@ const stableConnectionIssueCodes = new Set<ConnectionIssueCode>([
 ]);
 
 export function assertState(state: AppState) {
+  const calibration = state.speedCalibration;
+  assert.ok(
+    [
+      'inactive',
+      'waitingGps',
+      'waitingBoard',
+      'lowSpeed',
+      'gpsUncertain',
+      'speedChanging',
+      'speedMismatch',
+      'collecting',
+      'needsMoreMeasurements',
+      'inconsistentMeasurements',
+      'ready',
+    ].includes(calibration.measurementStatus)
+  );
+  assert.ok(['idle', 'collecting', 'ready', 'insufficient', 'applied'].includes(calibration.status));
+  assert.ok(
+    Number.isInteger(calibration.acceptedSamples) &&
+      calibration.acceptedSamples >= 0 &&
+      calibration.acceptedSamples <= 180
+  );
+  for (const mm of [calibration.currentDiameterMm, calibration.startingDiameterMm, calibration.recommendedDiameterMm])
+    assert.ok(mm === null || (Number.isFinite(mm) && mm >= 100 && mm <= 600));
+  assert.equal(calibration.minimumSpeedKph, 7.2);
+  assert.equal(typeof calibration.applyAvailable, 'boolean');
+  if (calibration.applyAvailable) {
+    assert.equal(calibration.status, 'ready');
+    assert.notEqual(calibration.recommendedDiameterMm, null);
+  }
+
   assert.ok(['initializing', 'ready', 'unavailable'].includes(state.announcementAudio.status));
   assert.ok(['adjustable', 'automatic'].includes(state.announcementAudio.loweringControl));
   assert.equal(typeof state.announcementAudio.voiceSettingsAvailable, 'boolean');

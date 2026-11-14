@@ -140,6 +140,7 @@ pub(crate) fn operation_kind(command: &c::Command) -> Option<&'static str> {
             ..
         } => "tune_apply",
         c::Command::WriteConfiguration { .. } => "configuration_write",
+        c::Command::ApplyWheelDiameter { .. } => "wheel_diameter",
         c::Command::ReadConfiguration { defaults: true, .. } => "read_default",
         c::Command::ReadConfiguration { .. } => "read_current",
         c::Command::SetControl { control, .. } => match control {
@@ -217,6 +218,9 @@ impl BackendService {
         let config = &state.configuration;
         let mutation = match command {
             c::Command::WriteConfiguration { mutation, .. } => *mutation,
+            c::Command::ApplyWheelDiameter { .. } => {
+                c::mutation::ConfigurationMutation::WheelDiameter
+            }
             _ => c::mutation::ConfigurationMutation::Write,
         };
         let mut facts = self.operation_state_context(&state, kind, mutation);
@@ -340,10 +344,12 @@ impl BackendService {
         reason: c::mutation::FailureReason,
     ) {
         let kind = mutation_kind(token.kind);
-        let mutation = if token.kind == c::mutation::PendingKind::TuneApply {
-            c::mutation::ConfigurationMutation::TuneApply
-        } else {
-            c::mutation::ConfigurationMutation::Write
+        let mutation = match token.kind {
+            c::mutation::PendingKind::TuneApply => c::mutation::ConfigurationMutation::TuneApply,
+            c::mutation::PendingKind::WheelDiameter => {
+                c::mutation::ConfigurationMutation::WheelDiameter
+            }
+            _ => c::mutation::ConfigurationMutation::Write,
         };
         let mut facts =
             self.operation_state_context(&self.runtime.snapshot().application, kind, mutation);
@@ -412,6 +418,7 @@ pub(crate) fn mutation_kind(kind: c::mutation::PendingKind) -> &'static str {
         K::Headlights => "headlights_control",
         K::ClearFatalError => "clear_fatal_error",
         K::ControllerShutdown => "controller_shutdown",
+        K::WheelDiameter => "wheel_diameter",
         K::ConfigurationWrite => "configuration_write",
         K::TuneApply => "tune_apply",
     }

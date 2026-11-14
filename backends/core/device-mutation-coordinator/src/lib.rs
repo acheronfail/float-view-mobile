@@ -81,6 +81,7 @@ pub enum PendingKind {
     Headlights,
     ClearFatalError,
     ControllerShutdown,
+    WheelDiameter,
     ConfigurationWrite,
     TuneApply,
 }
@@ -94,7 +95,10 @@ impl PendingKind {
     }
 
     const fn is_configuration(self) -> bool {
-        matches!(self, Self::ConfigurationWrite | Self::TuneApply)
+        matches!(
+            self,
+            Self::WheelDiameter | Self::ConfigurationWrite | Self::TuneApply
+        )
     }
 }
 
@@ -118,6 +122,7 @@ pub enum BooleanControl {
 /// Configuration work sharing the mutation lease.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConfigurationMutation {
+    WheelDiameter,
     Write,
     TuneApply,
 }
@@ -125,6 +130,7 @@ pub enum ConfigurationMutation {
 impl ConfigurationMutation {
     const fn pending_kind(self) -> PendingKind {
         match self {
+            Self::WheelDiameter => PendingKind::WheelDiameter,
             Self::Write => PendingKind::ConfigurationWrite,
             Self::TuneApply => PendingKind::TuneApply,
         }
@@ -955,6 +961,19 @@ impl DeviceMutationCoordinator {
         None
     }
 
+    /// Recheck a reserved diameter mutation immediately before device submission.
+    pub fn wheel_diameter_lease_valid(&self, token: MutationToken) -> bool {
+        self.pending.is_some_and(|p| p.token == token)
+            && token.kind == PendingKind::WheelDiameter
+            && self.connection_ready
+            && self.writable
+            && self.is_current(token.generation)
+            && self.ride_state == telemetry::RideState::Idle
+            && self.package_state == Some(telemetry::PackageState::Ready)
+            && self.package_mode == Some(telemetry::PackageMode::Normal)
+            && self.imu_timeout_active != Some(true)
+    }
+
     fn authorize_request(
         &mut self,
         kind: PendingKind,
@@ -1008,6 +1027,7 @@ impl DeviceMutationCoordinator {
                     && controls.fatal_error_active == Some(false)
             }
             PendingKind::ControllerShutdown
+            | PendingKind::WheelDiameter
             | PendingKind::ConfigurationWrite
             | PendingKind::TuneApply => false,
         };

@@ -44,6 +44,14 @@ impl Priority {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum WheelDiameterStage {
+    ReadCurrent,
+    ReadBase,
+    Write,
+    Verify,
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RequestContext {
     ControllerFirmware(Route),
@@ -57,6 +65,10 @@ pub enum RequestContext {
     ControllerShutdown(Route),
     RefloatLighting(Route),
     CurrentLimits(Route),
+    WheelDiameter {
+        route: Route,
+        stage: WheelDiameterStage,
+    },
     AuxiliaryFirmware(Route),
     BmsValues(Route),
     RefloatConfigurationSchema {
@@ -95,6 +107,7 @@ impl RequestContext {
             | Self::RefloatControl(route)
             | Self::ControllerShutdown(route)
             | Self::RefloatLighting(route)
+            | Self::WheelDiameter { route, .. }
             | Self::CurrentLimits(route)
             | Self::AuxiliaryFirmware(route)
             | Self::BmsValues(route)
@@ -217,7 +230,8 @@ impl CancellationSelector {
                 preserve_refloat_control,
             } => match context {
                 RequestContext::RefloatControl(_) => !preserve_refloat_control,
-                RequestContext::ControllerShutdown(_)
+                RequestContext::WheelDiameter { .. }
+                | RequestContext::ControllerShutdown(_)
                 | RequestContext::RefloatConfigurationWrite { .. }
                 | RequestContext::RefloatConfigurationVerification { .. } => true,
                 RequestContext::RefloatConfigurationValues { defaults, .. } => !defaults,

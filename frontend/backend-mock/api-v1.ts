@@ -1,3 +1,4 @@
+import { emptySpeedCalibration } from '../src/lib/backend/contract.ts';
 import type { SessionExportProgress } from '../src/lib/backend/contract.ts';
 import type { ConnectionContextEvent } from '../src/lib/backend/contract.ts';
 import { MockDiagnostics } from './diagnostics.ts';
@@ -423,6 +424,8 @@ export class MockBackend {
   private autoConnectTimer?: ReturnType<typeof setTimeout>;
   private discoveryExpiryTimer?: ReturnType<typeof setTimeout>;
   private rideExpiryTimer?: ReturnType<typeof setTimeout>;
+  private calibrationWritable = true;
+  private calibrationDeadline: number | null = null;
   private refloatTimeoutOnce = false;
   private shutdownOutcome: 'no-op' | 'disconnect' = 'no-op';
   private refloatCurrentRevision = 1;
@@ -433,6 +436,7 @@ export class MockBackend {
   private nextTune = 1;
   private readonly tunes = new Map<string, RefloatTune>();
   private state: AppState = {
+    speedCalibration: { ...emptySpeedCalibration, currentDiameterMm: 280 },
     announcementAudio: { status: 'ready', reason: null, loweringControl: 'adjustable', voiceSettingsAvailable: false },
     revision: 0,
     bluetooth: {
@@ -980,6 +984,68 @@ export class MockBackend {
         this.refloatDrafts.set(String(params.deviceId), structuredClone(params.draft));
         return success(id, { accepted: true });
       }
+      case 'speedCalibration.start': {
+        if (
+          Object.keys(params).length !== 1 ||
+          typeof params.diameterMm !== 'number' ||
+          !Number.isFinite(params.diameterMm) ||
+          params.diameterMm < 100 ||
+          params.diameterMm > 600
+        )
+          return failure(id, 'invalid_request', 'Enter a valid wheel diameter');
+        if (
+          !this.state.activeConnection ||
+          this.state.activeConnection.deviceKind !== 'board' ||
+          this.state.activeConnection.state !== 'ready' ||
+          this.state.speedCalibration.status === 'collecting'
+        )
+          return failure(id, 'invalid_state', 'Connect a board before calibrating');
+        if (
+          !this.state.permissions.some(
+            (p) => p.permission === 'location' && p.status === 'granted' && p.servicesEnabled !== false
+          )
+        )
+          return failure(id, 'permission_required', 'Allow location before calibrating');
+        this.calibrationDeadline = Date.now() + 180_000;
+        this.change({
+          ...this.state,
+          speedCalibration: {
+            ...emptySpeedCalibration,
+            measurementStatus: 'waitingGps',
+            status: 'collecting',
+            currentDiameterMm: this.state.speedCalibration.currentDiameterMm,
+            startingDiameterMm: this.state.speedCalibration.currentDiameterMm ?? params.diameterMm,
+          },
+        });
+        return success(id, { accepted: true });
+      }
+      case 'speedCalibration.cancel': {
+        if (Object.keys(params).length) return failure(id, 'invalid_request', 'Unexpected parameters');
+        this.change({
+          ...this.state,
+          speedCalibration: {
+            ...emptySpeedCalibration,
+            currentDiameterMm: this.state.speedCalibration.currentDiameterMm,
+          },
+        });
+        return success(id, { accepted: true });
+      }
+      case 'speedCalibration.apply': {
+        if (Object.keys(params).length) return failure(id, 'invalid_request', 'Unexpected parameters');
+        const c = this.state.speedCalibration;
+        if (!c.applyAvailable) return failure(id, 'invalid_state', 'Wheel diameter cannot be applied');
+        this.change({
+          ...this.state,
+          speedCalibration: {
+            ...c,
+            status: 'applied',
+            currentDiameterMm: c.recommendedDiameterMm,
+            applyAvailable: false,
+            applyBlockReason: 'applied',
+          },
+        });
+        return success(id, { accepted: true });
+      }
       case 'refloat.configuration.open': {
         if (Object.keys(params).length !== 0)
           return failure(id, 'invalid_request', 'Configuration open takes no parameters');
@@ -1499,6 +1565,40 @@ export class MockBackend {
       default:
         return failure(id, 'invalid_request', 'Unknown method');
     }
+  }
+
+  simulateSpeedCalibrationProgress(
+    status: AppState['speedCalibration']['measurementStatus'],
+    acceptedSamples: number
+  ): void {
+    const c = this.state.speedCalibration;
+    if (
+      c.status !== 'collecting' ||
+      !Number.isInteger(acceptedSamples) ||
+      acceptedSamples < c.acceptedSamples ||
+      acceptedSamples > 180
+    )
+      return;
+    this.change({ ...this.state, speedCalibration: { ...c, measurementStatus: status, acceptedSamples } });
+  }
+
+  /** Native fixture observation: no browser or public API may manufacture a GPS result. */
+  simulateSpeedCalibrationResult(recommendedMm: number, supported = true): void {
+    const c = this.state.speedCalibration;
+    if (c.status !== 'collecting' || !Number.isFinite(recommendedMm) || recommendedMm < 100 || recommendedMm > 600)
+      return;
+    this.calibrationWritable = supported;
+    this.diagnostics.recordCalibrationComplete();
+    this.change({
+      ...this.state,
+      speedCalibration: {
+        ...c,
+        status: 'ready',
+        acceptedSamples: 30,
+        measurementStatus: 'ready',
+        recommendedDiameterMm: recommendedMm,
+      },
+    });
   }
 
   publishTelemetry(): void {
@@ -2676,6 +2776,31 @@ export class MockBackend {
           },
         },
       };
+    }
+    if (!active || active.state !== 'ready' || active.deviceId !== previous?.deviceId) {
+      this.calibrationDeadline = null;
+      next = {
+        ...next,
+        speedCalibration: { ...emptySpeedCalibration, currentDiameterMm: this.calibrationWritable ? 280 : null },
+      };
+    } else {
+      let c = next.speedCalibration;
+      if (c.status === 'collecting' && this.calibrationDeadline !== null && Date.now() >= this.calibrationDeadline) {
+        c = { ...c, status: 'insufficient' };
+        this.diagnostics.recordCalibrationFailure();
+      }
+      if (c.status !== 'collecting') this.calibrationDeadline = null;
+      const reason =
+        c.status === 'applied'
+          ? 'applied'
+          : !this.calibrationWritable
+            ? 'unsupportedSetup'
+            : active.latestSample?.rideState !== 'idle'
+              ? 'stopRiding'
+              : c.status !== 'ready' || c.recommendedDiameterMm === null
+                ? 'notReady'
+                : null;
+      next = { ...next, speedCalibration: { ...c, applyAvailable: reason === null, applyBlockReason: reason } };
     }
     this.state = {
       ...next,

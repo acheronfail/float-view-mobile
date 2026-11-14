@@ -13,6 +13,8 @@ pub const RETENTION_MS: i64 = 7 * 86_400_000;
 pub const REPORT_TTL: u64 = 600_000;
 pub const MAX_REPORT_BYTES: u64 = 5 * 1_048_576;
 
+// These values are durable versioned data. Retiring an active API or UI state
+// does not remove the known values from supported saved diagnostics.
 macro_rules! vocabulary {
     ($name:ident { $($variant:ident => $wire:literal),* $(,)? }) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
@@ -23,6 +25,7 @@ macro_rules! vocabulary {
     }
 }
 vocabulary!(Kind {
+    Calibration => "calibration", CalibrationOutcome => "calibration_outcome",
     Content => "diagnostic_content",
     ConfigurationOperation => "configuration_operation", RuntimeFailure => "runtime_failure", MutationFailure => "mutation_failure", ApiRequestFailure => "backend_request_failure", Metadata => "metadata", Link => "link", Foreground => "foreground", Native => "native",
     Disconnect => "disconnect", Activated => "activated", ConfigurationBootstrap => "configuration_bootstrap",
@@ -33,12 +36,17 @@ vocabulary!(Kind {
     RideMarker => "ride_marker", UiError => "ui_error", Bluetooth => "bluetooth", Discovery => "discovery"
 });
 vocabulary!(Reason {
-    BackendRequest => "backend_request_failure", Manual => "manual", Configuration => "configuration_failure", Protocol => "protocol_failure",
+    CalibrationComplete => "calibration_complete", Calibration => "calibration_failure", BackendRequest => "backend_request_failure", Manual => "manual", Configuration => "configuration_failure", Protocol => "protocol_failure",
     Connection => "connection_failure", Storage => "storage_failure", Ui => "ui_failure",
     Request => "request_delay", Telemetry => "telemetry_gap", SlowStorage => "slow_storage",
     Native => "native_queue", Reconnect => "reconnect", Marker => "ride_marker"
 });
 vocabulary!(Key {
+    GpsRejected => "gps_rejected", BoardRejected => "board_rejected", LowSpeed => "low_speed", SpeedChanging => "speed_changing", SpeedMismatch => "speed_mismatch",
+    GpsUpdates => "gps_updates", BoardSamples => "board_samples",
+    AlgorithmVersion => "algorithm_version", GpsUncertain => "gps_uncertain",
+    GpsAccuracyMissing => "gps_accuracy_missing", GpsAccuracyAbsolute => "gps_accuracy_absolute", GpsAccuracyRelative => "gps_accuracy_relative",
+    Quality => "quality", EffectiveSamples => "effective_samples", UncertaintyBps => "uncertainty_bps",
     ContentId => "content_id", Offset => "offset", TotalBytes => "total_bytes", Truncated => "truncated",
     SchemaFingerprint => "schema_fingerprint", RequestedSchemaFingerprint => "requested_schema_fingerprint", WireSignature => "wire_signature", RequestedWireSignature => "requested_wire_signature", PacketOmitted => "packet_omitted", RoutingRemoved => "routing_removed",
     PackageSuffix => "package_suffix",
@@ -97,6 +105,12 @@ vocabulary!(ApiMethod {
     ApiRefloatFatalErrorClear => "refloat.fatalError.clear",
     ApiRefloatConfigurationDraftGet => "refloat.configuration.draft.get",
     ApiRefloatConfigurationDraftSet => "refloat.configuration.draft.set",
+    ApiSpeedCalibrationStart => "speedCalibration.start",
+    // Supported saved diagnostics retain retired method names; this does not
+    // restore an operation in the public dispatcher.
+    RetiredSpeedCalibrationFinish => "speedCalibration.finish",
+    ApiSpeedCalibrationCancel => "speedCalibration.cancel",
+    ApiSpeedCalibrationApply => "speedCalibration.apply",
     ApiRefloatConfigurationOpen => "refloat.configuration.open",
     ApiRefloatConfigurationSchema => "refloat.configuration.schema",
     ApiRefloatConfigurationRead => "refloat.configuration.read",
@@ -136,6 +150,15 @@ vocabulary!(ApiMethod {
     ApiHttpSessionExport => "http.sessionExport",
 });
 vocabulary!(Code {
+    CalibrationInactive => "inactive", CalibrationWaitingGps => "waitingGps", CalibrationWaitingBoard => "waitingBoard",
+    CalibrationLowSpeed => "lowSpeed", CalibrationGpsUncertain => "gpsUncertain", CalibrationSpeedChanging => "speedChanging", CalibrationSpeedMismatch => "speedMismatch",
+    CalibrationCollecting => "collecting", CalibrationNeedsMoreMeasurements => "needsMoreMeasurements",
+    CalibrationInconsistentMeasurements => "inconsistentMeasurements",
+    // Persisted version-2 records from earlier calibration builds use this code.
+    HistoricalCalibrationCheckingConsistency => "checkingConsistency",
+    CalibrationWaitingSamples => "waitingSamples", CalibrationEffectiveSamples => "effectiveSamples",
+    CalibrationUncertainty => "uncertainty", CalibrationOutliers => "outliers",
+    CalibrationDrift => "drift", CalibrationDiameter => "diameter",
     IdentityPacket => "identity_packet", LocationPacket => "location_packet", UnclassifiedPacket => "unclassified_packet", MalformedPacket => "malformed_packet",
     Beta2 => "beta2", Beta3 => "beta3", StableRelease => "stable",
     DetailCorruptStorage => "corrupt_storage",
@@ -165,6 +188,7 @@ vocabulary!(Code {
     DetailClearFatalError => "clear_fatal_error",
     DetailClientDisconnected => "client_disconnected",
     DetailCompressedTooLarge => "compressed_too_large",
+    DetailWheelDiameter => "wheel_diameter",
     DetailConfigurationWrite => "configuration_write",
     DetailConfirmationTimedOut => "confirmation_timed_out",
     DetailConnectionReplaced => "connection_replaced",

@@ -376,7 +376,8 @@ impl Diagnostics {
             || configuration_content
             || matches!(
                 kind,
-                Kind::ApiRequestFailure
+                Kind::CalibrationOutcome
+                    | Kind::ApiRequestFailure
                     | Kind::ConfigurationOperation
                     | Kind::RuntimeFailure
                     | Kind::MutationFailure
@@ -392,6 +393,23 @@ impl Diagnostics {
                 *self.incident_sizes.entry(i.id).or_default() += encoded_len + 1;
                 i.events.push(record);
             } else {
+                if kind == Kind::CalibrationOutcome {
+                    // A completed attempt must remain diagnosable even when a
+                    // recent incident already filled its bounded event window.
+                    let at = i
+                        .events
+                        .iter()
+                        .rposition(|r| matches!(r.kind, Kind::Sample | Kind::Summary))
+                        .unwrap_or(0);
+                    let previous =
+                        serde_json::to_vec(&i.events[at]).map_or(0, |bytes| bytes.len() + 1);
+                    i.events.remove(at);
+                    i.events.push(record);
+                    let bytes = self.incident_sizes.entry(i.id).or_default();
+                    *bytes = bytes
+                        .saturating_sub(previous)
+                        .saturating_add(encoded_len + 1);
+                }
                 i.clipped = true;
             }
         }
@@ -663,6 +681,92 @@ mod tests {
         }
     }
     #[test]
+    fn calibration_outcome_survives_a_full_coalesced_incident() {
+        let mut d = Diagnostics::default();
+        d.capture(0, 1000, "request_delay", true);
+        for at in 0..900 {
+            d.event(
+                at,
+                1000 + at as i64,
+                "bluetooth",
+                json!({"accepted":1}),
+                false,
+            );
+        }
+        d.tick(11_000, 12_000);
+        d.event(
+            40_000,
+            41_000,
+            "calibration_outcome",
+            json!({"state":"ready","quality":"ready","duration_ms":40_000,"accepted":32}),
+            true,
+        );
+        d.capture(40_000, 41_000, "calibration_complete", true);
+        let i = d.incidents.back().unwrap();
+        assert_eq!(i.events.len(), 768);
+        assert!(i.clipped);
+        assert!(i.valid());
+        assert!(i.events.windows(2).all(|pair| {
+            pair[0].sequence < pair[1].sequence && pair[0].elapsed_ms <= pair[1].elapsed_ms
+        }));
+        let outcome = i
+            .events
+            .iter()
+            .find(|r| r.kind == Kind::CalibrationOutcome)
+            .expect("latest outcome must be retained");
+        assert!(matches!(
+            outcome.facts.get(&Key::Duration),
+            Some(Datum::Count(40_000))
+        ));
+    }
+    #[test]
+    fn supported_historical_calibration_records_reopen_and_export() {
+        use std::io::Read;
+        let t = Temp::new();
+        let root = t.0.join("product");
+        fs::create_dir(&root).unwrap();
+        drop(BackendService::open(&root).unwrap());
+        let diagnostics = root.with_extension("diagnostics");
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let records = vec![
+            json!({"run":1,"sequence":1,"elapsed_ms":0,"kind":"calibration","facts":{"state":"checkingConsistency","accepted":32}}),
+            json!({"run":1,"sequence":2,"elapsed_ms":1,"kind":"backend_request_failure","facts":{"method":"speedCalibration.finish","code":"invalid_state"}}),
+        ];
+        let journal = records
+            .iter()
+            .map(|record| format!("{}\n", json!({"v":2,"at":at,"record":record})))
+            .collect::<String>();
+        fs::write(diagnostics.join("journal-0.jsonl"), &journal).unwrap();
+        fs::write(diagnostics.join("incident-0.json"),serde_json::to_vec(&json!({
+            "id":1,"created_ms":at,"reason":"manual","complete":true,"clipped":false,"occurrences":1,"events":records,"context":[]
+        })).unwrap()).unwrap();
+        let mut s = BackendService::open(&root).unwrap();
+        assert_eq!(s.diagnostic_list()["persistence"], "available");
+        let completion = s
+            .begin_diagnostic_report(1, Some("1"))
+            .unwrap()
+            .run()
+            .unwrap();
+        let preview = s.complete_diagnostic_report(completion).unwrap();
+        let (transfer, _) = s.diagnostic_export(1, &preview.report_id).unwrap();
+        let path = s.present_export(1, transfer, 0).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(fs::read(path).unwrap())).unwrap();
+        let mut events = String::new();
+        zip.by_name("events.jsonl")
+            .unwrap()
+            .read_to_string(&mut events)
+            .unwrap();
+        assert!(events.contains("checkingConsistency"));
+        assert!(events.contains("speedCalibration.finish"));
+        assert_eq!(
+            fs::read_to_string(diagnostics.join("journal-0.jsonl")).unwrap(),
+            journal
+        );
+    }
+    #[test]
     fn export_namespaces_transport_and_protocol_generations_without_collisions() {
         use std::io::Read;
         let t = Temp::new();
@@ -832,6 +936,52 @@ mod tests {
             serde_json::to_value(&d.incidents[0].events.last().unwrap().facts[&Key::Code]).unwrap(),
             "invalid_state"
         );
+    }
+    #[test]
+    fn every_mutation_kind_survives_the_closed_diagnostic_vocabulary() {
+        use float_view_application_runtime::coordinator::mutation::PendingKind as K;
+        for kind in [
+            K::Package,
+            K::Flywheel,
+            K::Leds,
+            K::Headlights,
+            K::ClearFatalError,
+            K::ControllerShutdown,
+            K::WheelDiameter,
+            K::ConfigurationWrite,
+            K::TuneApply,
+        ] {
+            let kind = operations::mutation_kind(kind);
+            let mut d = Diagnostics::default();
+            d.event(0, 1000, "mutation_failure", json!({"kind": kind}), true);
+            let record: serde_json::Value =
+                serde_json::from_str(&d.ring.back().unwrap().1).unwrap();
+            assert_eq!(record["facts"]["kind"], kind);
+        }
+    }
+
+    #[test]
+    fn calibration_diagnostics_keep_rejection_counts_without_location_values() {
+        let mut d = Diagnostics::default();
+        d.event(
+            1000,
+            1000,
+            "calibration",
+            json!({"state":"gpsUncertain","quality":"effectiveSamples","effective_samples":6,"uncertainty_bps":50,"gps_updates":50,
+            "accepted":0,"board_samples":31,"gps_rejected":48,"board_rejected":1,
+            "low_speed":1,"speed_changing":0,"latitude":1.2,"longitude":3.4,
+            "speed_mps":4.8,"accuracy_mps":0.5}),
+            false,
+        );
+        let text = serde_json::to_string(&d.ring).unwrap();
+        assert!(text.contains("gpsUncertain"));
+        assert!(text.contains("gps_rejected"));
+        assert!(text.contains("effectiveSamples"));
+        assert!(text.contains("effective_samples"));
+        assert!(text.contains("uncertainty_bps"));
+        for private in ["latitude", "longitude", "speed_mps", "accuracy_mps"] {
+            assert!(!text.contains(private));
+        }
     }
     #[test]
     fn privacy_boundary_rebuilds_closed_facts_and_caps_context() {

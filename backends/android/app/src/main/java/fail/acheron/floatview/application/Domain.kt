@@ -65,11 +65,15 @@ data class LocationProviderObservation(
     val latitude: Double,
     val longitude: Double,
     val accuracyM: Double?,
+    val speedMps: Double? = null,
+    val speedAccuracyMps: Double? = null,
+    val speedAgeMs: Long? = null,
 )
 
 object LocationUpdated
 
 interface LocationProviderPort {
+    fun setHighAccuracy(enabled: Boolean) {}
     fun state(): LocationProviderState
     fun startUpdates(handler: (LocationProviderObservation) -> Unit)
     fun stopUpdates()

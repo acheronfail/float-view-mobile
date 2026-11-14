@@ -276,6 +276,7 @@ impl BackendService {
             }
         });
         f::Snapshot {
+            speed_calibration: self.calibration.snapshot(&runtime),
             paused_ride: p.ride.as_ref().and_then(|r| {
                 r.resume_until_ms.map(|deadline| f::PausedRide {
                     session_id: r.session_id.clone(),

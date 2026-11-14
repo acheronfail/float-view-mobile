@@ -1,7 +1,7 @@
 // Independent software-host protocol fixture. No production codec imports.
 import { FrameAssembler, encodeFrame } from './frame.ts';
 import { RefloatControlModel } from './refloat-controls.ts';
-import { motorConfigurationPayload, thor300 } from './firmware.ts';
+import { motorConfigurationForVersion, applyWheelDiameterWrite, thor300 } from './firmware.ts';
 import { refloatCodecs, type RefloatVersion } from './refloat.ts';
 import { idleTelemetry, type TelemetrySource } from './telemetry.ts';
 import { RefloatConfigurationModel } from './refloat-configuration.ts';
@@ -9,6 +9,7 @@ export class SoftwarePeripheral {
   private readonly telemetry?: TelemetrySource;
   private readonly refloatVersion: RefloatVersion;
   private controls: RefloatControlModel;
+  private motorConfiguration = motorConfigurationForVersion(6, 6)!.bytes;
   constructor(telemetry?: TelemetrySource, refloatVersion: RefloatVersion = '1.0.0') {
     this.telemetry = telemetry;
     this.refloatVersion = refloatVersion;
@@ -24,6 +25,7 @@ export class SoftwarePeripheral {
   reset() {
     this.frames = new FrameAssembler();
     this.configuration.reset();
+    this.motorConfiguration = motorConfigurationForVersion(6, 6)!.bytes;
   }
   disconnect() {
     this.frames = new FrameAssembler();
@@ -33,6 +35,7 @@ export class SoftwarePeripheral {
     copy.frames = this.frames.fork();
     copy.configuration = this.configuration.fork();
     copy.controls = this.controls.fork();
+    copy.motorConfiguration = this.motorConfiguration.slice();
     return copy;
   }
   receive(bytes: Uint8Array, consume?: (frame: Uint8Array) => void): Uint8Array[] {
@@ -74,9 +77,22 @@ export class SoftwarePeripheral {
         '6003010b0003412140ff43a158ff445120000004e20000f424031068105e10540100010209f60a410abe09ab14820b6d036b03b62a428000004480000042000000440000002794014f4b00'
       );
     if (same(14) && this.refloatVersion !== '1.0.0') {
-      const config = motorConfigurationPayload.slice();
-      config[463] = 20;
+      const config = this.motorConfiguration.slice();
+      config[458] = 20;
       return config;
+    }
+    if (request[0] === 13) {
+      const current = this.motorConfiguration.slice();
+      if (this.refloatVersion !== '1.0.0') current[458] = 20;
+      const next = applyWheelDiameterWrite(
+        current,
+        request,
+        453,
+        (this.telemetry?.phase() ?? 'idle') === 'idle' && !this.controls.state.flywheelEnabled
+      );
+      if (!next) throw new Error('Only an idle diameter-only configuration write is allowed');
+      this.motorConfiguration = next;
+      return Uint8Array.of(13);
     }
     if (same(36, 101, 0, 2, 0)) return refloatCodecs[this.refloatVersion].infoPayload;
     if (request[0] === 36 && request[1] === 101 && request[2] === 35) return this.controls.alertsResponse(request);

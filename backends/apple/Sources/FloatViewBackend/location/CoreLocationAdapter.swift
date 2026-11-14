@@ -155,6 +155,13 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
     }
   }
 
+  public func setHighAccuracy(_ enabled: Bool) {
+    performOnMain { [weak self] in
+      self?.manager.desiredAccuracy = enabled ? kCLLocationAccuracyBest : kCLLocationAccuracyNearestTenMeters
+      self?.manager.distanceFilter = enabled ? kCLDistanceFilterNone : 5
+    }
+  }
+
   public func startUpdates(_ handler: @escaping @Sendable (LocationProviderObservation) -> Void) {
     lock.withLock { self.handler = handler }
     performOnMain { [weak self] in
@@ -196,7 +203,13 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
       observedAt: location.timestamp,
       latitude: location.coordinate.latitude,
       longitude: location.coordinate.longitude,
-      accuracyM: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil
+      accuracyM: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil,
+      speedMps: location.speed >= 0 ? location.speed : nil,
+      speedAccuracyMps: location.speedAccuracy >= 0 ? location.speedAccuracy : nil,
+      speedAgeMs: location.timestamp.timeIntervalSinceNow <= 0 ? UInt64(min(
+        86_400_000,
+        -location.timestamp.timeIntervalSinceNow * 1000
+      )) : nil
     )
     guard let handler = lock.withLock({ handler }) else { return }
     observationQueue.async { handler(observation) }

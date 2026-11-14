@@ -33,6 +33,58 @@ export const motorConfigurationPayload = (() => {
   return payload;
 })();
 
+/** Independent source-derived widths/positions from pinned VESC Tool SerOrder. */
+export function motorConfigurationForVersion(
+  major: number,
+  minor: number
+): { bytes: Uint8Array; diameterOffset: number } | null {
+  const layout = (
+    {
+      '6.2': [0x2e43a161, 482, 457],
+      '6.5': [0x3f829cf7, 478, 447],
+      '6.6': [0x2efd0142, 484, 453],
+      '7.0': [0x57ad8f53, 489, 458],
+    } as Record<string, number[]>
+  )[`${major}.${minor}`];
+  if (!layout) return null;
+  const [signature, length, diameterOffset] = layout as [number, number, number];
+  const bytes = new Uint8Array(length);
+  bytes.set(motorConfigurationPayload.subarray(0, 25));
+  const view = new DataView(bytes.buffer);
+  view.setUint32(1, signature, false);
+  bytes[diameterOffset - 5] = 30;
+  view.setFloat32(diameterOffset - 4, 1, false);
+  view.setFloat32(diameterOffset, 0.28, false);
+  bytes[diameterOffset + 5] = 18;
+  return { bytes, diameterOffset };
+}
+
+/** Strict fixture allowlist: reject every motor mutation except a diameter-only patch. */
+export function applyWheelDiameterWrite(
+  current: Uint8Array,
+  request: Uint8Array,
+  pos: number,
+  safe: boolean
+): Uint8Array | null {
+  const meters =
+    request.length >= pos + 4
+      ? new DataView(request.buffer, request.byteOffset, request.byteLength).getFloat32(pos, false)
+      : NaN;
+  if (
+    request[0] !== 13 ||
+    !safe ||
+    request.length !== current.length ||
+    !Number.isFinite(meters) ||
+    meters < Math.fround(0.1) ||
+    meters > Math.fround(0.6) ||
+    request.some((b, i) => i > 0 && (i < pos || i >= pos + 4) && b !== current[i])
+  )
+    return null;
+  const next = request.slice();
+  next[0] = 14;
+  return next;
+}
+
 const provenance =
   'VESC COMM_FW_VERSION field ordering derived from vedderb/bldc and vedderb/vesc_fw_archive version changelogs; THOR300 identity is deliberate fixture data';
 

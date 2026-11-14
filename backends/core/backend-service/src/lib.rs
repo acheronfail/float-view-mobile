@@ -9,6 +9,7 @@ mod auto_connect;
 mod battery;
 pub mod battery_estimator;
 pub mod ble;
+pub mod calibration;
 pub mod diagnostics;
 mod dispatch;
 pub mod facts;
@@ -33,6 +34,7 @@ pub use files::{
 /// One store and one runtime. Listener handles must borrow this owner, never
 /// construct another runtime. OS exchange and command admission live here.
 pub struct BackendService {
+    calibration: calibration::Calibration,
     diagnostics: diagnostics::Diagnostics,
     runtime: ApplicationRuntime,
     stopping: bool,
@@ -51,6 +53,7 @@ impl BackendService {
         // recreation borrows this owner and must not clear these checkpoints.
         store.clear_refloat_editor_drafts()?;
         let mut service = Self {
+            calibration: calibration::Calibration::default(),
             diagnostics: diagnostics::Diagnostics::open(&match root
                 .file_name()
                 .and_then(|n| n.to_str())

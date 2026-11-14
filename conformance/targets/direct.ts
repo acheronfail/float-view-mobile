@@ -11,6 +11,7 @@ import type { Target } from '../src/suite.ts';
 
 type Effect = {
   effect: string;
+  capture_id?: number;
   speech?: SpeechEffect;
   id?: number;
   delay_ms?: number;
@@ -31,6 +32,9 @@ export type SpeechEffect = {
 };
 export function makeDirectTarget(options?: {
   telemetry: TelemetrySource;
+  calibrationSpeedMps?: number;
+  calibrationAccuracyMps?: number | ((observation: number) => number);
+  calibrationAgeMs?: number;
   refloatVersion?: RefloatVersion;
   storageRoot?: string;
   onSpeech(speech: SpeechEffect): void;
@@ -47,6 +51,8 @@ export function makeDirectTarget(options?: {
   >();
   const timers = new Map<number, { timer: NodeJS.Timeout; connection: boolean }>();
   let polling: NodeJS.Timeout | undefined;
+  let locationTimer: NodeJS.Timeout | undefined;
+  let locationObservations = 0;
   let busy = false;
   let fixture = new FixtureRun();
   let session = fixture.create(options?.telemetry, options?.refloatVersion);
@@ -171,6 +177,26 @@ export function makeDirectTarget(options?: {
             timers.delete(id);
           }
         break;
+      case 'start_location':
+        clearInterval(locationTimer);
+        locationObservations = 0;
+        if (options?.calibrationSpeedMps !== undefined)
+          locationTimer = setInterval(() => {
+            void fact({
+              fact: 'location_speed',
+              capture_id: e.capture_id,
+              speed_mps: options.calibrationSpeedMps,
+              accuracy_mps:
+                typeof options.calibrationAccuracyMps === 'function'
+                  ? options.calibrationAccuracyMps(++locationObservations)
+                  : (options.calibrationAccuracyMps ?? 0.1),
+              age_ms: options.calibrationAgeMs ?? 0,
+            }).catch(fail);
+          }, 1_000);
+        break;
+      case 'stop_location':
+        clearInterval(locationTimer);
+        break;
       case 'recover_permission':
         await fact({ fact: 'ui_completed', id: e.id, success: false });
         break;
@@ -218,7 +244,8 @@ export function makeDirectTarget(options?: {
       child = spawn(join(repo, 'backends/core/target/debug/examples/shared-service'), [root], { stdio: 'pipe' });
       child.stderr.pipe(process.stderr);
       const ready = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Direct service readiness timeout')), 10_000);
+        // Bound cold native-process startup independently of measurement timing.
+        const timeout = setTimeout(() => reject(new Error('Direct service readiness timeout')), 30_000);
         createInterface({ input: child!.stdout }).on('line', (line) => {
           const value = JSON.parse(line) as {
             event?: string;
@@ -255,13 +282,13 @@ export function makeDirectTarget(options?: {
           platform: 'macos',
           bluetooth_scan: granted,
           bluetooth_connect: granted,
-          location: unknown,
+          location: options?.calibrationSpeedMps === undefined ? unknown : granted,
           background_location: unknown,
           notifications: null,
           live_updates: null,
-          accuracy: 'unknown',
-          scope: 'unknown',
-          location_services: null,
+          accuracy: options?.calibrationSpeedMps === undefined ? 'unknown' : 'precise',
+          scope: options?.calibrationSpeedMps === undefined ? 'unknown' : 'always',
+          location_services: options?.calibrationSpeedMps === undefined ? null : true,
           bluetooth_service: true,
           bluetooth_supported: true,
           background_option_label: null,
@@ -313,6 +340,7 @@ export function makeDirectTarget(options?: {
     },
     async stop() {
       clearInterval(polling);
+      clearInterval(locationTimer);
       fixture.close();
       for (const t of timers.values()) clearTimeout(t.timer);
       timers.clear();

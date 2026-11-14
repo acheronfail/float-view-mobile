@@ -116,6 +116,12 @@ pub enum Fact {
     Timer {
         id: u64,
     },
+    LocationSpeed {
+        capture_id: u64,
+        speed_mps: Option<f64>,
+        accuracy_mps: Option<f64>,
+        age_ms: u64,
+    },
     Location {
         capture_id: u64,
         latitude: f64,
@@ -197,6 +203,7 @@ pub enum Effect {
     CancelConnectionTimers,
     StartLocation {
         capture_id: u64,
+        high_accuracy: bool,
     },
     StopLocation,
     RecoverPermission {
